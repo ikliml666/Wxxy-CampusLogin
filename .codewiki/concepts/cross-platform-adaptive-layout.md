@@ -11,7 +11,6 @@ source_files:
   - android/frontend/src/components/mobile/MobileMore.tsx
   - android/frontend/src/hooks/useFormFactor.ts
   - android/frontend/src/settings/OnboardingWizard.tsx
-  - android/frontend/src/settings/OnboardingWizardMobile.tsx
 tags:
   - responsive-design
   - form-factor
@@ -21,265 +20,142 @@ tags:
 
 ## Overview
 
-`cross-platform-adaptive-layout` 是 Android 前端应用的核心布局策略，旨在通过统一的代码库适配不同的设备形态（手机与平板）。该机制不依赖传统的媒体查询断点硬编码，而是基于 `useFormFactor` Hook 在运行时动态判定屏幕宽度（sw600dp 语义），从而在 `AppInner`（移动端视图）和 `TabletShell`（平板端外壳）之间进行切换。
+`cross-platform-adaptive-layout` 是 Android 前端应用的核心布局策略，旨在通过统一代码库适配不同设备形态（手机与平板）。该机制基于 `useFormFactor` Hook (`android/frontend/src/hooks/useFormFactor.ts|38-40`) 在运行时动态判定屏幕短边尺寸（sw600dp 语义），从而在 `AppInner`（移动端视图，定义在 `App.tsx|52-359`）和 `TabletShell`（平板端外壳，在 `App.tsx|363-375` 中条件渲染）之间切换。
 
-这一机制确保了 UI 组件（如导航栏、面板、向导对话框）能够根据当前设备形态渲染出最适合的交互范式：移动端采用底部标签栏 (`BottomNav`) 和全屏卡片流，而平板端则采用侧边 Dock 栏 (`DockNav`)、右侧面板 (`RightPanel`) 以及分屏或独立窗口模式。同时，它要求业务逻辑层（如认证、设置、监控）保持状态一致性，仅在不同形态下通过不同的容器组件进行包装和展示。
+移动端采用底部标签栏 (`BottomNav`) 与全屏卡片流，平板端采用侧边 Dock 栏 (`DockNav`)、右侧日志面板 (`RightPanel`) 以及桌面件同源复用的布局。业务逻辑层（认证、设置、监控）保持状态一致，仅由不同容器包装展示。
 
 ## Key Components
 
 ### 1. 入口与全局配置 (`android/frontend/src/main.tsx`)
 
-**职责**：应用入口，初始化 GSAP 全局配置、主题系统、崩溃恢复机制，挂载 React 根组件。
+**职责**：应用入口，初始化 GSAP、主题、崩溃恢复，挂载 React 根。
 
-*   **GSAP 配置** (`main.tsx|17-25`)：
-    *   默认 ease 设为 `expo.out`。
-    *   开启 `autoSleep: 5` (空闲 5s 后休眠时间线) 和 `nullTargetWarn: false`。
-    *   监听 `prefers-reduced-motion`，若匹配则强制 `duration: 0` 并关闭 lagSmoothing。
-*   **主题初始化** (`main.tsx|27-44`)：
-    *   `initTheme()`：读取 `safeStorage` 中的 `campus-light-mode` 和 `campus-theme`。
-    *   逻辑：`light-mode='1'` 移除 `dark` 类并设 `data-light="1"`；否则加 `dark`。
-    *   若 theme 在 `VALID_THEMES` 中且非 `default`，添加 `theme-${theme}` 类。
-    *   玻璃档位：首帧前就定下，避免启动闪烁一次默认档 (`main.tsx|41-43`)。
-*   **崩溃恢复** (`main.tsx|48-114`)：
-    *   `setupCrashRecovery()`：
-        *   **可见性检测** (`main.tsx|62-69`)：监听 `visibilitychange`，若变为 visible 且 root 无子节点，触发重载（上限 `MAX_CRASH_RELOADS=3`）。
-        *   **GPU/WebGL 错误** (`main.tsx|71-77`)：监听 window error，消息含 GPU/WebGL/SharedArrayBuffer 时触发重载。
-        *   **心跳机制** (`main.tsx|79-113`)：
-            *   维护 `lastHeartbeatTime`。
-            *   1s 间隔更新心跳（若 `isRenderLoopAlive()` 为假则跳过）(`main.tsx|93-103`)。
-            *   2s 间隔检测 elapsed，若 >10000ms 视为 GPU 崩溃触发重载 (`main.tsx|105-113`)。
-            *   注意：`isVisible` 状态用于暂停/恢复 `gsap.globalTimeline` (`main.tsx|82-91`)。
-*   **渲染挂载** (`main.tsx|118-131`)：
-    *   DEV 模式包裹 `React.StrictMode`，生产用 `React.Fragment`。
-    *   结构：`ErrorBoundary` -> `LazyMotion(domMax, strict)` -> `MotionConfig(reducedMotion="user")` -> `<App />`。
+- `gsap.defaults` / `gsap.config` / `gsap.ticker.lagSmoothing` (17-19)：默认 ease 为 `expo.out`，`autoSleep: 5`，关闭 nullTargetWarn，设置 lagSmoothing。
+- `prefers-reduced-motion` 处理 (21-25)：匹配时强制 duration 0 并关闭 lagSmoothing。
+- `initTheme()` (27-44)：读取 `safeStorage` 的 `campus-light-mode`、`campus-theme`、`campus-glass-level`，设置 `dark` 类、`theme-${theme}` 类及 `data-glass` 属性，避免启动闪烁。
+- `setupCrashRecovery()` (48-114)：可见性检测 (62-69)、GPU/WebGL 错误监听 (71-77)、心跳机制 (79-113，阈值 10s 判定渲染丢失)。调用位于 116 行。
+- `window.__onTrimMemory` (123-129)：安卓内存压力钩子，高压力级别时释放人脸引擎。
+- `AppWrapper` (131-133)：DEV 包 StrictMode，生产用 Fragment。
+- `ReactDOM.createRoot` 渲染树 (135-145)：`ErrorBoundary` -> `LazyMotion(domMax, strict)` -> `MotionConfig(reducedMotion="user")` -> `<App />`。
 
 ### 2. 核心路由与外壳分发 (`android/frontend/src/App.tsx`)
 
-**职责**：双外壳路由决策（手机 vs 平板），管理移动端核心状态、UI 布局及全局弹窗。
+**职责**：双外壳决策，管理移动端状态、布局与全局弹窗。
 
-*   **外壳决策** (`App.tsx|373-385`)：
-    *   `useFormFactor()` 返回 `'tablet'` 时渲染 `<TabletShell />`，否则渲染 `<AppInner />`。
-    *   共享 `<FaceCaptureDialog />` 和 `<NotificationPermissionGate />`。
-*   **AppInner 状态管理** (`App.tsx|53-117`)：
-    *   **Tab 状态** (`App.tsx|58-63`)：从 `safeStorage` 读取 `campus-mobile-tab`，白名单校验（含 `monitor`）。
-    *   **导航方向** (`App.tsx|71-78`)：`tabOrder` 数组动态生成（根据 `configEnableNetworkQuality` 决定第 4 位是 `quality` 还是 `monitor`）。计算 `navDir` (-1/0/1) 用于面板转场动画。
-    *   **Store 订阅**：订阅 `useConfigStore`, `useAuthStore`, `useQualityStore`, `useMonitor`, `useAccount` 等。
-    *   **面板内容映射** (`App.tsx|149-193`)：`switch (deferredTab)` 渲染对应 Panel 组件。
-        *   `dashboard`: `<MobileDashboard />` + 悬浮 `<MobileQuickActions />` (`App.tsx|273-277`)。
-        *   `account`: `<AccountPanel />`。
-        *   `selfservice`: `<SelfServicePanel />`。
-        *   `quality`: `<QualityPanel />` (条件渲染)。
-        *   `monitor`: `<MonitorPanel />` (默认显示，质量开启时隐藏 tab 但此处仍保留逻辑兼容)。
-        *   `more`: `<MobileMore />`。
-*   **顶部 Header** (`App.tsx|206-270`)：
-    *   绝对定位，使用 `color-mix` 和 `backdrop-filter` 实现磨砂玻璃效果。
-    *   包含状态点、运营商 Chip (`IspMark`)、更新胶囊、网络质量胶囊 (`NetworkQualityCapsule`)、设置/主题/关于按钮。
-*   **底部 Nav** (`App.tsx|309`)：渲染 `<BottomNav />`。
-*   **弹窗管理** (`App.tsx|311-366`)：
-    *   Sponsor, About, UpdateAvailable, Theme, ConfirmDelete, OnboardingWizard。
-    *   所有弹窗均包裹在 `Suspense` 中懒加载。
-*   **通知权限门控** (`App.tsx|391-415`)：
-    *   `NotificationPermissionGate`：仅 Android 13+ 有效，标记 `campus-notification-prompt` 后不再询问。
+- `lazy` 导入 (47-50)：`AboutDialogMobile`、`MobileQuickActions`、`ThemeDialog`、`OnboardingWizard` 均按需懒加载。
+- `AppInner` 函数 (52-359)：
+  - Tab 状态 (57-62)：从 `safeStorage` 读 `campus-mobile-tab`，白名单含 `dashboard/account/selfservice/quality/monitor/more`。
+  - `tabOrder` 动态数组 (70-76)：依据 `configEnableNetworkQuality` 决定第 4 位为 `quality` 或 `monitor`。
+  - `handleTabChange` (119-127)：计算导航方向 `navDir`，持久化 tab。
+  - 面板内容映射 `switch (deferredTab)` (148-192)：渲染 `MobileDashboard`/`AccountPanel`/`SelfServicePanel`/`QualityPanel`/`MonitorPanel`/`MobileMore`。
+  - 顶部轻 header (202-260)：绝对定位磨砂玻璃，含状态点、运营商 chip、更新胶囊、网络质量胶囊、主题/关于入口。
+  - 底部 `<BottomNav>` (299)；弹窗管理 (303-356)；通知权限门控 `NotificationPermissionGate` (381-405)。
+- `App` 默认导出 (363-375)：`useFormFactor()` 返回 `'tablet'` 时渲染 `<TabletShell />`，否则 `<AppInner />`；共享 `<FaceCaptureDialog />` 与 `<NotificationPermissionGate />`。
+- `NotificationPermissionGate` (381-405)：首次启动询问通知权限，标记 `campus-notification-prompt`。
 
 ### 3. 设备形态判定 Hook (`android/frontend/src/hooks/useFormFactor.ts`)
 
-**职责与关键实现**：
-*   **核心逻辑**：基于 CSS `window` 尺寸判定设备形态（Form Factor）与屏幕方向（Orientation）。
-*   **判定标准**：
-    *   **平板阈值**：短边（`Math.min(width, height)`）≥ 600px 视为平板，否则为手机。这对应 Android `smallestScreenWidthDp >= 600` (sw600dp) 语义，确保旋转时结论一致（手机横屏仍判为手机，平板竖屏仍判为平板）[13-17]。
-    *   **方向判定**：宽 ≥ 高为横屏 (`landscape`)，否则为竖屏 (`portrait`) [20]。
-*   **常量**：`TABLET_MIN_EDGE_PX = 600` [13]。
-*   **类型定义**：`FormFactor = 'phone' | 'tablet'` [9]；`Orientation = 'portrait' | 'landscape'` [10]。
-*   **核心 Hook**：
-    *   `useViewportMeasure<T>(calc: () => T): T`：通用视口度量订阅器。内部使用 `useState` 存储计算值，通过 `useEffect` 监听 `resize` 和 `orientationchange` 事件触发重算并更新状态 [24-36]。
-    *   `useFormFactor(): FormFactor`：导出 Hook，调用 `useViewportMeasure(detectFormFactor)` [38-40]。
-    *   `useOrientation(): Orientation`：导出 Hook，调用 `useViewportMeasure(detectOrientation)` [43-45]。
-
-**文件间调用关系与数据流**：
-*   被 `OnboardingWizard.tsx` 和 `OnboardingWizardMobile.tsx` 间接依赖（虽然本批源码未直接展示 import 行，但根据架构惯例及后续文件逻辑，这两个 Hook 是决定渲染哪个 Wizard 组件的基础依据）。
-*   数据流向：`window` 尺寸变化 → `resize/orientationchange` 事件 → `useViewportMeasure` 重算 → 返回最新 `FormFactor`/`Orientation`。
-
-**错误处理、边界条件与非显然行为**：
-*   **旋转一致性**：特意使用短边而非宽高比，防止手机横屏时被误判为平板 [4-5]。
-*   **事件清理**：在 `useViewportMeasure` 的 cleanup 函数中正确移除 `resize` 和 `orientationchange` 监听器，防止内存泄漏 [30-33]。
+- 类型 `FormFactor = 'phone' | 'tablet'` (9)；`Orientation = 'portrait' | 'landscape'` (10)。
+- 常量 `TABLET_MIN_EDGE_PX = 600` (13)。
+- `detectFormFactor()` (15-17)：`Math.min(innerWidth, innerHeight) >= 600` 判为平板。
+- `detectOrientation()` (19-21)：宽≥高为 landscape。
+- `useViewportMeasure<T>()` (24-36)：订阅 `resize` 与 `orientationchange` 重算。
+- `useFormFactor()` (38-40) 与 `useOrientation()` (43-45)：导出 Hook。
 
 ### 4. 移动端导航 (`android/frontend/src/components/layout/BottomNav.tsx`)
 
-**职责**：移动端底部导航栏，支持动态 Tab 配置与弹簧动画选中态。
-
-*   **类型与常量** (`BottomNav.tsx|14-25`)：
-    *   `MobileTab` 联合类型。
-    *   `TABS` 基础列表，`QUALITY_TAB` / `MONITOR_TAB` 动态插入。
-*   **动态 Tab 获取** (`BottomNav.tsx|26-31`)：
-    *   `useNavTabs()`：根据 `config.enableNetworkQuality` 决定插入 `quality` 或 `monitor`。
-*   **UI 实现** (`BottomNav.tsx|33-91`)：
-    *   磨砂玻璃胶囊容器 (`backdrop-filter: blur(24px)`)。
-    *   每个 Tab 按钮等宽 `w-16`，确保 `layoutId="nav-active-pill"` 滑动纯平移。
-    *   选中态使用 `m.span` 配合 `spring` 动画 (`stiffness: 250, damping: 28`)。
+- 类型 `MobileTab` (18)；`TABS` 基础列表 (20-25)；`QUALITY_TAB`/`MONITOR_TAB` (27-28)。
+- `useNavTabs()` (30-35)：依据 `enableNetworkQuality` 插入对应 tab。
+- `BottomNav` 组件 (37-151)：磨砂玻璃胶囊 (`glass-nav`)，等宽按钮 `w-16`，集成 `useGlassRefraction` 与 `useDockLens` 镜头系统 (60-65)，含药丸指示与放大层副本 (130-148)。
 
 ### 5. 平板端 Dock 导航 (`android/frontend/src/components/layout/DockNav.tsx`)
 
-**职责**：桌面/平板 Dock 导航，实现磁吸放大效果与登录/注销动作按钮。
-
-*   **磁吸逻辑** (`DockNav.tsx|42-112`)：
-    *   `DockItem` 组件：监听 `mouseX` (via `useMotionValue`)。
-    *   距离 < `MAGNETIC_RANGE (80)` 时，线性插值计算 `scale` (max 1.35) 和 `lift` (max -14)。
-    *   使用 `gsap.quickTo` 进行高性能变换，RAF 节流鼠标移动事件。
-*   **动作按钮** (`DockNav.tsx|156-235`)：
-    *   `ActionButton`：支持 loading 旋转动画 (`gsap.to ... rotation: 360`) 和脉冲边框 (`usePulseAnimation`)。
-    *   样式区分 primary (渐变背景) 和 outline。
-*   **主组件** (`DockNav.tsx|242-323`)：
-    *   过滤 `NAV_ITEMS` (基于 `enableNetworkQuality`)。
-    *   固定定位底部居中，左侧留空，右侧分隔线后接 Logout/Login 按钮。
+- `ICON_MAP` (30-39)：图标映射。
+- `DockItem` (41-85)：激活项显示图标+标签，hover tooltip。
+- `ActionButton` (88-169)：登录/注销按钮，loading 旋转 (`gsap.to` 118)，脉冲边框，primary/outline 样式。
+- `DockNavProps` 接口 (171-174)。
+- `DockNav` 组件 (176-295)：`memo` 包装，过滤 `NAV_ITEMS` (185)，固定底部居中 (211-216)，集成 `useGlassRefraction` 与 `useDockLens` (191-209)，渲染镜头底、项容器、放大层及分隔线后的动作按钮。
 
 ### 6. 平板端右侧面板 (`android/frontend/src/components/layout/RightPanel.tsx`)
 
-**职责**：右侧运行时日志面板，处理大量日志条目时的性能降级与清理动画。
-
-*   **性能优化** (`RightPanel.tsx|48-52, 148-157`)：
-    *   `RIGHT_PANEL_ANIM_THRESHOLD = 50`。
-    *   日志超过 50 条时，前段静态日志用普通 `div`，仅最近 30 条 (`RIGHT_PANEL_ANIM_KEEP_COUNT`) 使用 `m.div` + `AnimatePresence`。
-*   **清理动画** (`RightPanel.tsx|64-125`)：
-    *   `handleClearWithAnimation`：
-        *   使用 GSAP `stagger` 逐条淡出/位移。
-        *   **防卡死机制** (`RightPanel.tsx|87-96` 注释逻辑在此体现)：设置 `failsafe` setTimeout，超时后强制调用 `onClearLogs` 并 `ctx.revert()`，防止 rAF 停滞导致 `isClearing` 永久锁定。
-        *   监听 `onInterrupt` 以处理组件卸载中断。
-*   **自动滚动** (`RightPanel.tsx|127-138`)：
-    *   监听 scroll 位置，若距底部 <40px 则保持自动滚动到底部。
+- 常量 `LOG_ICONS` (20-25)、`LOG_COLORS` (27-32)、`LOG_BG_COLORS` (34-39)、`LOG_BAR_COLORS` (41-46)。
+- 性能阈值 `RIGHT_PANEL_ANIM_THRESHOLD = 50` (51)、`RIGHT_PANEL_ANIM_KEEP_COUNT = 30` (52)。
+- `RightPanel` 组件 (54-279，`memo`)：
+  - `handleClearWithAnimation` (64-125)：GSAP stagger 清理，failsafe setTimeout (112-117) 防 rAF 停摆卡死。
+  - 日志分片 (148-157)：超阈值前段静态 `div`，最近 30 条 `m.div`+`AnimatePresence`。
+  - 自动滚动 (127-138) 与空态呼吸动画 (58, 209)。
 
 ### 7. 移动端仪表盘 (`android/frontend/src/components/mobile/MobileDashboard.tsx`)
 
-**职责**：移动端首页总览，复用桌面 `DashboardPanel` 并通过 `extraCards` 注入移动专属卡片。
-
-*   **移动专属卡片** (`MobileDashboard.tsx|38-139`)：
-    *   `MobileStatusCard`：状态灯 + Portal 可达性 + 检查次数 + 运营商标识 (仅手机形态)。
-    *   `MobileMonitorCard`：后台检测开关 (Radix Switch) + 立即刷新按钮。
-*   **集成** (`MobileDashboard.tsx|141-168`)：
-    *   将上述两张卡定义为 `ExtraCardDef`，传入 `DashboardPanel`。
-    *   排除 `quickActions` 卡片 (移动端独立悬浮)。
+- 类型 `LampState` (22)；`LAMP_COLOR` (24-29)；`noopAsync` (32)；`EXCLUDED_CARDS = ['quickActions']` (35)。
+- `MobileStatusCard` (38-96)：状态灯、Portal 可达性、检查次数、运营商标签（仅 phone 形态，81 行）。
+- `MobileMonitorCard` (99-139)：Radix Switch 控制后台检测，立即刷新按钮。
+- `MobileDashboard` 导出 (141-168)：通过 `extraCards` (149-152) 将两张移动卡注入桌面 `DashboardPanel`，排除 `quickActions`。
 
 ### 8. 移动端“更多”聚合页 (`android/frontend/src/components/mobile/MobileMore.tsx`)
 
-**职责**：“更多”聚合页，通过 Chips 切换子面板 (Settings/Speedtest/Log/Monitor)。
+- 类型 `MoreTab` (19)；`TABS` (21-26，含 `qualityOnly` 标记)；`MobileMoreProps` (28-31)。
+- `MobileMore` 组件 (33-84)：依据 `qualityEnabled` 过滤 monitor 子页 (37)，`sub` 派生降级 (40)，渲染 `MonitorPanel`/`SpeedTestPanel`/`LogPanel`/`SettingsPanel`。
 
-*   **逻辑** (`MobileMore.tsx|33-83`)：
-    *   根据 `qualityEnabled` 过滤 Monitor tab。
-    *   若 `subRaw` 为 monitor 但 quality 关闭，派生降级为 settings。
-    *   渲染对应的 `SettingsPanel`, `SpeedTestPanel`, `LogPanel`, `MonitorPanel`。
+### 9. 引导向导（响应式 Dialog，`android/frontend/src/settings/OnboardingWizard.tsx`）
 
-### 9. 引导向导 - 平板/桌面版 (`android/frontend/src/settings/OnboardingWizard.tsx`)
+> 注：旧文档描述的独立手机版 `OnboardingWizardMobile.tsx` 在当前源码中不存在；手机与平板共用本文件中的 `OnboardingWizard`，通过内部 CSS 断点（如 `min-[520px]:hidden` 等，见 544-576 行）实现响应式布局。
 
-**职责**：平板/宽屏设备的引导向导，以 Dialog（对话框）形态呈现。
-
-*   **角色与关键实现**：
-    *   **角色**：平板/宽屏设备的引导向导，以 Dialog（对话框）形态呈现。
-    *   **核心逻辑**：通过 `useOnboardingFlow` 管理状态，UI 层负责渲染卡片堆叠动画和表单交互。
-    *   **常量定义**：
-        *   `STEP_TITLE_KEYS`: 4个步骤的国际化键 (`onboarding.welcome`, `accountInfo`, `bindOperatorTitle`, `setupComplete`) (行:44)。
-        *   `STACK_LAYERS`: 卡片堆叠样式配置，包含 `y` (偏移), `scale` (缩放), `z` (层级) (行:57-62)。
-        *   `EXIT_UP_TRANSFORM`: 退出动画的变换字符串，向上飞起并旋转 (行:69)。
-        *   `OPERATOR_VALUE_BY_KEY`: 运营商键值映射 (行:48-52)。
-    *   **组件结构**：
-        *   `DeckArrow`: 导航箭头组件，支持 `prev`/`next`，禁用态处理 (行:73-96)。
-        *   `OnboardingWizard`: 主组件，接收 `open`, `onClose`, `onUpdateConfig`, `onLogin`, `isLoggingIn` props (行:103)。
-        *   **动画状态**：使用 `exitingStep` 和 `exitTimerRef` 控制当前卡片退出动画 (行:119-126)。
-        *   **前进逻辑 (`deckAdvance`)**：前进时触发退出动画，240ms后切换步骤；后退直接切换 (行:129-141)。
-        *   **校验逻辑 (`deckGoNext`)**：在步骤1中，若 `canProceedAccount` 为假，则阻止前进，防止卡片滑走但校验失败 (行:143-148)。
-        *   **渲染循环**：使用 `Array.from({ length: STEP_COUNT })` 渲染所有步骤卡片，通过 `pos` 计算相对位置，应用 `STACK_LAYERS` 样式 (行:173-176)。
-        *   **无障碍**：非顶层卡片设置 `inert` 属性，防止聚焦 (行:185)。
-        *   **步骤内容**：
-            *   Step 0: 欢迎页，含吉祥物、安全提示、语言切换按钮 (行:206-229)。
-            *   Step 1: 账号信息，用户名、密码（含显示/隐藏）、运营商选择 (行:231-294)。
-            *   Step 2: 绑定运营商，包含运营商状态查询面板、手机号、短信密码输入 (行:296-436)。
-            *   Step 3: 完成页，展示已填信息摘要，提供登录/跳过入口 (行:438-531)。
-        *   **关闭确认**：嵌套 `Dialog` 组件，用于用户尝试关闭时的二次确认 (行:540-561)。
-
-### 10. 引导向导 - 手机版 (`android/frontend/src/settings/OnboardingWizardMobile.tsx`)
-
-**职责**：手机端的引导向导，全屏铺满，内容区独立滚动，底部操作区固定。
-
-*   **核心差异**：
-    *   不使用 Dialog，而是 `fixed inset-0` 的全屏容器 (行:146)。
-    *   使用 `framer-motion` (`AnimatePresence`, `m.div`) 实现卡片进出场动画 (行:39, 187-196)。
-    *   卡片高度自适应，非绝对定位等尺寸，避免长表单被裁切 (行:172-197)。
-    *   触控目标放大至 48px (行:102-125, 139-140)。
-*   **常量定义**：
-    *   `ONBOARDING_STEP_COUNT`: 步骤总数 (行:42)。
-    *   `cardVariants`: Framer Motion 变体，定义 `enter`, `center`, `exit` 状态 (行:68-72)。
-    *   `StepTrack`: 段式进度条组件，比圆点更省空间 (行:77-99)。
-    *   `NavArrow`: 移动端专用导航箭头，48px 触控区 (行:102-125)。
-*   **组件结构**：
-    *   `OnboardingWizardMobile`: 主组件，结构与桌面端类似，但布局完全不同 (行:127-593)。
-    *   **早期返回**：若 `!open` 则不渲染 (行:137)。
-    *   **布局结构**：
-        *   `header`: 顶部跳过按钮 + 进度轨 (行:154-168)。
-        *   `main`: 可滚动内容区，包含装饰性背景卡片和实际步骤卡片 (行:171-519)。
-        *   `footer`: 仅最后一步显示，包含登录按钮 (行:522-545)。
-    *   **动画实现**：
-        *   使用 `AnimatePresence mode="wait"` 确保动画串行执行 (行:187)。
-        *   卡片使用 `m.div`，根据 `f.direction.current` 决定进入/退出方向 (行:188-196)。
-    *   **步骤内容**：与桌面端逻辑一致，但 UI 细节调整（如 ID 前缀 `m-`，类名调整）(行:203-486)。
-    *   **跳过确认**：使用自定义的 `AnimatePresence` 模态框，而非 Radix Dialog，以避免安全区错位 (行:548-591)。
+- 常量 `STEP_TITLE_KEYS` (42-43)、`OPERATOR_VALUE_BY_KEY` (46-50)、`STACK_LAYERS` (55-60)、`EXIT_UP_MS` (63)、`DECK_CARD_HEIGHT_FALLBACK` (65)、`STACK_TRANSITION` (66)、`deckTransform` (67-68)、`EXIT_UP_TRANSFORM` (69)、`ENTER_FROM_TRANSFORM` (71)、`STACK_TRANSITION_WITH_FADE` (73)、`STEP_ICONS` (75)。
+- `DeckArrow` (77-100)：上一步/下一步箭头，禁用态处理。
+- `OnboardingWizard` 主组件 (107-628)：
+  - 接收 `open/onClose/onUpdateConfig/onLogin/isLoggingIn` (34-40, 107)。
+  - 卡片堆动画状态 `exitingStep`/`enteringStep` (127-129) 与 `deckAdvance` (178-194)、`deckGoNext` (198-205)。
+  - 高度测量 `measureDeck` (138-158) 与 `useLayoutEffect` 重测 (162-168)。
+  - 渲染循环 `Array.from({ length: STEP_COUNT })` (234-599)，`inert` 防聚焦 (247)。
+  - 步骤内容：欢迎(279-302)、账号(304-367)、绑定运营商(369-501)、完成(503-537)。
+  - 底部导航网格响应式三列/窄屏两行 (544-595)。
+  - 关闭确认嵌套 Dialog (605-626)。
 
 ## Architecture
 
-跨平台自适应布局的核心在于“形态感知”与“外壳分发”。`useFormFactor` Hook 作为唯一的形态来源，驱动顶层组件树的选择。
-
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│                        main.tsx                              │
-│  (Init Theme, Crash Recovery, GSAP Config)                   │
-│                          │                                   │
-│                          ▼                                   │
-│                     <App />                                   │
-│                          │                                   │
-│                  useFormFactor()                              │
-│              ┌───────────┴───────────┐                       │
-│              │                       │                       │
-│         'phone' (Mobile)       'tablet' (Tablet/Desktop)     │
-│              │                       │                       │
-│              ▼                       ▼                       │
-│      <AppInner />             <TabletShell />                 │
-│      ├── BottomNav           ├── DockNav (Left)              │
-│      ├── MobileDashboard     ├── Main Content                │
-│      └── QuickActions        └── RightPanel (Logs/Info)      │
-│                                                              │
-│  Shared Modules:                                             │
-│  ├── OnboardingWizard (Dialog) / OnboardingWizardMobile       │
-│  └── AnimatedCard, TitleBar                                 │
-└──────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│ main.tsx                                                   │
+│  初始化主题/GSAP/崩溃恢复 (27-116)                          │
+│  ReactDOM.createRoot -> <App /> (135-145)                  │
+└───────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌───────────────────────────────────────────────────────────┐
+│ App.tsx :: App (363-375)                                   │
+│   useFormFactor() ───────┬──────────────┐                  │
+│                        phone           tablet              │
+│                          ▼              ▼                  │
+│                   AppInner (52-359)  TabletShell           │
+│                   ├ BottomNav (37-151)  ├ DockNav (176-295)│
+│                   ├ MobileDashboard     ├ RightPanel       │
+│                   │ (141-168)           │ (54-279)         │
+│                   ├ MobileMore (33-84)  └ 桌面件复用        │
+│                   └ 弹窗/向导                            │
+│   共享: FaceCaptureDialog, NotificationPermissionGate       │
+│   共享向导: OnboardingWizard (107-628, 响应式 Dialog)       │
+└───────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow
 
-数据与控制流在跨平台自适应布局中的流动路径如下：
-
-1.  **形态判定与初始化**:
-    *   应用启动时，`main.tsx` 执行初始化。
-    *   `App.tsx` 中的 `App` 组件挂载，内部调用 `useFormFactor()` Hook (源自 `frontend-hooks-store`)。
-    *   `useFormFactor` 基于屏幕宽度（sw600dp）返回当前形态标识 (`'mobile'` 或 `'tablet'`)。
-
-2.  **外壳分发 (Shell Dispatching)**:
-    *   根据形态标识，`App.tsx` 渲染对应的顶层结构：
-        *   **Mobile**: 渲染 `AppInner`，包含 `BottomNav` 和 `MobileDashboard`。
-        *   **Tablet**: 渲染 `TabletShell`（在文档中隐含于 App 逻辑或相关布局组件），包含 `DockNav` (左侧)、主内容区和 `RightPanel` (右侧)。
-
-3.  **导航与状态同步**:
-    *   在 Mobile 模式下，`BottomNav` 触发路由变化，更新 `useAdapterStore` 中的 `activePanel`。
-    *   在 Tablet 模式下，`DockNav` 的 `DockItem` 点击同样更新 `activePanel`，但视觉上保留侧边栏高亮。
-    *   `RightPanel` 监听 `useLogToastStore` 和特定业务状态，在 Tablet 模式下常驻显示，而在 Mobile 模式下可能通过抽屉或独立页面展示（视具体实现而定，文档指出 RightPanel 为平板侧边栏组件）。
-
-4.  **内容渲染与降级**:
-    *   主内容区根据 `activePanel` 加载相应的功能模块（如 `NetworkPanel`, `DashboardPanel` 等）。
-    *   对于首次启动用户，`SettingsModule` 中的 `useOnboardingFlow` 被触发。
-    *   若为 Mobile，渲染 `OnboardingWizardMobile` (全屏模态)；若为 Tablet，渲染 `OnboardingWizard` (对话框形式)。两者共享相同的业务逻辑推进步骤。
-
-5.  **响应式调整**:
-    *   当用户改变窗口大小（如在平板上分屏）时，`useFormFactor` 重新计算，触发 React 重渲染，切换至对应的外壳组件，确保布局始终适配当前可用空间。
+1. **初始化与形态判定**：`main.tsx` 执行 `initTheme` (27-44) 与 `setupCrashRecovery` (48-116)；`App.tsx` 的 `App` 组件 (363-375) 调用 `useFormFactor()` (`useFormFactor.ts|38-40`) 获取 `'phone'` 或 `'tablet'`。
+2. **外壳分发**：`'tablet'` 渲染 `TabletShell`（平板 Dock 布局），`'phone'` 渲染 `AppInner` (52-359)。
+3. **移动端导航同步**：`BottomNav` (37-151) 触发 `handleTabChange` (`App.tsx|119-127`) 更新 `tab` 状态并写入 `safeStorage`；`deferredTab` 驱动 `AnimatePresence` 面板切换 (`App.tsx|148-192, 281-295`)。
+4. **平板端导航同步**：`DockNav` (176-295) 的 `DockItem` 点击调用 `onPanelChange` 更新 `useAdapterStore.activePanel`，`RightPanel` (54-279) 常驻展示日志。
+5. **引导流**：首次启动无账号时，`AppInner` 的 effect (`App.tsx|138-146`) 打开 `OnboardingWizard` (`App.tsx|348-356`)，其内通过 `useOnboardingFlow` 管理步骤，CSS 响应式适配手机/平板。
+6. **响应式重算**：旋转或分屏触发 `resize`/`orientationchange` (`useFormFactor.ts|28-33`)，`useFormFactor` 重算并触发 React 重渲染切换外壳。
 
 ## Connections
 
-*   [[responsive-design]]: 本概念是实现响应式设计的具体手段。
-*   [[form-factor]]: `useFormFactor` Hook 是本概念的核心依赖。
-*   [[mobile-first]]: 移动端布局 (`AppInner`) 是基础实现，平板端在此基础上扩展。
-*   [[tablet-adaptation]]: 平板端布局 (`TabletShell`) 是对移动端布局的增强和适应。
+- [[responsive-design]]：本概念是实现响应式设计的具体手段。
+- [[form-factor]]：`useFormFactor` Hook 是本概念的核心依赖。
+- [[mobile-first]]：移动端布局 (`AppInner`) 是基础实现，平板端在此基础上扩展。
+- [[tablet-adaptation]]：平板端布局 (`TabletShell`/`DockNav`) 是对移动端布局的增强。
+
+## Known Issues
+
+- **日志清空动画卡死风险**：安卓 WebView 后台时 rAF 停摆，GSAP `onComplete` 不触发会导致 `isClearing` 永久 true；已用 `setTimeout` 兜底 (`RightPanel.tsx|108-117`)。
+- **GPU 崩溃检测局限**：历史缺陷记录，GPU 崩溃时 JS 存活导致 interval 心跳正常，`isRenderLoopAlive()` 用于弥补 (`main.tsx|95-98`)。
+- **废弃文档引用**：旧文章引用的 `android/frontend/src/settings/OnboardingWizardMobile.tsx` 在当前仓库中不存在/读取失败；手机端向导已整合进 `OnboardingWizard.tsx` 的响应式布局（见 `OnboardingWizard.tsx|544-576`），本文已更正。

@@ -10,139 +10,153 @@ tags: [frontend, face-verification, human, tauri, zustand]
 
 ## Overview
 
-`frontend-face-verification` 模块实现了基于 `@vladmandic/human` 库的 2D 人脸识别功能，用于在系统生物识别（Class 2/3）不可用的国产平板或手机上提供回退验证方案。该模块包含三个核心部分：命令式弹窗状态管理、底层人脸服务接口以及 UI 采集对话框。
+`frontend-face-verification` 模块实现了基于 `@vladmandic/human` 库的 2D 人脸录入/验证功能，用于在系统生物识别（Class 2/3）不可达的国产平板或手机上提供回退验证方案。模块由三部分组成：
 
-主要功能包括：
-1. **模型管理**：懒加载 `human` 实例，动态从 GitHub/镜像下载模型文件至应用私有目录，支持进度回调。
-2. **人脸录入 (Enroll)**：自动采集 8 帧高质量描述子取均值作为模板，存储于本地安全存储中。
-3. **人脸验证 (Verify)**：随机动作挑战（眨眼或转头），通过后进行描述子相似度比对（阈值 0.55）。
-4. **状态隔离**：通过 Zustand Store 实现组件与逻辑解耦，引擎释放时清理资源防止内存泄漏。
+- `faceVerifyStore.ts`：Zustand 命令式弹窗桥，使非组件层的验证门能弹出相机 UI 并等待结果。
+- `faceService.ts`：底层人脸服务，负责模型懒加载与下载、Human 实例管理、相机控制、录入/验证算法及模板安全存储。
+- `FaceCaptureDialog.tsx`：UI 采集对话框单例，由 store 驱动，内部 `CaptureFlow` 子组件实际执行检测流程并展示进度、动作挑战与安全披露。
+
+主要功能：模型不打包 APK（v2.4.0），首次启用从 GitHub/镜像下载；录入自动采 8 帧高质量描述子取均值存本机；验证随机动作挑战（眨眼/转头）后做相似度比对（阈值 0.55）；弹窗关闭同步释放引擎防内存泄漏。
 
 ## Key Components
 
-### `FaceCaptureDialog.tsx`
+### `android/frontend/src/face/FaceCaptureDialog.tsx`
 
-**组件**: `FaceCaptureDialog`
-- **行号**: 36-51
-- **用途**: 根级 Dialog 单例，由 `faceVerifyStore` 驱动打开/关闭。内部挂载 `CaptureFlow`。
+**常量** `CHALLENGE_KEY` (行 23-26)
+- 类型：`Record<FaceChallenge, string>`
+- 映射：`blink` → `'face.challengeBlink'`，`turn` → `'face.challengeTurn'`。
 
-**组件**: `CaptureFlow`
-- **行号**: 53-179
-- **用途**: 实际执行相机开启、检测流程、状态展示的核心子组件。位于 `DialogContent` 内部以确保 `videoRef` 就绪。
+**组件** `FaceCaptureDialog` (行 28-46)
+- 根级 Radix `Dialog` 单例，挂在 App 根部。
+- 从 `useFaceDialogStore` 读取 `open`(行30)、`mode`(行31)、`closeFaceDialog`(行32)。
+- `onOpenChange` 中若被关闭且非打开态，调用 `closeFaceDialog({ ok: false, reason: 'cancel' })` (行35)。
+- 当 `open` 为真时挂载 `<CaptureFlow mode={mode} onClose={closeFaceDialog} />` (行42)。
 
-**Hook**: `useEffect` (在 `CaptureFlow` 内)
-- **行号**: 66-117
-- **用途**: 编排整个生命周期。
-  - `run()` 异步函数：
-    - 调用 `ensureFaceModels` 下载模型。
-    - 调用 `openCamera` 获取流。
-    - 根据 `mode` ('enroll' | 'verify') 调用对应服务函数。
-    - 最终调用 `onClose` 并触发 `releaseFaceEngine`。
-  - Cleanup: 关闭相机流，释放引擎。
+**组件** `CaptureFlow` (行 48-196)
+- Props：`{ mode: 'enroll' | 'verify'; onClose: (r: { ok: boolean; reason?: string }) => void }`。
+- 因 Radix Portal 挂载时机问题，流程必须置于 `DialogContent` 内此子组件中，确保 `videoRef` 就绪（见文件头注释行6-7）。
 
-**State Variables**:
-- `phase`: `'starting' | 'running' | 'success' | 'error'` (Line 60)
-- `facePresent`: `boolean` (Line 61)
-- `progress`: `number` (Line 62)
-- `challenge`: `FaceChallenge | null` (Line 63)
-- `modelPercent`: `number | null` (Line 67)
-- `attempt`: `number` (Line 70) - 用于重置流程的重试计数。
+**State / Refs** (均在 `CaptureFlow` 内)
+- `videoRef`: `useRef<HTMLVideoElement>(null)` (行50)
+- `phase`: `useState<'starting' | 'running' | 'success' | 'error'>` 初始 `'starting'` (行51)
+- `facePresent`: `useState<boolean>` 初始 `true` (行52)
+- `progress`: `useState<number>` 初始 `0` (行53) 录入完成帧数
+- `challenge`: `useState<FaceChallenge | null>` 初始 `null` (行54)
+- `errorKey`: `useState<string>` 初始 `''` (行55) 错误 i18n key
+- `modelPercent`: `useState<number | null>` 初始 `null` (行57) 模型下载整体进度，null=不在下载
+- `attempt`: `useState<number>` 初始 `0` (行59) 重试计数，用于重跑 effect
 
-**常量**:
-- `CHALLENGE_KEY`: 映射挑战类型到 i18n key (Line 26-29)。
+**Hook** `useEffect` (行 61-122)
+- 依赖：`[mode, onClose, attempt]` (行122)。
+- 内部 `run` 异步函数 (行64-113)：
+  - 调用 `ensureFaceModels` 并转发进度 (行67)；失败设 `phase='error'`、`errorKey='face.modelDownloadError'` (行68-72)。
+  - `openCamera(videoRef.current)` (行80)；失败设 `errorKey='face.cameraError'` (行81-85)。
+  - 成功设 `phase='running'` (行89)。
+  - `mode==='enroll'`：调 `enrollFace(video, setProgress, setFacePresent)` (行91)，成功显式等待 600ms (行95)，终调 `onClose` (行98)，reason 取 `'timeout'` 或 `r.reason`。
+  - `mode==='verify'`：调 `verifyFace(video, setChallenge, setFacePresent)` (行100)，成功等待 600ms (行108)，终调 `onClose` (行111)，reason 取 `'mismatch'` 或 `r.reason`。
+- Cleanup (行116-121)：置 `cancelled=true`，`closeCamera(videoRef.current)` (行118)，`releaseFaceEngine()` (行120)。
 
-### `faceService.ts`
+**UI 结构** (行124-195)
+- 视频元素常驻，`phase` 为 running/success 时镜像显示 (行128-134)。
+- `starting` 覆盖层显示 `Loader2` 及模型下载/开相机文案 (行135-144)。
+- `success` 覆盖层显示对勾 (行145-150)。
+- `error` 覆盖层显示相机图标、错误文案及重试按钮：点击重置状态并 `setAttempt(a=>a+1)` (行151-164)。
+- 底部文案区：录入进度 `face.enrollProgress` (行167-174)、验证挑战 `CHALLENGE_KEY` (行175-182)、`face.pleaseHold` (行183)、常驻安全披露 `face.securityNotice` (行185)。
+- 取消按钮调用 `onClose({ ok: false, reason: 'cancel' })` (行187-193)。
 
-**函数**: `ensureFaceModels`
-- **行号**: 96-104
-- **用途**: 确保模型文件存在。若未就绪则调用 `downloadModels`。支持共享 Promise 防止并发重复下载。
+### `android/frontend/src/face/faceService.ts`
 
-**函数**: `downloadModels`
-- **行号**: 106-126
-- **用途**: 调用 Tauri invoke `face_models_download`，监听 `face-models-download-progress` 事件计算整体进度。
+**常量**
+- `TEMPLATE_KEY = 'campus-2d-face-template'` (行22)
+- `MATCH_THRESHOLD = 0.55` (行38) 相似度阈值，从严于 human 默认 0.5
+- `ENROLL_FRAMES = 8` (行40) 录入采样帧数
+- `ENROLL_TIMEOUT_MS = 20_000` (行42)
+- `CHALLENGE_TIMEOUT_MS = 10_000` (行44)
+- `POLL_INTERVAL_MS = 120` (行46) 检测轮询间隔
+- `DETECT_SCORE_MIN = 0.85` (行48) 采帧质量门控检测分下限
 
-**函数**: `getHuman`
-- **行号**: 132-168
-- **用途**: 懒加载 `Human` 实例。
-  - 动态 import `@vladmandic/human`。
-  - 配置仅启用 Face Detector, Mesh, Description。
-  - **禁用项**: `antispoof`, `liveness`, `emotion`, `iris`, `attention`, `body`, `hand`, `object`, `segmentation` (Line 145-152)。
-  - 执行 Warmup 检测以编译 Shader。
-  - 使用 `engineGen` 处理竞态条件。
+**类型与接口**
+- `export type FaceChallenge = 'blink' | 'turn'` (行50)
+- `export type FaceFailReason = 'timeout' | 'challenge' | 'mismatch' | 'camera'` (行52)
+- `export type FaceVerifyResult = { ok: true } | { ok: false; reason: FaceFailReason }` (行53)
+- `interface FaceModelsState` (行61-65)：字段 `ready: boolean`、`dir: string`、`files: { name: string; size: number; ok: boolean }[]`
+- `interface FaceModelProgressEvt` (行68-73)：字段 `file: string`、`downloaded: number`、`total: number`、`percent: number`
+- `interface FaceSnapshot` (行209-216)：字段 `score: number`、`embedding: number[] | null`、`gestures: string[]`、`eyesClosed: boolean`
+- `declare global Window` (行24-35)：扩展属性 `__faceEngineLoaded?`、`__faceSessionActive?`、`__onTrimMemory?` 用于安卓 onTrimMemory 兜底释放钩子。
 
-**函数**: `disposeEngine`
-- **行号**: 171-176
-- **用途**: 销毁 `Human` 实例，重置模型并 dispose TFJS 变量。
+**模块级变量**
+- `humanInstance: Human | null` (行55)
+- `humanInitPromise: Promise<Human> | null` (行56)
+- `engineGen: number` (行58) 释放代际计数
+- `modelEnsurePromise: Promise<string> | null` (行75)
 
-**函数**: `releaseFaceEngine`
-- **行号**: 182-203
-- **用途**: 同步清空单例 (`humanInstance = null`)，增加 `engineGen`。若初始化进行中，等待孤儿实例完成后 reset。
+**函数** `ensureFaceModels` (行83-91)
+- 确保模型目录就位：若 `modelEnsurePromise` 空则调 `downloadModels` 并捕获错误清空缓存 (行84-89)。返回共享 Promise。
 
-**函数**: `openCamera`
-- **行号**: 205-210
-- **用途**: 调用 `navigator.mediaDevices.getUserMedia` 获取视频流并播放。
+**函数** `downloadModels` (行93-112)
+- 调 `invoke<FaceModelsState>('face_models_state')` (行94)，`ready` 直接返回 `dir`。
+- 监听 `face-models-download-progress` 事件 (行99)，按六文件顺序下载折算整体百分比调用 `onProgress` (行100-103)。
+- 调 `invoke<FaceModelsState>('face_models_download')` (行107) 返回 `done.dir`，finally 取消监听。
 
-**函数**: `closeCamera`
-- **行号**: 212-215
-- **用途**: 停止媒体流轨道，清除 video 元素 srcObject。
+**函数** `getHuman` (行118-162)
+- 懒加载 Human 单例。置 `window.__faceEngineLoaded = true` (行121)。
+- 动态 `import('@vladmandic/human')` (行125)，`ensureFaceModels` 取模型目录 (行126)。
+- 配置 `new Human` (行127-146)：`backend: 'webgl'`，`modelBasePath: convertFileSrc(modelDir)` (行129)；`face.enabled: true`，`detector: { enabled: true, rotation: false }` (行132)，`mesh: { enabled: true }` (行133)，`attention: { enabled: false }` (行134)，`iris: { enabled: false }` (行135)，`description: { enabled: true }` (行136)，`emotion: { enabled: false }` (行137)，**`antispoof: { enabled: false }` (行139)，`liveness: { enabled: false }` (行140)**；`body`/`hand`/`object`/`segmentation` 全部 `{ enabled: false }` (行142-145)。
+- `h.load()` (行147)，warmup 检测 320x320 canvas (行148-151)。
+- 竞态处理：记录 `myGen = engineGen` (行124)，若工厂完成时代际变化则不进缓存 (行153-154)，否则赋 `humanInstance` (行155)。
 
-**接口**: `FaceSnapshot`
-- **行号**: 217-224
-- **字段**:
-  - `score: number`
-  - `embedding: number[] | null`
-  - `gestures: string[]`
-  - `eyesClosed: boolean`
+**函数** `disposeEngine` (行165-168)
+- `h.reset()` 卸模型，`h.tf?.disposeVariables?.()` 回收权重，best-effort try/catch。
 
-**函数**: `detectOnce`
-- **行号**: 226-244
-- **用途**: 单次检测。计算眨眼比率 (`eyesClosed`)。
-  - 右眼比率: `(mesh[374][1] - mesh[386][1]) / (mesh[443][1] - mesh[450][1])` (Line 236)
-  - 左眼比率: `(mesh[145][1] - mesh[159][1]) / (mesh[223][1] - mesh[230][1])` (Line 237)
-  - 闭合判定: `< 0.2` (Line 238)
+**函数** `releaseFaceEngine` (行179-192)
+- `engineGen++` (行180)，同步置空 `humanInstance`/`humanInitPromise` (行181-184)。
+- 已有实例则 `disposeEngine` (行186)；初始化在途则对孤儿实例 `pending.then(orphan => orphan.reset())` (行190)，不等待。
 
-**函数**: `loadTemplate` / `hasTemplate` / `clearTemplate` / `saveTemplate`
-- **行号**: 255-271
-- **用途**: 存取描述子模板。Key 为 `campus-2d-face-template`。存储于 `safeStorage`。
+**函数** `openCamera` (行194-201)
+- `navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false })` (行195-198)，绑 `video.srcObject` 并 `play()`。
 
-**函数**: `enrollFace`
-- **行号**: 273-296
-- **用途**: 录入流程。
-  - 超时: 20秒 (Line 32)
-  - 采样数: 8 帧 (Line 30)
-  - 质量门控: 分数 >= 0.85 (Line 34)，无大幅转头 (Line 290)。
-  - 计算均值模板并保存。
+**函数** `closeCamera` (行203-207)
+- 停止 `video?.srcObject` 的所有轨道，置 `srcObject = null`。
 
-**函数**: `verifyFace`
-- **行号**: 298-334
-- **用途**: 验证流程。
-  - 随机选择 'blink' 或 'turn'。
-  - 挑战时限: 10秒 (Line 33)。
-  - 比对: 最多 3 次采帧，相似度 >= 0.55 (Line 34) 即通过。
+**函数** `detectOnce` (行218-236)
+- `await h.detect(video)` (行219)，取 `result.face?.[0]` (行220)，分数 `<0.5` 返回 null (行221)。
+- 若 mesh 长度 >450，按 human 同款索引计算眨眼比率：右眼 `Math.abs(mesh[374][1]-mesh[386][1]) / Math.abs(mesh[443][1]-mesh[450][1])`，左眼类似 (行226-227)；`eyesClosed = rightEye < 0.2 || leftEye < 0.2` (行228)。
+- 返回 `{ score, embedding: face.embedding ?? null, gestures: result.gesture map, eyesClosed }` (行230-235)。
 
-**常量**:
-- `MATCH_THRESHOLD`: 0.55 (Line 34)
-- `ENROLL_FRAMES`: 8 (Line 30)
-- `ENROLL_TIMEOUT_MS`: 20_000 (Line 32)
-- `CHALLENGE_TIMEOUT_MS`: 10_000 (Line 33)
-- `POLL_INTERVAL_MS`: 120 (Line 35)
-- `DETECT_SCORE_MIN`: 0.85 (Line 34)
+**模板存取函数**
+- `loadTemplate` (行245-254)：`safeStorage.get(TEMPLATE_KEY)` JSON 解析为 `number[] | null`。
+- `hasTemplate` (行256-258)：基于 `loadTemplate() !== null`。
+- `clearTemplate` (行260-262)：`safeStorage.set(TEMPLATE_KEY, '')`。
+- `saveTemplate` (行264-266)：`safeStorage.set` 存 JSON 串。
 
-### `faceVerifyStore.ts`
+**函数** `enrollFace` (行269-300)
+- 签名：`(video, onProgress: (done, total)=>void, onFacePresence?: (present)=>void) => Promise<{ok:true}|{ok:false;reason:FaceFailReason}>`
+- 置 `window.__faceSessionActive = true` (行274)，finally 复位 (行298)。
+- `getHuman()` (行276)，循环采帧至 `ENROLL_FRAMES` (行279)，超时返回 `reason:'timeout'` (行280)。
+- 门控：`snap.score >= DETECT_SCORE_MIN` (行284) 且有 `embedding` 且 gestures 不含 `'facing left'/'facing right'` (行285)；合格则推入 `samples` 并 `onProgress(samples.length, ENROLL_FRAMES)` (行287)。
+- 计算各维均值 (行291-294)，`saveTemplate(mean)` (行295) 返回 `{ ok: true }`。
 
-**Store**: `useFaceDialogStore`
-- **行号**: 24-38
-- **State**:
-  - `open: boolean`
-  - `mode: 'enroll' | 'verify'`
-  - `resolve: ((r: FaceDialogResult) => void) | null`
-- **Actions**:
-  - `openFaceDialog(mode)`: 返回 Promise，设置 open 和 resolve。若已打开则直接 resolve cancel。
-  - `closeFaceDialog(r)`: 调用 resolve 并重置 state。
+**函数** `verifyFace` (行303-353)
+- 签名：`(video, onChallenge: (c)=>void, onFacePresence?: (present)=>void) => Promise<FaceVerifyResult>`
+- 无模板直接 `{ ok: false, reason: 'mismatch' }` (行308-309)。
+- 置 session 标志 (行310)，`getHuman()` (行312)，随机选 `'blink'|'turn'` (行314-316) 并 `onChallenge`。
+- 挑战循环至 `CHALLENGE_TIMEOUT_MS` (行318)：`blink` 看 `snap.eyesClosed` (行330)，`turn` 看 gestures 含 `'facing left'|'facing right'` (行331)；完成则 break (行335)，否则返回 `reason:'challenge'` (行338)。
+- 比对阶段最多 3 次采帧 (行341)，`h.match.similarity(template, snap.embedding) >= MATCH_THRESHOLD` 即通过 (行344-345)，否则 `reason:'mismatch'` (行349)。
 
-**函数**: `shouldUseFaceFallback`
-- **行号**: 42-44
-- **用途**: 判断是否启用 2D 人脸回退。条件：`allow2dFaceVerify === true` 且 `hasTemplate()`。
+### `android/frontend/src/face/faceVerifyStore.ts`
+
+**类型**
+- `export type FaceDialogMode = 'enroll' | 'verify'` (行14)
+- `export type FaceDialogResult = { ok: boolean; reason?: string }` (行15)
+- `interface FaceDialogState` (行17-23)：字段 `open: boolean`、`mode: FaceDialogMode`、`resolve: ((r: FaceDialogResult) => void) | null`，方法签名 `openFaceDialog: (mode) => Promise<FaceDialogResult>`、`closeFaceDialog: (r) => void`。
+
+**Store** `useFaceDialogStore` (行25-41)
+- 初始：`open:false, mode:'verify', resolve:null` (行26-28)。
+- `openFaceDialog` (行29-36)：返回 Promise；若已 `open` 直接 `resolve({ok:false,reason:'cancel'})` (行31-33)；否则 `set({ open:true, mode, resolve })`。
+- `closeFaceDialog` (行37-40)：`get().resolve?.(r)` 后清零 state。
+
+**函数** `shouldUseFaceFallback` (行44-46)
+- 返回 `useConfigStore.getState().config.allow2dFaceVerify === true && hasTemplate()`，判定是否走 2D 回退。
 
 ## Architecture
 
@@ -153,76 +167,49 @@ tags: [frontend, face-verification, human, tauri, zustand]
 │  ┌──────────────────────┐   ┌────────────────────────────┐  │
 │  │  FaceCaptureDialog   │   │  verifyWindowsIdentity     │  │
 │  │  (FaceCaptureDialog  │   │  (tauriApi/verify.ts)      │  │
-│  │   .tsx)              │   │                            │  │
-│  │                      │   │  1. Check Biometric        │  │
-│  │  Uses:               │   │  2. Check shouldUseFace    │  │
-│  │  - CaptureFlow       │   │     Fallback               │  │
-│  │  - DialogContent     │   │  3. Call openFaceDialog    │  │
-│  └──────────┬───────────┘   │  4. Await Result           │  │
+│  │   .tsx:28)           │   │                            │  │
+│  │  Uses: CaptureFlow   │   │  1. Check Biometric        │  │
+│  │   (.tsx:48)          │   │  2. Check shouldUseFace    │  │
+│  │                      │   │     Fallback (store:44)    │  │
+│  └──────────┬───────────┘   │  3. Call openFaceDialog    │  │
+│             │               │  4. Await Result           │  │
 │             │               └────────────┬───────────────┘  │
 │             │                          │                    │
 │             ▼                          ▼                    │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │              faceVerifyStore.ts                      │  │
-│  │  - openFaceDialog (Promise Bridge)                   │  │
-│  │  - closeFaceDialog                                   │  │
+│  │              faceVerifyStore.ts (useFaceDialogStore)   │  │
+│  │  - openFaceDialog (Promise Bridge:29)                 │  │
+│  │  - closeFaceDialog (resolve:37)                       │  │
 │  └──────────────────────┬───────────────────────────────┘  │
 │                         │                                  │
 │                         ▼                                  │
 │  ┌──────────────────────────────────────────────────────┐  │
 │  │                 faceService.ts                       │  │
-│  │  - ensureFaceModels (Download + Cache)               │  │
-│  │  - getHuman (Lazy Init Human Instance)               │  │
-│  │  - enrollFace / verifyFace                           │  │
-│  │  - releaseFaceEngine (Cleanup)                       │  │
+│  │  - ensureFaceModels (83) / downloadModels (93)       │  │
+│  │  - getHuman (118) lazy init Human                    │  │
+│  │  - enrollFace (269) / verifyFace (303)               │  │
+│  │  - releaseFaceEngine (179) cleanup                   │  │
 │  └──────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow
 
-1. **初始化与模型加载**:
-   - 当 `FaceCaptureDialog` 打开时，`CaptureFlow` 的 `useEffect` 触发。
-   - 调用 `ensureFaceModels`。若模型未就绪，调用 Tauri Command `face_models_download` 下载文件。
-   - 监听 `face-models-download-progress` 事件更新 UI 进度条。
-   - 模型就绪后，调用 `getHuman` 创建 `Human` 实例（WebGL 后端，加载 BlazeFace/FaceMesh 等模型）。
-
-2. **相机开启**:
-   - `openCamera` 请求用户权限，绑定 `srcObject` 到 `video` 元素并开始播放。
-
-3. **录入模式 (Enroll)**:
-   - `enrollFace` 循环调用 `detectOnce`。
-   - 过滤低分 (<0.85) 或侧脸帧。
-   - 收集 8 个有效 embedding 计算均值。
-   - 调用 `saveTemplate` 存入 `safeStorage`。
-
-4. **验证模式 (Verify)**:
-   - `verifyFace` 随机选择 'blink' 或 'turn'。
-   - 进入挑战循环，轮询检测直到完成动作或超时。
-   - 挑战成功后，进行 3 次相似度比对。
-   - 若相似度 >= 0.55，返回 `{ ok: true }`。
-
-5. **资源释放**:
-   - 无论成功或失败，`CaptureFlow` 卸载时触发 cleanup。
-   - 调用 `releaseFaceEngine`：增加 `engineGen`，清空 `humanInstance`，reset 旧实例。
-   - 下次打开时重新走工厂流程。
+1. **初始化与模型加载**：`FaceCaptureDialog` 打开 → `CaptureFlow` 的 `useEffect` (行61) 触发 `run`。先 `ensureFaceModels` (行67，实现 faceService.ts:83)；未就绪时 `downloadModels` (行93) 调 Tauri `face_models_download` (行107) 并监听 `face-models-download-progress` (行99) 更新 `modelPercent` (行57)。接着 `getHuman` (faceService.ts:118) 动态建 Human 实例（仅启用 detector/mesh/description，antispoof/liveness 禁用）。
+2. **相机开启**：`openCamera` (faceService.ts:194) 请求前置摄像头绑 `video` (行80)。
+3. **录入模式**：`enrollFace` (行269) 循环 `detectOnce` (行218) 质量门控（score≥0.85、正脸）采 8 帧 (行279-290)，均值存 `saveTemplate` (行264)。进度经 `onProgress` → `setProgress` (行91→组件行53)。
+4. **验证模式**：`verifyFace` (行303) 随机挑战 (行315)，`CaptureFlow` 经 `onChallenge` 设 `challenge` state (行102)。轮询检测至动作完成 (行320-337)；之后最多 3 帧比对 `similarity >= 0.55` (行344)。成功/失败均调 `onClose` (行98/111) → `closeFaceDialog` (store:37)。
+5. **资源释放**：`CaptureFlow` cleanup (行116) 关相机 `closeCamera` (行203) 并 `releaseFaceEngine` (行179) 增 `engineGen` 清空单例；下次重开重建。
 
 ## Connections
 
-- [[frontend-auth]]: 验证门 `verifyWindowsIdentity` 调用本模块的回退逻辑。
-- [[config-store]]: `shouldUseFaceFallback` 依赖 `useConfigStore` 读取 `allow2dFaceVerify` 配置。
-- [[tauri-commands]]: 涉及 `face_models_state` 和 `face_models_download` 两个 Tauri Command。
+- [[frontend-auth]]：验证门 `verifyWindowsIdentity`（tauriApi 层）调用本模块回退，通过 `shouldUseFaceFallback` (faceVerifyStore.ts:44) 与 `openFaceDialog` 桥接。
+- [[config-store]]：`shouldUseFaceFallback` 依赖 `useConfigStore` 读取 `allow2dFaceVerify` (faceVerifyStore.ts:45)。
+- [[tauri-commands]]：涉及 `face_models_state` (faceService.ts:94) 与 `face_models_download` (行107) 两个 Tauri Command，以及事件 `face-models-download-progress` (行99)。
 
 ## Known Issues
 
-1. **2D 安全性局限**:
-   - 文档明确指出 (Line 18-22 in `faceService.ts`)：动作挑战仅能防御静态照片，无法防御重放视频攻击。未启用 `antispoof` 和 `liveness` 模型因许可问题 (Line 149-150)。
-   
-2. **竞态条件修复**:
-   - `releaseFaceEngine` 采用 `engineGen` 机制解决“取消后立刻重开”导致的引擎复用已被 reset 实例的问题 (Line 182-203)。旧版逻辑在此场景下会静默超时。
-
-3. **模型下载依赖网络**:
-   - 模型不打包 APK (v2.4.0)，首次使用需联网下载。若网络失败，需重试 `ensureFaceModels`。
-
-4. **浏览器兼容性**:
-   - `detectOnce` 中的眨眼检测依赖于 `human` 库返回的 mesh 索引 (Line 236-238)。若不同版本的 `human` 库 mesh 结构变化，可能导致检测失效。
+1. **2D 安全性局限**：faceService.ts 头部注释 (行8-14) 明确动作挑战仅挡静态照片不防重放视频；未启用 `antispoof`/`liveness` 模型因许可不明 (行139-140)。描述子模板仅存本机 safeStorage，非原始图像 (行241-243)。
+2. **竞态条件修复**：`releaseFaceEngine` (行179-192) 用 `engineGen` (行58,180) 解决“取消后立刻重开”复用已 reset 实例导致静默超时；初始化在途时仅标记代际，孤儿实例后 reset (行190)。
+3. **模型下载依赖网络**：模型不打包 APK (v2.4.0，faceService.ts:83-84,116-117)，首次需联网下载 GitHub/镜像；失败 `ensureFaceModels` 清空 promise 以便重试 (行85-88)。UI 错误面板提供重试按钮重跑流程 (FaceCaptureDialog.tsx:159)。
+4. **浏览器兼容性**：`detectOnce` 眨眼检测硬依赖 human mesh 索引 (行226-228)，库版本变动 mesh 结构将失效；且 `face.score < 0.5` 即返回 null (行221) 低于录入门控 0.85，弱检测帧被录入循环跳过。

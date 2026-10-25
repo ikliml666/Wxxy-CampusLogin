@@ -22,173 +22,221 @@ tags: [构建, 发布, 根目录, Tauri, 前端结构]
 ---
 
 ## Overview
-本模块涵盖项目的根目录基础设施、构建与发布脚本，以及桌面端前端的基础结构。核心职责包括：
-1. **项目规范与许可**：通过 `AGENTS.md` 定义 AI 助手与贡献者的行为准则（Changelog 管理、分支纪律、双端同步、验证基线）；通过 `LICENSE` 和 `LICENSE-ASSETS.md` 实施源代码 MIT 授权与美术素材保留版权的双轨制。
-2. **构建与发布自动化**：提供 `clean-build-cache.ps1` 清理全平台编译缓存；`tauri-app/build.ps1` 执行桌面端 Tauri 构建；`make-release.ps1` 汇总安装包、校验文件与 APK 资产以准备 GitHub Release。
-3. **前端基础架构**：基于 React 19 + Vite 6 的桌面端前端入口，包含骨架屏、主题初始化及用于浏览器 UI 验证的 Mock Tauri 环境。
-4. **安全验证逻辑**：在账户面板中实现 Windows Hello 验证门（Hello Gate），遵循“首次操作即验证，通过后共用”的策略，避免频繁触发系统级生物识别弹窗。
+
+本模块涵盖项目根目录基础设施、构建与发布脚本，以及桌面端前端基础结构。核心职责：
+
+1. **项目规范与许可**：`AGENTS.md`（第 1-27 行）定义 AI 助手与贡献者行为准则；`LICENSE`（第 1-28 行）与 `LICENSE-ASSETS.md`（第 1-30 行）实施源代码 MIT + 美术素材保留版权双轨制。
+2. **构建与发布自动化**：`clean-build-cache.ps1`（第 1-134 行）清理全平台编译缓存；`tauri-app/build.ps1`（第 1-212 行）执行桌面端 Tauri 构建；`make-release.ps1`（第 1-122 行）汇总安装包、校验文件与 APK 资产至 `release/`。
+3. **前端基础架构**：基于 React 19 + Vite 6 的桌面端前端入口（`tauri-app/frontend/index.html` 第 1-118 行），含骨架屏、主题初始化及用于浏览器 UI 验证的 Mock Tauri 环境（`mock-tauri.js` 第 1-207 行、`mock-tauri-addon.js` 第 1-97 行）。
+4. **安全验证逻辑**：账户面板中实现 Windows Hello 验证门（Hello Gate），对应测试 `AccountPanel.helloGate.test.tsx`（第 1-150 行）验证“首次操作即验证，通过后共用”策略。
 
 ## Key Components
 
 ### 根目录脚本
 
 #### `.gitignore`
-- **职责**：定义版本控制忽略规则，核心策略是隔离构建产物、本地配置及内部文档。
+
+- **职责**：定义版本控制忽略规则，隔离构建产物、本地配置及内部文档（第 1-112 行）。
 - **关键条目**：
-    - `target/`, `dist/`, `release/`：构建输出。
-    - `tauri-app/src-tauri/gen/`：Tauri 生成的原生代码。
-    - `.env*`：环境配置。
-    - `tauri-app/build.ps1`, `clean-build-cache.ps1`：构建脚本本身被忽略（第 67-68 行）。
-    - `android/*.apk`, `android/build-apk.ps1`：安卓端产物与硬编码 JDK 路径的脚本。
-    - `mock-tauri*.js`：前端浏览器调试用的 Mock 注入脚本，故意不入库（第 92 行）。
-    - `config.json`：运行时数据（第 51 行）。
+  - 构建输出：`target/`（第 5 行）、`dist/`（第 6 行）、`release/`（第 7 行）、`output/`（第 8 行）、`app-output/`（第 9 行）、`app-v/`（第 10 行）、`tauri-release/`（第 11 行）、`installer-build/`（第 14 行）、`release-build/`（第 15 行）、`archive/`（第 16 行）。
+  - Tauri 生成：`tauri-app/src-tauri/gen/`（第 19 行）。
+  - 环境配置：`.env`（第 22 行）、`.env.test`（第 23 行）。
+  - 构建脚本本身被忽略：`tauri-app/build.ps1`（第 67 行）、`clean-build-cache.ps1`（第 69 行）。
+  - 发布资产汇总脚本本地保留不入库：`make-release.ps1`（第 12-13 行注释与忽略项）。
+  - 安卓端：`android/*.apk`（第 85 行）、`android/*.apk.idsig`（第 86 行）、`android/build-apk.ps1`（第 89 行，硬编码本地 JDK 路径）。
+  - 浏览器实测 mock：`mock-tauri*.js`（第 92 行，故意不入库）、`.zcode/`（第 93 行）。
+  - 运行时数据：`config.json`（第 51 行）。
+  - 内部文档：`docs/`（第 63 行）、`CODE_WIKI.md`（第 77 行）、`changelogs/`（第 59 行）、`CHANGELOG.md`（第 58 行）。
+  - 前端增量编译缓存：`*.tsbuildinfo`（第 80 行）。
 
 #### `AGENTS.md`
-- **职责**：项目级工作约定，面向 AI 助手与贡献者。
+
+- **职责**：项目级工作约定，面向 AI 编码助手（ZCode 等）与贡献者（第 1-27 行）。
 - **核心约束**：
-    - **Changelog 纪律**：改动必须写入 `changelogs/CHANGELOG_v<版本>.md`（第 7 行），默认版本号 = 当前 + 1；该目录在 `.gitignore` 中，仅本地留存。
-    - **双端同步**：通用改进（UI/i18n/IPC/配置）必须在同一次提交内修改桌面 (`tauri-app/`) 和安卓 (`android/`) 两端（第 11 行）。例外：协议核心 crate 通过 Cargo path 依赖自动继承。
-    - **验证基线**：
-        - 前端：`npx tsc --noEmit --incremental`（禁止 `tsc -b`，防止污染 composite 项目文件，第 14 行）。
-        - 后端：`cargo test`（桌面 397 用例，第 15 行）；安卓端需交叉编译 `cargo check --target aarch64-linux-android` 或 `pwsh android/build-apk.ps1`（第 16 行）。
-    - **布局实测**：需向 `index.html` 临时注入 `__TAURI_INTERNALS__` mock，测后还原（第 17 行）。
+  - **Changelog 纪律**：改动必须写入 `changelogs/CHANGELOG_v<版本>.md`（第 7 行），版本号权威源为 `tauri-app/src-tauri/tauri.conf.json` 的 `version` 字段；目标文件 = 当前版本号 + 1；`changelogs/` 在 `.gitignore` 中仅本地留存。
+  - **分支纪律**：改动全在主题分支，不直接改 main；合并放开但 push/删分支仍禁止（第 9 行，2026-10-12 修订）。
+  - **双端同步**：通用改进必须在同一次提交内修改桌面（`tauri-app/`）和安卓（`android/`）两端（第 11 行）；协议实现单点存在于桌面 crate，安卓经 Cargo path 依赖自动继承。
+  - **验证基线**：
+    - 前端：`npx tsc --noEmit --incremental`（在 `tauri-app/frontend` 下；禁止 `tsc -b`，第 14 行）。
+    - 后端：`cargo test`（在 `tauri-app/src-tauri` 下；全绿基线 397 用例（lib 396 + 集成 1，2026-09-22 实测），第 15 行）。
+    - 安卓端：host `cargo check` 基线即失败，只认 `cargo check --target aarch64-linux-android --all-targets` 或 `pwsh android/build-apk.ps1`（第 16 行）。
+    - 布局实测：向 `tauri-app/frontend/index.html` 临时注入 `__TAURI_INTERNALS__` mock，测后还原（第 17 行）。
+  - **文档同步**：新模块/决策/踩坑同步进 `.codewiki/`，收尾跑 `cw index` 与 `cw meta update`（第 19 行）。
+  - **语言**：思考、回复、commit、文档一律中文（第 21 行）。
 
 #### `LICENSE` & `LICENSE-ASSETS.md`
-- **职责**：定义软件许可。
+
+- **职责**：定义软件许可（第 1-28 行 / 第 1-30 行）。
 - **关键点**：
-    - 源代码 MIT 许可。
-    - 美术素材（看板娘、图标等）**All Rights Reserved**，禁止单独提取、二次创作、商用及 AI 训练（`LICENSE-ASSETS.md` 第 18-23 行）。
+  - 源代码 MIT 许可（第 1-21 行），例外：美术素材不在 MIT 授予范围内（第 25-27 行）。
+  - 美术素材（看板娘插画、应用图标等，清单见 `LICENSE-ASSETS.md` 第 6-10 行）**All Rights Reserved**，禁止单独提取、复制、再分发、改编、二次创作、商用、训练 ML/AI（第 18-23 行）。
 
 #### `README.md`
-- **职责**：项目概览、功能列表、技术栈、开发指南。
+
+- **职责**：项目概览、功能列表、技术栈、开发指南（第 1-226 行）。
 - **关键信息**：
-    - **技术栈**：Tauri 2 + React 19 + TS + Vite 6；后端 Rust + Tokio。
-    - **双端架构**：桌面 (`tauri-app/`) + 安卓 (`android/`)。安卓前端为独立复刻树，后端通过 Cargo path 依赖桌面协议核心（第 179 行注释）。
-    - **安全机制**：DPAPI (Win) / AndroidKeyStore AES-256-GCM (Android) 加密存储密码；敏感操作需 Windows Hello / BiometricPrompt 验证（600s TTL）。
-    - **提权降级链**：管理员直跑 → SYSTEM 计划任务代理 → COM 静默提权 → runas UAC（第 212 行）。
+  - 版本徽章 `version-2.4.1`（第 5 行）。
+  - **技术栈**：Tauri 2 + React 19 + TypeScript + Vite 6；TailwindCSS 3.4 + Framer Motion 12 + GSAP 3；Rust + Tokio（第 70-79 行表）。
+  - **双端架构**：桌面（`tauri-app/`，第 86-118 行）+ 安卓（`android/`，第 119-131 行）；安卓前端为独立复刻树，后端 Cargo path 依赖桌面协议核心（第 179 行注释）。
+  - **开发/构建**：
+    - 安装依赖：`cd tauri-app/frontend && npm install` 与 `cd .. && npm install`（第 143-149 行）。
+    - 开发模式：`cd tauri-app && npx tauri dev`（第 154-156 行）。
+    - 构建发布：`pwsh tauri-app/build.ps1`（第 162 行）。
+    - 安卓构建：`npx @tauri-apps/cli android build --target aarch64 --apk`（第 176 行），前端须先 `npm run build`（第 175 行）。
+  - **测试基线**（与 AGENTS.md 第 15 行存在差异，须分别记录）：
+    - 后端测试（432 个单元测试 + 4 个集成测试）`cargo test`（第 186-188 行）。
+    - 前端测试（103 个测试）`npm test`（第 193-195 行）。
+    - 前端类型检查 `npx tsc --noEmit --incremental`（第 198 行）。
+  - **安全机制**：DPAPI (Win) / AndroidKeyStore AES-256-GCM (Android) 加密；敏感操作需 Windows Hello / BiometricPrompt 验证（600s TTL，第 204 行）；提权四级降级链（第 212 行）。
 
 #### `clean-build-cache.ps1`
-- **职责**：清理所有可重建的构建缓存与中间产物。
+
+- **职责**：清理所有可重建的构建缓存与中间产物（第 1-134 行）。
 - **关键逻辑**：
-    - **清理范围**（第 35-49 行）：
-        - 桌面/安卓 `target/` 目录。
-        - 安卓 Gradle 构建产物 (`gen/android/app/build`, `.gradle`, `build`)。
-        - 前后端 `dist/` 目录。
-        - `*.tsbuildinfo` 文件。
-        - WebView2 用户数据缓存（`%LOCALAPPDATA%/<identifier>/EBWebView/...`），仅删 Cache/GPU/Dawn 子目录，保留 Local Storage（第 86-94 行）。
-    - **安全检查**：
-        - 检测运行中的 `cargo/rustc/tauri/campus-login` 进程，存在则退出（第 51-55 行）。
-        - **APK 唯一副本告警**：若 `gen/` 下有 APK 但 `release/` 中没有，红色警告并提示需重跑构建（第 113-121 行）。
-    - **交互确认**：使用 `ShouldProcess` 高影响操作确认（第 30, 125 行）。
+  - **清理范围** `$targets`（第 35-45 行）：
+    - `<项目根>\target`（第 36 行）
+    - `C:\cl-build\target` 旧短路径遗留（第 37 行）
+    - `tauri-app\src-tauri\target`（第 38 行）
+    - `android\src-tauri\target`（第 39 行）
+    - `android\src-tauri\gen\android\app\build`（第 40 行，含 APK）
+    - `android\src-tauri\gen\android\.gradle`（第 41 行）
+    - `android\src-tauri\gen\android\build`（第 42 行）
+    - `tauri-app\frontend\dist`（第 43 行）
+    - `android\frontend\dist`（第 44 行）
+  - **glob 目标** `$globTargets`（第 46-49 行）：`tauri-app\frontend\*.tsbuildinfo`、`android\frontend\*.tsbuildinfo`。
+  - **进程检测**：`$busy` 检测 cargo/rustc/tauri/campus-login/校园网登录助手 进程，存在则退出（第 51-55 行）。
+  - **WebView2 缓存**：从 `tauri-app\src-tauri\tauri.conf.json` 动态读 `identifier`（第 81-83 行），删 `%LOCALAPPDATA%\<identifier>\EBWebView` 下 Cache/Code Cache/GPUCache/DawnGraphiteCache/DawnWebGPUCache/Service Worker/GrShaderCache/ShaderCache 子目录（第 86-94 行），保留用户数据。
+  - **APK 唯一副本告警**：`$genApks` 与 `$releaseApks` 比对，若 `gen/` 下有 `release/` 无则红色警告（第 114-121 行）。
+  - **交互确认**：`[CmdletBinding(SupportsShouldProcess, ConfirmImpact="High")]`（第 30 行），`ShouldProcess` 删除前确认（第 125-128 行）；支持 `-WhatIf`（第 26 行）、`-Confirm:$false`（第 28 行）。
 
 #### `make-release.ps1`
-- **职责**：执行完整发布构建并汇总 Release 资产到 `release/` 目录。
+
+- **职责**：执行完整发布构建并汇总 Release 资产到 `release/` 目录（第 1-122 行）。
 - **关键逻辑**：
-    - **版本权威源**：从 `tauri.conf.json` 读取 `version`（第 38 行）。
-    - **构建流程**：调用 `npx tauri build`（若未 `-SkipBuild`，第 42-54 行）。保持子进程直通终端以显示进度条（第 45-46 行）。
-    - **定位安装包**：
-        - 优先读取 `.cargo/config.toml` 中的 `target-dir`（第 60-64 行）。
-        - 候选目录顺序：`$cargoTarget` > `$env:CARGO_TARGET_DIR` > `root/target` > `src-tauri/target`（第 68 行）。
-        - 查找最新修改时间的 `*-setup.exe`（第 72-76 行）。
-    - **资产处理**：
-        - 重命名为 `Wxxy-CampusLogin_<ver>_<arch>-setup.exe` 并生成 `.sha256`（第 81-93 行）。
-        - 收集已构建的 APK（递归查找，排除 node_modules）（第 96-110 行）。
-        - 复制 `RELEASE_NOTES_v<ver>.md`（第 112-116 行）。
+  - **参数**：`[switch]$SkipBuild`（第 16 行）。
+  - **编码**：强制 UTF-8 输出避免 ✓ 乱码（第 21-23 行）。
+  - **版本权威源**：从 `tauri-app\src-tauri\tauri.conf.json` 读 `version`（第 36-40 行）。
+  - **构建流程**：若未 `-SkipBuild` 则 `Push-Location $tauriAppDir` 后 `& npx.cmd tauri build` 直通终端（第 42-54 行）。
+  - **定位 cargo 产物**：读 `.cargo\config.toml` 中 `target-dir`（第 59-64 行）；候选目录顺序：`$cargoTarget` > `$env:CARGO_TARGET_DIR` > `root/target` > `src-tauri/target`（第 68-77 行），取最新 `*-setup.exe`（第 72-76 行）。
+  - **资产处理**：
+    - 架构提取 `$arch`（第 80 行），重命名为 `Wxxy-CampusLogin_${version}_${arch}-setup.exe`（第 81 行）。
+    - 生成 `.sha256` 文件（同名，第 91-93 行）。
+    - 收集 APK：递归找 `android/` 下 `Wxxy-CampusLogin_*.apk` 排除 `node_modules`（第 96-110 行）。
+    - 复制 `RELEASE_NOTES_v<version>.md`（第 112-116 行）。
 
 #### `tauri-app/build.ps1`
-- **职责**：桌面端 Tauri 应用的标准化构建脚本。
+
+- **职责**：桌面端 Tauri 应用标准化构建脚本（第 1-212 行）。
 - **关键逻辑**：
-    - **参数**：`-SkipFrontend`, `-SkipCopy`, `-TargetDir`（第 1-5 行）。
-    - **环境检查**：验证 `rustc`, `node`, `cargo` 可用性（第 34-54 行）。
-    - **依赖安装**：仅在 `node_modules` 不存在时安装（第 59-79 行）。
-    - **前端构建**：执行 `npm run build`（第 84-96 行）。
-    - **Rust 构建**：
-        - 设置 `CARGO_BUILD_JOBS` 为 CPU 核心数（第 101-103 行）。
-        - 默认 `CARGO_TARGET_DIR` 指向项目根 `target/`（第 111-113 行），支持自定义 `-TargetDir` 逃生路径过长问题。
-        - 直接调用 `tauri.js build` 或 `npx.cmd tauri build`，保持 tty 直通（第 125-134 行）。
-    - **产物拷贝**：将 `bundle/nsis` 下的安装包及 `campus-login.exe` 拷贝至 `tauri-release/`（第 156-184 行）。
-    - **SHA256 生成**：为所有 `-setup.exe` 生成校验文件（第 189-193 行）。
+  - **参数**：`[switch]$SkipFrontend`、`[switch]$SkipCopy`、`[string]$TargetDir`（第 1-5 行）。
+  - **路径定义**：`$releaseOutputDir = <root>\tauri-release`（第 20 行）。
+  - **环境检查**：验证 `rustc`（第 34-40 行）、`node`（第 42-48 行）、`cargo`（第 50-54 行）可用性。
+  - **依赖安装**：仅当 `node_modules` 不存在时 `npm install`（前端第 60-67 行、根第 69-76 行）。
+  - **前端构建**：`npm run build`（第 84-96 行）；`--SkipFrontend` 时若 `dist\index.html` 不存在则报错退出（第 90-95 行）。
+  - **Rust 构建**：
+    - `CARGO_BUILD_JOBS = CPU 核心数`（第 101-103 行）。
+    - 默认 `CARGO_TARGET_DIR = <root>\target`（第 111-113 行，2026-09-15 起废弃 `C:\cl-build`）；`-TargetDir` 可逃生路径过长（第 105-114 行）。
+    - 直通调用 `node $tauriCliJs build` 或 `npx.cmd tauri build`（第 119-134 行），保留 tty 进度条。
+  - **产物拷贝**：`[5/5]` 将 `bundle/` 递归拷至 `tauri-release/`（第 154-178 行），并拷 `campus-login.exe`（第 180-184 行）。
+  - **SHA256 生成**：为所有 `*-setup.exe` 生成校验文件（第 189-193 行）。
 
 ### 前端基础结构
 
 #### `tauri-app/frontend/about-preview.html`
-- **职责**：静态 HTML 文件，用于预览“关于”对话框的 UI 设计稿。
-- **内容**：包含左侧栏（Logo/版本/检查更新按钮/GitHub 链接）和右侧栏（状态圆环/特性卡片网格）的 CSS 样式与结构。硬编码版本 `v2.4.1`（第 227 行）。非应用运行时文件，仅供视觉参考。
+
+- **职责**：静态 HTML 预览“关于”对话框 UI 设计稿（第 1-277 行）。
+- **内容**：左侧栏（Logo/版本/检查更新按钮/GitHub 链接，第 223-238 行），右侧栏（状态圆环/特性卡片网格，第 241-271 行）。硬编码版本 `v2.4.1`（第 227、251 行）。非应用运行时文件，仅供视觉参考（CSS 内联，无 JS 框架依赖）。
 
 #### `tauri-app/frontend/ANIMATION_GUIDE.md`
-- **职责**：动效系统集成文档，记录新增组件的使用方法与性能优化建议。
+
+- **职责**：动效系统集成文档（第 1-293 行）。
 - **关键组件**：
-    - `AnimatedNumber`：数字平滑滚动 + 弹性缩放 + 颜色高亮（Anime.js）。
-    - `ElasticBarChart`：柱状图弹性生长 + 波浪式错开启动（Anime.js）。
-    - `StatusPulseBadge`：状态切换脉冲动画（Anime.js）。
-    - `AnimatedCard` / `DockNav` / `Button`：Framer Motion 微交互（hover/tap/spring）。
-    - `LogPanel`：日志条目入场/出场动画（Framer Motion AnimatePresence）。
-    - `FluidBackground`：纯 CSS 背景渐变动画。
-- **分工**：Framer Motion 负责基础交互/布局动画；Anime.js 负责复杂序列/物理模拟。
+  - `AnimatedNumber`（`src/components/shared/AnimatedNumber.tsx`，第 8-26 行）：数字平滑滚动 + 弹性缩放 + 颜色高亮。
+  - `ElasticBarChart`（第 30-53 行）：柱状图弹性生长 + 波浪错开。
+  - `StatusPulseBadge`（第 57-82 行）：状态切换双次脉冲，级别 `excellent/good/moderate/poor/bad`。
+  - `AnimatedCard`（`src/components/ui/animated-card.tsx`，第 88-104 行）：Framer Motion whileHover/whileTap/入场。
+  - `DockNav`（第 106-115 行）：图标磁性微交互。
+  - `Button`（第 117-125 行）：径向渐变光效。
+  - `LogPanel`（第 127-135 行）：AnimatePresence 日志入场。
+  - `FluidBackground`（第 140-147 行）：纯 CSS 背景渐变。
+- **分工**：Framer Motion 负责基础交互/布局（第 245-248 行表）；Anime.js 负责复杂序列。
 
 #### `tauri-app/frontend/index.html`
-- **职责**：Vite 入口 HTML，负责骨架屏渲染与主题初始化。
+
+- **职责**：Vite 入口 HTML，骨架屏与主题初始化（第 1-118 行）。
 - **关键逻辑**：
-    - **主题初始化脚本**（第 9-22 行）：读取 `localStorage` 中的 `campus-light-mode` 和 `campus-theme`，设置 `data-light` 属性或添加 `theme-*` class。
-    - **CSS 变量**：定义深色/浅色模式下的语义化 CSS 变量（如 `--bg-primary`, `--sk-accent` 等，第 24-69 行）。
-    - **骨架屏结构**：提供 `sk-tb` (标题栏), `sk-sb` (状态栏), `sk-side` (侧边栏), `sk-content` (内容区) 占位符，确保 JS 加载前界面不闪烁（第 86-98 行）。
-    - **语言兜底**：根据 `app-language` localStorage 项切换骨架屏文案（中文/英文，第 103-110 行）。
+  - **主题初始化脚本**（第 9-26 行）：读 `localStorage` 的 `campus-light-mode`（置 `data-light`，第 12-16 行）、`campus-theme`（加 `theme-*` class，第 18-19 行）、`campus-glass-level`（置 `data-glass`，第 21-23 行）。
+  - **CSS 变量**：`:root` 深色变量（第 28-51 行），`html[data-light]` 浅色变量（第 52-73 行）。
+  - **骨架屏结构**（第 74-103 行）：`sk-tb`/`sk-sb`/`sk-main`/`sk-side`/`sk-content`/`sk-log` 占位，确保 JS 加载前不闪烁。
+  - **语言兜底**（第 104-115 行）：按 `app-language === 'en'` 切换 `#sk-init-text` 为 `Initializing...`。
+  - **入口**：`<script type="module" src="/src/main.tsx">`（第 116 行）。
 
 #### `tauri-app/frontend/package.json`
-- **职责**：前端项目依赖与脚本定义。
-- **关键依赖**：React 19, Tauri API v2, Framer Motion 12, GSAP 3, i18next, Zustand, TailwindCSS 3.4。
-- **脚本**：`dev`, `build`, `test` (vitest), `clean` (清理 dist/.vite)。
+
+- **职责**：前端依赖与脚本（第 1-51 行）。
+- **版本**：`2.4.1`（第 3 行）。
+- **脚本**：`dev` (vite)、`build` (vite build)、`preview`、`test` (vitest run)、`test:watch`、`clean`（清 dist/node_modules/.vite，第 12 行）。
+- **关键依赖**：react ^19、@tauri-apps/api ^2、framer-motion ^12.38.0、gsap ^3.15.0、i18next ^26.3.1、react-i18next ^17.0.8、zustand ^5.0.13（第 14-36 行）。
+- **devDependencies**：vite ^6.0.0、vitest ^4.1.10、tailwindcss ^3.4.10、typescript ^5.5.0（第 37-50 行）。
 
 #### `tauri-app/frontend/postcss.config.js`
-- **职责**：PostCSS 配置，启用 TailwindCSS 和 Autoprefixer。
+
+- **职责**：PostCSS 配置（第 1-6 行），启用 `tailwindcss` 与 `autoprefixer` 插件。
 
 #### `tauri-app/frontend/public/mock-tauri-addon.js`
-- **职责**：浏览器 UI 截图验证用场景注入脚本，叠加在 `mock-tauri.js` 之上。
+
+- **职责**：浏览器 UI 截图验证场景注入，叠加在 `mock-tauri.js` 之上（第 1-97 行，绝不入库，见 `.gitignore` 第 92 行）。
 - **关键逻辑**：
-    - **URL 参数解析**：支持 `?op=@telecom&op2=@unicom&dual=1&night=1&offline=1&theme=dark&tab=network&emuw=504&probe=1` 等参数（第 5-11 行）。
-    - **命令覆盖**：
-        - `check_campus_status`：强制返回在线状态 `i-wxxy`。
-        - `get_adapters`：根据 `dual` 参数返回单/双适配器列表。
-        - `check_portal_status` / `do_login`：根据 `offline` 参数模拟在线/离线。
-        - `get_init_data`：拦截并修改返回的 config，注入 `operator`, `nightOperatorRestore`, `adapter1/2`, `dualAdapter` 等字段（第 34-46 行）。
-        - `get_background_status`：返回模拟后台巡检状态，包括运营商徽标、SSID、校园网状态等。
-    - **事件模拟**：定时触发 `background-check-result` 事件（第 70, 77-80 行）。
-    - **辅助功能**：
-        - `tab` 参数：自动点击对应 Dock 按钮。
-        - `emuw` 参数：通过 CSS 强制 body 宽度，模拟窄屏布局。
-        - `probe` 参数：诊断超出视口元素，写入 `<title>`。
+  - **URL 参数**：`?op=@telecom&op2=@unicom&dual=1&night=1&offline=1&theme=dark&tab=network&emuw=504&probe=1`（第 2、5-11 行）。
+  - **命令覆盖**（`window.__TAURI_INTERNALS__.invoke` 重写，第 14-48 行）：
+    - `check_campus_status`：强制 `i-wxxy` 在线（第 15-21 行）。
+    - `get_adapters`：按 `dual` 返回 WLAN / 以太网列表（第 22-28 行）。
+    - `check_portal_status`：按 `offline` 模拟（第 29-31 行）。
+    - `do_login`：演示不执行（第 32 行）。
+    - `get_init_data`：注入 `operator`/`nightOperatorRestore`/`adapter1/2`/`dualAdapter`（第 34-46 行）。
+  - **事件模拟**：`setTimeout`/`setInterval` 触发 `background-check-result`（第 70、77-80 行）。
+  - **辅助**：`tab` 自动点击 Dock（第 71-76 行）、`emuw` CSS 钉宽（第 82-87 行）、`probe` 诊断超出视口写 `title`（第 88-95 行）。
 
 #### `tauri-app/frontend/public/mock-tauri.js`
-- **职责**：浏览器环境下伪造 `__TAURI_INTERNALS__` 的全局 Shim，供前端在 DevTools 中独立测试 UI。
+
+- **职责**：浏览器环境伪造 `__TAURI_INTERNALS__` 全局 Shim（第 1-207 行，绝不入库）。
 - **关键逻辑**：
-    - **初始化**：跳过新手引导，设置默认主题（第 10-19 行）。
-    - **Mock 数据**：
-        - `mockConfig`：包含所有配置字段默认值（第 38-58 行）。
-        - `mockAdapters`：预定义 WLAN/以太网/以太网 2 三张网卡（第 75-79 行）。
-        - `mockAccounts`：预定义三个演示账号（第 83-87 行）。
-    - **命令处理器** (`handlers` 对象，第 98-164 行)：
-        - 实现 `get_config`, `save_config`, `get_init_data`, `list_accounts`, `create_account`, `save_current_as_account`, `rename_account`, `delete_account` 等账号管理命令。
-        - 实现 `get_adapters`, `check_campus_status`, `get_background_status`, `do_login`, `do_logout` 等核心业务命令。
-        - 未实现命令泛化兜底返回 null 或 warn。
-    - **事件系统**：实现 `plugin:event|listen/unlisten` 及 `__mockEmitEvent` 全局函数，支持前端事件监听器回调（第 175-205 行）。
+  - **初始化**：跳过新手引导、设默认主题（第 10-19 行）。
+  - **transformCallback**（第 24-36 行）：定义 `window._cb{N}` 回调属性。
+  - **Mock 数据常量**：
+    - `mockConfig`（第 38-58 行）：含 `user/operator/adapter1/dualAdapter/themeMode` 等全量配置字段。
+    - `campusStatus`（第 60-65 行）。
+    - `backgroundStatus`（第 67-73 行）。
+    - `mockAdapters`（第 75-79 行）：WLAN/以太网/以太网 2 三网卡。
+    - `mockAccounts`（第 83-87 行）：三个演示账号（`id/displayName/user/operator/passwordSaved`）。
+    - `initData`（第 89-96 行）。
+  - **命令处理器** `handlers`（第 98-164 行）：
+    - 配置类：`get_config`/`save_config`/`get_init_data`（第 99-101 行）。
+    - 账号类：`list_accounts`/`create_account`/`save_current_as_account`/`rename_account`/`delete_account`（第 102-138 行）。
+    - 网络类：`get_adapters`/`check_campus_status`/`get_background_status`/`do_login`/`do_logout`（第 139-145、160-161 行）。
+    - 未处理命令泛化兜底 `console.warn` 并返回 null（第 185-188 行）。
+  - **事件系统**：`window.__TAURI_INTERNALS__.invoke` 处理 `plugin:event|listen/unlisten`（第 175-184 行）；`window.__TAURI_EVENT_PLUGIN_INTERNALS__.unregisterListener`（第 194-198 行）；`window.__mockEmitEvent` 触发监听（第 199-206 行）。
 
 ### 测试文件
 
 #### `tauri-app/frontend/src/account/AccountPanel.helloGate.test.tsx`
-- **职责**：验证 `AccountPanel` 中“Hello 验证门”的行为模式。该门是一个模块级单例，遵循“首次操作即验证，通过后共用”的策略。
+
+- **职责**：验证 `AccountPanel` 中“Hello 验证门”行为，模块级单例“首次操作即验证，通过后共用”（第 1-150 行）。
 - **Mock 策略**：
-    - **Tauri API Mock**: 使用 `vi.mock('@/hooks/tauriApi')` 拦截底层 Tauri 调用（第 7-18 行）。
-    - **Store Mock**: `useConfigStore` 返回固定状态，`useLogToastStore` 无操作（第 26-38 行）。
-    - **UI 组件 Mock**: `AnimatedCard` 简化为 div，`react-i18next` 返回键名（第 40-42 行）。
+  - `vi.mock('@/hooks/tauriApi')` 拦截 `verifyWindowsIdentity`/`getBindStatus`/`bindOperator`/`revealOperatorCredential`（第 7-18 行）。
+  - `vi.mock('react-i18next')` 返回键名（第 19-21 行）。
+  - `vi.mock('@/hooks/useLogToastStore')` 无操作（第 22-25 行）。
+  - `storeState` 固定配置（第 26-32 行），`vi.mock('@/hooks/useConfigStore')` 返回该状态（第 33-38 行）。
+  - `vi.mock('@/components/ui/animated-card')` 简化为 div（第 39-41 行）。
 - **辅助函数**：
-    - `renderPanel()`: 异步导入并渲染 `<AccountPanel />`（第 61-75 行）。
-    - `openBindDialog(container)`: 查找绑定运营商按钮并点击，注意 Radix Portal 机制，弹窗内容挂载在 `document.body`（第 81-86 行）。
-    - `findQueryBtn()`: 从 `document.body` 中查找查询按钮（第 87-88 行）。
-    - `beforeEach`: 重置所有 mock 状态，调用 `vi.resetModules()` 强制重新加载模块图，确保 `helloGate` 的单例状态回到初始状态（第 45-54 行）。
-- **核心测试用例**：
-    - **用例 1：首次查询触发验证，后续复用**：第一次点击触发 `verifyWindowsIdentity`，成功后后续操作不再重复验证（第 91-107 行）。
-    - **用例 2：验证通过后，查看明文密码不二次验证**：查询步骤触发验证后，查看明文操作共享同一验证状态（第 109-130 行）。
-    - **用例 3：验证失败的处理逻辑**：验证失败不会清除门状态，下次操作仍需重新验证（第 132-147 行）。
+  - `renderPanel()`：动态 `import('./AccountPanel')` 渲染（第 61-75 行）。
+  - `openBindDialog(container)`：查找 `account.bindOperator` 按钮点击开弹窗（Radix Portal 挂 `document.body`，第 81-86 行）。
+  - `findQueryBtn()`：从 `document.body` 查 `account.bindStatusQuery` 按钮（第 87-88 行）。
+  - `beforeEach`：`vi.resetModules()` 重置模块图使 `helloGate` 回 `firstFree`（第 45-54 行）。
+- **核心用例**：
+  - 用例 1：首次查询触发验证，后续复用（第 91-107 行）。
+  - 用例 2：验证通过后查看明文不二次验证（第 109-130 行）。
+  - 用例 3：验证失败不执行操作，下次仍需验证（第 132-149 行）。
 
 ## Architecture
 
@@ -200,62 +248,64 @@ tags: [构建, 发布, 根目录, Tauri, 前端结构]
 │  │ (工作约定)   │  │ LICENSE-ASSETS   │  │ (忽略规则)      │  │
 │  └─────────────┘  │ (双轨许可)        │  └────────────────┘  │
 │                   └──────────────────┘                       │
-│  ┌─────────────────────────────────────────────────────────┐  │
-│  │                 Build Scripts                           │  │
-│  │  clean-build-cache.ps1  ►  make-release.ps1            │  │
-│  │         ▲                      │                        │  │
-│  │         │                    ┌─▼──────────┐             │  │
-│  │         └────────────────────│ build.ps1   │             │  │
-│  │                              │ (Tauri Build)│             │  │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │                 Build Scripts                           │ │
+│  │  clean-build-cache.ps1  ►  make-release.ps1            │ │
+│  │         ▲                      │                        │ │
+│  │         │                    ┌─▼──────────┐             │ │
+│  │         └────────────────────│ build.ps1   │             │ │
+│  │                              │ (Tauri Build)│             │ │
 │  └──────────────────────────────┴──────────────┘             │
 │                                                              │
-│  ┌─────────────────────────────────────────────────────────┐  │
-│  │              tauri-app/frontend                         │  │
-│  │  index.html (Skeleton/Theme)  package.json (Deps)       │  │
-│  │  public/                                                    │  │
-│  │    ├── mock-tauri.js (API Shim)                          │  │
-│  │    └── mock-tauri-addon.js (Scenario Injector)           │  │
-│  │  src/                                                     │  │
-│  │    ├── account/ (Types, DeviceAliasDialog, HelloGate)    │  │
-│  │    └── auth/ (Dashboard, AboutDialog, Types)             │  │
-│  └─────────────────────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │              tauri-app/frontend                         │ │
+│  │  index.html (Skeleton/Theme)  package.json (Deps)       │ │
+│  │  public/                                                    │ │
+│  │    ├── mock-tauri.js (API Shim)                          │ │
+│  │    └── mock-tauri-addon.js (Scenario Injector)           │ │
+│  │  src/account/ (AccountPanel + HelloGate Test)            │ │
+│  └─────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow
 
 ### 构建与发布流
-1. **触发**：开发者运行 `make-release.ps1`。
-2. **编译**：脚本设置临时目录修复 MSVC 沙箱问题，调用 `tauri-app/build.ps1`。
-3. **产物生成**：
-   - `build.ps1` 执行前端 `vite build` 和后端 `tauri build`。
-   - 产物存入 `target/release/bundle`。
-   - `build.ps1` 将产物拷贝至 `tauri-release/` 并生成 `.sha256`。
-4. **资产汇总**：`make-release.ps1` 获取最新版本号，重命名安装包，收集 APK（如有）和 Release Notes，最终放入 `release/` 目录供 `gh release create` 上传。
+
+1. **触发**：开发者运行 `pwsh make-release.ps1`（第 1 行起）或 `pwsh tauri-app/build.ps1`。
+2. **编译**：`make-release.ps1` 调用 `npx tauri build`（第 48 行），`build.ps1` 执行前端 `npm run build`（第 86 行）与后端 `tauri build`（第 127-129 行）。
+3. **产物生成**：默认 `CARGO_TARGET_DIR=<root>\target`（build.ps1 第 112 行），`bundle\nsis\*-setup.exe` 产出（make-release.ps1 第 70-76 行）；`build.ps1` 拷至 `tauri-release/`（第 164-184 行）并生成 `.sha256`（第 189-193 行）。
+4. **资产汇总**：`make-release.ps1` 读 `tauri.conf.json` 版本（第 38 行），重命名安装包为 `Wxxy-CampusLogin_<ver>_<arch>-setup.exe`（第 81 行），收集 APK（第 96-110 行）与 `RELEASE_NOTES_v<ver>.md`（第 112-116 行），放入 `release/`（第 26、83 行）。
 
 ### 前端初始化流
-1. **加载**：浏览器加载 `index.html`。
-2. **主题判断**：内联脚本读取 `localStorage` 决定应用深色/浅色模式及自定义主题类。
-3. **骨架屏显示**：CSS 渲染骨架屏，JS 根据 `app-language` 显示对应语言的初始化提示。
-4. **Mock 注入（仅开发）**：若未连接 Tauri，加载 `mock-tauri.js` 和可选的 `mock-tauri-addon.js` 拦截 `__TAURI_INTERNALS__.invoke`，返回静态数据。
-5. **React 挂载**：`main.tsx` 启动应用，初始化 i18n 和 Zustand stores。
+
+1. **加载**：浏览器加载 `index.html`（第 1 行起）。
+2. **主题判断**：内联脚本读 `localStorage` 决定 `data-light`/`theme-*`/`data-glass`（第 9-26 行）。
+3. **骨架屏显示**：CSS 渲染 `sk-*` 占位，JS 按 `app-language` 显初始化提示（第 74-115 行）。
+4. **Mock 注入（仅开发）**：若未连 Tauri，`mock-tauri.js` 设 `window.__TAURI_INTERNALS__`（第 166 行），`mock-tauri-addon.js` 叠加场景（第 3 行）。
+5. **React 挂载**：`/src/main.tsx` 启动（第 116 行），初始化 i18n 与 Zustand。
 
 ### Hello Gate 状态流
-1. **模块级单例**：`AccountPanel` 内部维护 `isVerified` 标志。
-2. **首次操作**：当用户执行敏感操作（如查询绑定状态、查看明文密码）时，若 `isVerified` 为 false，则先调用 `verifyWindowsIdentity`。
-3. **验证成功**：`verifyWindowsIdentity` 返回 success -> `isVerified = true`。后续操作直接执行业务 API，不再触发生物识别。
-4. **验证失败**：`verifyWindowsIdentity` 返回失败 -> `isVerified` 保持 false 或重置，下次操作需重新验证。
-5. **模块重置**：测试环境中通过 `vi.resetModules()` 强制重新加载模块图，确保 `helloGate` 的单例状态回到初始的 `firstFree` 状态，保证用例隔离。
+
+1. **模块级单例**：`AccountPanel` 内 `helloGate` 维护 `isVerified`（测试第 52 行注释）。
+2. **首次操作**：敏感操作（查询绑定状态/查看明文）若未验证则先调 `verifyWindowsIdentity`（测试第 97-98 行）。
+3. **验证成功**：置 `verified`，后续操作共用不再弹（测试第 102-106 行）。
+4. **验证失败**：保持未验证，业务 API 调用 0 次，下次重验（测试第 138-147 行）。
+5. **模块重置**：测试 `vi.resetModules()` 强制重载模块图，保证用例隔离（测试第 53 行）。
 
 ## Connections
-- [[decisions/version-single-source-build-rs]]：版本号单一来源与构建流程关联。
-- [[decisions/release-asset-integrity]]：Release 资产完整性校验策略（SHA256）。
-- [[concepts/dual-platform-sharing]]：双端共享协议核心的架构决策。
-- [[learnings/android-host-cargo-check-fails]]：安卓端主机 cargo check 失败的应对方案。
+
+- [[decisions/version-single-source-build-rs]]：版本号单一来源（`tauri.conf.json` 的 `version`，AGENTS.md 第 7 行、make-release.ps1 第 38 行）。
+- [[decisions/release-asset-integrity]]：Release 资产完整性校验（`.sha256` 生成，build.ps1 第 189-193 行、make-release.ps1 第 91-93 行）。
+- [[concepts/dual-platform-sharing]]：双端共享协议核心（AGENTS.md 第 11 行、README 第 179 行）。
+- [[learnings/android-host-cargo-check-fails]]：安卓端 host cargo check 失败应对（AGENTS.md 第 16 行）。
 
 ## Known Issues
-- **Radix Portal 定位陷阱**：绑定表单（弹窗 B）使用 Radix Dialog/Portal，其 DOM 节点脱离 React 树，直接挂载在 `document.body`。测试中不能直接在 `container`（React 根容器）中查找弹窗内的按钮，必须使用 `document.body.querySelectorAll`。这是前端测试中常见的陷阱，源码注释明确指出了这一点。
-- **凭据来源变更**：注释指出：“凭据统一后绑定卡不再收集学号/自助服务密码...查询按钮直接可用”。这意味着 UI 逻辑简化，不再需要额外的输入框来收集自助服务密码，而是直接从 Store 获取信息。
-- **模块重置的重要性**：每个测试用例前必须调用 `vi.resetModules()`。如果不重置，第一个测试用例修改的门状态可能会污染后续用例，导致它们误以为已通过验证。
-- **验证失败不阻断门的存在，只阻断操作**：当 `verifyWindowsIdentity` 返回失败时，测试期望业务 API 调用次数为 0。同时，门的验证状态并未变为“成功”，因此下一次尝试仍需重新进行生物识别。这体现了最小权限原则。
-- **明文显示的实现**：明文密码直接渲染在按钮附近的 DOM 文本中。测试通过 `document.body.textContent` 断言其存在，而非检查特定的 React 状态或组件属性。
+
+- **Radix Portal 定位陷阱**：绑定表单（弹窗 B）用 Radix Dialog/Portal，DOM 脱离 React 树挂 `document.body`。测试中不能直接在 `container` 查按钮，必须从 `document.body.querySelectorAll` 查找（测试第 81-88 行注释明确）。
+- **凭据来源变更**：测试注释指出“凭据统一后绑定卡不再收集学号/自助服务密码...查询按钮直接可用”（测试第 77-80 行），UI 逻辑简化，直接从 Store 取信息。
+- **模块重置必要性**：每个用例前须 `vi.resetModules()`（测试第 53 行），否则首个用例改的门状态污染后续用例。
+- **验证失败不阻断门存在只阻断操作**：`verifyWindowsIdentity` 返回失败时业务 API 调用次数期望 0（测试第 138-141 行），门状态未变成功，下次仍须重验。
+- **明文显示实现**：明文密码直渲在按钮附近 DOM 文本，测试用 `document.body.textContent` 断言（测试第 123-129 行），非 React 状态。
+- **测试基线文档不一致**：AGENTS.md 第 15 行记 `cargo test` 基线 397 用例（2026-09-22），README.md 第 186-188 行记 432 单测 + 4 集成；前端 README 第 193-195 行记 103 测试。两文档未同步，实际以 CodeWiki `decisions/verification-baseline` 为准（AGENTS.md 第 15 行指向）。
+- **构建脚本被 git 忽略**：`.gitignore` 第 67-69 行忽略 `tauri-app/build.ps1` 与 `clean-build-cache.ps1`，`make-release.ps1` 被第 12-13 行注释说明为“仅本地保留不随仓库分发”并显式忽略，意味着这些脚本改动不进版本控制。

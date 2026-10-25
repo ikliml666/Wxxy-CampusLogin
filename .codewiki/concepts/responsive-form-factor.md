@@ -1,6 +1,6 @@
 ---
-type: concept
 title: responsive-form-factor
+type: concept
 source_files:
   - android/frontend/src/App.tsx
   - android/frontend/src/components/tablet/TabletShell.tsx
@@ -20,76 +20,103 @@ tags:
 
 ## Overview
 
-`responsive-form-factor` 是 Android 前端应用（基于 Tauri）的核心架构概念，旨在通过设备形态（Form Factor）的动态识别，实现同一代码库对手机（Phone）与平板（Tablet）两种截然不同的交互范式的自适应支持。该概念并非简单的 CSS 媒体查询适配，而是深入到路由分发、容器布局、导航结构及组件聚合层面的响应式机制。
+`responsive-form-factor` 是 Android 前端（Tauri + React）的核心自适应架构概念：通过 `useFormFactor` Hook 在运行时依据短边尺寸（sw600dp 语义）判定设备为 `phone` 或 `tablet`，在应用入口 `App.tsx` 动态分发至两套同源但布局范式迥异的外壳——手机端 `AppInner`（底部导航 + 单列卡流）与平板端 `TabletShell`（桌面 Dock 布局 + 多栏面板）。两套外壳复用同一批业务面板组件（如 `MobileDashboard`、`AccountPanel`、`MonitorPanel`），仅通过容器差异、导航结构、触控缩放系数及动画策略适配不同屏幕，共享 Zustand 状态 Stores，确保逻辑一致性与空间利用率最大化。
 
-系统通过 `useFormFactor` Hook 获取当前设备形态标识，在应用启动阶段（`App.tsx`）决定渲染“手机端双壳”还是“平板端单壳”。这一决策直接影响了全局状态管理的上下文、导航栏的呈现方式（底部 Tab vs Dock 栏）、面板内容的组织逻辑（Dashboard vs 多栏布局）以及触控优化的策略。其核心目标是确保在保持业务逻辑一致性的前提下，最大化利用不同尺寸屏幕的空间优势与交互习惯。
+## Key Components
 
-## Involved Modules
+- **android/frontend/src/hooks/useFormFactor.ts**
+  - `FormFactor` 类型（行9）：`'phone' | 'tablet'`，设备形态标识。
+  - `Orientation` 类型（行10）：`'portrait' | 'landscape'`，屏幕方向。
+  - `TABLET_MIN_EDGE_PX` 常量（行13）：`600`，平板短边 CSS px 阈值。
+  - `detectFormFactor()`（行15-17）：取 `Math.min(innerWidth, innerHeight) >= 600` 返回 `FormFactor`。
+  - `detectOrientation()`（行19-21）：宽≥高返回 `'landscape'`。
+  - `useViewportMeasure<T>(calc)`（行24-36）：订阅 `resize`/`orientationchange` 重算度量。
+  - `useFormFactor()`（行38-40）：导出 Hook，返回 `FormFactor`。
+  - `useOrientation()`（行43-45）：导出 Hook，返回 `Orientation`。
 
-本概念主要涉及以下模块，它们共同构成了响应式行为的定义、判断与执行层：
+- **android/frontend/src/App.tsx**
+  - `AppInner` 组件（行52-359）：手机外壳，含绝对定位轻 header（行202-260）、`main` 滚动区（行270-297）、`BottomNav`（行299）、各类弹窗及 `MobileQuickActions` 挂载（行263-267）。
+  - `tab` state（行57-62）：`MobileTab` 类型，白名单 `['dashboard','account','selfservice','quality','monitor','more']` 持久化于 `safeStorage`。
+  - `tabOrder`（行70-76）：依 `configEnableNetworkQuality` 决定第4位为 `quality` 或 `monitor`。
+  - `handleTabChange(next)`（行119-127）：计算方向 `navDir` 并写入存储。
+  - `App` 默认导出（行363-375）：`useFormFactor()` 分支渲染 `TabletShell` 或 `AppInner`，共用 `FaceCaptureDialog` 与 `NotificationPermissionGate`。
+  - `NotificationPermissionGate`（行381-405）：首启请求通知权限。
 
-1.  **`android-frontend-app-shell`**
-    *   **角色**：响应式外壳与布局系统的执行者。
-    *   **职责**：包含核心的 `App.tsx` 入口，负责根据形态条件渲染 `MobileDashboard`（手机首页）或 `TabletShell`（平板容器）。定义了 `BottomNav`（移动端）与 `DockNav`（平板/桌面端）两种导航模式，并处理全局弹窗、主题及通知权限的门控。
-2.  **`android-frontend-hooks-and-stores`**
-    *   **角色**：形态检测的基础设施提供者。
-    *   **职责**：提供 `useFormFactor` Hook，用于在运行时动态判断当前设备是 Mobile 还是 Tablet。同时提供 `useAdaptiveFramePace` 等性能优化 Hook，针对移动端 WebView 环境进行帧率自适应。
-3.  **`android-frontend-auth`**
-    *   **角色**：仪表盘内容的形态差异化消费者。
-    *   **职责**：其导出的 `DashboardPanel` 在手机端作为主视图展示，而在平板端可能被嵌入更复杂的布局中。`AboutDialog` 等组件需适应不同容器的尺寸约束。
-4.  **`android-frontend-settings`**
-    *   **角色**：配置交互的形态适配者。
-    *   **职责**：`OnboardingWizard` 和 `SettingsPanel` 需根据形态调整窗口行为（如全屏引导 vs 对话框），`KeepAliveSettingsCard` 等组件在不同布局下的占比与交互逻辑也受此概念影响。
-5.  **`android-frontend-entry-config`**
-    *   **角色**：视觉与样式的底层支撑。
-    *   **职责**：通过 `index.css` 定义全局 CSS 变量（如 `--glass-blur`, `--content-zoom`），为不同形态下的玻璃拟态效果、缩放系数及触控区域提供统一的样式基础。
+- **android/frontend/src/components/tablet/TabletShell.tsx**
+  - `PANEL_TITLES`（行54-63）：面板标题/描述 i18n key 映射（不含 network）。
+  - `PANEL_CONTAINER_STYLE`（行66）：`contain: 'layout style'`。
+  - `TOPBAR_ZOOM`（行71）=1.3、`CONTENT_ZOOM`（行72）=0.9：平板触屏缩放系数。
+  - `TabletShellInner`（行74-380）：平板外壳，使用 `useAdapterStore` 的 `activePanel`（行79）、`useOrientation` 控制右栏（行125-129），渲染 `TitleBar`/`StatusBar`（zoom 1.3）、`main`（zoom 0.9）、`RightPanel`（仅横屏）、`DockNav`、看板娘及弹窗。
+  - `handlePanelChange`（行133-141）：带锁切换面板并持久化。
+  - `TabletShell` 导出（行382-388）：`ErrorBoundary` 包裹 `TabletShellInner`。
 
-## Flow
+- **android/frontend/src/components/mobile/MobileDashboard.tsx**
+  - `LampState` 类型（行22）：`'online'|'offline'|'loading'|'error'`。
+  - `LAMP_COLOR`（行24-29）：状态灯颜色映射。
+  - `noopAsync`（行32）：异步空操作（排除 DHCP 续租）。
+  - `EXCLUDED_CARDS`（行35）：`['quickActions']`。
+  - `MobileStatusCard`（行38-96）：手机状态卡，仅 `formFactor==='phone'` 显示运营商（行81）。
+  - `MobileMonitorCard`（行99-139）：监控摘要卡，含 Radix Switch。
+  - `MobileDashboard`（行141-168）：注入 `extraCards` 至 `DashboardPanel`，排除 `quickActions`。
 
-数据与控制流在 `responsive-form-factor` 概念中的流转过程如下：
+- **android/frontend/src/components/mobile/MobileMore.tsx**
+  - `MoreTab` 类型（行19）：`'monitor'|'speedtest'|'log'|'settings'`。
+  - `TABS`（行21-26）：chips 定义，`monitor` 标记 `qualityOnly`。
+  - `MobileMore`（行33-83）：聚合页，依 `qualityEnabled` 过滤 tabs（行37），降级 `monitor` 子页（行40）。
 
-1.  **形态检测与初始化**
-    *   应用启动时，`android-frontend-hooks-and-stores` 中的 `useFormFactor` Hook 执行设备形态检测逻辑（通常基于屏幕尺寸比例或 Tauri 平台特性）。
-    *   检测结果作为布尔值或枚举类型，向上抛出至 `android-frontend-app-shell` 的根组件 `App.tsx`。
+- **android/frontend/src/components/mobile/MobileQuickActions.tsx**
+  - `MobileQuickActions`（行14-78）：首页悬浮登录/注销双胶囊，先绑 WLAN 再 `doLogin`。
 
-2.  **路由分支与容器选择**
-    *   在 `App.tsx` (行 364-368) 中，依据 `useFormFactor` 的结果进行条件渲染：
-        *   **Mobile**: 渲染 `AppInner`，内部挂载 `MobileDashboard` (行 149-164)，使用 `BottomNav` (行 20-35) 作为底部导航，强调单手操作与全屏内容。
-        *   **Tablet**: 渲染 `TabletShell` (行 133-222)，内部挂载 `DockNav` (行 41-169) 作为侧边/顶部导航，启用多栏布局与更大的交互热区。
+- **android/frontend/src/components/layout/BottomNav.tsx**
+  - `MobileTab` 类型（行18）：`'dashboard'|'account'|'selfservice'|'quality'|'monitor'|'more'`。
+  - `TABS`（行20-25）：基础底栏项（含 more）。
+  - `QUALITY_TAB`/`MONITOR_TAB`（行27-28）：动态第4位。
+  - `useNavTabs()`（行30-35）：依 `qualityEnabled` 插入对应项。
+  - `BottomNav`（行37-152）：磨砂玻璃胶囊栏，集成 `useGlassRefraction` 与 `useDockLens` 镜头放大。
 
-3.  **导航与布局适配**
-    *   **移动端**：`BottomNav` 结合 `useDockLens` (来自 `android-frontend-lib-and-i18n`) 实现镜头放大效果，点击触发面板切换动画。`MobileMore` (行 36-40) 聚合额外页面。
-    *   **平板端**：`DockNav` 处理登录/注销按钮及加载动画，基于配置过滤导航项。`TabletShellInner` 负责面板的分片渲染与 GSAP 动画管理，支持更复杂的多任务视图。
+- **android/frontend/src/components/layout/DockNav.tsx**
+  - `ICON_MAP`（行30-39）：面板 id 至图标映射。
+  - `DockItem`（行41-85）：Dock 项，激活显标签，hover tooltip。
+  - `ActionButton`（行88-169）：登录/注销按钮，GSAP 旋转与脉冲。
+  - `DockNav`（行176-295）：memo 组件，过滤 `NAV_ITEMS`（行185），集成玻璃与镜头，渲染登录/注销。
 
-4.  **状态与配置的共享与隔离**
-    *   无论何种形态，均共享 `android-frontend-hooks-and-stores` 中的 Zustand Stores (`useAuthStore`, `useConfigStore`)。
-    *   但 UI 层通过 `isAndroid` 常量及形态判断，对特定字段进行差异化渲染（如 `settings` 模块中的自动启动开关字段名差异）。
+## Architecture
 
-5.  **性能与安全降级**
-    *   在检测到移动端 WebView 环境时，`useAdaptiveFramePace` 介入，降低非活跃页面的帧率以节省电量。
-    *   `RightPanel` (行 148-157) 实施性能分片渲染，防止长日志列表导致的卡顿。
-    *   所有形态下，敏感操作（如运营商绑定）均强制通过 `android-frontend-account` 中的生物识别门控 (`useHelloGate`)。
+```text
+┌───────────────────────┐     ┌──────────────────────┐
+│ useFormFactor.ts      │     │ App.tsx (App)        │
+│ useFormFactor()       │────►│ formFactor === tablet│
+└───────────────────────┘     └──────────────────────┘
+                                  │
+                    ┌─────────────┴─────────────┐
+                    ▼                           ▼
+┌───────────────────────┐     ┌──────────────────────┐
+│ AppInner (phone)      │     │ TabletShell (tablet)  │
+│ BottomNav + Main      │     │ TitleBar/StatusBar    │
+│ MobileDashboard etc.  │     │ DockNav + RightPanel  │
+│ MobileQuickActions    │     │ MobileDashboard etc.  │
+└───────────────────────┘     └──────────────────────┘
+        │                                   │
+        └─────── shared Zustand stores ─────┘
+```
 
-## Implementation Map
+## Data Flow
 
-关键实现位置与文件行号映射：
+1. **形态检测**：`App.tsx` 行364 调用 `useFormFactor()`（useFormFactor.ts 行38），返回 `phone`/`tablet`。
+2. **外壳分支**：行368 三元渲染 `TabletShell` 或 `AppInner`。
+3. **手机导航流**：`BottomNav` 点击 → `handleTabChange`（App.tsx 行119）设 `tab` state → `deferredTab` 驱动 `panelContent` switch（行149-192）与 `AnimatePresence` 方向转场（行281）。
+4. **平板导航流**：`DockNav` 点击 → `handlePanelChange`（TabletShell.tsx 行133）设 `useAdapterStore.activePanel` → `deferredPanel` 驱动面板 switch（行160-222）与淡入淡出。
+5. **配置依赖**：`useConfigStore.config.enableNetworkQuality` 控制手机底栏第4位（App.tsx 行74）与平板 `NAV_ITEMS` 过滤（DockNav.tsx 行185），并在配置晚到时降级错误页签（App.tsx 行131-136，MobileMore.tsx 行40）。
+6. **横竖屏适配**：平板 `useOrientation()`（TabletShell.tsx 行125）切换右栏显隐与看板娘偏移。
 
-*   **形态检测 Hook**:
-    *   `android/frontend/src/hooks/useFormFactor.ts`: 核心逻辑所在，返回设备形态标识。
+## Connections
 
-*   **应用入口与路由分发**:
-    *   `android/frontend/src/App.tsx` (行 364-368): 根据 `useFormFactor` 结果切换 `AppInner` (Mobile) 与 `TabletShell` (Tablet)。
-    *   `android/frontend/src/App.tsx` (行 57-62, 70-76): Tab 持久化与动态顺序调整逻辑，适配不同形态下的导航状态。
+相关模块：[[android-frontend-app-shell]] [[android-frontend-hooks-and-stores]] [[android-frontend-auth]] [[android-frontend-settings]] [[android-frontend-entry-config]]
 
-*   **移动端布局组件**:
-    *   `android/frontend/src/components/mobile/MobileDashboard.tsx` (行 149-164): 注入移动端专属卡片，排除非移动端功能。
-    *   `android/frontend/src/components/layout/BottomNav.tsx` (行 20-35): 导出 `MobileTab` 类型，实现底部导航与镜头效果。
-    *   `android/frontend/src/components/mobile/MobileMore.tsx` (行 36-40): “更多”页签聚合容器。
+## Known Issues
 
-*   **平板端布局组件**:
-    *   `android/frontend/src/components/tablet/TabletShell.tsx` (行 133-222): `TabletShellInner` 处理面板渲染逻辑，ErrorBoundary 包装器 (行 382-388)。
-    *   `android/frontend/src/components/layout/DockNav.tsx` (行 41-169): 平板/桌面 Dock 导航，处理加载动画与配置过滤 (行 185)。
-
-*   **视觉与样式约定**:
-    *   `android/frontend/src/index.css`: 定义 `--glass-blur`, `--content-zoom` 等 CSS 变量，支撑不同形态下的玻璃拟态与缩放体验。
-    *   `android/frontend/src/lib/dock-lens.ts` (行 89-430): `useDockLens` Hook，实现 Dock 栏放大与果冻形变，被 `BottomNav` 和 `DockNav` 复用。
+- **KI#14 白名单遗漏**：手机 `tab` 初始白名单必须覆盖 `handleTabChange` 可写全部页签（含 `monitor`），否则后台杀进程重开回落 `dashboard`（App.tsx 行59-61）。质量开启后跨会话恢复的 `monitor` 需在配置就绪后归位 `quality`（行131-136）。
+- **平板竖屏右栏隐藏**：`isLandscape` 为假时 `--right-panel-width` 置 0，右栏不渲染（TabletShell.tsx 行125-129, 295-300），日志仅能经 Dock 面板访问。
+- **CSS zoom 副作用**：平板通过 `TOPBAR_ZOOM=1.3`/`CONTENT_ZOOM=0.9` 触屏适配（行71-72, 232, 249, 256），仅 WebView 支持，不影响手机外壳。
+- **质量默认关闭**：手机顶栏质量胶囊隐藏（App.tsx 行237），底栏第4位由 `monitor` 补位（行74）；`MobileMore` 中 `monitor` 子页因 `qualityOnly` 被过滤（MobileMore.tsx 行25,37）。
+- **首启引导时序**：无账号时手机（App.tsx 行138-146）与平板（TabletShell.tsx 行146-151）均弹 `OnboardingWizard`，标记由向导写 `campus-onboarding-done`，未完继续引导。

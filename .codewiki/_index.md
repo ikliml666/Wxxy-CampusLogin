@@ -205,7 +205,6 @@
 - [[modules/outbound-switch|夜间出站自动切换判定（outbound_switch）]]
 - [[decisions/night-outbound-switch|夜间出站自动切换（出站层夜切）]]
 - [[decisions/android-persistent-notification-standard|安卓前台服务与常驻通知标准协议实现]]
-- [[modules/android-frontend-core|安卓前端 - 运行时核心（入口 / 领域 store / 钩子 / 外壳组件）]]
 - [[modules/android-frontend-panels|安卓前端 - 面板层（总览 / 账号 / 自助 / 监控 / 质量 / 设置 / 日志）]]
 - [[learnings/android-notify-online-pinned-by-offline-guard|安卓后台监控循环与在线状态机]]
 - [[modules/android-backend|安卓端后端]]

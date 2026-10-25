@@ -16,180 +16,141 @@ tags: [android, network, dns, face-verification, tauri]
 
 ## Overview
 该模块包含两个核心功能子系统：**网络面板**（`NetworkPanel`）与 **2D 人脸验证系统**（`FaceCaptureDialog` + `faceService`）。
-1. **网络面板**：提供夜间出站开关配置、避免劣质 Wi-Fi 引导（ADB 命令复制与安全设置恢复）、DNS 质量检测与 DoH（DNS over HTTPS）一键优化。支持 IPv4/IPv6/双栈选择，展示各网络适配器的 DNS 服务器状态及 DoH 启用情况。
-2. **人脸验证**：基于 `@vladmandic/human` 库的本地 2D 人脸录入与验证。模型不打包 APK，首次使用时从 GitHub/镜像动态下载。包含相机管理、动作挑战（眨眼/转头）、描述子模板存储（安全存储）及比对逻辑。作为生物识别不可用时的回退方案。
+1. **网络面板**：提供夜间出站开关配置、避免劣质 Wi-Fi 引导（ADB 命令复制与安全设置恢复）、DNS 质量检测与 DoH（DNS over HTTPS）一键优化。支持 IPv4/IPv6/双栈选择，展示各网络适配器的 DNS 服务器状态及 DoH 启用情况。当前 UI 组件（如 `NetworkPanel.tsx`、`DnsAdapterCard.tsx`）未直接导入使用 `constants.ts` 中的 `QUALITY_CONFIG`，而是采用硬编码的 Tailwind 样式类渲染徽章。
+2. **人脸验证**：基于 `@vladmandic/human` 库的本地 2D 人脸录入与验证。模型不打包 APK（v2.4.0），首次使用时从 GitHub/镜像动态下载。包含相机管理、动作挑战（眨眼/转头）、描述子模板存储（安全存储）及比对逻辑。作为生物识别不可用时的回退方案。
 
 ## Key Components
 
 ### Network Module (`android/frontend/src/network/`)
 
-#### Constants & Types
-- **`QUALITY_CONFIG`** (`constants.ts` | 1-11): 定义网络质量的视觉样式映射（标签、颜色、图标、活跃柱状条数等）。键名包括 `excellent`, `great`, `good`, `fair`, `poor`, `bad`, `unknown`, `disabled`, `busy`。
-- **`AdapterStatus`** (`types.ts` | 1): 适配器状态枚举：`'disabled' | 'disconnected' | 'enabledNoIp' | 'connected'`。
-- **`Adapter`** (`types.ts` | 3-13): 基础适配器接口，字段：`name`, `ip`, `wireless`, `guid?`, `mac`, `ifIndex`, `status`, `linkSpeed?`。
-- **`AdapterDetail`** (`types.ts` | 15-27): 详细适配器接口，继承基础字段并增加：`subnetMask`, `gateway`, `dhcpServer`。
-- **`DnsAdapterInfo`** (`types.ts` | 36-42): DNS 适配器信息接口，字段：`name`, `dnsSource`, `dnsServers[]`, `profileDnsServers[]`, `adapterDnsOverridesProfile`。
-- **`DnsDohStatus`** (`types.ts` | 44-49): DNS/DoH 状态接口，字段：`adapters[]`, `dohSupported`, `autoDohEnabled`, `dnsSource?`。
-- **`DnsSetupResult`** (`types.ts` | 61-68): DNS 设置结果接口，字段：`success`, `message`, `dnsSuccess?`, `dnsFailed?`, `dohAdded?`, `dohFailed?`。
+#### Constants & Types (`constants.ts`, `types.ts`, `index.ts`)
+- **`QUALITY_CONFIG`** (`constants.ts` | 1-11)：网络质量视觉样式映射常量。键名包括 `excellent`, `great`, `good`, `fair`, `poor`, `bad`, `unknown`, `disabled`, `busy`。各键值包含：`label` (极速/优秀等), `labelKey`, `color`, `bg`, `border`, `borderBg`, `icon`, `hex`, `activeBars` (1-5), `glow`。
+- **`AdapterStatus`** (`types.ts` | 1)：适配器状态类型 `'disabled' | 'disconnected' | 'enabledNoIp' | 'connected'`。
+- **`Adapter`** (`types.ts` | 3-13)：基础适配器接口。字段：`name` (string), `ip` (string), `wireless` (boolean), `guid?` (string), `mac` (string), `ifIndex` (number), `status` (AdapterStatus), `linkSpeed?` (number, 连接速度 bit/s，0 表示未知)。
+- **`AdapterDetail`** (`types.ts` | 15-27)：详细适配器接口。字段包含 `Adapter` 全部字段，另含：`subnetMask` (string), `gateway` (string), `dhcpServer` (string)。
+- **`DnsServerInfo`** (`types.ts` | 29-34)：DNS 服务器信息接口。字段：`address` (string), `dohAvailable` (boolean), `dohEnabled` (boolean), `dohTemplate` (string)。
+- **`DnsAdapterInfo`** (`types.ts` | 36-42)：DNS 适配器信息接口。字段：`name` (string), `dnsSource` (string), `dnsServers` (DnsServerInfo[]), `profileDnsServers` (DnsServerInfo[]), `adapterDnsOverridesProfile` (boolean)。
+- **`DnsDohStatus`** (`types.ts` | 44-49)：DNS/DoH 状态接口。字段：`adapters` (DnsAdapterInfo[]), `dohSupported` (boolean), `autoDohEnabled` (boolean), `dnsSource?` (string)。
+- **`DhcpRenewResult`** (`types.ts` | 51-54)：DHCP 续租结果接口。字段：`success` (boolean), `results` ({name: string, success: boolean}[])。
+- **`DhcpReleaseRenewResult`** (`types.ts` | 56-59)：DHCP 释放续租结果接口。字段：`success` (boolean), `results` ({name: string, wireless: boolean, ip: string, regOk: boolean, success: boolean, skipped: boolean, reason: string | null}[])。
+- **`DnsSetupResult`** (`types.ts` | 61-68)：DNS 设置结果接口。字段：`success` (boolean), `message` (string), `dnsSuccess?` (string[]), `dnsFailed?` (string[]), `dohAdded?` (string[]), `dohFailed?` (string[])。
+- **`EnableAdapterResult`** (`types.ts` | 70-72)：启用适配器结果接口。字段：`success` (boolean), `message?` (string)。
+- **`index.ts`** (`index.ts` | 1-4)：模块导出入口。导出 `NetworkPanel`，并重导出 `types.ts` 与 `constants.ts` 的全部内容。
 
-#### UI Components
-- **`NetworkPanel`** (`NetworkPanel.tsx` | 25-288): 主设置面板组件。
-    - **Props**: `onUpdateConfig(partial: Partial<Config>)`。
-    - **State**: `config` (from `useConfigStore`), `secureStatus` (AvoidBadWifiStatus), `restoring`, `adbCopied`。
-    - **Sub-components**:
-        - **Night Outbound Switch Card**: 控制 `enableNightOutboundSwitch`。包含 ADB 授权引导、安全设置还原按钮。
-        - **DNS Optimization Card**: 包含 IPv4/IPv6/Both 切换 (`SegmentTabs`)、检测按钮 (`handleCheckDns`)、一键优化按钮 (`handleSetupDnsDoh`)。渲染 `DnsAdapterCard` 列表。
-- **`DnsAdapterCard`** (`DnsAdapterCard.tsx` | 13-60): 单个网络适配器的 DNS 详情卡片。
-    - **Props**: `adapter: DnsAdapterInfo`, `autoDohEnabled: boolean`。
-    - **Render**: 显示适配器名称、DNS 质量徽章（DNS+DoH / DNS / Pending / Not Configured）、源类型徽章（PerProfile / PerAdapter）、DNS 服务器行列表、配置文件级 DNS 警告、配置文件级 DNS 列表。
-- **`getDnsQuality`** (`DnsAdapterCard.tsx` | 63-83): 计算 DNS 质量的纯函数。返回 `{ level, label }`。逻辑：若有效服务器为空或 DHCP 则为 `none`；若有推荐 DNS 且 DoH 激活则为 `excellent`；有推荐 DNS 但无 DoH 为 `good`；否则为 `basic`。
-- **`DnsServerRow`** (`DnsAdapterCard.tsx` | 89-120): DNS 服务器单行组件。
-    - **Props**: `dns`, `detailed?: boolean`。
-    - **Render**: 地址文本（推荐则绿色）、提供商标签（阿里/腾讯）、DoH 状态图标（已启用/可用/不可用）、详细模式下显示 DoH 模板或“可启用”提示。
+#### UI Components (`NetworkPanel.tsx`, `DnsAdapterCard.tsx`)
+- **`NetworkPanel`** (`NetworkPanel.tsx` | 25-288)：主设置面板组件。接收 `onUpdateConfig: (partial: Partial<Config>) => void` (21-23)。自订阅 `useConfigStore` 的 `config` (29)，`useQualityStore` 的 `dnsDohStatus` / `dnsChecking` (40-41)。使用 `useDnsSetup` 管理 DNS 逻辑 (43)。
+    - 包含 `familyTabs` 定义 (44-48)，用于 IPv4/IPv6/Both 切换。
+    - **夜间出站开关卡片** (`NetworkPanel.tsx` | 112-189)：控制 `config.enableNightOutboundSwitch` (123-124)。含 `handleCopyAdbCommand` (52-60，复制 `network.avoidBadWifiCommand`)、`handleCopyGrantCommand` (79-87，复制授权命令)、`refreshSecureStatus` (66-74，获取 `AvoidBadWifiStatus`)、`handleRestoreWritten` (89-108，恢复写入的安全设置)。
+    - **DNS 优化卡片** (`NetworkPanel.tsx` | 191-285)：包含检测 (`handleCheckDns`) 与一键优化 (`handleSetupDnsDoh`) 按钮 (204-238)，渲染 `DnsAdapterCard` 列表 (272-274)。
+- **`DnsAdapterCard`** (`DnsAdapterCard.tsx` | 13-60)：单适配器 DNS 卡片。Props：`adapter: DnsAdapterInfo`, `autoDohEnabled: boolean`。展示适配器名称、质量徽章（`excellent`=DNS+DoH 22行、`good`=DNS 23行、`basic`=待优化 24行、`none`=未配置 25行）、源类型徽章（`profile` 27行 / `manual` 30行）、DNS 服务器行（`DnsServerRow` 35-37）、适配器覆盖配置文件警告（42-47）、配置文件级 DNS 列表（49-56）。
+- **`getDnsQuality`** (`DnsAdapterCard.tsx` | 63-83)：计算 DNS 质量纯函数。入参包含 `adapter`、`autoDohEnabled`、`t`。逻辑：若有效服务器为空或 `dnsSource === 'dhcp'` 返回 `none` (77)；包含推荐 DNS 且 DoH 激活返回 `excellent` (80)；仅包含推荐返回 `good` (81)；其余返回 `basic` (82)。
+- **`DnsServerRow`** (`DnsAdapterCard.tsx` | 89-120)：DNS 单行组件。Props：`dns` ({address, dohEnabled, dohAvailable, dohTemplate}), `detailed?`。通过 `RECOMMENDED_DNS` 判断阿里/腾讯归属 (94, 102)。若 `detailed` 为 true 则显示 DoH 模板或“可启用”提示 (112-117)。
 
-#### Hooks & Logic
-- **`useDnsSetup`** (`useDnsSetup.ts` | 22-88): DNS 检测与优化逻辑 Hook。
-    - **State**: `dohEnabling`, `dnsFamily` ('both' | 'ipv4' | 'ipv6')。
-    - **Methods**:
-        - `handleCheckDns`: 调用 `ipc.checkDnsDohStatus()`，更新 `useQualityStore`，根据结果弹出警告 Toast（未使用推荐 DNS 或 DoH 未启用）。
-        - `handleSetupDnsDoh`: 调用 `ipc.setupDnsDoh(dnsFamily)`，成功后刷新状态，失败弹出错误 Toast。
-    - **Constants**: `ALI_DNS`, `RECOMMENDED_DNS` (含阿里和腾讯 DNS IP)。
-- **`NetworkPanel` Internal Handlers**:
-    - `handleCopyAdbCommand`: 复制避免劣质 Wi-Fi 命令到剪贴板。
-    - `handleCopyGrantCommand`: 复制授予权限的 ADB 命令。
-    - `handleRestoreWritten`: 尝试通过 IPC 恢复写入的安全设置，并刷新状态。
-    - `refreshSecureStatus`: 获取 `AvoidBadWifiStatus`。
+#### Hooks & Logic (`useDnsSetup.ts`)
+- **`ALI_DNS` / `TENCENT_DNS` / `RECOMMENDED_DNS`** (`useDnsSetup.ts` | 11-13)：DNS 推荐集合（阿里公共 DNS + 腾讯 DNSPod）。
+- **`DnsFamily`** (`useDnsSetup.ts` | 15)：类型 `'both' | 'ipv4' | 'ipv6'`。
+- **`useDnsSetup`** (`useDnsSetup.ts` | 22-88)：DNS 检测与优化逻辑 Hook。返回 `dnsFamily`, `setDnsFamily`, `dohEnabling`, `handleCheckDns`, `handleSetupDnsDoh`。
+    - `handleCheckDns` (`useDnsSetup.ts` | 37-59)：调用 `ipc.checkDnsDohStatus()`，更新 `useQualityStore`，根据结果弹警告 Toast。
+    - `handleSetupDnsDoh` (`useDnsSetup.ts` | 61-85)：调用 `ipc.setupDnsDoh(dnsFamily)`，成功后刷新状态，失败弹错误 Toast。
 
 ### Face Verification Module (`android/frontend/src/face/`)
 
-#### UI Components
-- **`FaceCaptureDialog`** (`FaceCaptureDialog.tsx` | 28-46): 人脸录入/验证弹窗容器。
-    - **Props**: None (controlled by store).
-    - **Logic**: 监听 `useFaceDialogStore` 的 `open` 和 `mode`。当 `open` 为真时渲染 `CaptureFlow`。关闭时调用 `closeFaceDialog`。
-- **`CaptureFlow`** (`FaceCaptureDialog.tsx` | 48-196): 实际的人脸处理流程组件。
-    - **Props**: `mode: 'enroll' | 'verify'`, `onClose: (r) => void`。
-    - **State**: `phase` ('starting' | 'running' | 'success' | 'error'), `facePresent`, `progress`, `challenge`, `errorKey`, `modelPercent`, `attempt`。
-    - **Effect**:
-        1. 确保模型就绪 (`ensureFaceModels`)。
-        2. 打开相机 (`openCamera`)。
-        3. 根据 `mode` 执行 `enrollFace` 或 `verifyFace`。
-        4. 清理：关闭相机，释放引擎 (`releaseFaceEngine`)。
-    - **Render**: 视频预览区域（不同 phase 显示不同 overlay），操作提示文字，取消按钮。
+#### UI Components (`FaceCaptureDialog.tsx`)
+- **`CHALLENGE_KEY`** (`FaceCaptureDialog.tsx` | 23-26)：`FaceChallenge` 到 i18n key 的映射（`blink` -> `face.challengeBlink`, `turn` -> `face.challengeTurn`）。
+- **`FaceCaptureDialog`** (`FaceCaptureDialog.tsx` | 28-46)：人脸录入/验证弹窗容器。由 `useFaceDialogStore` 的 `open`/`mode` 驱动，挂载 `CaptureFlow` (42)。
+- **`CaptureFlow`** (`FaceCaptureDialog.tsx` | 48-196)：实际人脸处理流程组件。Props：`mode: 'enroll' | 'verify'`, `onClose`。状态：`phase` ('starting'|'running'|'success'|'error'), `facePresent`, `progress`, `challenge`, `errorKey`, `modelPercent`, `attempt`。
+    - Effect (`FaceCaptureDialog.tsx` | 61-122)：调用 `ensureFaceModels` (67)，`openCamera` (80)，根据 `mode` 执行 `enrollFace`/`verifyFace` (90-112)，清理调用 `closeCamera` 和 `releaseFaceEngine` (116-121)。重试按钮通过 `setAttempt` (159) 重跑流程。
 
-#### Services & Store
-- **`faceService.ts`**: 核心业务逻辑。
-    - **Constants**:
-        - `MATCH_THRESHOLD = 0.55` (`faceService.ts` | 25): 相似度阈值。
-        - `ENROLL_FRAMES = 8` (`faceService.ts` | 27): 录入采样帧数。
-        - `ENROLL_TIMEOUT_MS = 20_000` (`faceService.ts` | 29): 录入超时。
-        - `CHALLENGE_TIMEOUT_MS = 10_000` (`faceService.ts` | 31): 挑战超时。
-        - `POLL_INTERVAL_MS = 120` (`faceService.ts` | 33): 检测轮询间隔。
-        - `DETECT_SCORE_MIN = 0.85` (`faceService.ts` | 35): 检测分数下限。
-        - `TEMPLATE_KEY = 'campus-2d-face-template'` (`faceService.ts` | 22): 模板存储键。
-    - **Functions**:
-        - `ensureFaceModels(onProgress?)`: 确保模型目录就绪。若未就绪则触发下载 (`downloadModels`)。共享 Promise 防止重复下载。
-        - `downloadModels(onProgress?)`: 调用 Tauri command `face_models_download`，监听 `face-models-download-progress` 事件计算整体进度。
-        - `getHuman()`: 懒加载 `@vladmandic/human` 实例。进行 WebGL warmup。使用 `engineGen` 防止竞态。
-        - `releaseFaceEngine()`: 释放引擎资源。自增 `engineGen`，重置 `humanInstance` 和 `humanInitPromise`。处理孤儿实例。
-        - `openCamera(video)`: 请求用户摄像头权限并绑定到 `<video>` 元素。
-        - `closeCamera(video)`: 停止媒体流轨道。
-        - `detectOnce(h, video)`: 单次检测。提取 `score`, `embedding`, `gestures`, `eyesClosed`。眨眼判定基于 mesh 比率 (`faceService.ts` | 210-214)。
-        - `loadTemplate()` / `hasTemplate()` / `clearTemplate()` / `saveTemplate(d)`: 模板存取操作，使用 `safeStorage`。
-        - `enrollFace(video, onProgress, onFacePresence?)`: 录入流程。循环采样直到达到 `ENROLL_FRAMES` 或超时。过滤低分和非正脸帧。计算均值向量并保存。
-        - `verifyFace(video, onChallenge, onFacePresence?)`: 验证流程。随机选择 `blink` 或 `turn` 挑战。等待挑战完成。挑战通过后进行最多 3 次相似度比对。
-    - **Types**: `FaceChallenge`, `FaceFailReason`, `FaceVerifyResult`, `Human` (imported).
-- **`faceVerifyStore.ts`**: 命令式弹窗桥接 Store。
-    - **`useFaceDialogStore`**: Zustand store。
-        - State: `open`, `mode`, `resolve`。
-        - Actions: `openFaceDialog(mode)`, `closeFaceDialog(r)`。
-        - `openFaceDialog` 返回 Promise，由 `closeFaceDialog` 解析。并发打开视为取消。
-    - **`shouldUseFaceFallback()`**: 判断是否应使用 2D 人脸回退。条件：`allow2dFaceVerify === true` 且 `hasTemplate()`。
+#### Services & Store (`faceService.ts`, `faceVerifyStore.ts`)
+- **`faceService.ts` 常量**：
+    - `TEMPLATE_KEY = 'campus-2d-face-template'` (`faceService.ts` | 22)
+    - `MATCH_THRESHOLD = 0.55` (`faceService.ts` | 38)：相似度阈值。
+    - `ENROLL_FRAMES = 8` (`faceService.ts` | 40)：录入采样帧数。
+    - `ENROLL_TIMEOUT_MS = 20_000` (`faceService.ts` | 42)：录入超时。
+    - `CHALLENGE_TIMEOUT_MS = 10_000` (`faceService.ts` | 44)：动作挑战时限。
+    - `POLL_INTERVAL_MS = 120` (`faceService.ts` | 46)：检测轮询间隔。
+    - `DETECT_SCORE_MIN = 0.85` (`faceService.ts` | 48)：检测分下限。
+    - `FaceChallenge` (`faceService.ts` | 50)：`'blink' | 'turn'`。
+    - `FaceFailReason` (`faceService.ts` | 52)：`'timeout' | 'challenge' | 'mismatch' | 'camera'`。
+    - `FaceVerifyResult` (`faceService.ts` | 53)：`{ ok: true } | { ok: false; reason: FaceFailReason }`。
+    - 全局 `Window` 接口声明 (`faceService.ts` | 24-35)：`__faceEngineLoaded`, `__faceSessionActive`, `__onTrimMemory`。
+    - `FaceModelsState` (`faceService.ts` | 61-65)：`{ ready: boolean, dir: string, files: {name, size, ok}[] }`。
+    - `FaceModelProgressEvt` (`faceService.ts` | 68-73)：`{ file: string, downloaded: number, total: number, percent: number }`。
+    - `FaceSnapshot` (内部接口, `faceService.ts` | 209-216)：`{ score: number, embedding: number[] | null, gestures: string[], eyesClosed: boolean }`。
+- **`ensureFaceModels`** (`faceService.ts` | 83-91)：确保模型就绪（共享 `modelEnsurePromise` 防重复下载）。
+- **`downloadModels`** (`faceService.ts` | 93-112)：调用 `invoke('face_models_state')` (94) 与 `invoke('face_models_download')` (107)，监听 `face-models-download-progress` 事件 (99) 计算整体进度。
+- **`getHuman`** (`faceService.ts` | 118-162)：懒加载 `@vladmandic/human` 单例并 warmup，使用 `engineGen` (58, 124, 153) 防竞态。配置中明确禁用了 `attention`, `iris`, `emotion`, `antispoof`, `liveness` 及 `body`, `hand`, `object`, `segmentation` 模型 (`faceService.ts` | 134-145)。
+- **`disposeEngine`** (`faceService.ts` | 165-168)：调用 `reset` 和 `disposeVariables` 回收引擎。
+- **`releaseFaceEngine`** (`faceService.ts` | 179-192)：释放引擎，自增 `engineGen`，清理孤儿实例。
+- **`openCamera`** (`faceService.ts` | 194-201)：`getUserMedia` 获取前置摄像头。
+- **`closeCamera`** (`faceService.ts` | 203-207)：停止媒体流轨道。
+- **`detectOnce`** (`faceService.ts` | 218-236)：单次检测，提取 `score`, `embedding`, `gestures`, `eyesClosed`（基于 mesh 比率）。
+- **`loadTemplate`** (`faceService.ts` | 245-254) / **`hasTemplate`** (`faceService.ts` | 256-258) / **`clearTemplate`** (`faceService.ts` | 260-262) / **`saveTemplate`** (`faceService.ts` | 264-266)：模板存取（`safeStorage`）。
+- **`enrollFace`** (`faceService.ts` | 269-300)：循环采 `ENROLL_FRAMES` 帧，过滤低分非正脸，计算均值并 `saveTemplate`。
+- **`verifyFace`** (`faceService.ts` | 303-353)：随机挑战，挑战通过后进行最多 3 次相似度比对。
+- **`faceVerifyStore.ts`**：
+    - `FaceDialogMode` / `FaceDialogResult` (`faceVerifyStore.ts` | 14-15)。
+    - `useFaceDialogStore` (`faceVerifyStore.ts` | 25-41)：Zustand Store，含 `open`, `mode`, `resolve`, `openFaceDialog` (29-36), `closeFaceDialog` (37-40)。并发打开视为取消 (30-34)。
+    - `shouldUseFaceFallback` (`faceVerifyStore.ts` | 44-46)：当 `allow2dFaceVerify === true` 且 `hasTemplate()` 时走人脸回退。
 
 ## Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                        App Shell / Settings                          │
-│  ┌──────────────────────────┐   ┌────────────────────────────────┐  │
-│  │      NetworkPanel        │   │       FaceCaptureDialog        │  │
-│  │  (android/frontend/     │   │  (android/frontend/            │  │
-│  │   src/network/)         │   │    src/face/)                  │  │
-│  │                          │   │                                │  │
-│  │  ┌────────────────────┐  │   │  ┌─────────────────────────┐  │  │
-│  │  │  useDnsSetup Hook  │──│   │  │ CaptureFlow Component   │  │  │
-│  │  │  - handleCheckDns  │  │   │  │ - useEffect (run flow)  │  │  │
-│  │  │  - handleSetupDns  │  │   │  │   ├─ ensureFaceModels   │  │  │
-│  │  │                    │  │   │  │   ├─ openCamera         │  │  │
-│  │  │  ┌───────────────┐ │  │   │  │   ├─ enrollFace/verify  │  │  │
-│  │  │  │ DnsAdapterCard│ │  │   │  │   └─ releaseFaceEngine  │  │  │
-│  │  │  │ - getDnsQuality│ │  │   │  └─────────────────────────┘  │  │
-│  │  │  │ - DnsServerRow │ │  │   │                               │  │
-│  │  │  └───────────────┘ │  │   │  ┌─────────────────────────┐  │  │
-│  │  └────────────────────┘  │   │  │ faceVerifyStore         │  │  │
-│  │                          │   │  │ - openFaceDialog        │  │  │
-│  │  ┌────────────────────┐  │   │  │ - shouldUseFaceFallback │  │  │
-│  │  │  QualityStore      │  │   │  └─────────────────────────┘  │  │
-│  │  │  - dnsDohStatus    │  │   │                               │  │
-│  │  │  - dnsChecking     │  │   │  ┌─────────────────────────┐  │  │
-│  │  └────────────────────┘  │   │  │ faceService             │  │  │
-│  │                          │   │  │ - getHuman (Singleton)  │  │  │
-│  │  ┌────────────────────┐  │   │  │ - downloadModels        │  │  │
-│  │  │  ConfigStore       │  │   │  │ - detectOnce            │  │  │
-│  │  │  - config          │  │   │  │ - enrollFace            │  │  │
-│  │  └────────────────────┘  │   │  │ - verifyFace            │  │  │
-│  └──────────────────────────┘   │  └─────────────────────────┘  │  │
-└─────────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      Tauri Backend (Rust)                           │
-│  ┌─────────────────────┐   ┌─────────────────────────────────────┐  │
-│  │  Network Commands   │   │      Face Model Commands            │  │
-│  │  - checkDnsDohStatus│   │  - face_models_state                │  │
-│  │  - setupDnsDoh      │   │  - face_models_download             │  │
-│  │  - getAvoidBadWifi  │   └─────────────────────────────────────┘  │
-│  │  - restoreSettings  │                                              │
-│  └─────────────────────┘                                              │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     App Shell / Settings                       │
+│  ┌─────────────────────────┐    ┌──────────────────────────┐  │
+│  │       NetworkPanel      │    │    FaceCaptureDialog     │  │
+│  │   (NetworkPanel.tsx:25) │    │ (FaceCaptureDialog:28)  │  │
+│  │  ├─ useDnsSetup (.ts:22)│    │  ├─ CaptureFlow (.tsx:48)│  │
+│  │  ├─ DnsAdapterCard(:13) │    │  ├─ useFaceDialogStore   │  │
+│  │  └─ Quality/Config Store│    │   (.ts:25)             │  │
+│  └─────────────────────────┘    │  └─ faceService (.ts)    │  │
+│                                 │     └─ getHuman/download │  │
+│                                 └──────────────────────────┘  │
+└───────────────┬──────────────────────────────────┬─────────────┘
+                │                                  │
+                ▼                                  ▼
+┌───────────────────────────┐    ┌────────────────────────────────┐
+│    Tauri Backend (Rust)   │    │      Tauri Backend (Rust)      │
+│ - checkDnsDohStatus       │    │ - face_models_state/download   │
+│ - setupDnsDoh             │    └────────────────────────────────┘
+└───────────────────────────┘
 ```
 
 ## Data Flow
 
 ### DNS Optimization Flow
-1. **User Action**: User clicks "Check DNS" in `NetworkPanel`.
-2. **Hook Execution**: `useDnsSetup.handleCheckDns` is called.
-3. **IPC Call**: Calls `tauriApiWithRetry.checkDnsDohStatus()`.
-4. **Backend Processing**: Rust backend queries system DNS settings for all adapters.
-5. **State Update**: Result stored in `useQualityStore.setDnsDohStatus(status)`.
-6. **UI Render**: `NetworkPanel` detects `dnsStatus` change and renders `DnsAdapterCard` list.
-7. **Quality Calculation**: Each `DnsAdapterCard` calls `getDnsQuality` to determine badge text/color based on `RECOMMENDED_DNS` and `dohEnabled` status.
-8. **Optimization**: User clicks "One Click Optimize". `handleSetupDnsDoh` calls `ipc.setupDnsDoh(family)`. On success, it triggers another check to refresh the UI.
+1. **User Action**：用户在 `NetworkPanel` 点击 "Check DNS" 或 "One Click Optimize"。
+2. **Hook Execution**：`useDnsSetup.handleCheckDns` (useDnsSetup.ts:37) 或 `handleSetupDnsDoh` (useDnsSetup.ts:61) 被调用。
+3. **IPC Call**：调用 `tauriApiWithRetry.checkDnsDohStatus()` 或 `setupDnsDoh(dnsFamily)`。
+4. **State Update**：结果写入 `useQualityStore.setDnsDohStatus` (useDnsSetup.ts:41, 72)。
+5. **UI Render**：`NetworkPanel` 检测到 `dnsStatus` 变化，渲染 `DnsAdapterCard` 列表 (NetworkPanel.tsx:272)。
+6. **Quality Calculation**：每个 `DnsAdapterCard` 调用 `getDnsQuality` (DnsAdapterCard.tsx:15, 63) 确定徽章文本/颜色。
 
 ### Face Verification Flow
-1. **Trigger**: `verifyWindowsIdentity` (in `tauriApi`) checks `shouldUseFaceFallback()`. If true, calls `openFaceDialog('verify')`.
-2. **Store Activation**: `useFaceDialogStore` sets `open: true`, returns a Promise.
-3. **Dialog Mount**: `FaceCaptureDialog` renders `CaptureFlow`.
-4. **Initialization**: `CaptureFlow` effect runs:
-    - `ensureFaceModels()`: Checks if models exist. If not, downloads them via Tauri event stream. Updates `modelPercent`.
-    - `openCamera()`: Accesses webcam.
-5. **Verification Process**:
-    - Random challenge selected (`blink` or `turn`).
-    - Polling loop (`detectOnce`) waits for challenge completion within timeout.
-    - Upon challenge success, performs similarity matching against stored template.
-    - Returns `{ ok: true }` or `{ ok: false, reason }`.
-6. **Completion**: `CaptureFlow` calls `onClose(result)`.
-7. **Store Resolution**: `closeFaceDialog` resolves the Promise with the result.
-8. **Cleanup**: Effect cleanup stops camera and calls `releaseFaceEngine()`.
+1. **Trigger**：验证门检查 `shouldUseFaceFallback()` (faceVerifyStore.ts:44)。若为真，调用 `openFaceDialog('verify')`。
+2. **Store Activation**：`useFaceDialogStore` 设置 `open: true` 并返回 Promise (faceVerifyStore.ts:25)。
+3. **Dialog Mount**：`FaceCaptureDialog` 渲染 `CaptureFlow` (FaceCaptureDialog.tsx:42)。
+4. **Initialization**：`CaptureFlow` Effect 执行：
+    - `ensureFaceModels()` (faceService.ts:83)：检查模型，未就绪则触发 `downloadModels` 下载，更新 `modelPercent`。
+    - `openCamera()` (faceService.ts:194)：访问摄像头。
+5. **Verification Process**：
+    - 随机选挑战 (`blink` / `turn`)。
+    - `verifyFace` (faceService.ts:303) 轮询 `detectOnce` 等待挑战完成，随后进行相似度比对。
+    - 返回 `{ ok: true }` 或 `{ ok: false, reason }`。
+6. **Completion**：`CaptureFlow` 调用 `onClose(result)` (FaceCaptureDialog.tsx:98, 111)。
+7. **Store Resolution**：`closeFaceDialog` 解析 Promise (faceVerifyStore.ts:37)。
+8. **Cleanup**：Effect 清理停止相机并调用 `releaseFaceEngine()` (faceService.ts:179)。
 
 ## Connections
-- [[android-frontend-settings]]: `NetworkPanel` consumes `Config` from `useConfigStore`.
-- [[android-frontend-security]]: `FaceCaptureDialog` is triggered by security verification gates.
-- [[android-tauri-network]]: `useDnsSetup` communicates with Tauri backend for DNS operations.
-- [[android-tauri-facemodel]]: `faceService` communicates with Tauri backend for model download and state.
+- [[android-frontend-settings]]：`NetworkPanel` 通过 `useConfigStore` 消费 `Config` (NetworkPanel.tsx:29)。
+- [[android-frontend-security]]：`FaceCaptureDialog` 由安全验证门通过 `shouldUseFaceFallback` 触发 (faceVerifyStore.ts:44)。
+- [[android-tauri-network]]：`useDnsSetup` 通过 `tauriApiWithRetry` 与 Tauri 后端通信进行 DNS 操作 (useDnsSetup.ts:22)。
+- [[android-tauri-facemodel]]：`faceService` 通过 `invoke` 与 Tauri 后端通信进行模型下载与状态查询 (faceService.ts:94)。
 
 ## Known Issues
-1. **Clipboard Permissions**: In some WebView scenarios, clipboard access might fail silently. `handleCopyAdbCommand` and `handleCopyGrantCommand` catch errors and do not show toasts, leaving the button icon unchanged (`android/frontend/src/network/NetworkPanel.tsx` | 57-59, 84-86).
-2. **StrictMode Double Invocation**: The code uses `mountedRef` to prevent state updates after unmount, which is critical due to React StrictMode's double invocation of effects (`android/frontend/src/network/NetworkPanel.tsx` | 33-38, `android/frontend/src/network/useDnsSetup.ts` | 30-35).
-3. **Face Model Download Failure**: If `ensureFaceModels` fails, the error is caught, and the phase is set to 'error'. The user can retry, which resets the attempt counter (`android/frontend/src/face/FaceCaptureDialog.tsx` | 159). However, the `modelEnsurePromise` cache is cleared only on failure inside `ensureFaceModels` (`android/frontend/src/face/faceService.ts` | 73-75).
-4. **Liveness Detection Disabled**: Antispoof and liveness models are explicitly disabled in `getHuman` configuration (`android/frontend/src/face/faceService.ts` | 124-125) due to license uncertainties. This means the system cannot detect deepfakes or replay attacks beyond basic motion challenges.
-5. **Template Storage Security**: Templates are stored using `safeStorage`, but the comment notes that plaintext localStorage-like storage is used because local attackers could already invoke backend commands (`android/frontend/src/face/faceService.ts` | 227-228).
+1. **剪贴板权限静默失败**：`handleCopyAdbCommand` (NetworkPanel.tsx:52-60) 与 `handleCopyGrantCommand` (NetworkPanel.tsx:79-87) 在 `navigator.clipboard.writeText` 失败时 catch 静默处理，按钮图标不会改变，不弹提示。
+2. **StrictMode 双调用防护**：`NetworkPanel` (NetworkPanel.tsx:25-30) 与 `useDnsSetup` (useDnsSetup.ts:18-23) 均使用 `mountedRef` 避免异步回调在卸载后 setState。
+3. **人脸模型下载失败重试**：`ensureFaceModels` (faceService.ts:83-91) 在 `downloadModels` 失败时清空 `modelEnsurePromise` 以便重试；UI 层 `CaptureFlow` 通过 `setAttempt` (FaceCaptureDialog.tsx:159) 重跑整个流程 effect。
+4. **活体检测禁用**：`getHuman` (faceService.ts:118-162) 中 `antispoof: { enabled: false }` (faceService.ts:118) 和 `liveness: { enabled: false }` (faceService.ts:118) 因模型许可不明被明确禁用，系统无法防重放视频或深度伪造。
+5. **模板明文存储**：`loadTemplate` / `saveTemplate` 使用 `safeStorage` (faceService.ts:245-266)，代码注释指出本地攻击者本可直接调后端命令，加密不改变威胁模型。

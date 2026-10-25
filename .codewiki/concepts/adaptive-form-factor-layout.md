@@ -1,6 +1,6 @@
 ---
-type: concept
 title: adaptive-form-factor-layout
+type: concept
 source_files:
   - android/frontend/src/App.tsx
   - android/frontend/src/components/tablet/TabletShell.tsx
@@ -10,72 +10,87 @@ tags: [responsive, layout, tablet, mobile, state-management]
 
 ## Overview
 
-`adaptive-form-factor-layout` 是一种跨设备形态的响应式布局架构模式。它不依赖于传统的媒体查询（Media Queries）作为唯一的决策依据，而是通过感知设备的物理维度特征（如屏幕比例、长宽比），动态切换整个应用的**渲染外壳（Shell）**与**导航范式**。
+`adaptive-form-factor-layout` 是一种跨设备形态的响应式布局架构模式，通过感知设备物理维度（短边 `sw600dp` 语义）动态切换整个应用的渲染外壳（Shell）与导航范式。核心目标是在手机与平板形态间建立过渡：手机采用单栏流式布局 + 底部固定导航（`BottomNav`），平板采用桌面同源多栏布局（复用 `TitleBar`/`StatusBar`/`DockNav`/`RightPanel`）并搭配安卓版面板内容。状态管理通过 Zustand stores 与视图解耦，业务逻辑保持一致。
 
-该模式的核心目标是在“手机（Mobile/Phone）”与“平板（Tablet）”两种极端形态之间建立平滑过渡：
-1.  **移动端**：采用单栏流式布局，底部固定导航（Bottom Nav），强调单手操作效率。
-2.  **平板端**：采用多栏分屏布局（Split View），侧边或顶部悬浮导航（Dock/DockNav），最大化利用横向空间展示内容。
+## Key Components
 
-该概念涉及数据流从底层硬件传感器向上层 UI 组件的单向流动，确保状态管理（Store）与视图层（View）解耦，同时保持业务逻辑的一致性。
+### `android/frontend/src/hooks/useFormFactor.ts`
 
-## Involved Modules
+- **`FormFactor`** (L9): 导出类型，联合 `'phone' | 'tablet'`。
+- **`Orientation`** (L10): 导出类型，联合 `'portrait' | 'landscape'`。
+- **`TABLET_MIN_EDGE_PX`** (L13): 常量，平板短边阈值 `600`（CSS px）。
+- **`detectFormFactor`** (L15-17): 函数，返回 `Math.min(window.innerWidth, window.innerHeight) >= TABLET_MIN_EDGE_PX ? 'tablet' : 'phone'`。
+- **`detectOrientation`** (L19-21): 函数，返回 `window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait'`。
+- **`useViewportMeasure`** (L24-36): 内部泛型 Hook `useViewportMeasure<T>(calc: () => T): T`，订阅 `resize` 与 `orientationchange` 事件重算值。
+- **`useFormFactor`** (L38-40): 导出 Hook，调用 `useViewportMeasure(detectFormFactor)` 返回 `FormFactor`。
+- **`useOrientation`** (L43-45): 导出 Hook，调用 `useViewportMeasure(detectOrientation)` 返回 `Orientation`。
 
-本概念的实现横跨以下三个核心模块，分别承担检测、决策与渲染职责：
+### `android/frontend/src/App.tsx`
 
-1.  **`android-frontend-hooks-stores`** (基础设施层)
-    *   **职责**：提供设备形态感知的原始数据源。
-    *   **关键接口**：
-        *   `useFormFactor`: 封装了设备形态的判断逻辑（基于 `sw600dp` 语义，短边 ≥ 600px 视为平板）。
-        *   `useOrientation`: 监听屏幕方向变化（Portrait/Landscape）。注意：源码中该 Hook 定义在 `useFormFactor.ts` 中，而非独立的 `useOrientation.ts`。
-        *   `useAdapterStore`: 管理面板适配器的全局状态。
+- **`AppInner`** (L52-359): 手机外壳主组件。管理 `tab` 状态（L57-62，白名单 `['dashboard','account','selfservice','quality','monitor','more']`），根据 `deferredTab` 切换 `panelContent`（L148-192）；渲染绝对定位轻 header（L202-260）、快捷登录浮条（L263-267）、`main` 滚动区（L270-297）、`BottomNav`（L299）、赞助/关于/主题弹窗及 `OnboardingWizard`（L305-356）。桌面件（TitleBar 等）不渲染（见 L3-4 注释）。
+- **`App`** (L363-375): 默认导出函数组件。使用 `useFormFactor()`（L364）决定渲染 `<TabletShell />`（平板）或 `<AppInner />`（手机），并挂载共用的 `FaceCaptureDialog` 与 `NotificationPermissionGate`，外层包 `AnimationActiveProvider` 与 `ErrorBoundary`。
+- **`NotificationPermissionGate`** (L381-405): 内部组件，首次启动（`!safeStorage.get('campus-notification-prompt')`）弹确认框请求通知权限（L384-386, L392-403），仅询问一次。
+- 懒加载模块常量：`AboutDialog`（L47）、`MobileQuickActions`（L48）、`ThemeDialog`（L49）、`OnboardingWizard`（L50）。
+- 内部状态形状：`confirmDelete` 为 `{ open: boolean; name: string; displayName: string }`（L110）。
 
-2.  **`android-frontend-app-shell`** (路由与外壳层)
-    *   **职责**：作为应用入口，根据形态检测结果决定挂载哪个顶级容器组件。
-    *   **关键文件**：
-        *   `src/App.tsx`: 核心路由分发器，执行形态判断并渲染 `AppInner` 或 `TabletShell`。
-        *   `src/main.tsx`: 初始化全局样式，为玻璃拟态等跨形态特效提供基础 CSS 变量。（注：源码中未直接引用 `main.tsx` 的具体逻辑，但它是应用入口；主要逻辑集中在 `App.tsx`）。
+### `android/frontend/src/components/tablet/TabletShell.tsx`
 
-3.  **`android-frontend-ui` / `components`** (视图层)
-    *   **职责**：实现具体的形态差异化 UI 组件。
-    *   **关键组件**：
-        *   `TabletShell`: 平板专用的多栏布局容器，包含侧边栏与主内容区。
-        *   `DockNav`: 悬浮式导航栏，通常用于平板或大屏模式。
-        *   `BottomNav`: 底部固定导航栏，通常用于手机模式。
+- **`PANEL_TITLES`** (L54-63): 常量记录，键为面板名（`'dashboard'|'account'|'selfservice'|'monitor'|'quality'|'speedtest'|'settings'|'log'`），值为对象含 `titleKey: string` 与 `descKey: string` 字段（无 `network`）。
+- **`PANEL_CONTAINER_STYLE`** (L66): `React.CSSProperties` 常量，`{ contain: 'layout style' }`。
+- **`TOPBAR_ZOOM`** (L71): 常量 `1.3`，平板顶栏 CSS zoom 系数。
+- **`CONTENT_ZOOM`** (L72): 常量 `0.9`，内容区 CSS zoom 系数。
+- **`TabletShellInner`** (L74-380): 平板外壳主组件。使用 `useAdapterStore` 的 `activePanel`（L79）切换面板内容（L159-222），渲染 `TitleBar`（L233-245，无窗口控制）、`StatusBar`（L250-253）、主区与 `RightPanel`（横屏时 L295-300）、侧边看板娘（L304-322）、`DockNav`（L324-326）及各类弹窗（L328-377）。竖屏时通过 `--right-panel-width: 0px` 隐藏右栏（L125-129）。
+- **`TabletShell`** (L382-388): 导出组件，用 `ErrorBoundary` 包裹 `TabletShellInner`。
+- 内部状态形状：`confirmDelete` 为 `{ open: boolean; name: string; displayName: string }`（L116）。
 
-## Flow
+## Architecture
 
-数据与控制流在 `adaptive-form-factor-layout` 中遵循“检测 -> 决策 -> 渲染”的单向循环：
+```text
+┌─────────────────────────────┐
+│ useFormFactor.ts (L38-45)   │
+│ useFormFactor()->FormFactor │
+│ useOrientation()->Orient.   │
+└───────────────┬─────────────┘
+                │ formFactor
+                ▼
+┌─────────────────────────────┐
+│ App.tsx L363 App()          │
+│ if formFactor==='tablet'    │
+│   render TabletShell        │
+│ else render AppInner        │
+└───────────────┬─────────────┘
+       ┌────────┴────────┐
+       ▼                 ▼
+┌──────────────┐  ┌──────────────────────┐
+│ AppInner L52 │  │ TabletShell L382      │
+│ BottomNav    │  │ TitleBar/StatusBar    │
+│ Mobile panels│  │ DockNav/RightPanel    │
+│ (dashboard..)│  │ Android panels        │
+└──────────────┘  └──────────────────────┘
+```
 
-1.  **状态采集 (State Collection)**
-    *   `useFormFactor` Hook 在应用启动时（或通过 ResizeObserver/OrientationChange）读取当前窗口尺寸与比例。
-    *   若检测到短边（Min Edge）≥ 600px，`formFactor` 状态更新为 `tablet`；否则为 `mobile`。此逻辑确保了横屏手机仍被识别为手机，竖屏平板仍被识别为平板。
-    *   此状态被写入 React 组件状态，触发重渲染。
+## Data Flow
 
-2.  **外壳切换 (Shell Switching)**
-    *   在 `src/App.tsx` (行 364) 中，根组件 `App` 订阅 `formFactor` 状态。
-    *   **分支 A (Mobile)**: 渲染 `<AppInner>` (行 52-359)。内部结构通常为：`Header` + `MainContent` + `BottomNav`。
-    *   **分支 B (Tablet)**: 渲染 `<TabletShell>` (行 74-380)。内部结构通常为：`TitleBar` + `StatusBar` + `MainContent` + `RightPanel` (可选) + `DockNav`。
+1. **状态采集**：`useFormFactor` (L38-40) 与 `useOrientation` (L43-45) 在挂载时通过 `useViewportMeasure` 读取 `window.innerWidth/innerHeight`，短边≥600 判定 `tablet` (L16)，宽≥高判定 `landscape` (L20)；监听 `resize`/`orientationchange` 实时更新 (L26-33)。
+2. **外壳切换**：`App` 组件 (L363-375) 订阅 `formFactor`，`formFactor === 'tablet'` 渲染 `TabletShell` (L368)，否则 `AppInner` (L368)。
+3. **导航适配**：
+   - 手机：`AppInner` 内部 `tab` 状态驱动 `BottomNav` (L299) 与 `panelContent` (L148-192)；`tabOrder` 依据 `configEnableNetworkQuality` 动态将第4位设为 `quality` 或 `monitor` (L70-76)。
+   - 平板：`TabletShellInner` 使用 `useAdapterStore.activePanel` (L79) 驱动 `DockNav` (L324) 与面板渲染；横屏 (`isLandscape`) 才显示 `RightPanel` (L125-129, L295-300)。
+4. **持久化与恢复**：手机 `tab` 存入 `safeStorage('campus-mobile-tab')` (L58, L126)；平板 `activePanel` 存入 `safeStorage('campus-active-panel')` (L138)。配置加载后纠正越界 tab (L131-136 KI#14)。
 
-3.  **导航适配 (Navigation Adaptation)**
-    *   在 Mobile 模式下，`BottomNav` 激活，隐藏侧边抽屉。
-    *   在 Tablet 模式下，`DockNav` 激活，支持并行显示多个面板（如监控+设置）。
-    *   `useMonitor` 等模块中的组件（如 `NetworkQualityCapsule`）会根据当前可用的横向空间调整自身宽度或折叠状态。
+## Connections
 
-4.  **持久化与恢复 (Persistence)**
-    *   用户的手动强制覆盖可能优先于自动检测，具体取决于 `useConfigStore` 中的配置（若存在）。
-    *   布局状态的变化会触发 `useThemeStore` 重新计算视觉效果，确保在不同分辨率下正确渲染。
+- 状态管理依赖 [[useConfigStore]]、[[useAdapterStore]] (TabletShell L79, L87)、[[useQualityStore]]、[[useAuthStore]] 等（见各文件 import）。
+- UI 组件关联 [[BottomNav]] (App.tsx L31, L299)、[[DockNav]] (TabletShell L36, L324)、[[TitleBar]]、[[StatusBar]]、[[RightPanel]] 等。
+- 初始化与动画依赖 [[useAppInit]] (App.tsx L8, TabletShell L13)、[[useAdaptiveFramePace]] (L43, L54, L76)、[[useAnimationProfile]] (L44, L115)。
+- 面板内容组件如 [[MobileDashboard]]、[[AccountPanel]]、[[MonitorPanel]] 等跨外壳复用。
 
-## Implementation Map
+## Known Issues
 
-以下是实现该概念的关键代码位置映射：
-
-| 功能环节 | 文件路径 | 行号参考 | 说明 |
-| :--- | :--- | :--- | :--- |
-| **形态检测 Hook** | `android/frontend/src/hooks/useFormFactor.ts` | L38-40 | 定义 `useFormFactor`，基于短边 ≥ 600px 判定平板。 |
-| **方向监听 Hook** | `android/frontend/src/hooks/useFormFactor.ts` | L43-45 | 定义 `useOrientation`，监听宽高比变化。**注意：该函数定义在 `useFormFactor.ts` 中，而非独立的 `useOrientation.ts`。** |
-| **核心路由分发** | `android/frontend/src/App.tsx` | L363-375 | **关键文件**。`App` 组件根据 `formFactor` 决定渲染 `AppInner` 还是 `TabletShell`。 |
-| **平板外壳组件** | `android/frontend/src/components/tablet/TabletShell.tsx` | L74-380 | 实现平板端的 Grid/Flex 布局结构，包含 TitleBar, StatusBar, DockNav 及右侧日志栏。 |
-| **底部导航** | `android/frontend/src/components/layout/BottomNav.tsx` | N/A | 移动端专用导航组件，由 `AppInner` 渲染。 |
-| **悬浮导航** | `android/frontend/src/components/layout/DockNav.tsx` | N/A | 平板/大屏专用导航组件，由 `TabletShell` 渲染。 |
-| **状态管理 Store** | `android/frontend/src/hooks/useAdapterStore.ts` | N/A | 管理面板适配逻辑，`TabletShell` 使用 `useAdapterStore` 控制活跃面板 (`activePanel`)。 |
-| **全局样式初始化** | `android/frontend/src/index.css` | N/A | 定义 CSS 变量，确保不同形态下的视觉一致性。 |
+- **KI#14 页签白名单与恢复**：`App.tsx` L59-61 定义 `tab` 初始白名单须覆盖 `handleTabChange` 可写入全部页签（含 `monitor`），否则杀进程重开会回落 `dashboard`。L131-136 在配置就绪后若 `configEnableNetworkQuality !== false` 且 `tab === 'monitor'` 则强制切到 `quality`，避免底栏无高亮。
+- **平板竖屏右栏隐藏**：`TabletShell.tsx` L125-129 设置 `--right-panel-width: 0px` 使 `DockNav` 全视口居中，L295-300 仅在 `isLandscape` 渲染 `RightPanel`；日志功能仍可由 Dock "日志" 面板到达。
+- **质量检测关闭时 monitor 补位**：`App.tsx` L74 当 `configEnableNetworkQuality !== false` 为假时 `tabOrder` 第4位为 `monitor`；L179-188 渲染 `MonitorPanel` 而非 `QualityPanel`。默认关闭省电。
+- **桌面件在手机外壳不渲染**：`App.tsx` L3-4 注释明确手机外壳不渲染桌面件（TitleBar/StatusBar/RightPanel/DockNav/FluidBackground/Onboarding/Sponsor 等），但 `SponsorCard` 与 `OnboardingWizard` 以移动适配版仍渲染（L303, L348-356），需区分。
+- **平板外壳注释与代码不一致**：`TabletShell.tsx` L7 注释称“无 Onboarding 向导”，但 L51 导入、L146-151 首次无账号弹向导、L368-377 渲染 `OnboardingWizard`，实际已实现。
+- **network 面板未接入**：`TabletShell.tsx` L10 注释明确 `network` 面板不接入（安卓 NAV_ITEMS 无此项，DNS 优化为 Windows 能力），`PANEL_TITLES` (L54-63) 也未列 `network`。
+- **通知权限单次弹窗**：`App.tsx` L381-405 `NotificationPermissionGate` 仅当 `safeStorage` 无 `campus-notification-prompt` 时弹出，点任意按钮标记后不再弹。
