@@ -17,7 +17,7 @@ tags:
 
 ## Overview
 
-`tauri-ipc-command-bridge` 是安卓端 Tauri 前后端通信契约层，连接 `android/frontend/src/hooks/tauriApi.ts`（TypeScript）与 `android/src-tauri/src/lib.rs` 注册的 Rust 命令（如 `android/src-tauri/src/account_cmds.rs`）。它定义了 `TauriApi` 接口（tauriApi.ts 第 48-153 行）枚举全部 IPC 方法，由 `tauriApi` 对象（第 202-342 行）通过 `@tauri-apps/api/core` 的 `invoke` 实现，部分命令在安卓端显式拒绝（桌面专属，第 14-15 行 `desktopOnly`、第 205-208 行、第 265-266 行、第 287-289 行、第 311 行、第 320 行、第 333-337 行等）。开发环境由 `mock-tauri.js`（第 155-177 行）与 `mock-tauri-addon.js`（第 13-44 行）注入 `window.__TAURI_INTERNALS__` 拦截 `invoke`，实现无原生后端的 UI 验证。Rust 侧通过 `lib.rs` 第 68-130 行的 `generate_handler!` 注册命令，账号相关命令在 `account_cmds.rs` 第 157-401 行实现，并返回 `AccountResult`（第 42-55 行）等结构化类型。
+`tauri-ipc-command-bridge` 是安卓端 Tauri 前后端通信契约层，连接 `android/frontend/src/hooks/tauriApi.ts`（TypeScript）与 `android/src-tauri/src/lib.rs` 注册的 Rust 命令（如 `android/src-tauri/src/account_cmds.rs`）。它定义了 `TauriApi` 接口（tauriApi.ts 第 48-153 行）枚举全部 IPC 方法，由 `tauriApi` 对象（第 202-342 行）通过 `@tauri-apps/api/core` 的 `invoke` 实现，部分命令在安卓端显式拒绝（桌面专属，第 14-15 行 `desktopOnly`、第 205-208 行、第 268-269 行、第 287-289 行、第 314 行、第 320 行、第 333-337 行等）。开发环境由 `mock-tauri.js`（第 155-177 行）与 `mock-tauri-addon.js`（第 13-44 行）注入 `window.__TAURI_INTERNALS__` 拦截 `invoke`，实现无原生后端的 UI 验证。Rust 侧通过 `lib.rs` 第 68-130 行的 `generate_handler!` 注册命令，账号相关命令在 `account_cmds.rs` 第 157-401 行实现，并返回 `AccountResult`（第 42-55 行）等结构化类型。
 
 ## Key Components
 
@@ -43,7 +43,7 @@ tags:
     - `doLogin` (第 62 行), `doLogout` (第 63 行), `bindOperator` (第 64 行), `getBindStatus` (第 65 行)
     - `verifyWindowsIdentity` (第 66 行) — 安卓走生物识别/人脸
     - `revealOperatorCredential` (第 67 行), `querySelfDashboard` (第 68 行), `selfOfflineSession` (第 69 行), `querySelfOnlineLog` (第 70 行), `changeSelfPassword` (第 71 行)
-    - `vpnSaveCredential` (第 73 行), `vpnCredentialStatus` (第 75 行), `vpnClearCredential` (第 77 行), `setSelfServiceViaVpn` (第 79 行), `vpnTestConnection` (第 81 行)
+    - `vpnSaveCredential` (第 73 行), `vpnCredentialStatus` (第 75 行), `vpnClearCredential` (第 77 行), `setSelfServiceViaVpn` (第 79 行), `vpnTestConnection` (第 81 行), `vpnVerifyCredential` (第 83 行)
     - `minimizeWindow` (第 84 行) / `closeWindow` (第 85 行) — 桌面专属 reject
     - `onBackgroundCheckResult` (第 86 行), `onAutoLoginResult` (第 87 行), `onAdaptersChanged` (第 88 行, noop), `onAdapterDetailsChanged` (第 89 行, noop), `onAdapterDisabledWarning` (第 90 行, noop), `onLoginLog` (第 91 行)
     - `listAccounts` (第 92 行), `createAccount` (第 94 行), `switchAccount` (第 95 行), `saveCurrentAsAccount` (第 96 行), `deleteAccount` (第 97 行), `renameAccount` (第 99 行), `getActiveAccount` (第 100 行)
@@ -72,7 +72,8 @@ tags:
     - `openExternal` (第 294-305 行): URL 校验后调 `openerOpenUrl`
     - `getAutoLaunch`→`invoke('get_boot_autostart')` (第 306 行), `setAutoLaunch` (第 307 行)
     - 账号相关: `listAccounts` (第 276 行), `createAccount` (第 277 行), `switchAccount` (第 278 行), `saveCurrentAsAccount` (第 279 行), `deleteAccount` (第 280 行), `renameAccount` (第 281 行), `getActiveAccount` (第 282 行)
-    - 其他 invoke 映射见第 211-218 行, 第 257-267 行, 第 270-271 行, 第 275 行, 第 283-286 行, 第 290-293 行, 第 308-313 行, 第 319 行, 第 321-332 行, 第 338-342 行
+    - VPN 相关: `vpnSaveCredential` (第 262 行), `vpnCredentialStatus` (第 263 行), `vpnClearCredential` (第 264 行), `setSelfServiceViaVpn` (第 265 行), `vpnTestConnection` (第 266 行), `vpnVerifyCredential` (第 267 行)
+    - 其他 invoke 映射见第 211-218 行, 第 257-261 行, 第 270-271 行, 第 275 行, 第 283-286 行, 第 290-293 行, 第 308-313 行, 第 319 行, 第 321-332 行, 第 338-342 行
   - `tauriApiWithRetry: TauriApi` (第 374-380 行): 展开 `tauriApi` 并仅对 `saveConfig` (第 379 行) 套 `withRetry`，其余高频命令不重试避免流量放大。
 
 ### android/frontend/public/mock-tauri.js
@@ -183,6 +184,6 @@ tags:
 
 - **Mock 字段契约不一致**：`mock-tauri.js` 第 148 行 `get_avoid_bad_wifi_status` 返回 `{ authorized: false, currentValue: null, pendingRestore: false }`，但真实前端类型 `AvoidBadWifiStatus`（tauriApi.ts 第 155-164 行）字段为 `granted`/`avoidBadWifi`/`pendingRestoreAvoid`/`pendingRestoreCaptive`，Mock 形状错误若被前端读取会导致 `undefined`。
 - **Mock 缺失命令**：`mock-tauri.js` 未实现 `check_portal_status`（仅 addon 第 28-30 行覆盖），纯基础 Mock 下该命令返回 `null`（第 174-175 行兜底），而前端 `checkPortalStatus` 期望 `PortalStatusResult`。
-- **桌面专属接口暴露**：`TauriApi` 接口仍声明 `exportConfig`/`getAdapters` 等桌面方法（第 52-57 行, 第 55 行等），安卓实现直接 reject，若调用方未检查 `desktopOnly` 错误将触发 unhandled rejection。
+- **桌面专属接口暴露**：`TauriApi` 接口仍声明 `exportConfig`/`getAdapters` 等桌面方法（第 52-57 行等），安卓实现直接 reject，若调用方未检查 `desktopOnly` 错误将触发 unhandled rejection。
 - **命名遗留**：`verifyWindowsIdentity`（tauriApi.ts 第 66 行, 第 219 行）名称含 Windows，但实际在安卓走 `biometricAuthenticate` 与 `useFaceDialogStore` 人脸，语义已泛化但命名未改。
 - **测试编译隔离**：`account_cmds.rs` 测试（第 512-838 行）仅在 `#[cfg(test)]` 下编译，不进生产二进制，但 `auto_create_account_in` 等核心逻辑依赖测试覆盖保证正确性。

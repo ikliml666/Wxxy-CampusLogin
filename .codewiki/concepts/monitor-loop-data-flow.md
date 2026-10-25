@@ -22,11 +22,11 @@ tags:
 
 ### android/frontend/src/monitor/useMonitor.ts
 
-- `useMonitor()` 函数，行 12-123：聚合 `authStore`（行 13-16）、`qualityStore`（行 17-22）、`configStore`（行 23-26）的浅订阅，返回 store 字段与三个回调 `handleToggleBackgroundCheck`、`handleTriggerCheck`、`handleToggleLatencyTest`。
-- `mountedRef` 行 31-35：卸载守卫，`useEffect` 内设置 `true`，清理时设 `false`，用于阻止卸载后 `setState`。
+- `useMonitor()` 函数，行 12-123：聚合 `authStore`（行 13-16，浅订阅 `bgStatus`、`setBgStatus`）、`qualityStore`（行 17-22，浅订阅 `networkQuality`、`setNetworkQuality`、`isRefreshingQuality`、`refreshQuality`）、`configStore`（行 23-26，浅订阅 `updateConfigLocal`、`saveConfigDirect`），合并为 `store`（行 27），返回 store 字段与三个回调 `handleToggleBackgroundCheck`、`handleTriggerCheck`、`handleToggleLatencyTest`（行 117-122）。
+- `mountedRef` 行 31-35：卸载守卫，`useEffect` 内设置 `true`（行 33），清理时设 `false`（行 34），用于阻止卸载后 `setState`。
 - `bgToggleBusyRef` 行 36、`latencyToggleBusyRef` 行 37：重入锁（`useRef(false)`），防止快速连点并发 start/stop。
 - `handleToggleBackgroundCheck(enabled, intervalSec)` 行 39-81：先 `store.saveConfigDirect` 持久化 `enableBackgroundCheck` 与 `backgroundCheckInterval`（毫秒，行 45-48），再依据 `mountedRef` 检查（行 49）后，若 `enabled` 则 `requestNotificationPermission()`（行 53）及在名称检查开启时顺带 SSID 权限 `api.requestWifiSsidPermission?.()`（行 57-63），然后 `api.startBackgroundCheck?.()`（行 64）或 `api.stopBackgroundCheck?.()`（行 66），成功后 `store.updateConfigLocal`（行 69）+ `store.setBgStatus`（行 70）；失败走 `useLogToastStore.addToast`（行 74-76）。
-- `handleTriggerCheck()` 行 83-85：调用 `api.triggerBackgroundCheck?.()`。
+- `handleTriggerCheck()` 行 83-85：调用 `api.triggerBackgroundCheck?.()`（行 84）。
 - `handleToggleLatencyTest(enabled, intervalSec)` 行 87-115：先 `store.saveConfigDirect` 落盘 `enableLatencyTest` 与 `latencyTestInterval`（行 93-96），依据 `mountedRef` 检查（行 97）后调 `api.startLatencyTest?.()`（行 99）或 `api.stopLatencyTest?.()`（行 101），本地更新 `updateConfigLocal`（行 104）。
 
 ### android/frontend/src/monitor/index.ts
@@ -38,7 +38,7 @@ tags:
 - `_qualityLockFlag` 行 11：模块级 `boolean` 刷新锁标志。
 - `lastQualityResultTime` 行 16：模块级 `number` 类型，最近质量结果到达时间戳（0=从未），用于登录后节流（P2-F5）。
 - `getLastQualityResultTime()` 行 18-20：返回上述时间戳。
-- `QualityStore` 接口 行 22-41，字段：
+- `QualityStore` 接口 行 22-41，字段与方法：
   - `networkQuality: NetworkQuality | null`
   - `dnsDohStatus: DnsDohStatus | null`
   - `dnsChecking: boolean`
@@ -123,7 +123,7 @@ tags:
 
 1. **初始化与订阅**：`useMonitor` 挂载时（行 12-35）通过 `useQualityStore` 浅订阅 `networkQuality`、`isRefreshingQuality` 等；`mountedRef` 防卸载后写状态。后端 `lib.rs` `setup` 调 `run_startup_tasks`（行 60）按持久化配置自动拉起循环。
 
-2. **控制指令下发**：用户操作 → `handleToggleBackgroundCheck`（行 39）或 `handleToggleLatencyTest`（行 87）。两者均先 `store.saveConfigDirect`（行 45 / 93）落盘开关与间隔（毫秒），再依据 `mountedRef` 检查（行 49 / 97）后调 `api.startBackgroundCheck?.()`（行 64）或 `api.startLatencyTest?.()`（行 99）。`handleTriggerCheck`（行 83）直接调 `triggerBackgroundCheck`。
+2. **控制指令下发**：用户操作 → `handleToggleBackgroundCheck`（行 39）或 `handleToggleLatencyTest`（行 87）。两者均先 `store.saveConfigDirect`（行 45 / 93）落盘开关与间隔（毫秒），再依据 `mountedRef` 检查（行 49 / 97）后调 `api.startBackgroundCheck?.()`（行 64）或 `api.startLatencyTest?.()`（行 99）。`handleTriggerCheck`（行 83）直接调 `triggerBackgroundCheck`（行 84）。
 
 3. **IPC 与后端执行**：`tauriApi` 将调用映射为 `invoke('start_background_check')` 等（行 283-293），`lib.rs` 行 109-112 路由到 `monitor_loop`、行 121-123 路由到 `quality_cmds` 模块维持 Tokio 循环，执行探针与延迟测试；`checkNetworkQuality` 可由 `refreshQuality`（行 61）手动触发或后端 loop 事件流推送。
 

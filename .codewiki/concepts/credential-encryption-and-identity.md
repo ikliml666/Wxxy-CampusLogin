@@ -90,9 +90,9 @@ tags:
 
 - **`impl Default for Settings`**（config_state.rs:138-211）给出上述默认值。
 
-- **结构体 `CryptoBridge`**（config_state.rs:224-228）含 `encrypt: Arc<dyn Fn(&str)->Result<String,String>>` 与 `decrypt: Arc<dyn Fn(&str)->Result<String,String>>`；`from_app`（config_state.rs:221-251）移动端用 `tauri_plugin_campus_keystore` 插件（行224-240），非移动端返回 Err（行246-247）。
+- **结构体 `CryptoBridge`**（config_state.rs:224-228）含 `encrypt: Arc<dyn Fn(&str)->Result<String,String>>` 与 `decrypt: Arc<dyn Fn(&str)->Result<String,String>>`；`from_app`（config_state.rs:220-251）移动端用 `tauri_plugin_campus_keystore` 插件（行224-240），非移动端返回 Err（行246-247）。
 
-- **结构体 `EncodedSettings`**（config_state.rs:254-259）磁盘形态：`settings: Settings` + `password_cipher: String`，密码字段落盘清空。
+- **结构体 `EncodedSettings`**（config_state.rs:253-259）磁盘形态：`settings: Settings` + `password_cipher: String`，密码字段落盘清空。
 
 - **函数/命令**
   - `load_file`（config_state.rs:261-274）：读文件，缺失返默认；解析 `EncodedSettings`；密文非空则解密，失败置空（行270-272）。
@@ -100,26 +100,26 @@ tags:
   - `save_file`（config_state.rs:289-319）：建目录；密码非空则加密，失败返回 Err（行298-301）；写 `EncodedSettings` 且 `password` 置空（行304）；临时文件带 pid（行311-315）后 rename（行317）。
   - `cleanup_stale_config_tmp`（config_state.rs:324-335）：启动清孤儿 `*.json.<pid>.tmp`。
   - `load_from`（config_state.rs:337-347）：调 `load_file` → `migrate_legacy_defaults` → 若 `required_network_name=="i-wxxy"` 扩为三值（行343-345）。
-  - `migrate_legacy_defaults`（config_state.rs:366-428）：v0→v7 一次性迁移（v0→v1 间隔 15s→60s；v1→v3 自动化开/质量关；v3→v4 闲时间隔；v4→v5 检测终点；v5→v6 质量间隔；v6→v7 夜切开/定时禁用值 0→1440）。
+  - `migrate_legacy_defaults`（config_state.rs:349-428）：v0→v7 一次性迁移（v0→v1 间隔 15s→60s；v1→v3 自动化开/质量关；v3→v4 闲时间隔；v4→v5 检测终点；v5→v6 质量间隔；v6→v7 夜切开/定时禁用值 0→1440）。
   - `save_to`（config_state.rs:430-432）：包 `save_file`。
   - `masked_for_display`（config_state.rs:437-446）：克隆后密码非空变 `***`，`vpn_password_enc` 非空同样变 `***`（行439-444），唯一出站出口。
   - `emit_config_changed`（config_state.rs:452-455）：emit `config-changed` 事件，payload `{config: masked}`。
   - `resolve_password_field`（config_state.rs:458-467）：clear→空；incoming 空或 `***`→current；否则 incoming。
-  - `#[tauri::command] get_config`（config_state.rs:470-482）：载配置、缓存 `AndroidState.config`、返掩码。
-  - `#[tauri::command] save_config`（config_state.rs:485-520）：持 IO 锁（行493），合密码（行501-502），VPN 密文回退（行506-507），落盘，缓存，调 `account_cmds::auto_create_account_for_current`，emit 事件（行518）。
-  - `current_settings`（config_state.rs:524-541）：缓存优先，未命中读盘。
+  - `#[tauri::command] get_config`（config_state.rs:469-482）：载配置、缓存 `AndroidState.config`、返掩码。
+  - `#[tauri::command] save_config`（config_state.rs:484-520）：持 IO 锁（行493），合密码（行501-502），VPN 密文回退（行506-507），落盘，缓存，调 `account_cmds::auto_create_account_for_current`，emit 事件（行518）。
+  - `current_settings`（config_state.rs:524-543）：缓存优先，未命中读盘。
   - 测试模块（config_state.rs:543-897）覆盖加解密、迁移、掩码、判据等。
 
 ### android/src-tauri/src/protocol_cmds.rs
 
-- `#[tauri::command] do_login`（protocol_cmds.rs:10-63）：参 user/password/operator/adapter Option；先 `ensure_wifi_bound`；缺失回退 `current_settings`；空则拒；仅打长度（protocol_cmds.rs:37）；成功写 `login_history` 并清 `MONITOR` 熔断（protocol_cmds.rs:56-61）。
+- `#[tauri::command] do_login`（protocol_cmds.rs:9-63）：参 user/password/operator/adapter Option；先 `ensure_wifi_bound`（行21）；缺失回退 `current_settings`（行23-31）；空则拒（行32-35）；仅打长度（protocol_cmds.rs:37）；成功写 `login_history` 并清 `MONITOR` 熔断（protocol_cmds.rs:56-61）。
 - `pub async fn run_login`（protocol_cmds.rs:66-90）：取 `cached_adapter_ip`，`spawn_blocking` 调 `do_login_with_retry`（重试 3）。
-- `#[tauri::command] do_logout`（protocol_cmds.rs:94-143）：类似，设 `logout_protected_until_ms` +60s（protocol_cmds.rs:140）。
-- `#[tauri::command] check_portal_status`（protocol_cmds.rs:147-164）：绑 WiFi 后 `spawn_blocking` `check_portal_full`。
+- `#[tauri::command] do_logout`（protocol_cmds.rs:93-143）：类似，设 `logout_protected_until_ms` +60s（protocol_cmds.rs:140）。
+- `#[tauri::command] check_portal_status`（protocol_cmds.rs:146-164）：绑 WiFi 后 `spawn_blocking` `check_portal_full`。
 - `cached_adapter_ip`（protocol_cmds.rs:166-174）：读 `state.cached_source_ip`。
-- `#[tauri::command] ping_test`（protocol_cmds.rs:177-179）：返 "pong"。
-- `#[tauri::command] bind_to_wifi` / `accept_wifi_network`（protocol_cmds.rs:183-214）：移动端调插件，非移动端 Err。
-- `#[tauri::command] get_avoid_bad_wifi_status` / `restore_written_settings`（protocol_cmds.rs:220-255）：移动端 `spawn_blocking` 查/还原系统设置。
+- `#[tauri::command] ping_test`（protocol_cmds.rs:176-179）：返 "pong"。
+- `#[tauri::command] bind_to_wifi` / `accept_wifi_network`（protocol_cmds.rs:182-214）：移动端调插件，非移动端 Err。
+- `#[tauri::command] get_avoid_bad_wifi_status` / `restore_written_settings`（protocol_cmds.rs:219-255）：移动端 `spawn_blocking` 查/还原系统设置。
 - `pub(crate) async fn ensure_wifi_bound`（protocol_cmds.rs:294-363）：旁路代理 `bind_capability()==Supported` 时跳过（protocol_cmds.rs:294-299）；否则 `spawn_blocking` 绑 WiFi；绑成功且非 `already_bound` 才 `clear_client_pool`（protocol_cmds.rs:291-295），随后 `accept_campus_wifi`；失败仅日志不阻断。
 - `pub(crate) async fn accept_campus_wifi`（protocol_cmds.rs:350-389）：调 `accept_wifi_network` 并记录。
 
@@ -130,15 +130,15 @@ tags:
 - `ensure_identity_gate`（self_service_cmds.rs:42-51）：`self_hello_enabled` 关→放行；否则查 `identity_verified_recently()`。
 - `load_settings`（self_service_cmds.rs:53-55）：调 `current_settings`。
 - `local_addr_of`（self_service_cmds.rs:57-63）：取 `cached_source_ip`。
-- `verify_biometric_identity`（self_service_cmds.rs:70-85）：仅 `success==true` 才 `note_identity_verified`。
-- `bind_operator`（self_service_cmds.rs:88-132）：验账号非空、门、密码解析、手机号 11 数字、sms 非空；构 `BindParams` 调 `bind_operator`。
-- `query_bind_status`（self_service_cmds.rs:135-166）：无门，返 cmcc/telecom/unicom 的 `masked_account`/`password_set`。
-- `query_self_dashboard`（self_service_cmds.rs:169-193）：返 `onlineList`/`loginHistory`。
-- `is_iso_date`（self_service_cmds.rs:196-208）：严格 `YYYY-MM-DD`。
-- `query_self_online_log`（self_service_cmds.rs:211-239）：验日期格式与顺序，调 `query_online_log`。
-- `self_offline_session`（self_service_cmds.rs:242-269）：走门，验 session_id，调 `offline_session`。
-- `change_self_password`（self_service_cmds.rs:276-312）：走门；新密码 6-11 位 ASCII 字母数字（self_service_cmds.rs:302-303）；调 `change_password`。
-- `reveal_operator_credential`（self_service_cmds.rs:316-345）：**强制** `identity_verified_recently` 不依总开关（self_service_cmds.rs:329）；返 phone/smsPassword。
+- `verify_biometric_identity`（self_service_cmds.rs:70-86）：仅 `success==true` 才 `note_identity_verified`。
+- `bind_operator`（self_service_cmds.rs:119-164）：验账号非空、门、密码解析、手机号 11 数字、sms 非空；构 `BindParams` 调 `bind_operator`。
+- `query_bind_status`（self_service_cmds.rs:154-186）：无门，返 cmcc/telecom/unicom 的 `masked_account`/`password_set`。
+- `query_self_dashboard`（self_service_cmds.rs:169-194）：返 `onlineList`/`loginHistory`。
+- `is_iso_date`（self_service_cmds.rs:195-208）：严格 `YYYY-MM-DD`。
+- `query_self_online_log`（self_service_cmds.rs:211-240）：验日期格式与顺序，调 `query_online_log`。
+- `self_offline_session`（self_service_cmds.rs:242-270）：走门，验 session_id，调 `offline_session`。
+- `change_self_password`（self_service_cmds.rs:302-339）：走门；新密码 6-11 位 ASCII 字母数字（self_service_cmds.rs:302-303）；调 `change_password`。
+- `reveal_operator_credential`（self_service_cmds.rs:316-346）：**强制** `identity_verified_recently` 不依总开关（self_service_cmds.rs:329）；返 phone/smsPassword。
 - 测试模块（self_service_cmds.rs:347-391）覆盖密码回退、验证门、日期校验。
 
 ### android/src-tauri/src/identity_gate.rs
@@ -202,9 +202,9 @@ tags:
 - `SettingsPanelProps`（SettingsPanel.tsx:31-35）：`onUpdateConfig`、`onSetAutoLaunch`、`onShowOnboarding?`。
 - `handleSecurityDisable(apply)`（SettingsPanel.tsx:56-70）：调 `verifyWindowsIdentity({consentMessage})`，成功执行 `apply(true)`，失败 toast。
 - 安全组开关（SettingsPanel.tsx:229-318）：
-  - `self-hello-enabled`：关时走 `handleSecurityDisable`（SettingsPanel.tsx:56-59），`checked={config.selfHelloEnabled !== false}`。
-  - `self-reverify` 与 `allow-2d-face`：在 `selfHelloEnabled === false` 时 disabled（SettingsPanel.tsx:266, 284）；2D Face 开启弹风险确认（SettingsPanel.tsx:287），关闭调 `clearTemplate()` 清模板（SettingsPanel.tsx:289）。
-  - 录入走 `openFaceDialog('enroll')`（SettingsPanel.tsx:305-309）。
+  - `self-hello-enabled`：关时走 `handleSecurityDisable`（SettingsPanel.tsx:56-64），`checked={config.selfHelloEnabled !== false}`。
+  - `self-reverify` 与 `allow-2d-face`：在 `selfHelloEnabled === false` 时 disabled（SettingsPanel.tsx:264, 282-284）；2D Face 开启弹风险确认（SettingsPanel.tsx:287），关闭调 `clearTemplate()` 清模板（SettingsPanel.tsx:289）。
+  - 录入走 `openFaceDialog('enroll')`（SettingsPanel.tsx:50-55）。
 - 网络组（SettingsPanel.tsx:370-426）：关 `enable-quality` 联动停 `stopLatencyTest`、若 `defaultPanel==='quality'` 切 `dashboard`（SettingsPanel.tsx:370-388）。
 - 延迟弹窗 `Dialog`（SettingsPanel.tsx:393-439）：`skip-ttfb`、`skip-content` 开关。
 
@@ -240,12 +240,12 @@ tags:
 
 ### 1. 敏感操作身份验证（Identity Gate）
 1. 前端 `SelfServicePanel` 等操作触发 `useSelfServiceVerify()`（selfServiceState.ts:105-127），检查 `selfSessionVerifiedAt` TTL（570s，对齐后端 600s）。
-2. TTL 失效则调用 `tauriApiWithRetry.verifyWindowsIdentity`，后端 `verify_biometric_identity`（self_service_cmds.rs:70-85）仅 `success==true` 才 `note_identity_verified`（identity_gate.rs:18-20）。
+2. TTL 失效则调用 `tauriApiWithRetry.verifyWindowsIdentity`，后端 `verify_biometric_identity`（self_service_cmds.rs:70-86）仅 `success==true` 才 `note_identity_verified`（identity_gate.rs:18-20）。
 3. 后端 `ensure_identity_gate`（self_service_cmds.rs:42-51）查 `identity_verified_recently()`（identity_gate.rs:23-33），`reveal_operator_credential` 无视总开关强制验（self_service_cmds.rs:329）。
 4. 验证通过后命令执行业务（如 `query_self_online_log`、`self_offline_session`）。
 
 ### 2. 凭据加密与存储（Credential Encryption）
-1. 前端 `save_config` 或 `saveConfigDirect` 收集密码，Rust `save_config`（config_state.rs:485-520）持 `CONFIG_IO_LOCK`，`resolve_password_field` 合并。
+1. 前端 `save_config` 或 `saveConfigDirect` 收集密码，Rust `save_config`（config_state.rs:484-520）持 `CONFIG_IO_LOCK`，`resolve_password_field` 合并。
 2. `save_file`（config_state.rs:289-319）调 `CryptoBridge::from_app` → `KeystorePlugin.kt.encrypt`（IV+密文 Base64），失败 Err 不写盘；成功写 `EncodedSettings` 且 `password` 置空（`vpn_password_enc` 原样保留，行304）。
 3. 读取时 `load_file` 解密填内存态，`masked_for_display` 出站掩码（密码与 vpn 密文均打码）。
 4. 自助命令 `resolve_self_password`（self_service_cmds.rs:30-39）回退 `settings.password` 或 NULL；VPN 密文由 `save_config` 中 `resolve_password_field` 回退（config_state.rs:506-507）。
@@ -263,19 +263,19 @@ tags:
 - **密码/VPN密文永不落明文**：`save_file` 加密失败直接 Err（config_state.rs:298-301），不写盘；解密失败置空而非崩（config_state.rs:270-272）。`masked_for_display` 是唯一出站出口（config_state.rs:437-446），密码与 `vpn_password_enc` 均打码。
 - **密码已保存判据**：必须查 `password_cipher`（disk 形态），因落盘时 `settings.password` 被清（config_state.rs:281-287, 304）。
 - **配置并发**：`CONFIG_IO_LOCK` 覆盖 load→merge→save 全序列（config_state.rs:493, 17-19）。
-- **迁移幂等**：`migrate_legacy_defaults` 仅当等于旧默认时才刷，用户显式改后不再覆盖；落盘失败下次重迁（config_state.rs:366-428）。
+- **迁移幂等**：`migrate_legacy_defaults` 仅当等于旧默认时才刷，用户显式改后不再覆盖；落盘失败下次重迁（config_state.rs:349-428）。
 - **SSID 名单扩展**：旧值 `"i-wxxy"` 载入扩三值，幂等（config_state.rs:343-345）。
 - **临时文件竞争**：写盘用 `config.json.<pid>.tmp` 再 rename，孤立 tmp 由 `cleanup_stale_config_tmp` 启清（config_state.rs:311-335）。
 - **WiFi 绑定旁路**：`ensure_wifi_bound` 在旁路代理 `bind_capability()==Supported` 时跳过（protocol_cmds.rs:274-279）；绑定成功但 `already_bound` 不清 HTTP 池（protocol_cmds.rs:291-295）；绑定失败不阻断。
 - **敏感日志纪律**：operator 只打长度（protocol_cmds.rs:37），密码绝不进日志/错误。
-- **验证门语义**：总开关关则 `ensure_identity_gate` 放行（self_service_cmds.rs:42-51）；`reveal_operator_credential` 无视总开关强制验（self_service_cmds.rs:316）；`verify_biometric_identity` 必须 `success=true` 才解锁（self_service_cmds.rs:70-85）。
+- **验证门语义**：总开关关则 `ensure_identity_gate` 放行（self_service_cmds.rs:42-51）；`reveal_operator_credential` 无视总开关强制验（self_service_cmds.rs:316）；`verify_biometric_identity` 必须 `success=true` 才解锁（self_service_cmds.rs:316-332）。
 - **时钟回拨守卫**：`identity_verified_recently` 中 `now<last` 判过期（identity_gate.rs:29-31）；前端 `gateFresh` 要求 `elapsed >= 0`（selfServiceState.ts:58-62）。
 - **Keystore 边界**：解密要求 `raw.size>IV_LEN`（KeystorePlugin.kt:78）；GCM 认证失败转 reject；应用卸载重装后密钥丢失则旧密文不可解密（config_state 置空）。
 - **自助密码回退**：incoming 为 MASK/空且存储空时返 None，前端须提示输入（self_service_cmds.rs:30-39）。
-- **日期严格性**：`is_iso_date` 拒 `2026-9-07`/`2026/09/07` 等（self_service_cmds.rs:196-208）。
+- **日期严格性**：`is_iso_date` 拒 `2026-9-07`/`2026/09/07` 等（self_service_cmds.rs:195-208）。
 - **新密码规则**：6–11 位 ASCII 字母数字（self_service_cmds.rs:295-296）。
 - **前端 TTL 对齐**：`VERIFY_TTL_MS=570_000` 留 30s 余量防死锁（selfServiceState.ts:54）。
 - **卸载保护与静默降级**：`mountedRef` 守卫 setState（SelfServicePanel.tsx:107, 136 等）；外网不可达失败静默。
-- **安全开关联动**：关 2D Face 立即 `clearTemplate()`（SettingsPanel.tsx:289）；关质量检测联动停延迟测试并切面板（SettingsPanel.tsx:357-375）；`self-reverify`/`allow-2d-face` 在 Hello 总开关关时 disabled（SettingsPanel.tsx:266, 284）。
-- **安卓差异化**：`useSettings` 中安卓自启真实字段为 `enableBootAutostart`（useSettings.ts:53-54）；API 失败仅 DEV 日志或 toast 不回滚 UI。
+- **安全开关联动**：关 2D Face 立即 `clearTemplate()`（SettingsPanel.tsx:289）；关质量检测联动停延迟测试并切面板（SettingsPanel.tsx:357-375）；`self-reverify`/`allow-2d-face` 在 Hello 总开关关时 disabled（SettingsPanel.tsx:264, 282-284）。
+- **安卓差异化**：`useSettings` 中安卓自启真实字段为 `enableBootAutostart`（useSettings.ts:12-14）；API 失败仅 DEV 日志或 toast 不回滚 UI。
 - **VPN 密文落盘回环**：`vpn_password_enc` 内存即密文，save_file 不再处理，原样保留（config_state.rs:304，测试行821-838）。
