@@ -9,10 +9,11 @@ use tauri::State;
 
 use crate::config::model::Config;
 use crate::infra::state::{AppState, CommandResult};
-use crate::self_service::SelfServiceChannel;
-use crate::vpn::cache::{ensure_alive, map_cas_auth_error, map_cas_login_error, map_webvpn_error, reset as reset_vpn_session, store as store_vpn_session};
+use crate::self_service::{SelfServiceChannel, SELF_BASE_URL};
+use crate::vpn::cache::{ensure_alive, reset as reset_vpn_session, store as store_vpn_session};
 use crate::vpn::cas::CasClient;
-use crate::vpn::{NetZone, WebVpnSession};
+use crate::vpn::error::{map_cas_auth_error, map_cas_login_error, map_webvpn_error};
+use crate::vpn::{route as route_decision, NetZone, RouteDecision, WebVpnSession};
 
 /// VPN 凭据是否已保存（学号与加密密码均非空）。
 fn has_vpn_credential(config: &Config) -> bool {
@@ -72,34 +73,59 @@ pub(crate) fn append_hint(mut message: String, hint: Option<String>) -> String {
 }
 
 /// 自助服务执行通道决策（自动共存路由核心，self_service 命令层共用）：
-/// - Campus / Unknown → 直连（现状行为，Unknown 不拦截避免校内误拦）；
-/// - OffCampus + 总开关开 + 已存凭据 → 建/复用 WebVPN 会话走包装通道
-///   （会话失效由 [`ensure_vpn_session_alive`] 静默重登）；
-/// - OffCampus + 开关关或无凭据 → 直连（校外直连内网地址必然失败，
-///   调用方用返回的第三项在错误文案上附加配置指引）。
-/// 第二项返回是否走了 WebVPN（供日志）。
+/// 决策统一走 [`crate::vpn::route::route`] 决策表（单一决策源），命令层只做
+/// 「决策 → 通道」的落地映射：
+/// - `Direct`（Campus/Unknown/公网目标，或无凭据/开关关时决策表给出的
+///   `NeedLogin`——无凭据则无法建会话，直连让上层报真实错误并附提示）→ 直连；
+/// - `Wrapped`（OffCampus + 内网目标 + 有凭据且开关开）→ 建/复用 WebVPN
+///   会话走包装通道（会话失效由 [`ensure_vpn_session_alive`] 静默重登）。
+/// 第二项返回是否走了 WebVPN（供日志），第三项为校外直连的配置指引。
 pub(crate) async fn resolve_self_service_channel(
     state: &AppState,
     local_addr: Option<IpAddr>,
 ) -> Result<(SelfServiceChannel, bool, Option<String>), String> {
     let config = state.config.load();
     let zone = detect_net_zone(state).await;
-    let want_vpn = matches!(zone, NetZone::OffCampus)
-        && config.self_service_via_vpn
-        && has_vpn_credential(&config);
-    if !want_vpn {
-        let hint = offcampus_hint(&zone, &config);
-        crate::log_info!("vpn", "自助服务路由: {:?} → 直连", zone);
-        let channel = SelfServiceChannel::direct(local_addr)?;
-        return Ok((channel, false, hint));
+    // 决策表的 has_vpn_session 在此语义为「具备建立 WebVPN 会话的条件」：
+    // 总开关开且已存凭据（ensure_alive 会静默重登拿会话）。
+    let can_establish = config.self_service_via_vpn && has_vpn_credential(&config);
+    match route_decision(SELF_BASE_URL, zone, can_establish) {
+        RouteDecision::Wrapped(_) => {
+            let account = config.vpn_account.clone();
+            let password = load_vpn_password(&config)?;
+            drop(config);
+            let session = ensure_alive(&account, &password).await?;
+            crate::log_info!("vpn", "自助服务路由: OffCampus → WebVPN 包装（账号 {}）", crate::self_service::mask_account(&account));
+            let channel = SelfServiceChannel::via_webvpn(&session)?;
+            Ok((channel, true, None))
+        }
+        // NeedLogin 仅在「内网目标 + 无法建会话」时出现：直连让上层报真实错误，
+        // hint 给出补凭据/开开关的指引
+        RouteDecision::NeedLogin | RouteDecision::Direct | RouteDecision::Unreachable(_) => {
+            let hint = offcampus_hint(&zone, &config);
+            crate::log_info!("vpn", "自助服务路由: {:?} → 直连", zone);
+            drop(config);
+            let channel = SelfServiceChannel::direct(local_addr)?;
+            Ok((channel, false, hint))
+        }
     }
-    let account = config.vpn_account.clone();
-    let password = load_vpn_password(&config)?;
-    drop(config);
-    let session = ensure_alive(&account, &password).await?;
-    crate::log_info!("vpn", "自助服务路由: OffCampus → WebVPN 包装（账号 {}）", crate::self_service::mask_account(&account));
-    let channel = SelfServiceChannel::via_webvpn(&session)?;
-    Ok((channel, true, None))
+}
+
+/// 配置落盘 + 内存更新 + 重置缓存会话（改 VPN 相关配置的统一收尾：
+/// 先落盘再更新内存——落盘失败时命令报错且运行态不变，与 save_config 同则）。
+async fn persist_config_and_reset_session(
+    app_handle: &tauri::AppHandle,
+    state: &State<'_, AppState>,
+    new_config: Config,
+) -> Result<(), String> {
+    let handle = app_handle.clone();
+    let config_for_disk = new_config.clone();
+    tauri::async_runtime::spawn_blocking(move || crate::config::persist::save_config_and_broadcast(&handle, &config_for_disk))
+        .await
+        .map_err(|e| format!("配置落盘任务失败: {e}"))??;
+    state.config.store(new_config);
+    reset_vpn_session();
+    Ok(())
 }
 
 /// 保存 WebVPN 凭据：密码 DPAPI 加密进 config 落盘，成功后自动开启
@@ -126,14 +152,7 @@ pub async fn vpn_save_credential(
     new_config.vpn_account = account.clone();
     new_config.vpn_password_enc = enc;
     new_config.self_service_via_vpn = true;
-    // 先落盘再更新内存：落盘失败时命令报错且运行态不变（与 save_config 同则）
-    let handle = app_handle.clone();
-    let config_for_disk = new_config.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::config::persist::save_config_and_broadcast(&handle, &config_for_disk))
-        .await
-        .map_err(|e| format!("配置落盘任务失败: {e}"))??;
-    state.config.store(new_config);
-    reset_vpn_session();
+    persist_config_and_reset_session(&app_handle, &state, new_config).await?;
     crate::log_info!("vpn", "VPN 凭据已保存（账号 {}，密码已加密），总开关自动开启", crate::self_service::mask_account(&account));
     Ok(CommandResult::ok_msg("VPN 凭据已保存，校外访问将自动经 WebVPN 连接"))
 }
@@ -157,13 +176,7 @@ pub async fn vpn_clear_credential(app_handle: tauri::AppHandle, state: State<'_,
     new_config.vpn_account.clear();
     new_config.vpn_password_enc.clear();
     new_config.self_service_via_vpn = false;
-    let handle = app_handle.clone();
-    let config_for_disk = new_config.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::config::persist::save_config_and_broadcast(&handle, &config_for_disk))
-        .await
-        .map_err(|e| format!("配置落盘任务失败: {e}"))??;
-    state.config.store(new_config);
-    reset_vpn_session();
+    persist_config_and_reset_session(&app_handle, &state, new_config).await?;
     crate::log_info!("vpn", "VPN 凭据已清除，总开关关闭");
     Ok(CommandResult::ok_msg("已清除 VPN 凭据"))
 }
@@ -180,13 +193,7 @@ pub async fn set_self_service_via_vpn(
         return Ok(CommandResult::ok_msg(if enabled { "已处于开启状态" } else { "已处于关闭状态" }));
     }
     new_config.self_service_via_vpn = enabled;
-    let handle = app_handle.clone();
-    let config_for_disk = new_config.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::config::persist::save_config_and_broadcast(&handle, &config_for_disk))
-        .await
-        .map_err(|e| format!("配置落盘任务失败: {e}"))??;
-    state.config.store(new_config);
-    reset_vpn_session();
+    persist_config_and_reset_session(&app_handle, &state, new_config).await?;
     crate::log_info!("vpn", "校外经 WebVPN 访问总开关: {}", if enabled { "开" } else { "关" });
     Ok(CommandResult::ok_msg(if enabled { "已开启校外经 WebVPN 访问" } else { "已关闭校外经 WebVPN 访问" }))
 }

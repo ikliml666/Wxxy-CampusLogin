@@ -3,11 +3,10 @@
 //! false 或凭据/总开关变更）用保存凭据静默重登一次。密码仅内存传递，任何日志
 //! 不得出现明文凭据。
 
-use super::cas::{CasClient, CasLoginError};
-use super::error::CasAuthError;
+use super::cas::CasClient;
+use super::error::{map_cas_login_error, map_webvpn_error};
 use super::rsa::rsa_encrypt_hex;
 use super::session::WebVpnSession;
-use super::WebVpnError;
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -62,48 +61,12 @@ pub async fn login_new_session(account: &str, password: &str) -> Result<WebVpnSe
     WebVpnSession::login(&cas, &ok.tgt).await.map_err(map_webvpn_error)
 }
 
-/// CAS 登录错误 → 用户可读中文（不含任何凭据内容）。
-pub fn map_cas_login_error(e: CasLoginError) -> String {
-    match e {
-        CasLoginError::WrongUserOrPwd => "CAS 登录失败：账号或密码错误（请检查保存的 VPN 凭据）".to_string(),
-        CasLoginError::WrongCaptcha => "CAS 登录失败：服务端要求验证码（异常风控，请稍后重试）".to_string(),
-        CasLoginError::UserLocked => "CAS 登录失败：账号已被锁定".to_string(),
-        CasLoginError::NeedTwoVerify(raw) => format!("CAS 登录失败：需要二次验证（{raw}）"),
-        CasLoginError::Unknown(raw) => format!("CAS 登录失败：{raw}"),
-        CasLoginError::Network(raw) => format!("CAS 登录网络错误：{raw}"),
-    }
-}
 
-/// WebVPN 协议错误 → 用户可读中文（不含任何凭据内容）。
-pub fn map_webvpn_error(e: WebVpnError) -> String {
-    match e {
-        WebVpnError::Network(raw) => format!("WebVPN 网关连接失败：{raw}"),
-        WebVpnError::Sso(raw) => format!("WebVPN 单点登录失败：{raw}"),
-        other => format!("WebVPN 会话建立失败：{other}"),
-    }
-}
 
-/// [`CasAuthError`] → 用户可读中文。
-pub fn map_cas_auth_error(e: CasAuthError) -> String {
-    format!("CAS 请求失败：{e}")
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn cas_error_messages_are_chinese_without_credentials() {
-        let s = map_cas_login_error(CasLoginError::WrongUserOrPwd);
-        assert!(s.contains("账号或密码错误"), "{s}");
-        assert!(s.contains("VPN 凭据"), "{s}");
-        let s = map_cas_login_error(CasLoginError::Unknown("PASSERROR".to_string()));
-        assert!(s.contains("PASSERROR"), "{s}");
-        let s = map_webvpn_error(WebVpnError::InvalidIv);
-        assert!(s.contains("WebVPN"), "{s}");
-        let s = map_cas_auth_error(CasAuthError::Rsa("非 ASCII".to_string()));
-        assert!(s.contains("RSA"), "{s}");
-    }
 
     #[tokio::test]
     async fn cache_reset_and_relogin_semantics() {
