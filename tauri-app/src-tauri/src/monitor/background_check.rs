@@ -6,7 +6,7 @@ use crate::infra::state::AppState;
 use crate::infra::lifecycle::{start_campus_exit, cancel_campus_exit};
 use crate::auth::failure_tracker::AdapterFailureCounter;
 use super::auto_auth::{try_auto_login_on_preparation, try_disconnect_reconnect};
-use super::campus_check::{CampusCheckResult, adapter_campus_status, adapter_campus_message, check_campus_network};
+use super::campus_check::{adapter_campus_status, adapter_campus_message, check_campus_network};
 use super::portal_check::{PortalCheckResult, check_adapter_portal};
 use crate::auth::failure_tracker::handle_portal_request_failure;
 use super::dynamic_interval::{portal_reset_window_open, CheckOutcome};
@@ -68,37 +68,35 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         crate::log_debug!("background", "出站切换态，跳过本轮巡检");
         return CheckOutcome::Skipped;
     }
-    let campus_result = if crate::monitor::campus_check::is_campus_check_silent(now_min, config.campus_check_start_minutes, config.campus_check_end_minutes) {
-        let hour = config.campus_check_start_minutes / 60;
-        let minute = config.campus_check_start_minutes % 60;
-        let end_hour = config.campus_check_end_minutes / 60;
-        let end_minute = config.campus_check_end_minutes % 60;
-        let (window, log_window) = if config.campus_check_end_minutes > config.campus_check_start_minutes {
-            (
-                format!("不在{hour}:{minute:02}–{end_hour}:{end_minute:02}检测时段内"),
-                format!("不在检测时段 {:02}:{:02}–{:02}:{:02}", hour, minute, end_hour, end_minute),
-            )
-        } else {
-            (
-                format!("早于{hour}:{minute:02}"),
-                format!("早于 {:02}:{:02}", hour, minute),
-            )
-        };
-        crate::log_info!("background", "校园网检测静默期（当前时间{}），跳过校园网环境验证", log_window);
+    let campus_silent = crate::monitor::campus_check::is_campus_check_silent(
+        now_min,
+        config.campus_check_start_minutes,
+        config.campus_check_end_minutes,
+    );
+    // 校园网检测静默期（检测时段外）：整体跳过本轮巡检。
+    //
+    // 历史缺陷（2026-10-25 修复）：静默期原本只跳过「校园网环境验证」，Portal 登录
+    // 检测、自动登录、断连重连照跑——校园网 23:00 断网后每分钟一轮、整夜向登录端点
+    // 空转认证请求，日志刷 `Authentication fail`（auth/portal.rs:127 注释明示有账号
+    // 锁定风险），并让「检测时段 07:40–23:00」这个设置项对用户完全失效。设置项文案
+    // 「仅此时段内执行校园网检测」才是正确语义，故按文档语义收敛。
+    //
+    // 保留动作：清 on_campus_network（不误报在线）、取消可能残留的最小化+退出流程
+    // （静默期本就不判定、不退出），然后按 Skipped 交还节奏控制——不累计退避、
+    // 不更新 online 状态，避免静默期把「已登录」刷成离线并触发状态变更通知。
+    if campus_silent {
         cancel_campus_exit(app_handle, state);
-        CampusCheckResult {
-            wifi: None,
-            wired: None,
-            on_campus: true,
-            current_ssid: None,
-            message: format!("校园网检测静默期（{window}），跳过验证"),
-        }
-    } else {
-        // 校园网检测只看解析后的主/副适配器：其他适配器的连接不属本应用管理范围
-        let op_adapters = crate::network::filter_operation_adapters(&adapters, &adapter1_name, &adapter2_name);
-        check_campus_network(&config, &op_adapters)
-    };
-    // 始终更新 on_campus_network（静默期内 campus_result.on_campus=true，确保 emit 字段一致）
+        state.network.update(|s| {
+            s.current_ssid = None;
+            s.on_campus_network = true;
+        });
+        crate::log_debug!("background", "校园网检测静默期，跳过本轮巡检（Portal 检测/自动登录/断连重连均不执行）");
+        return CheckOutcome::Skipped;
+    }
+    // 校园网检测只看解析后的主/副适配器：其他适配器的连接不属本应用管理范围
+    let op_adapters = crate::network::filter_operation_adapters(&adapters, &adapter1_name, &adapter2_name);
+    let campus_result = check_campus_network(&config, &op_adapters);
+    // 始终更新 on_campus_network，确保 emit 字段一致
     // 合并条件分支内的 any_adapter_online/last_a1_online 重置，减少 CAS 循环次数
     let campus_check_failed = config.enable_network_name_check && !campus_result.on_campus;
     state.network.update(|s| {

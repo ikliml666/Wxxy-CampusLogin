@@ -388,8 +388,16 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
             if skip_campus {
                 let hour = config.campus_check_start_minutes / 60;
                 let minute = config.campus_check_start_minutes % 60;
-                crate::log_info!("auto_login", "开机自启: 校园网检测静默期（不在 {:02}:{:02} 起的检测时段内），跳过校园网环境验证", hour, minute);
+                // 静默期（检测时段外）连自动登录一并跳过：与后台巡检同口径
+                // （2026-10-25 修复，见 background_check.rs 同名注释）——开机自启若仍在
+                // 静默期发起 Portal 检测/登录，会与巡检形成两条整夜空转的认证请求源。
+                crate::log_info!(
+                    "auto_login",
+                    "开机自启: 校园网检测静默期（不在 {:02}:{:02} 起的检测时段内），跳过校园网环境验证与自动登录",
+                    hour, minute
+                );
                 s.network.update(|s| s.on_campus_network = true);
+                return;
             } else {
                 // 校园网检测任务异常（panic 或被取消）时不能误判为"不在校园网"，
                 // 否则会触发 start_campus_exit 将用户错误踢出。此处直接跳过本次检测。

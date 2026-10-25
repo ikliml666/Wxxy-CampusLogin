@@ -570,6 +570,21 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
     if settings.user.is_empty() || settings.password.is_empty() {
         return;
     }
+    // 校园网检测静默期（检测时段外）连启动自动登录一并跳过：与桌面
+    // auto_auth::run_auto_login_on_start 及本文件 run_check_once 的闸同语义
+    // （2026-10-25 修复，见桌面 background_check.rs 同名注释）——静默期内校园网
+    // 本就断网，启动即发起探测/认证只会在日志里留一串失败。
+    if settings.campus_check_start_minutes > 0 {
+        let now = chrono::Local::now();
+        let minutes_now = now.hour() as u16 * 60 + now.minute() as u16;
+        let end = settings.campus_check_end_minutes;
+        if minutes_now < settings.campus_check_start_minutes
+            || (end > settings.campus_check_start_minutes && minutes_now >= end)
+        {
+            emit_login_log(app, "启动检测:校园网检测静默期(非检测时段),跳过校园网判定与自动登录", "info");
+            return;
+        }
+    }
     // 探测/登录前强制绑 WiFi:WiFi+流量同开时默认路由可能落蜂窝,探测与登录走错网络
     crate::protocol_cmds::ensure_wifi_bound(app).await;
     let state = app.state::<crate::android_state::AndroidState>();

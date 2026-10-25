@@ -213,6 +213,35 @@ pub fn monitored_adapter_online(
     None
 }
 
+/// 登录闸三态判定（纯函数，双端共享语义）：目标卡此刻**是否允许**切为出站。
+///
+/// 参数语义：
+/// - `monitored_online`：`monitored_adapter_online` 的结论（非监测卡为 `None`）；
+/// - `portal`：`check_portal_full` 的探测结果，`None` 表示探测根本发不起来
+///   （无 IP / 绑源客户端构造失败）——与「不可达」同语义。
+///
+/// 判据（2026-10-25 修正，见 `.codewiki/learnings/night-outbound-login-gate-deadlock`）：
+/// 1. 监测模块已判在线 → 放行；
+/// 2. Portal 在线 → 放行；
+/// 3. Portal **不可达** → 放行。候选筛选用的 `is_campus_adapter` 判「非校园网」
+///    的前提就是校园网关与 portal 主机都不可达——手机热点这类不经营校园认证的
+///    出口若还被要求「Portal 在线」，两个判据互斥、条件恒假，切换整夜不执行；
+/// 4. Portal 可达但未登录 → **拦截**（切过去就是断网，这才是本闸该拦的场景）；
+/// 5. 探测发不起来 → 放行（同上，视为不经营校园认证）。
+pub fn login_gate_allow(
+    monitored_online: Option<bool>,
+    portal: Option<&crate::auth::portal::PortalStatus>,
+) -> bool {
+    if monitored_online == Some(true) {
+        return true;
+    }
+    match portal {
+        Some(s) if s.online => true,
+        Some(s) => !s.reachable,
+        None => true,
+    }
+}
+
 /// 历史兜底默认路由快照（v2.4.1 及更早版本切换时写入的 runtime 路由）。
 /// 2026-10-18 事故后该路由不再创建：它与目标卡自己的 DHCP 默认路由共享
 /// 「下一跳 + 接口」、只差跃点，而 Windows 判重与删除都不看跃点——既加不上（同键
@@ -601,6 +630,34 @@ mod tests {
                 day: 0,
             })
         );
+    }
+
+    /// 登录闸三态：这是 2026-10-25 整夜不切换缺陷的回归用例——旧实现要求
+    /// 「必须 online」，热点这类不可达出口恒被拦，条件永假。
+    #[test]
+    fn 登录闸_不可达即放行且可达未登录才拦截() {
+        use login_gate_allow as gate;
+        let status = |reachable: bool, online: bool| crate::auth::portal::PortalStatus {
+            reachable,
+            login_available: !online,
+            online,
+            message: String::new(),
+            uid: None,
+            error_kind: None,
+        };
+        // ① 监测模块已判在线：不看探测，直接放行
+        assert!(gate(Some(true), None));
+        // ② Portal 在线：放行
+        assert!(gate(None, Some(&status(true, true))));
+        // ③ Portal 可达但未登录：拦截（切过去就断网）
+        assert!(!gate(None, Some(&status(true, false))));
+        assert!(!gate(Some(false), Some(&status(true, false))));
+        // ④ Portal 不可达：放行——手机热点(10.146.34.246)整夜挂起即卡在这里
+        assert!(gate(None, Some(&status(false, false))));
+        assert!(gate(Some(false), Some(&status(false, false))));
+        // ⑤ 探测发不起来：与不可达同语义放行
+        assert!(gate(None, None));
+        assert!(gate(Some(false), None));
     }
 
     #[test]

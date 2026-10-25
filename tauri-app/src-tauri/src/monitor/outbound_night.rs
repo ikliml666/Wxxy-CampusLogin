@@ -63,12 +63,13 @@ static OUTBOUND_RESTORE_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 任一次 helper 成功即清零（通道可用）
 static OUTBOUND_CHANNEL_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 每天至多一次的提醒通知去重标记（num_days_from_ce；i32::MIN = 从未提醒）：
-/// 无候选/空禁用名单/跃点快照损坏/兜底路由是唯一默认路径四类「不阻塞流程但该让
-/// 用户知道」的问题各占一枚
+/// 无候选/空禁用名单/跃点快照损坏/兜底路由是唯一默认路径/登录闸挂起五类「不阻塞
+/// 流程但该让用户知道」的问题各占一枚
 static OUTBOUND_NO_CANDIDATE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_EMPTY_DISABLE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_METRIC_SNAPSHOT_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_LAST_PATH_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
+static OUTBOUND_PENDING_LOGIN_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 
 /// 出站动作单飞闸：切换与还原互斥。手动入口（命令线程）与 30s 调度拍（后台线程）
 /// 可能同时进 `apply_outbound_*`；若还原拿着"切换前"读到的快照收尾，会把刚写入的
@@ -390,12 +391,20 @@ fn write_outbound_metric(
 /// - 切换完成后路由级验证（GetBestRoute）：到校园网关的最优路由仍指向校园卡
 ///   ifIndex 则判失败走重放；空禁用名单（误判漏禁）单独每天告警一次。
 ///
-/// 目标网卡是否已在校园 Portal 登录（登录闸判定）。主/副卡直接采信监测模块的
-/// 在线结论（`last_a1_online`/`last_a2_online`，即"等待监测模块返回已登录消息"；
-/// 监测结论在 campus 检测失败/注销保护期会保持陈旧 false——挂起因此多等一拍，
-/// 属「宁可多等、不可切到未登录卡」口径内的可接受延迟）；目标卡不在监测名单内时，
-/// 用监测同款原语绑源直查 Portal——直查失败/不可达一律视同未登录（切过去就是
-/// 断网，宁可多等一拍）。
+/// 目标网卡是否允许切换（登录闸判定，**三态语义**）。
+///
+/// 判据取 Portal 探测结果 `PortalStatus` 本身，而不是「必须 online」：
+/// - `online = true` → 放行（真正已登录）；
+/// - `reachable = true && online = false` → 挂起等登录（这才是本闸该拦的场景：
+///   目标卡确实是校园网卡但尚未认证，切过去就是断网）；
+/// - `!reachable`（探测失败/该卡无 IP）→ **放行**：候选筛选用的同一个绑源探测
+///   （`is_campus_adapter`）判定「非校园网」的充要条件之一就是校园网关与 portal
+///   主机都不可达；不经营校园认证的出口若还被要求「Portal 在线」，两个判据逻辑
+///   互斥、条件恒假。2026-10-25 手机热点 WLAN(10.146.34.246) 整夜挂起
+///   「待切换: WLAN（等待该网卡登录校园网）」、切换从未执行即此恒假条件所致。
+///
+/// 监测卡（主/副）优先采信监测模块在线结论以避免每拍重复探测：已在线直接放行；
+/// 判未在线时仍补一次绑源直查，区分「不可达」与「可达未登录」。
 fn target_adapter_logged_in(
     app_handle: &AppHandle,
     config: &crate::config::Config,
@@ -410,23 +419,50 @@ fn target_adapter_logged_in(
     };
     let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, config);
     let snap = app_handle.state::<AppState>().network.load();
-    match crate::monitor::outbound_switch::monitored_adapter_online(
+    let monitored = crate::monitor::outbound_switch::monitored_adapter_online(
         target_name,
         &a1_name,
         &a2_name,
         snap.last_a1_online,
         snap.last_a2_online,
-    ) {
-        Some(online) => online,
-        None => match adapters.iter().find(|a| a.name == target_name) {
-            Some(a) if !a.ip.is_empty() => {
-                crate::auth::portal::check_portal_full(&a.ip, Some(&a.name))
-                    .map(|s| s.online)
-                    .unwrap_or(false)
-            }
-            _ => false,
-        },
+    );
+    if monitored == Some(true) {
+        return true;
     }
+    // 需要区分「可达未登录」与「不可达」时才探测：监测结论已明确未在线也要探一次，
+    // 否则热点这类不可达出口会被误判成「等登录」而挂起整夜
+    let Some(adapter) = adapters.iter().find(|a| a.name == target_name) else {
+        return false; // 候选来自本列表，理论上不会走到；防御性挂起
+    };
+    if adapter.ip.is_empty() {
+        return false;
+    }
+    let portal = crate::auth::portal::check_portal_full(&adapter.ip, Some(&adapter.name)).ok();
+    let allow = crate::monitor::outbound_switch::login_gate_allow(monitored, portal.as_ref());
+    match (allow, portal.as_ref()) {
+        (true, Some(s)) if s.online => {
+            crate::log_info!("outbound", "登录闸: 目标卡 {} 已在校园 Portal 在线，放行切换", target_name);
+        }
+        (true, _) => {
+            crate::log_info!(
+                "outbound",
+                "登录闸: 目标卡 {} 不可访问校园 Portal（与候选筛选判定同源，视同不经营校园认证），放行切换",
+                target_name
+            );
+        }
+        (false, Some(s)) => {
+            crate::log_warn!(
+                "outbound",
+                "登录闸: 目标卡 {} Portal 可达但未登录（{}），挂起等登录",
+                target_name,
+                s.message
+            );
+        }
+        (false, None) => {
+            crate::log_warn!("outbound", "登录闸: 目标卡 {} 无法确认登录态，挂起等登录", target_name);
+        }
+    }
+    allow
 }
 
 /// 改单份本机状态配置并落盘+广播+store（排程 30s 一拍，逐拍重写同值既写盘又
@@ -554,6 +590,17 @@ pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::conf
             "outbound",
             "夜间出站切换: 目标卡 {} 尚未登录校园网，本拍不切换（已记录待切换状态，登录确认后自动切换）",
             target.name
+        );
+        // 挂起是整夜静默失效的高危形态：徽标只在前端可见，用户不看面板就完全无感
+        // （2026-10-25 手机热点整夜挂起即此）。每天提醒一次，不刷通知
+        notify_outbound_issue_once_per_day(
+            app_handle,
+            &OUTBOUND_PENDING_LOGIN_WARN_DAY,
+            "夜间出站切换未执行",
+            &format!(
+                "目标网卡 {} 可访问校园 Portal 但尚未登录，出站切换已挂起等待登录；登录确认后会自动继续",
+                target.name
+            ),
         );
         return Err(format!(
             "目标网卡 {} 尚未登录校园网，已记录待切换状态，登录确认后自动切换",
