@@ -150,7 +150,7 @@
      staircase Chromium's nearest-neighbour sampler leaves behind. */
   const DEFAULTS = { bevel: 37, thickness: 59, slope: 2.7, shape: 'squircle', blur: 1, dispersion: 1.6,
                      shade: 0.46, rim: 1.76, edgeW: 8, sat: 0.86, edge: 0.32, light: -140, smooth: 1,
-                     materialize: 0, settle: 0, self: false };
+                     materialize: 0, settle: 0, self: false, lit: true };
   const LIMITS = { bevel: [1, 400], thickness: [0, 400], slope: [0.2, 4], blur: [0, 64], dispersion: [0, 8],
                    shade: [0, 2], rim: [0, 4], edgeW: [0.5, 64], sat: [0, 3], edge: [0, 2], light: [-180, 180],
                    smooth: [0, 4], materialize: [0, 10000], settle: [0, 10000] };
@@ -191,6 +191,7 @@
       s[k] = Number.isFinite(v) ? Math.min(lim[1], Math.max(lim[0], v)) : DEFAULTS[k];
     }
     if ('self' in s) s.self = !!s.self;
+    if ('lit' in s) s.lit = !!s.lit;
     if ('shape' in s && SHAPES.indexOf(s.shape) < 0) s.shape = DEFAULTS.shape;
     return s;
   }
@@ -483,16 +484,19 @@
       base = 'glassSat';
     }
     // Above neutral it is light the glass sends back, so it adds. The table takes the upper half;
-    // the linear pass after it is what `materialize` ramps.
-    f.appendChild(prim('feColorMatrix', { in: 'map', type: 'matrix',
-      values: '0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 1 0 0', result: 'litA' }));      // RGB ← white, A ← B
-    const lt = prim('feComponentTransfer', { in: 'litA', result: 'litHalf' });
-    lt.appendChild(prim('feFuncA', { type: 'table', tableValues: '0 0 1' }));
-    f.appendChild(lt);
-    const lg = prim('feComponentTransfer', { in: 'litHalf', result: 'litLayer' });
-    lg.appendChild(prim('feFuncA', { type: 'linear', slope: 1, intercept: 0 }));
-    f.appendChild(lg);
-    f.appendChild(prim('feComposite', { in: 'litLayer', in2: base, operator: 'over' }));
+    // the linear pass after it is what `materialize` ramps. `lit: false` skips the whole layer —
+    // four primitives the caller does not want (a dock that keeps its edge styling in CSS).
+    if (o.lit) {
+      f.appendChild(prim('feColorMatrix', { in: 'map', type: 'matrix',
+        values: '0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 1 0 0', result: 'litA' }));      // RGB ← white, A ← B
+      const lt = prim('feComponentTransfer', { in: 'litA', result: 'litHalf' });
+      lt.appendChild(prim('feFuncA', { type: 'table', tableValues: '0 0 1' }));
+      f.appendChild(lt);
+      const lg = prim('feComponentTransfer', { in: 'litHalf', result: 'litLayer' });
+      lg.appendChild(prim('feFuncA', { type: 'linear', slope: 1, intercept: 0 }));
+      f.appendChild(lg);
+      f.appendChild(prim('feComposite', { in: 'litLayer', in2: base, operator: 'over' }));
+    }
     return f;
   }
 
@@ -597,7 +601,7 @@
     if (W < 4 || H < 4) return;                       // not laid out yet / hidden
     const radii = radiiOf(el, W, H);
     const o = st.opts;
-    const key = `${W}x${H}|${radii.join(',')}|${o.bevel}|${o.thickness}|${o.slope}|${o.shape}|${o.shade}|${o.rim}|${o.edgeW}|${o.sat}|${o.blur}|${o.dispersion}|${o.light}|${o.smooth}|${o.self ? 'self' : 'back'}`;
+    const key = `${W}x${H}|${radii.join(',')}|${o.bevel}|${o.thickness}|${o.slope}|${o.shape}|${o.shade}|${o.rim}|${o.edgeW}|${o.sat}|${o.blur}|${o.dispersion}|${o.light}|${o.smooth}|${o.self ? 'self' : 'back'}|${o.lit ? 'lit' : 'nolit'}`;
     st.w = W; st.h = H;
     let rec;
     if (key === st.key) rec = filters.get(key);       // same geometry (e.g. back from a settle): just re-point

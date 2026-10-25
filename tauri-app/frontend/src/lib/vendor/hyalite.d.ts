@@ -41,6 +41,7 @@ export interface HyaliteOptions {
   /** ms: ramp displacement, shade and rim from 0 on attach */ materialize?: number;
   /** ms — coalesce resizes into one rebuild after the last change; the glass stays on (stretched) meanwhile. 0 = live: first change rebuilt before its frame paints, then ≤ 1 rebuild / 90 ms */ settle?: number;
   /** the element filters itself (`filter:`) instead of its backdrop — displacement only */ self?: boolean;
+  /** whether the edge-profile light layer is emitted (4 filter primitives). false trims the chain for callers that keep edge styling in CSS. Default true */ lit?: boolean;
   /** called after every *map* build; a filter rebuilt from a cached map does not build one */
   onBuild?: (info: HyaliteInfo) => void;
 }

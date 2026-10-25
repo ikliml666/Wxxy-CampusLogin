@@ -71,6 +71,12 @@ export const GLASS_DOCK_OPTS: Record<'standard' | 'ultra', HyaliteOptions> = {
     // 标准档 = FlClash 的 standard（只有 hazeBlur、丢了 haze）→ 整片糊
     blur: 8,
     dispersion: 0,
+    // 性能（2026-10-24 真机实测：掉帧根因是图元链过长，21 图元 × DPR 3.25，
+    // GPU 每帧 6ms 超不过 120Hz 预算）。sat 0.86 只是倒角环内降 14% 饱和度，
+    // 占 9 个图元；lit 光层占 4 个，而边缘光效已按上方约定全归 CSS。
+    // sat: 1 + lit: false 把链从 21 砍到 8 个图元，折射/磨砂/压暗观感不变。
+    sat: 1,
+    lit: false,
     shade: 0.45,
     rim: 0,
     edge: 0,
@@ -112,6 +118,9 @@ export const GLASS_DOCK_OPTS: Record<'standard' | 'ultra', HyaliteOptions> = {
     slope: 2.0,
     blur: 1.6,
     dispersion: 0,
+    // 同标准档的 sat/lit 裁剪（见上）：档位差仍只做在 blur 上
+    sat: 1,
+    lit: false,
     // 反向补偿膜厚差，见上方注释：0.45 与标准档参数相同，但四角深 15.1
     shade: 0.2,
     rim: 0,
