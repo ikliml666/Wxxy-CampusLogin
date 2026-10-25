@@ -9,7 +9,7 @@ tags: [教训, 双端, 配置, 同步]
 
 ## Overview
 
-新增配置字段时无法照抄某一端——按“双端同步”的直觉去抄会抄错。实读当前代码（2026-10-02 后），桌面端 `Config` 与安卓端 `Settings` 是两个独立定义的结构体，字段集既不是子集也不是超集，而是交集叠加双向差集。任何一端新增字段都必须先判断平台归属与消费侧差异，否则会导致双端契约不一致、反序列化失败或功能静默失效。
+新增配置字段时无法照抄某一端——按“双端同步”的直觉去抄会抄错。实读当前代码（2026-10-25 后），桌面端 `Config` 与安卓端 `Settings` 是两个独立定义的结构体，字段集既不是子集也不是超集，而是交集叠加双向差集。任何一端新增字段都必须先判断平台归属与消费侧差异，否则会导致双端契约不一致、反序列化失败或功能静默失效。
 
 ## Key Components
 
@@ -19,26 +19,26 @@ tags: [教训, 双端, 配置, 同步]
 
 - `PASSWORD_MASK` (model.rs:3)：密码掩码占位符 `"***"`。
 - `AUTO_DETECT_ADAPTER` (model.rs:4)：自动检测适配器常量 `"自动检测"`。
-- `deserialize_non_empty_or` (model.rs:184-194)：反序列化辅助，空串回退默认函数。
-- `deserialize_campus_gateway` (model.rs:196-201)： campus_gateway 空串回退。
-- `deserialize_required_network_name` (model.rs:203-208)： required_network_name 空串回退。
-- `default_true` (model.rs:210)：返回 `true` 的 serde 默认函数。
-- `default_campus_check_start_minutes` (model.rs:212)：返回 `460`。
-- `default_campus_check_end_minutes` (model.rs:216)：返回 `1380`（2026-09-13 起）。
-- `default_campus_exit_start_minutes` (model.rs:218)：返回 `480`。
-- `default_campus_exit_end_minutes` (model.rs:220)：返回 `1380`。
-- `default_fixed_gateway` (model.rs:222-224)：返回 `"10.2.127.254"`。
-- `default_log_retention_days` (model.rs:226)：返回 `7`。
-- `default_max_disconnect_reconnect` (model.rs:228)：返回 `3`。
-- `default_auto_login_cooldown_secs` (model.rs:230)：返回 `60`。
-- `default_portal_url` (model.rs:232-234)：返回 `"http://10.1.99.100"`。
-- `default_required_network_name` (model.rs:236-238)：返回 `"i-wxxy、iwxxy-2、iwxxy-3"`。
-- `default_campus_gateway` (model.rs:240-242)：返回 `"10.2.127.254"`。
-- `impl Default for Config` (model.rs:244-320)：桌面全量默认值（config_version=5 在 model.rs:317）。
-- `impl Config::masked_for_display` (model.rs:326-330) 与 `mask_in_place` (model.rs:332-336)：密码掩码唯一出口。
-- `#[cfg(test)] mod tests` (model.rs:339-404)：含 serde 契约锁测试（如 model.rs:374-403 锁 displayName/adapter1Account/adapter2Account）。
+- `deserialize_non_empty_or` (model.rs:195-205)：反序列化辅助，空串回退默认函数。
+- `deserialize_campus_gateway` (model.rs:207-212)：campus_gateway 空串回退。
+- `deserialize_required_network_name` (model.rs:214-219)：required_network_name 空串回退。
+- `default_true` (model.rs:221)：返回 `true` 的 serde 默认函数。
+- `default_campus_check_start_minutes` (model.rs:223)：返回 `460`。
+- `default_campus_check_end_minutes` (model.rs:227)：返回 `1380`（2026-09-13 起）。
+- `default_campus_exit_start_minutes` (model.rs:229)：返回 `480`。
+- `default_campus_exit_end_minutes` (model.rs:231)：返回 `1380`。
+- `default_fixed_gateway` (model.rs:233-235)：返回 `"10.2.127.254"`。
+- `default_log_retention_days` (model.rs:237)：返回 `7`。
+- `default_max_disconnect_reconnect` (model.rs:239)：返回 `3`。
+- `default_auto_login_cooldown_secs` (model.rs:241)：返回 `60`。
+- `default_portal_url` (model.rs:243-245)：返回 `"http://10.1.99.100"`。
+- `default_required_network_name` (model.rs:247-249)：返回 `"i-wxxy、iwxxy-2、iwxxy-3"`。
+- `default_campus_gateway` (model.rs:251-253)：返回 `"10.2.127.254"`。
+- `impl Default for Config` (model.rs:255-335)：桌面全量默认值（config_version=5 在 model.rs:332）。
+- `impl Config` (model.rs:341-361)：`masked_for_display` (model.rs:341-345) 与 `mask_in_place` (model.rs:347-356) 密码掩码唯一出口。
+- `#[cfg(test)] mod tests` (model.rs:359-424)：含 serde 契约锁测试（model.rs:394-423 锁 displayName/adapter1Account/adapter2Account）。
 
-`Config` struct 全字段（model.rs:6-182，容器级 `#[serde(default)]` 在 model.rs:9，共 61 字段）：
+`Config` struct 全字段（model.rs:10-193，容器级 `#[serde(default)]` 在 model.rs:9，共 64 字段）：
 
 | 行号 | 字段 | 双端归属 |
 | --- | --- | --- |
@@ -102,7 +102,10 @@ tags: [教训, 双端, 配置, 同步]
 | 174-175 | max_disconnect_reconnect | 交集 |
 | 176-177 | auto_login_cooldown_secs | 交集 |
 | 178-179 | skip_sha256_when_missing | 桌面独有 |
-| 180-181 | config_version | 桌面独有 |
+| 180-182 | vpn_account | 桌面独有 |
+| 183-186 | vpn_password_enc | 桌面独有 |
+| 187-190 | self_service_via_vpn | 桌面独有 |
+| 191-192 | config_version | 桌面独有 |
 
 ### android/src-tauri/src/config_state.rs
 
@@ -125,7 +128,9 @@ tags: [教训, 双端, 配置, 同步]
 - `masked_for_display` (config_state.rs:424-430)：掩码出口。
 - `emit_config_changed` (config_state.rs:436-439)：广播事件。
 - `resolve_password_field` (config_state.rs:442-451)：空串/MASK 回退已存值。
-- `#[tauri::command] get_config` (config_state.rs:503-516)、`save_config` (config_state.rs:503-534)、`current_settings` (config_state.rs:503-521，仅 `#[allow(dead_code)]` 非 `#[tauri::command]`)。
+- `#[tauri::command] get_config` (config_state.rs:453-466)。
+- `#[tauri::command] save_config` (config_state.rs:468-499)。
+- `current_settings` (config_state.rs:503-520，仅 `#[allow(dead_code)]` 非 `#[tauri::command]`)。
 - `#[cfg(test)] mod tests` (config_state.rs:522-827)：含加密落盘、迁移、SSID 扩值等测试。
 
 `Settings` struct 全字段（config_state.rs:26-128，共 47 字段，其中 43 个交集、4 个独有）：
@@ -184,20 +189,20 @@ tags: [教训, 双端, 配置, 同步]
 
 ```text
 ┌────────────────────────────┐         ┌────────────────────────────┐
-│ 桌面 Config (model.rs:6)   │         │ 安卓 Settings              │
-│ 61 字段                    │         │ (config_state.rs:26) 47    │
+│ 桌面 Config (model.rs:10)  │         │ 安卓 Settings              │
+│ 64 字段                    │         │ (config_state.rs:26) 47    │
 └─────────────┬──────────────┘         └─────────────┬──────────────┘
               │ 交集 43 字段 (camelCase 同契约)        │
               └──────────────►◄───────────────────────┘
               │                                      │
 ┌─────────────▼──────────────┐         ┌─────────────▼──────────────┐
-│ 桌面独有 18 字段             │         │ 安卓独有 4 字段             │
+│ 桌面独有 21 字段             │         │ 安卓独有 4 字段             │
 │ adapter1, lightweight_mode, │         │ allow_2d_face_verify,      │
-│ outbound_pending_switch...  │         │ background_check_idle...   │
+│ vpn_account...              │         │ background_check_idle...   │
 └────────────────────────────┘         └────────────────────────────┘
 ```
 
-夜切/出站切换镜像字段族 9 件双端同加但多不消费：`enable_night_operator_switch` (model.rs:56-57 / config_state.rs:41)、`night_operator_restore` (model.rs:59-60 / config_state.rs:43)、`enable_night_outbound_switch` (model.rs:63-64 / config_state.rs:47)、`outbound_priority` (model.rs:69-70 / config_state.rs:50)、`outbound_metric_restore` (model.rs:74-75 / config_state.rs:53)、`outbound_disabled_adapters` (model.rs:80-81 / config_state.rs:56)、`outbound_standby_route` (model.rs:85-86 / config_state.rs:59)、`night_outbound_restore` (model.rs:102-103 / config_state.rs:64)、`dns_optimize_adapters` (model.rs:107-108 / config_state.rs:67)。字段存在 ≠ 字段消费：安卓端不消费 `outbound_priority` (config_state.rs:50)、`outbound_metric_restore` (config_state.rs:53) 等；`night_outbound_restore` 反向——桌面落盘但桌面端不消费 (model.rs:102-103)。
+夜切/出站切换镜像字段族 9 件双端同加但多不消费：`enable_night_operator_switch` (model.rs:56-57 / config_state.rs:41)、`night_operator_restore` (model.rs:59-60 / config_state.rs:43)、`enable_night_outbound_switch` (model.rs:63-64 / config_state.rs:47)、`outbound_priority` (model.rs:69-70 / config_state.rs:50)、`outbound_metric_restore` (model.rs:74-75 / config_state.rs:53)、`outbound_disabled_adapters` (model.rs:80-81 / config_state.rs:56)、`outbound_standby_route` (model.rs:85-86 / config_state.rs:59)、`night_outbound_restore` (model.rs:102-103 / config_state.rs:64)、`dns_optimize_adapters` (model.rs:107-108 / config_state.rs:67)。字段存在 ≠ 字段消费：安卓端不消费 `outbound_priority` (config_state.rs:50)、`outbound_metric_restore` (config_state.rs:53)、`outbound_disabled_adapters` (config_state.rs:56)、`outbound_standby_route` (config_state.rs:59)、`dns_optimize_adapters` (config_state.rs:67)；`night_outbound_restore` 反向——桌面落盘但桌面端不消费 (model.rs:102-103)。
 
 ## Data Flow
 
@@ -205,9 +210,9 @@ tags: [教训, 双端, 配置, 同步]
 
 - 安卓读取：`get_config` (config_state.rs:454) → `load_from` (config_state.rs:326) → `load_file` (config_state.rs:250) 解密 → `migrate_legacy_defaults` (config_state.rs:355) 及 SSID 单值扩三值 (config_state.rs:454-456) → `masked_for_display` (config_state.rs:424)。
 - 安卓保存：`save_config` (config_state.rs:468) 持 `config_io_lock` (config_state.rs:22) → `load_from` 合并 → `resolve_password_field` (config_state.rs:442) → `save_to` (config_state.rs:419) → `save_file` 加密落盘 `EncodedSettings` (config_state.rs:243, 278) → `emit_config_changed` (config_state.rs:436)。
-- 桌面读取/保存：`Config` 经 serde 容器级 `#[serde(default)]` (model.rs:326) 兜底反序列化，缺字段整体不失败；掩码经 `masked_for_display` (model.rs:326)。
+- 桌面读取/保存：`Config` 经 serde 容器级 `#[serde(default)]` (model.rs:341) 兜底反序列化，缺字段整体不失败；掩码经 `masked_for_display` (model.rs:341)。
 
-历史脉络：2026-09-13 双端同加 `scheduled_login_minutes`/`scheduled_logout_minutes` (model.rs:167-171 / config_state.rs:113-115)；2026-09-14 双端同加 `display_name` (model.rs:124-125 / config_state.rs:93)、桌面另加 `adapter1_account`/`adapter2_account` (model.rs:27-31)；2026-10-01 安卓 `required_network_name` 对齐桌面三 SSID (config_state.rs:181 ↔ model.rs:236-238)；2026-10-02 双端同改夜切开关默认回关 (model.rs:271 / config_state.rs:141，存量已落盘 true 不迁移)。
+历史脉络：2026-09-13 双端同加 `scheduled_login_minutes`/`scheduled_logout_minutes` (model.rs:167-171 / config_state.rs:113-115)；2026-09-14 双端同加 `display_name` (model.rs:124-125 / config_state.rs:93)、桌面另加 `adapter1_account`/`adapter2_account` (model.rs:27-31)；2026-10-01 安卓 `required_network_name` 对齐桌面三 SSID (config_state.rs:181 ↔ model.rs:247-249)；2026-10-02 双端同改夜切开关默认回关 (model.rs:282 / config_state.rs:141，存量已落盘 true 不迁移)；2026-10-25 桌面新增 VPN 相关字段 `vpn_account`/`vpn_password_enc`/`self_service_via_vpn` (model.rs:180-190) 仅桌面独有。
 
 “双端同步”按**双向增量同步**执行：先判断字段属于两端通用还是平台专属，再决定是否两端各加一份。通用字段（如夜切族）双端同加但注明消费侧差异；平台专属字段（如 `lightweight_mode` 仅桌面 model.rs:42-43、`allow_2d_face_verify` 仅安卓 config_state.rs:36）只加一端。
 
@@ -217,10 +222,10 @@ tags: [教训, 双端, 配置, 同步]
 
 ## Known Issues
 
-① 新增配置字段时对照 `config/model.rs` 与 `config_state.rs` 两份定义，别假设一端是另一端的超集（现状 61 vs 47，交集 43，桌面独有 18，安卓独有 4）。
+① 新增配置字段时对照 `config/model.rs` 与 `config_state.rs` 两份定义，别假设一端是另一端的超集（现状 64 vs 47，交集 43，桌面独有 21，安卓独有 4）。
 
-② 改默认值要走后端 `Settings::default` +（安卓）schema 迁移（`migrate_legacy_defaults` 在 config_state.rs:355-417），且两端默认值允许合理分叉：`default_panel` 安卓 `"dashboard"` (config_state.rs:164) vs 桌面空串 (model.rs:293)；`enable_latency_test` 桌面 true (model.rs:289) vs 安卓 false (config_state.rs:168)；`enable_network_quality` 桌面 true (model.rs:294) vs 安卓 false (config_state.rs:174)；其余如 `background_check_interval` 两端均为 60000 (model.rs:267 / config_state.rs:155)，`latency_test_interval` 两端均为 600000 (model.rs:291 / config_state.rs:170)。
+② 改默认值要走后端 `Settings::default` +（安卓）schema 迁移（`migrate_legacy_defaults` 在 config_state.rs:355-417），且两端默认值允许合理分叉：`default_panel` 安卓 `"dashboard"` (config_state.rs:164) vs 桌面空串 (model.rs:304)；`enable_latency_test` 桌面 true (model.rs:300) vs 安卓 false (config_state.rs:168)；`enable_network_quality` 桌面 true (model.rs:305) vs 安卓 false (config_state.rs:174)；`lightweight_mode` 桌面 true (model.rs:273) 安卓无；其余如 `background_check_interval` 两端均为 60000 (model.rs:278 / config_state.rs:155)，`latency_test_interval` 两端均为 600000 (model.rs:302 / config_state.rs:170)。
 
-③ 不要混淆 `config_version`（桌面，当前默认 5，model.rs:317，迁移在 validate.rs）与 `config_schema_version`（安卓，当前默认 7，config_state.rs:197，迁移 `migrate_legacy_defaults` 在 config_state.rs:355-417），两套版本号各自独立演进、迁移阶梯互不相同。
+③ 不要混淆 `config_version`（桌面，当前默认 5，model.rs:332，迁移在 validate.rs）与 `config_schema_version`（安卓，当前默认 7，config_state.rs:197，迁移 `migrate_legacy_defaults` 在 config_state.rs:355-417），两套版本号各自独立演进、迁移阶梯互不相同。
 
 ④ 镜像字段“存在但不消费”是常态（安卓镜像桌面夜切状态、桌面忽略安卓标记），判断字段语义必须读字段注释，不能只看字段名在不在两端。

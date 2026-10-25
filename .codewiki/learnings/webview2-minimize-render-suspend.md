@@ -21,7 +21,7 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 
 ## Key Components
 
-### `tauri-app/src-tauri/src/app/window.rs`
+### tauri-app/src-tauri/src/app/window.rs
 
 #### `HIDDEN_BY_DESIGN`
 - **位置**: L8
@@ -75,7 +75,7 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 - **用途**: 上次同步给 WebView2 的「最小化」取值。Resized 事件高频（拖拽调整尺寸逐像素触发），仅在 `is_minimized` 翻转时才触碰 COM。
 
 #### `handle_window_resized_event(window: &Window, event: &WindowEvent)`
-- **位置**: L139-L159 (Windows), L168-L170 (Non-Windows)
+- **位置**: L139-L159 (Windows), L169-L170 (Non-Windows)
 - **用途**: 窗口最小化状态翻转时同步 WebView2 可见性：最小化挂起渲染，还原时恢复。
 - **背景注释**: wry 只在显式 hide()/show() 时调 `controller.SetIsVisible`（wry 0.55.1），窗口最小化不会触发任何通知；WebView2 默认也不做原生遮挡检测。结果页面长期处于「半挂起」：定时器被节流但渲染合成继续派发，最小化后 rAF/CSS 动画/合成器全速空转，v2.4.1 为 `.glass-dock` 加 `backdrop-filter` 后每帧成本陡增，问题显性化（见 L131-L138）。
 - **关键逻辑 (Windows)**:
@@ -84,11 +84,11 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
     - 隐藏到托盘的窗口不归尺寸事件管：若未最小化且 `is_hidden_by_design()` 为真，直接返回，避免虚事件污染 `LAST_MINIMIZED`（L149-L151）。
     - 与 `LAST_MINIMIZED` 比较，未翻转则直接返回（L153-L155）。
     - 翻转时调用 `set_main_webview_suspended` 同步状态（L158）。
-- **非 Windows 空实现**: L168-L170 `pub fn handle_window_resized_event(_window: &tauri::WebviewWindow, _event: &WindowEvent) {}`。
+- **非 Windows 空实现**: L169-L170 `pub fn handle_window_resized_event(_window: &tauri::WebviewWindow, _event: &WindowEvent) {}`。
 
 #### `note_minimized_synced()`
 - **位置**: L163-L166
-- **用途**: 标注「最小化挂起已同步」，供 `commands::system::minimize_window` 在主动挂起后调用，避免随后的 Resized 事件重复触碰 COM。非 Windows 下仅 `LAST_MINIMIZED.store(true, ...)`（L164-L165），若非 Windows 则 `LAST_MINIMIZED` 未定义故函数体为空（L163 函数定义跨平台，但 store 在 cfg 内）。
+- **用途**: 标注「最小化挂起已同步」，供 `commands::system::minimize_window` 在主动挂起后调用，避免随后的 Resized 事件重复触碰 COM。非 Windows 下仅 `LAST_MINIMIZED.store(true, ...)`（L164-L165）。
 
 #### `show_and_focus_main<M: tauri::Manager<tauri::Wry>>(app: &M)`
 - **位置**: L178-L189
@@ -109,7 +109,7 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 - **用途**: 从 `tauri.conf.json` 窗口配置重建主窗口（绝不用 `WindowBuilder`——会得到无 webview 的白窗口，tauri issue #9307）。
 - **关键细节**:
     - `WebviewWindowBuilder::from_config` 构建（L219）。
-    - `visible(false)` 起步（由调用链保证），等前端 `notify_window_ready` 或 5s 超时兜底才 show，防重建白闪（L251-L256）。
+    - `visible(false)` 起步，等前端 `notify_window_ready` 或 5s 超时兜底才 show，防重建白闪（L251-L256）。
     - 几何恢复：离屏（拔显示器）则回退配置默认 center（L221-L239）。
     - 新 WebView 是全新的 controller/进程：进程级挂起标志必须归零（调用 `reset_suspend_state_for_new_webview()`，L242），否则旧窗口残留的 `LAST_MINIMIZED=true` 会吞掉新窗口首个 Resized 恢复事件。
     - 退出轻量化态：重置标志并关闭 EcoQoS（L247-L249）。
@@ -120,39 +120,43 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 - **用途**: 单元测试护栏。
 - **`never_calls_try_suspend`** (L265-L271): 回归护栏，断言 `window.rs` 源码中不得包含 `.TrySuspend(` 字符串（拼接 `concat!(".Try", "Suspend(")` 防误匹配），防止再次引入冻结渲染进程的缺陷。
 
-### `tauri-app/src-tauri/src/app/startup.rs`
+### tauri-app/src-tauri/src/app/startup.rs
+
+#### `build_runtime(core_count: usize) -> tokio::runtime::Runtime`
+- **位置**: L6-L20
+- **用途**: 构建 Tokio runtime，worker 线程数 `clamp(2, 8)`，max blocking 线程数 `clamp(8, 64)`。
 
 #### `run(core_count: usize)`
-- **位置**: L23-L153
+- **位置**: L23-L158
 - **用途**: 运行 Tauri 应用，构建 Builder 并启动。
 - **关键配置**:
-    - 注册插件：shell, notification, autostart, global_shortcut, single_instance（L25-L48）。其中 `single_instance` 在窗口不存在时延迟 2s 走 `show_or_rebuild_main` 重建入口（L36-L48）。
+    - 注册插件：shell, notification, autostart, global_shortcut, single_instance（L25-L48）。其中 `single_instance` 在窗口存在时调 `show_or_rebuild_main`，不存在时延迟 2s 走重建入口（L36-L48）。
     - `.on_window_event` 回调 (L53-L65):
         - `CloseRequested` (L54-L56): 转发给 `shutdown::handle_window_close_event`。
         - `Focused` (Windows, L57-L60): 转发给 `window::handle_window_focus_event`。
         - `Resized` (Windows, L61-L64): 转发给 `window::handle_window_resized_event`。
-    - `.invoke_handler`: 注册所有系统命令，包含 `minimize_window`、`close_window`、`notify_window_ready` 等（L66-L131）。
-    - `RunEvent::ExitRequested` (L138-L152): 拦截轻量化关闭导致的最后一个窗口销毁触发的进程退出（托盘退出 `graceful_exit` 不拦截）。
+    - `.invoke_handler`: 注册所有系统命令，包含 `minimize_window`、`close_window`、`notify_window_ready`、`show_window` 等（L66-L136）。
+    - `RunEvent::ExitRequested` (L143-L157): 拦截轻量化关闭导致的最后一个窗口销毁触发的进程退出（托盘退出 `graceful_exit` 不拦截）。
 
-#### `setup_app(app: &mut tauri::App, core_count: usize)`
-- **位置**: L155-L266
+#### `setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std::error::Error>>`
+- **位置**: L160-L270
 - **用途**: 应用初始化设置。
 - **关键逻辑**:
-    - 创建数据目录、日志目录（探测安装目录可写性，失败 fallback 到用户数据目录）（L156-L180）。
-    - 初始化 Logger，加载配置（L182-L189）。
-    - RTSS hook 冲突预防留痕（L194-L199，实际处理在 main 极早期）。
-    - 记录 WebView2 浏览器参数（L200-L205）。
-    - 存储配置，更新 portal URL（L207-L210）。
-    - 应用日志保留天数配置（L212-L215）。
-    - **静默启动处理** (L217-L225): 若 `config.hidden_start` 且命令行含 `--autostart`，标记 `mark_hidden_by_design(true)`（L222-L223），防止兜底显示线程强拉前台（v2.4.2 强拉缺陷）。
-    - 构建托盘、启动适配器监听、缓存刷新、更新检查循环、清理残留安装包（L227-L242）。
-    - 记录 WebView2 运行时版本，订阅 ProcessFailed 崩溃事件（L244-L248）。
-    - 启动心跳线程、窗口安全线程（L250-L251）。
-    - GPU/刷新率检测预热（后台线程）（L253-L263）。
+    - 创建数据目录、日志目录（探测安装目录可写性，失败 fallback 到用户数据目录）（L161-L185）。
+    - 初始化 Logger，加载配置（L187-L194）。
+    - RTSS hook 冲突预防留痕（L203-L204，实际处理在 main 极早期）。
+    - 记录 WebView2 浏览器参数（L205-L210）。
+    - 存储配置，更新 portal URL（L212-L215）。
+    - 应用日志保留天数配置（L220）。
+    - **静默启动处理** (L225-L230): 若 `config.hidden_start` 且命令行含 `--autostart`，标记 `mark_hidden_by_design(true)`（L228），防止兜底显示线程强拉前台（v2.4.2 强拉缺陷）。
+    - 构建托盘、启动适配器监听、缓存刷新、更新检查循环、清理残留安装包（L232-L247）。
+    - 记录 WebView2 运行时版本，订阅 ProcessFailed 崩溃事件（L251-L253）。
+    - 启动心跳线程、窗口安全线程（L255-L256）。
+    - GPU/刷新率检测预热（后台线程）（L260-L268）。
 
-### `tauri-app/src-tauri/src/commands/system.rs`
+### tauri-app/src-tauri/src/commands/system.rs
 
-#### `minimize_window(window: Window, state: State<'_, AppState>)`
+#### `minimize_window(window: Window, state: State<'_, AppState>) -> Result<(), String>`
 - **位置**: L7-L21 (`#[tauri::command]` 于 L7, `pub fn` 于 L8)
 - **用途**: 处理最小化命令。
 - **逻辑**:
@@ -160,7 +164,7 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
     - 如果配置 `minimize_to_tray` 为真（L13）：标记 `mark_hidden_by_design(true)`（L14），调用 `window.hide()`（L15）。
     - 否则（L16-L19）：调用 `window.minimize()`，并调用 `note_minimized_synced()`（L18）标注去抖态，让随后的 Resized 事件不再重复触碰 COM。
 
-#### `close_window(window: Window, state: State<'_, AppState>)`
+#### `close_window(window: Window, state: State<'_, AppState>) -> Result<(), String>`
 - **位置**: L23-L42 (`#[tauri::command]` 于 L23, `pub fn` 于 L24)
 - **用途**: 处理关闭窗口命令。
 - **逻辑**:
@@ -168,18 +172,106 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
     - 若 `lightweight_mode` 开启（L37-L39）：直接 `window.close()` 走轻量化销毁路径。
     - 若非托盘且非轻量化（L40-L41）：设置 `state.exit.is_quitting.store(true, Ordering::Release)` 然后 `window.close()` 真退出。
 
-#### `notify_window_ready(window: tauri::Window)`
-- **位置**: L387-L392 (`#[tauri::command]` 于 L388, `pub fn` 于 L389)
-- **用途**: 前端就绪信号（轻量化重建窗口的 ready 门用；首次启动路径由 window_safety 兜底不受影响）。幂等：多次调用只多记一条信号，等待方取走即清。内部调用 `crate::app::lightweight::signal_window_ready(window.label())`（L390）。
+#### `open_external(url: String) -> Result<bool, String>`
+- **位置**: L44-L57
+- **用途**: 打开外部 http/https 链接（校验协议头、长度 ≤2048、无用户名密码）。
 
-### `tauri-app/src-tauri/src/commands/config_cmd.rs`
+#### `set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String>`
+- **位置**: L59-L110
+- **用途**: 设置开机自启，注册表操作与配置落盘均移入 `spawn_blocking`（审计 A5），失败返回 Err 上报（审计 A14/A15）。
 
-#### `show_window(app_handle: AppHandle)`
-- **位置**: L208-L224 (`#[tauri::command]` 于 L208, `pub fn` 于 L209)
+#### `set_notification_enabled(enabled: bool, state: State<'_, AppState>, app_handle: AppHandle) -> Result<bool, String>`
+- **位置**: L112-L131
+- **用途**: 设置通知开关，落盘移入 `spawn_blocking`，落盘失败返回 Err 上报。
+
+#### `cancel_auto_exit(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String>`
+- **位置**: L133-L140
+- **用途**: 统一取消自动退出和校园网退出。
+
+#### `get_core_autostart() -> Result<bool, String>`
+- **位置**: L142-L153
+- **用途**: 查询「未登录 Windows 时自动登录」当前状态（Windows 下读 `core_autostart_enabled()`，非 Windows 返回 false）。
+
+#### `set_core_autostart(enabled: bool, state: State<'_, AppState>, app_handle: AppHandle) -> Result<serde_json::Value, String>`
+- **位置**: L158-L198
+- **用途**: 开启/关闭系统级自动登录（仅 Windows），提权通道写配置 + 注册 BOOT 任务。
+
+#### `get_logs(app_handle: AppHandle, lines: Option<usize>) -> Result<String, String>`
+- **位置**: L200-L204
+- **用途**: 读取最近日志（默认 200 行）。
+
+#### `clear_logs(app_handle: AppHandle) -> Result<bool, String>`
+- **位置**: L206-L210
+- **用途**: 清空日志。
+
+#### `get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Result<serde_json::Value, String>`
+- **位置**: L212-L258
+- **用途**: 返回前端初始化所需数据（掩码配置、账号、版本、适配器快照、GPU 刷新率、背景状态等）。出站掩码唯一出口为 `masked_for_display()`（L217）。
+
+#### `render_heartbeat(state: State<'_, AppState>) -> Result<serde_json::Value, String>`
+- **位置**: L260-L275
+- **用途**: 更新前端心跳时间戳（`last_render_heartbeat_ms`），供崩溃检测线程使用。
+
+#### `set_log_retention_days(days: u32) -> Result<(), String>`
+- **位置**: L277-L281
+- **用途**: 设置日志保留天数并应用到运行期 logger。
+
+#### `export_diagnostics(app_handle: AppHandle, state: State<'_, AppState>, days: Option<u32>) -> Result<String, String>`
+- **位置**: L288-L385
+- **用途**: 导出诊断包（日志、掩码配置、适配器、GPU 信息、manifest），阻塞段移入 `spawn_blocking`。
+
+#### `notify_window_ready(window: tauri::Window) -> CommandResult`
+- **位置**: L389-L392 (`#[tauri::command]` 于 L388, `pub fn` 于 L389)
+- **用途**: 前端就绪信号（轻量化重建窗口的 ready 门用；首次启动路径由 window_safety 兜底不受影响）。幂等：多次调用只多记一条信号，等待方取走即清。内部调用 `crate::app::lightweight::signal_window_ready(window.label())`（L391）。
+
+### tauri-app/src-tauri/src/commands/config_cmd.rs
+
+#### `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`
+- **位置**: L8-L15
+- **用途**: 落盘 + 掩码广播（下沉至 `config::persist::save_config_and_broadcast`），并异步刷新托盘菜单状态。
+
+#### `load_config_from_file(app_handle: &AppHandle) -> Result<Config, String>`
+- **位置**: L17-L40
+- **用途**: 从磁盘读取并解密密码字段；解密失败仅清空密码保留其他配置。
+
+#### `load_config_from_disk_or_default(app_handle: &AppHandle) -> Config`
+- **位置**: L42-L65
+- **用途**: 加载配置，失败时将原文件备份为 `.corrupt-<时间戳>.bak` 并使用默认配置。
+
+#### `build_config_export_payload(current: &Config, include_password: bool) -> Result<serde_json::Value, String>`
+- **位置**: L73-L94
+- **用途**: 组装配置导出 payload；`include_password=false` 走掩码态，`true` 则密码以 DPAPI 密文出站，绝不写明文。
+
+#### `restore_imported_password_field(imported: &mut String, encrypted: bool, current: &str) -> Result<(), String>`
+- **位置**: L102-L112
+- **用途**: 还原导入文件中的密码字段（空/MASK 保留当前值；密文 decrypt；明文直传；伪造密文报错）。
+
+#### `export_config(state: State<'_, AppState>, app_handle: AppHandle, include_password: Option<bool>) -> Result<String, String>`
+- **位置**: L117-L137
+- **用途**: 导出配置到 `<data_dir>/exports/config-<时间戳>.json`（原子写），文件写入移入 `spawn_blocking`。
+
+#### `import_config(state: State<'_, AppState>, app_handle: AppHandle, path: String) -> Result<CommandResult, String>`
+- **位置**: L144-L210
+- **用途**: 从 JSON 导入配置（大小防呆、JSON 解析、结构校验、密码还原、WebVPN/切换态保留本机值、落盘），失败分列四类原因。
+
+#### `show_window(app_handle: AppHandle) -> Result<(), String>`
+- **位置**: L212-L228 (`#[tauri::command]` 于 L212, `pub fn` 于 L213)
 - **用途**: 启动期自动显示路径（前端 getInitData 完成即调，v2.4.2 修复①）的最小化保护：用户在启动后短时间内最小化窗口时，不把窗口弹回前台。
 - **逻辑**:
-    - 若 main 窗口存在且 `crate::app::window::is_user_dismissed(&window)` 返回 true（L214-L220），直接返回 Ok(())，不弹回前台。
-    - 否则调用 `crate::app::window::show_or_rebuild_main(&app_handle)`（L222）显示或重建主窗口。
+    - 若 main 窗口存在且 `crate::app::window::is_user_dismissed(&window)` 返回 true（L222-L224），直接返回 Ok(())，不弹回前台。
+    - 否则调用 `crate::app::window::show_or_rebuild_main(&app_handle)`（L226）显示或重建主窗口。
+
+#### `get_config(state: State<'_, AppState>) -> Result<Config, String>`
+- **位置**: L230-L233
+- **用途**: 返回掩码后的当前配置。
+
+#### `save_config(state: State<'_, AppState>, app_handle: AppHandle, config: Config, clear_password: Option<bool>) -> Result<CommandResult, String>`
+- **位置**: L238-L296
+- **用途**: 保存配置（先落盘再更新内存，DPAPI+落盘移入 `spawn_blocking`），保留未传密码/VPN 凭据，R2 自动建号并补刷托盘菜单。
+
+#### `tests` 模块
+- **位置**: L298-L376
+- **用途**: 单元测试（掩码回归锁、导出安全回归锁、导入密码还原语义）。
 
 ## Architecture
 
@@ -209,11 +301,11 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 
 ## Data Flow
 
-1. **用户操作**：用户点击最小化按钮、隐藏到托盘或关闭按钮（触发 `system.rs` 命令 L7-L42），或系统窗口事件（触发 `startup.rs` 的 `on_window_event` L53-L65 转发），或前端启动完成后调 `show_window`（`config_cmd.rs` L208-L224）。
+1. **用户操作**：用户点击最小化按钮、隐藏到托盘或关闭按钮（触发 `system.rs` 命令 L7-L42），或系统窗口事件（触发 `startup.rs` 的 `on_window_event` L53-L65 转发），或前端启动完成后调 `show_window`（`config_cmd.rs` L212-L228）。
 2. **路由**：
    - 事件路径：`startup.rs` 捕获 `Resized`/`Focused`，转发给 `window.rs` 的 `handle_window_resized_event` (L139-L159) / `handle_window_focus_event` (L92-L120)。
    - 命令路径：`system.rs` 的 `minimize_window` (L7-L21) / `close_window` (L23-L42) 直接调用 `window.rs` 的 `set_main_webview_suspended` (L38-L48)。
-   - 前端自动显示路径：`config_cmd.rs` 的 `show_window` 调 `window::show_or_rebuild_main` (L222)。
+   - 前端自动显示路径：`config_cmd.rs` 的 `show_window` 调 `window::show_or_rebuild_main` (L226)。
 3. **去重与判断**：
    - `handle_window_resized_event` 读取 `window.is_minimized()` (L145)，与 `LAST_MINIMIZED` (L128-L129) 比较；若未翻转则返回 (L153-L155)。
    - 隐藏到托盘的窗口不归尺寸事件管：`!minimized && is_hidden_by_design()` 时直接返回 (L149-L151)，避免虚事件污染去抖状态。
@@ -225,13 +317,13 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 
 ## Connections
 
-- 与 [[learnings/webview2-recovery]] 相关：最小化后的恢复依赖于正确的可见性状态同步，避免崩溃后无法恢复（见 `startup.rs` L244-L248 崩溃订阅与 `window.rs` 恢复逻辑）。
+- 与 [[learnings/webview2-recovery]] 相关：最小化后的恢复依赖于正确的可见性状态同步，避免崩溃后无法恢复（见 `startup.rs` L251-L253 崩溃订阅与 `window.rs` 恢复逻辑）。
 - 与 [[learnings/lightweight-mode]] 相关：轻量化模式下的窗口销毁与重建流程 (`rebuild_main_window` L209-L258) 与此处的可见性管理互补，重建时必须调用 `reset_suspend_state_for_new_webview` (L53-L56)。
 - 与 [[learnings/gpu-performance]] 相关：`backdrop-filter` 的性能问题（v2.4.1 显性化）在此处通过强制挂起渲染（`SetIsVisible(false)`）得到缓解（见 `window.rs` L131-L138 注释）。
 
 ## Known Issues
 
-- **v2.4.2 强拉缺陷（已规避）**：启动兜底显示线程与前端 `show_window` 命令若未区分「该显示却没显示」与「用户就是要它不可见」，会将隐藏到托盘/静默启动的窗口强拉回前台。现由 `HIDDEN_BY_DESIGN` (L8-L16) 与 `is_hidden_by_design()` 在 `setup_app` (L222-L223) 及 `show_and_focus_main` (L182) 中严谨控制。
+- **v2.4.2 强拉缺陷（已规避）**：启动兜底显示线程与前端 `show_window` 命令若未区分「该显示却没显示」与「用户就是要它不可见」，会将隐藏到托盘/静默启动的窗口强拉回前台。现由 `HIDDEN_BY_DESIGN` (L8-L16) 与 `is_hidden_by_design()` 在 `setup_app` (L228) 及 `show_and_focus_main` (L182) 中严谨控制。
 - **v2.4.2 TrySuspend 冻结缺陷（已规避）**：曾使用 `ICoreWebView2_3::TrySuspend` 按微软休眠范式挂起，导致渲染进程冻结、React 并发调度器 `MessageChannel` 回调丢失、`pendingLanes` 待办但 `callbackNode` 空，页面永久停止渲染（按钮失效、切页无反应）。现严格只用 `SetIsVisible` (L26-L37, L86)，并加单元测试 `never_calls_try_suspend` (L265-L271) 护栏。
 - **wry 0.55.1 可见性通知缺失（已缓解）**：wry 仅在显式 `hide()`/`show()` 时调 `controller.SetIsVisible`，窗口最小化不触发通知，WebView2 默认不做原生遮挡检测，导致最小化后 rAF/CSS/合成器空转。v2.4.1 引入 `.glass-dock` 的 `backdrop-filter` 后每帧成本陡增显性化。现由 `handle_window_resized_event` 主动同步 (L131-L138)。
-- **tauri issue #9307 白窗口（已规避）**：轻量化重建若误用 `WindowBuilder` 会得到无 webview 的白窗口，必须用 `WebviewWindowBuilder::from_config` (L206-L219) 从配置重建。
+- **tauri issue #9307 白窗口（已规避）**：轻量化重建若误用 `WindowBuilder` 会得到无 webview 的白窗口，必须用 `WebviewWindowBuilder::from_config` (L219) 从配置重建。

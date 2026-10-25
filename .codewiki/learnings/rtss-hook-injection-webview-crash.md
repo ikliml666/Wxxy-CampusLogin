@@ -25,7 +25,7 @@ tags:
 
 ## Key Components
 
-- **`enum RtssOutcome`** (`rtss_compat.rs:23-28`)
+- **`enum RtssOutcome`** (`rtss_compat.rs:21-28`)
   - 派生属性：`Debug, Clone, PartialEq, Eq` (`:22`)
   - 变体 `NotInstalled` (`:25`)：所有候选 Profiles 目录都不存在。
   - 变体 `Installed` (`:27`)：任一候选 Profiles 目录存在——存在 hook 注入风险，需提示用户。
@@ -37,7 +37,7 @@ tags:
   - 纯逻辑检测。遍历候选目录，若任一 `dir.is_dir()` 返回 true 则返回 `Installed` (`:50-51`)，否则返回 `NotInstalled` (`:54`)。
 
 - **`detect_rtss() -> RtssOutcome`** (`rtss_compat.rs:58-60`)
-  - 运行期入口，组合 `profiles_dir_candidates()` 与 `detect_installed_in()`。
+  - 运行期入口，组合 `profiles_dir_candidates()` 与 `detect_installed_in()` (`:59`)。
 
 - **`static PREINIT_OUTCOME: OnceLock<RtssOutcome>`** (`rtss_compat.rs:64`)
   - 早期检测结果暂存量。main 入口执行时日志系统尚未初始化，先存下来，待 startup 里 logger 就绪后由 `log_preinit_outcome` 留痕 (`:62-64`)。
@@ -60,18 +60,18 @@ tags:
 - **模块声明** (`mod.rs:38-40`)
   - `#[cfg(all(desktop, target_os = "windows"))] pub mod rtss_compat;`，其上方注释写“RTSS(MSI Afterburner) hook 注入致 WebView 白屏崩溃的预防(写排除 profile)”(`:38`)，但实际逻辑早已不写任何文件（见 `rtss_compat.rs:15-16` 模块注释）。
 
-- **启动极早期调用** (`main.rs:48-52`)
-  - 在 WebView2 环境创建之前执行，受 `#[cfg(all(desktop, target_os = "windows"))]` 保护，调用 `crate::platform::rtss_compat::preinit_detect()`。
+- **启动极早期调用** (`main.rs:49-53`)
+  - 在 WebView2 环境创建之前执行，受 `#[cfg(all(desktop, target_os = "windows"))]` 保护，调用 `crate::platform::rtss_compat::preinit_detect()` (`:53`)。
 
-- **启动留痕期调用** (`startup.rs:194-199`)
-  - 在 `setup_app` 中、logger 初始化之后调用 `crate::platform::rtss_compat::log_preinit_outcome()`，受相同 cfg 保护。注释提及 NSIS POSTINSTALL hook 兜底 (`:197`)，但实为过时残留。
+- **启动留痕期调用** (`startup.rs:199-204`)
+  - 在 `setup_app` 中、logger 初始化之后调用 `crate::platform::rtss_compat::log_preinit_outcome()` (`:204`)，受相同 cfg 保护。注释提及 NSIS POSTINSTALL hook 兜底 (`:202`)，但实为过时残留。
 
 ## Architecture
 
 ```text
 ┌───────────────────────────────────────┐
 │ main.rs (进程入口)                      │
-│ preinit_detect() (main.rs:48-52)       │
+│ preinit_detect() (main.rs:49-53)       │
 │   └─► rtss_compat::detect_rtss()       │
 │         (rtss_compat.rs:58-60)         │
 │   └─► PREINIT_OUTCOME.set()            │
@@ -82,8 +82,8 @@ tags:
                   ▼
 ┌───────────────────────────────────────┐
 │ startup.rs (setup_app)                 │
-│ init_logger() (startup.rs:184)         │
-│ log_preinit_outcome() (startup.rs:198) │
+│ init_logger() (startup.rs:189)         │
+│ log_preinit_outcome() (startup.rs:204) │
 │   └─► rtss_compat::log_outcome()       │
 │         (rtss_compat.rs:73-79,81-97)   │
 │   └─► 日志输出风险告知 / 无风险         │
@@ -92,23 +92,26 @@ tags:
 
 ## Data Flow
 
-1. **进程极早期检测**：`main.rs:48-52` 在 `--helper-task` 及 helper 提权参数拦截后、WebView2 环境创建前，调用 `rtss_compat::preinit_detect()`。该函数内部执行 `detect_rtss()`（遍历 `profiles_dir_candidates()` 检查目录是否存在），将 `RtssOutcome` 存入 `PREINIT_OUTCOME`（类型为 `OnceLock`，见 `rtss_compat.rs:64`）。
-2. **浏览器参数设置**：`main.rs:68-80` 调用 `gpu::build_browser_args()`（行56）并设置 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`（行68，含 Crashpad 转储目录 `data_dir/com.campus.login/crashdumps`），此时不产生 RTSS 相关日志。
-3. **Logger 就绪后留痕**：Tauri `setup_app` 在 `startup.rs:184` 初始化 logger 后，于 `startup.rs:198-199` 调用 `rtss_compat::log_preinit_outcome()`。该函数读取 `PREINIT_OUTCOME`，若为空则补检 (`rtss_compat.rs:76`)，最终调用 `log_outcome` 打印 `log_info!` 或 `log_warn!` 日志（`rtss_compat.rs:81-97`）。
-4. **诊断补充**：`startup.rs:204-208` 补记 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 实际值（含 crash 转储参数），配合 `webview_recovery::record_webview2_runtime_version()` (`startup.rs:204`) 与 `subscribe_process_failed()` (`startup.rs:204-205`) 构成崩溃诊断证据链。
+1. **进程极早期检测**：`main.rs:49-53` 在 `--helper-task` 及 helper 提权参数拦截后（见 `main.rs:31-47`）、WebView2 环境创建前（浏览器参数设置于 `main.rs:57` 起），调用 `rtss_compat::preinit_detect()` (`:53`)。该函数内部执行 `detect_rtss()` (`:59`，遍历 `profiles_dir_candidates()` `:31` 检查目录是否存在 `:48`)，将 `RtssOutcome` 存入 `PREINIT_OUTCOME` (`:64,69`)。
+
+2. **浏览器参数设置**：`main.rs:69-81` 调用 `gpu::build_browser_args()` (`:57`) 并设置 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` (`:69`，含 Crashpad 转储目录 `data_dir/com.campus.login/crashdumps` `:62-67`)，此时不产生 RTSS 相关日志。
+
+3. **Logger 就绪后留痕**：Tauri `setup_app` 在 `startup.rs:189` 初始化 logger 后，于 `startup.rs:199-204` 调用 `rtss_compat::log_preinit_outcome()` (`:204`)。该函数读取 `PREINIT_OUTCOME` (`:74`)，若为空则补检 (`:76`)，最终调用 `log_outcome` 打印 `log_info!` 或 `log_warn!` 日志（`rtss_compat.rs:78,81-97`）。
+
+4. **诊断补充**：`startup.rs:209-213` 补记 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 实际值（含 crash 转储参数），配合 `webview_recovery::record_webview2_runtime_version()` (`startup.rs:209`) 与 `subscribe_process_failed()` (`startup.rs:253`) 构成崩溃诊断证据链。
 
 ## Connections
 
-- [[webview-recovery]]：WebView2 崩溃恢复与诊断模块，`startup.rs:246-248` 记录运行时版本并订阅 ProcessFailed 事件，与 RTSS 导致的白屏崩溃自动恢复直接相关。
-- [[gpu-config]]：GPU 检测与浏览器参数构建，`main.rs:56` 调用 `gpu::build_browser_args()` 设置 WebView2 初始化参数，与 WebView2 环境创建紧密相关。
+- [[webview-recovery]]：WebView2 崩溃恢复与诊断模块，`startup.rs:251-253` 记录运行时版本并订阅 ProcessFailed 事件，与 RTSS 导致的白屏崩溃自动恢复直接相关。
+- [[gpu-config]]：GPU 检测与浏览器参数构建，`main.rs:57` 调用 `gpu::build_browser_args()` 设置 WebView2 初始化参数，与 WebView2 环境创建紧密相关。
 - [[app-startup]]：应用启动流程，`startup.rs` 包含 logger 初始化、状态设置及后台任务启动，RTSS 检测留痕严格依赖其 logger 就绪时机。
 
 ## Known Issues
 
 1. **过时残留注释（行为不受影响，读代码时勿被误导）**：
-    - `startup.rs:194`（及 197 行）注释仍写“安装期由 NSIS POSTINSTALL hook 以管理员身份静默兜底”——该 NSIS 钩子已随方案证伪移除，当前安装器无此逻辑，RTSS 处理只剩“检测 + 日志告知”（见 `rtss_compat.rs:7-16`）。
+    - `startup.rs:199-202` 注释仍写“安装期由 NSIS POSTINSTALL hook 以管理员身份静默兜底”——该 NSIS 钩子已随方案证伪移除，当前安装器无此逻辑，RTSS 处理只剩“检测 + 日志告知”（见 `rtss_compat.rs:7-16`）。
     - `platform/mod.rs:38` 模块声明处注释仍写“预防(写排除 profile)”，实际代码早已不写任何文件，仅做检测与告知（见 `rtss_compat.rs:15-16`）。
 
 2. **RTSS 配置读取行为限制**：RTSS 7.3.7 不会读取手动放入 Profiles 目录的 `.cfg` 文件，可靠排除必须在 RTSS 界面手动操作（按住 Shift 点 Add 或设 Application detection level 为 none），详见 `rtss_compat.rs:7-13`。
 
-3. **WebView2 Crashpad 转储路径不确定性**：尽管 `main.rs:60-68` 追加了 `--enable-crash-reporter --crash-dumps-dir=...`，实测某些情况下转储可能不落于指定目录；该功能仅作诊断辅助，崩溃恢复依赖 `webview_recovery::subscribe_process_failed` (`startup.rs:247-248`) 事件驱动，而非依赖 dump 文件分析。
+3. **WebView2 Crashpad 转储路径不确定性**：尽管 `main.rs:61-68` 追加了 `--enable-crash-reporter --crash-dumps-dir=...`，实测某些情况下转储可能不落于指定目录；该功能仅作诊断辅助，崩溃恢复依赖 `webview_recovery::subscribe_process_failed` (`startup.rs:253`) 事件驱动，而非依赖 dump 文件分析。

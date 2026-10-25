@@ -44,7 +44,7 @@ tags: [决策, 双端, 协议, 依赖]
   - `session` — 会话管理（行 8-9）
   - `service` — 后台服务（行 10-11）
 
-### `self_service/mod.rs` (tauri-app/src-tauri/src/self_service/mod.rs:1-761)
+### `self_service/mod.rs` (tauri-app/src-tauri/src/self_service/mod.rs:1-904)
 
 Dr.COM Self 自助服务系统协议实现，逆向于 2026-09-05 至 2026-10-10（见模块注释行 1-52）。核心内容：
 
@@ -52,7 +52,8 @@ Dr.COM Self 自助服务系统协议实现，逆向于 2026-09-05 至 2026-10-10
 - **正则模式**（行 64-74）：`RE_CHECKCODE`（行 65-66）、`RE_CSRFTOKEN`（行 67-68）、`RE_FLD_VALUE`（行 70-71）、`RE_SWAL_MSG`（行 73-74）
 - **数据结构**：
   - `BindParams<'a>`（行 77-88）：绑定请求参数（account/password/operator/phone/sms_password）
-  - `OperatorBinding`（行 211-216）：已绑定运营商凭据状态（masked_account/password_set）
+  - `OperatorBinding`（行 278-283）：已绑定运营商凭据状态（masked_account/password_set）
+  - `SelfServiceChannel`（行 169-215）：执行通道（base/client/local_addr），支持 `direct`（行 181-187）与 `via_webvpn`（行 190-198）构造，含 `fresh_session_client`（行 203-209）与 `url`（行 212-214）
 - **公开函数**：
   - `operator_fld_pair(operator: &str) -> Option<(usize, usize)>`（行 91-98）：运营商后缀 → FLDEXTRA 字段序号映射（@cmcc=1/2, @telecom=3/4, @unicom=5/6）
   - `extract_checkcode(html: &str) -> Option<String>`（行 101-103）：提取登录页 hidden checkcode
@@ -61,25 +62,32 @@ Dr.COM Self 自助服务系统协议实现，逆向于 2026-09-05 至 2026-10-10
   - `extract_swal_msg(html: &str) -> Option<String>`（行 126-128）：提取页面内嵌 swal 提示
   - `is_bind_success(msg: &str) -> bool`（行 131-133）：判定绑定成功文本
   - `md5_hex(input: &str) -> String`（行 136-141）：标准小写 MD5 hex
-  - `bind_operator(params, local_addr) -> Result<String, String>`（行 161-208）：完整绑定流程
-  - `query_bind_status(account, password, local_addr) -> Result<[Option<OperatorBinding>; 3], String>`（行 220-232）：查询三大运营商绑定状态（掩码）
-  - `reveal_credential(account, password, operator, local_addr) -> Result<(String, String), String>`（行 236-252）：查看明文凭据（调用方需先身份验证）
-  - `change_password(account, password, new_password, local_addr) -> Result<String, String>`（行 276-319）：修改自助服务密码（=校园网密码，旧密码即登录密码，成功强制下线）
-  - `mask_account(account: &str) -> String`（行 323-338）：隐私掩码（11位手机前3后2，其他按长度打码）
-  - `query_dashboard(account, password, local_addr) -> Result<(serde_json::Value, serde_json::Value), String>`（行 500-509）：查询在线设备 + 近期上网记录
-  - `query_online_log(account, password, start_time, end_time, local_addr) -> Result<serde_json::Value, String>`（行 514-541）：查询账单页上网记录（原始 `{rows, summary, total}`）
-  - `offline_session(account, password, session_id, local_addr) -> Result<(), String>`（行 552-576）：注销指定会话
+  - `bind_operator(params, local_addr) -> Result<String, String>`（行 219-225）：完整绑定流程（直连通道）
+  - `bind_operator_via(params, channel) -> Result<String, String>`（行 228-275）：通道化绑定流程
+  - `query_bind_status(account, password, local_addr) -> Result<[Option<OperatorBinding>; 3], String>`（行 287-294）：查询三大运营商绑定状态（掩码）
+  - `query_bind_status_via(account, password, channel) -> Result<[Option<OperatorBinding>; 3], String>`（行 297-309）：通道化绑定状态查询
+  - `reveal_credential(account, password, operator, local_addr) -> Result<(String, String), String>`（行 313-321）：查看明文凭据（调用方需先身份验证）
+  - `reveal_credential_via(account, password, operator, channel) -> Result<(String, String), String>`（行 324-340）：通道化明文凭据查看
+  - `change_password(account, password, new_password, local_addr) -> Result<String, String>`（行 364-372）：修改自助服务密码（=校园网密码，旧密码即登录密码，成功强制下线）
+  - `change_password_via(account, password, new_password, channel) -> Result<String, String>`（行 375-420）：通道化改密
+  - `mask_account(account: &str) -> String`（行 424-439）：隐私掩码（11位手机前3后2，其他按长度打码）
+  - `query_dashboard(account, password, local_addr) -> Result<(serde_json::Value, serde_json::Value), String>`（行 608-615）：查询在线设备 + 近期上网记录
+  - `query_dashboard_via(account, password, channel) -> Result<(serde_json::Value, serde_json::Value), String>`（行 618-627）：通道化 dashboard 查询
+  - `query_online_log(account, password, start_time, end_time, local_addr) -> Result<serde_json::Value, String>`（行 632-641）：查询账单页上网记录（原始 `{rows, summary, total}`）
+  - `query_online_log_via(account, password, start_time, end_time, channel) -> Result<serde_json::Value, String>`（行 644-672）：通道化上网记录查询
+  - `offline_session(account, password, session_id, local_addr) -> Result<(), String>`（行 683-691）：注销指定会话
+  - `offline_session_via(account, password, session_id, channel) -> Result<(), String>`（行 694-719）：通道化注销
 - **私有/内部函数**：
-  - `parse_change_password_response(text: &str) -> Result<String, String>`（行 257-271）：解析改密 JSON 响应
-  - `binding_from(acct, pwd) -> Option<OperatorBinding>`（行 340-348）：构造绑定状态
+  - `parse_change_password_response(text: &str) -> Result<String, String>`（行 345-359）：解析改密 JSON 响应
+  - `binding_from(acct, pwd) -> Option<OperatorBinding>`（行 441-449）：构造绑定状态
   - `build_session_client(local_addr) -> Result<reqwest::Client, String>`（行 145-157）：构建独立会话客户端（无代理、禁重定向、带 cookie）
-  - `login_session(account, password, local_addr) -> Result<reqwest::Client, String>`（行 352-407）：登录自助系统（前 3 步）
-  - `is_retryable_transport_error(err: &str) -> bool`（行 413-422）：传输层错误重试判定
-  - `login_session_with_retry(account, password, local_addr) -> Result<reqwest::Client, String>`（行 429-451）：登录重试包装（最多 3 次，间隔 1s）
-  - `login_and_fetch_bind_page(...)`（行 455-475）：登录并返回绑定表单页
-  - `fetch_dashboard_json(...)`（行 479-496）：请求 dashboard JSON 接口
-  - `parse_offline_success(text: &str) -> bool`（行 544-549）：解析注销响应
-- **测试模块**（行 578-761）：`md5_hex_standard_vectors`、`parse_change_password_response_shapes`、`extract_checkcode_from_login_page`、`extract_csrftoken_from_bind_page`、`extract_swal_msg_success_and_empty`、`bind_success_judgement`、`mask_account_phone_front3_back2`、`operator_fld_mapping`、`transport_error_retry_classification`、`offline_success_parsing`、`extract_fld_values_prefilled_kept_for_other_operators`
+  - `login_session(channel, account, password) -> Result<(), String>`（行 453-510）：登录自助系统（前 3 步）
+  - `is_retryable_transport_error(err: &str) -> bool`（行 516-525）：传输层错误重试判定
+  - `login_session_with_retry(channel, account, password) -> Result<(), String>`（行 534-558）：登录重试包装（最多 3 次，间隔 1s）
+  - `login_and_fetch_bind_page(...)`（行 562-582）：登录并返回绑定表单页
+  - `fetch_dashboard_json(...)`（行 586-604）：请求 dashboard JSON 接口
+  - `parse_offline_success(text: &str) -> bool`（行 675-680）：解析注销响应
+- **测试模块**（行 721-904）：`md5_hex_standard_vectors`（行 726-730）、`parse_change_password_response_shapes`（行 733-760）、`extract_checkcode_from_login_page`（行 763-768）、`extract_csrftoken_from_bind_page`（行 771-778）、`extract_swal_msg_success_and_empty`（行 781-796）、`bind_success_judgement`（行 799-803）、`mask_account_phone_front3_back2`（行 806-816）、`operator_fld_mapping`（行 819-825）、`transport_error_retry_classification`（行 828-851）、`offline_success_parsing`（行 854-861）、`extract_fld_values_prefilled_kept_for_other_operators`（行 864-903）
 
 ### `network/quality.rs` (tauri-app/src-tauri/src/network/quality.rs:1-670)
 
@@ -94,12 +102,12 @@ Dr.COM Self 自助服务系统协议实现，逆向于 2026-09-05 至 2026-10-10
   - `ping_host_async(host, timeout_ms) -> Result<u64, String>`（行 48-93）：ICMP ping（surge_ping，3 次取平均）
   - `check_tcp_latency_async(host, port, timeout_ms, bind_addr) -> i64`（行 95-134）：TCP 连接延迟（支持绑定本地地址）
   - `tcp_then_icmp_latency(host, ports, tcp_timeout_ms, bind_addr) -> (i64, &'static str)`（行 136-165）：TCP→ICMP 回退
-  - `execute_task(ctx, skip_ttfb, skip_content) -> LatencyResult`（行 167-300）：执行单任务（分派各 LatencyTask 类型；HTTPS 测试绑定失败时回退系统路由）
+  - `execute_task(ctx, skip_ttfb, skip_content) -> LatencyResult`（行 167-300）：执行单任务（分派各 LatencyTask 类型；HTTPS 测试绑定失败时回退系统路由，行 207-210）
   - `get_latency_level(latency) -> usize`（行 302-310）：延迟等级（0=excellent … 5=bad）
   - `run_phase1_batch(tasks, skip_ttfb, skip_content, is_quitting) -> Vec<LatencyResult>`（行 315-338）：Phase1 分批执行（支持退出标志中止）
   - `build_quality_result(results, gateway_str, start) -> NetworkQualityResult`（行 340-449）：构建最终结果（中位数/截断平均/质量等级）
 - **公开入口**：
-  - `check_network_quality_async(_adapter_name, adapter_ip, skip_ttfb, skip_content, fixed_gateway, is_quitting, app_handle, lightweight) -> NetworkQualityResult`（行 455-670）：全量检测流程
+  - `check_network_quality_async(_adapter_name, adapter_ip, skip_ttfb, skip_content, fixed_gateway, is_quitting, app_handle, lightweight) -> NetworkQualityResult`（行 455-669）：全量检测流程
     - 预览波（行 483-518：网关 + baidu，1–2s 首屏返回增量 `"busy"`）
     - Phase1 分批（行 531-574：阿里DNS+腾讯DNS → 信风DNS+阿里DoH+腾讯DoH → SystemDns（4 域名2个/批））
     - HTTPS 分批（行 599-652：11 站，每批 4 个，增量推送）
@@ -142,14 +150,14 @@ Dr.COM Self 自助服务系统协议实现，逆向于 2026-09-05 至 2026-10-10
 
 ## Data Flow
 
-### 自助服务绑定流程（self_service/mod.rs:161-208）
+### 自助服务绑定流程（self_service/mod.rs:219-275）
 
-1. `login_and_fetch_bind_page`（行 455-475） → 登录页取 checkcode（行 359-367） → 预热 `randomCode`（行 370-376，跳过则 verify 必失败） → `verify` 登录（行 379-405） → 取绑定表单页（行 463-473）
-2. 解析 `csrftoken`（行 169） + `FLDEXTRA1..6` 预填值（行 171）
-3. POST `/Self/service/bind-operator`（行 187-192，按运营商映射填目标字段，其余带回预填原值防清空）
-4. 解析 swal 消息判定成功/失败（行 199-207）
+1. `login_and_fetch_bind_page`（行 562-582） → 登录页取 checkcode（行 459-467） → 预热 `randomCode`（行 470-477，跳过则 verify 必失败） → `verify` 登录（行 480-508） → 取绑定表单页（行 570-581）
+2. 解析 `csrftoken`（行 235-236） + `FLDEXTRA1..6` 预填值（行 237, 113-123）
+3. POST `/Self/service/bind-operator`（行 253-259，按运营商映射填目标字段，其余带回预填原值防清空，行 241-252）
+4. 解析 swal 消息判定成功/失败（行 267-274）
 
-### 网络质量检测流程（network/quality.rs:455-670）
+### 网络质量检测流程（network/quality.rs:455-669）
 
 1. **预览波**（行 483-518）：网关 + baidu 并发 → 1–2s 后首次 emit `"busy"` 质量
 2. **Phase1 分批**（行 531-574）：阿里 DNS+腾讯 DNS → 信风 DNS+阿里 DoH+腾讯 DoH → SystemDns（4 域名 2 个/批）
@@ -163,5 +171,5 @@ Dr.COM Self 自助服务系统协议实现，逆向于 2026-09-05 至 2026-10-10
 ## Known Issues
 
 - **绑定表单整体保存陷阱**（`self_service/mod.rs:110-112`）：提交 `bind-operator` 时必须带回其他运营商的预填原值，只发目标运营商字段、其余填空串会把已有绑定清掉（2026-09-05 实测缺陷）。
-- **HTTPS 测试双网卡/代理 TUN 劫持**（`network/quality.rs:198-205`）：双网卡场景下系统默认路由可能选中未认证网卡导致 TLS 超时；Clash/mihomo 等代理 TUN 模式会劫持全部外网目标，已通过绑定直连失败回退系统路由缓解。
-- **自助服务服务器偶发连接截断**（`self_service/mod.rs:424-451`）：校园网自助服务服务器（10.1.80.200:8080）偶发连接中途断开/chunked 截断，表现为 `error decoding response body`，需经 `login_session_with_retry` 最多 3 次重建客户端重试。
+- **HTTPS 测试双网卡/代理 TUN 劫持**（`network/quality.rs:198-205`）：双网卡场景下系统默认路由可能选中未认证网卡导致 TLS 超时；Clash/mihomo 等代理 TUN 模式会劫持全部外网目标，已通过绑定直连失败回退系统路由缓解（行 207-210）。
+- **自助服务服务器偶发连接截断**（`self_service/mod.rs:516-558`）：校园网自助服务服务器（10.1.80.200:8080）偶发连接中途断开/chunked 截断，表现为 `error decoding response body`，需经 `login_session_with_retry` 最多 3 次重建客户端重试。
