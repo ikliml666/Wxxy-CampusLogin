@@ -10,8 +10,9 @@ use crate::config::outbound_switch::outbound_restore_active;
 use crate::infra::state::AppState;
 use crate::monitor::outbound_switch::{
     disabled_adapters_json, effective_outbound_priority, is_campus_adapter, parse_disabled_adapters,
-    parse_standby_route, portal_probe_host, select_campus_to_disable, select_outbound_candidate,
-    snapshot_json, standby_route_cleanup, StandbyCleanup,
+    parse_standby_route, pending_switch_json, portal_probe_host, select_campus_to_disable,
+    select_outbound_candidate, snapshot_json, standby_route_cleanup, PENDING_TAG_WAIT_LOGIN,
+    StandbyCleanup,
 };
 use crate::network::Adapter;
 use crate::platform::metric::MetricRow;
@@ -388,6 +389,51 @@ fn write_outbound_metric(
 ///   其 USB 副卡应参与，运行期 disable/enable 对称性已实证）。
 /// - 切换完成后路由级验证（GetBestRoute）：到校园网关的最优路由仍指向校园卡
 ///   ifIndex 则判失败走重放；空禁用名单（误判漏禁）单独每天告警一次。
+/// 目标网卡是否已在校园 Portal 登录（登录闸判定）。主/副卡直接采信监测模块的
+/// 在线结论（`last_a1_online`/`last_a2_online`，即"等待监测模块返回已登录消息"）；
+/// 目标卡不在监测名单内时，用监测同款原语绑源直查 Portal——直查失败/不可达
+/// 一律视同未登录（切过去就是断网，宁可多等一拍）。
+fn target_adapter_logged_in(app_handle: &AppHandle, config: &crate::config::Config, target_name: &str) -> bool {
+    let adapters = match crate::network::get_adapters_cached() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::log_debug!("outbound", "登录闸: 适配器查询失败({e})，视同未登录");
+            return false;
+        }
+    };
+    let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, config);
+    let snap = app_handle.state::<AppState>().network.load();
+    if target_name == a1_name {
+        return snap.last_a1_online;
+    }
+    if !a2_name.is_empty() && target_name == a2_name {
+        return snap.last_a2_online;
+    }
+    match adapters.iter().find(|a| a.name == target_name) {
+        Some(a) if !a.ip.is_empty() => crate::auth::portal::check_portal_full(&a.ip, Some(&a.name))
+            .map(|s| s.online)
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// 写/清待切换状态（仅内容变化时才落盘+广播+store——排程 30s 一拍，逐拍重写
+/// 同值既写盘又触发前端 config-changed 刷新）。落盘失败只告警：待切换状态是
+/// 时序辅助记录，丢失的后果只是少一个前端徽标，下一拍会重写补回。
+fn write_pending_switch(app_handle: &AppHandle, pending: &str) {
+    let state = app_handle.state::<AppState>();
+    let mut fresh: crate::config::Config = (*state.config.load_full()).clone();
+    if fresh.outbound_pending_switch == pending {
+        return;
+    }
+    fresh.outbound_pending_switch = pending.to_string();
+    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &fresh) {
+        crate::log_warn!("outbound", "夜间出站切换: 待切换状态落盘失败: {e}");
+        return;
+    }
+    state.config.store(fresh);
+}
+
 pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) -> Result<(), String> {
     let Some(_busy) = OutboundActionGuard::try_acquire() else {
         crate::log_debug!("outbound", "夜间出站切换: 另一出站动作进行中，本拍跳过");
@@ -444,6 +490,25 @@ pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::conf
         crate::log_warn!("outbound", "夜间出站切换: 目标卡 {} 无 GUID，无法设置跃点", target.name);
         return Err(format!("目标网卡 {} 缺少 GUID，无法设置跃点", target.name));
     }
+    // 登录闸：目标网卡必须已在校园 Portal 在线才允许切换——否则把出站切到一张
+    // 未登录（甚至无法登录）的卡，整机会断网直到还原窗口。主/副卡以监测模块
+    // 的在线结论为准（last_a1_online/last_a2_online），其余卡用监测同款原语
+    // 绑源直查 Portal。未登录不记失败、不进退避：仅内容变化时落盘待切换状态
+    // （防 30s 一拍重复写盘/广播），排程循环每拍重判，监测报告在线后自动切换
+    if !target_adapter_logged_in(app_handle, config, &target.name) {
+        write_pending_switch(app_handle, &pending_switch_json(&target.name, PENDING_TAG_WAIT_LOGIN));
+        crate::log_warn!(
+            "outbound",
+            "夜间出站切换: 目标卡 {} 尚未登录校园网，本拍不切换（已记录待切换状态，登录确认后自动切换）",
+            target.name
+        );
+        return Err(format!(
+            "目标网卡 {} 尚未登录校园网，已记录待切换状态，登录确认后自动切换",
+            target.name
+        ));
+    }
+    // 目标卡已在线：清掉残留的待切换状态（若有），随后的切换落盘会一并覆盖
+    write_pending_switch(app_handle, "");
     // 只处理 IPv4+IPv6 两族（helper 的 set_metric 只认 2/23）
     let rows: Vec<MetricRow> = match crate::platform::metric::read_interface_metrics(&target.guid) {
         Ok(rows) => rows.into_iter().filter(|r| matches!(r.family, 2 | 23)).collect(),
@@ -1119,12 +1184,14 @@ fn clear_outbound_snapshot(app_handle: &AppHandle) -> bool {
     if fresh.outbound_metric_restore.is_empty()
         && fresh.outbound_disabled_adapters.is_empty()
         && fresh.outbound_standby_route.is_empty()
+        && fresh.outbound_pending_switch.is_empty()
     {
         return true;
     }
     fresh.outbound_metric_restore = String::new();
     fresh.outbound_disabled_adapters = String::new();
     fresh.outbound_standby_route = String::new();
+    fresh.outbound_pending_switch = String::new();
     if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &fresh) {
         crate::log_warn!("outbound", "夜间出站切换: 切换态快照清空落盘失败: {e}");
         return false;

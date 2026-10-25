@@ -160,6 +160,34 @@ pub fn parse_disabled_adapters(json: &str) -> Result<Vec<DisabledRow>, String> {
     serde_json::from_str(json.trim()).map_err(|e| format!("禁用名单快照损坏: {e}"))
 }
 
+/// 待切换状态标签：目标网卡尚未登录校园网，切换挂起等待登录确认。
+pub const PENDING_TAG_WAIT_LOGIN: &str = "waiting-login";
+
+/// 待切换状态行（登录闸挂起记录：目标网卡名 + 挂起原因标签）。
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PendingSwitchRow {
+    pub target: String,
+    pub tag: String,
+}
+
+/// 序列化待切换状态为 JSON。纯数据结构序列化不会失败，兜底返回空串（= 无挂起）。
+pub fn pending_switch_json(target: &str, tag: &str) -> String {
+    serde_json::to_string(&PendingSwitchRow {
+        target: target.to_string(),
+        tag: tag.to_string(),
+    })
+    .unwrap_or_default()
+}
+
+/// 解析待切换状态（空串/非法 JSON → `None`）。挂起态只影响切换时序，解析失败
+/// 视同无挂起即可——下一拍重判会重新写入覆盖，无需像禁用名单那样把损坏当错误。
+pub fn parse_pending_switch(json: &str) -> Option<PendingSwitchRow> {
+    if json.trim().is_empty() {
+        return None;
+    }
+    serde_json::from_str(json.trim()).ok()
+}
+
 /// 历史兜底默认路由快照（v2.4.1 及更早版本切换时写入的 runtime 路由）。
 /// 2026-10-18 事故后该路由不再创建：它与目标卡自己的 DHCP 默认路由共享
 /// 「下一跳 + 接口」、只差跃点，而 Windows 判重与删除都不看跃点——既加不上（同键
@@ -521,6 +549,19 @@ mod tests {
         assert!(parse_disabled_adapters("").unwrap().is_empty());
         assert!(parse_disabled_adapters("not json").is_err());
         assert_eq!(disabled_adapters_json(&[]), "[]");
+    }
+
+    #[test]
+    fn pending_switch_json_round_trip() {
+        let json = pending_switch_json("WLAN", PENDING_TAG_WAIT_LOGIN);
+        assert_eq!(
+            parse_pending_switch(&json),
+            Some(PendingSwitchRow { target: "WLAN".to_string(), tag: "waiting-login".to_string() })
+        );
+        // 空串/纯空白 → 无挂起；非法 JSON → 同样视同无挂起（下拍重写覆盖）
+        assert_eq!(parse_pending_switch(""), None);
+        assert_eq!(parse_pending_switch("   "), None);
+        assert_eq!(parse_pending_switch("not json"), None);
     }
 
     #[test]

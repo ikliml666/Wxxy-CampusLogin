@@ -358,7 +358,9 @@
     "outboundRestoreNow": "Restore Outbound",
     "outboundRestoreNowSuccess": "Network settings restored",
     "outboundRestoreNowFailed": "Restore incomplete",
-    "outboundRestoring": "Restoring..."
+    "outboundRestoring": "Restoring...",
+    "outboundPendingSwitch": "Pending switch: {{target}} (waiting for login)",
+    "outboundPendingSwitchTip": "The target adapter is not logged into the campus network yet; the switch is on hold and will complete automatically once login is confirmed"
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",
