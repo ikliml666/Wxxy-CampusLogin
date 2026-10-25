@@ -467,7 +467,42 @@ fn trigger_fast_quality_check(
     );
     let app_h = app_handle.clone();
     tauri::async_runtime::spawn(async move {
-        super::quality_scheduler::run_quality_check(&app_h, &name, &ip, None).await;
+        let result = super::quality_scheduler::run_quality_check(&app_h, &name, &ip, None).await;
+        // 明确回答"能否访问互联网"：外网站点平均延迟 > 0 即至少一个外网目标成功，
+        // 互联网可达；全部失败则外网中断（此时门户+外网都不通，问题在本地网络/被踢下线）。
+        // 结论写运行日志并推前端登录日志；系统通知仅在外网中断时发（可达不发，免打扰）。
+        let internet_ok = result
+            .as_ref()
+            .and_then(|v| v.get("averageExternalLatency"))
+            .and_then(serde_json::Value::as_i64)
+            .map(|ms| ms > 0)
+            .unwrap_or(false);
+        let event_bus = crate::infra::events::EventBus::new(&app_h);
+        match result {
+            Some(_) if internet_ok => {
+                crate::log_info!("background", "快排查结论：互联网可访问（外网站点可达）");
+                let _ = event_bus.emit_login_log(
+                    "门户暂不可达，但互联网访问正常（外网站点可达），继续观察",
+                    "info",
+                );
+            }
+            Some(_) => {
+                crate::log_warn!("background", "快排查结论：互联网不可访问（全部外网站点失败）");
+                let _ = event_bus.emit_login_log(
+                    "门户与外网站点均不可达，互联网已中断，可能已被踢下线或网络故障",
+                    "warning",
+                );
+                crate::infra::notification::emit_notification(
+                    &app_h,
+                    "互联网不可访问",
+                    "校园网门户与外网站点均不可达，可能已被踢下线或网络故障，请检查网络",
+                    "mascot-warn",
+                );
+            }
+            None => {
+                crate::log_debug!("background", "快排查：质量检测未能执行（与手动检测互斥），下轮快拍重试");
+            }
+        }
     });
 }
 

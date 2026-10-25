@@ -50,14 +50,17 @@ async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapt
 /// `is_quality_checking` 信号量保证与手动检测并发时互斥执行。
 /// `cancel` 传定时测试循环的取消令牌：停止测试后正在执行的一轮（含 2×15s
 /// 复核窗口）提前返回；无取消上下文的调用方传 None（行为与取消前一致）。
-pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str, adapter_ip: &str, cancel: Option<&tokio_util::sync::CancellationToken>) {
+/// 返回首轮全量检测结果（serde_json::Value，字段同 NetworkQualityResult 的
+/// camelCase 序列化；未执行或被信号量抢占时为 None），供快排查联动等调用方
+/// 做进一步判定（如"能否访问互联网"）。
+pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str, adapter_ip: &str, cancel: Option<&tokio_util::sync::CancellationToken>) -> Option<serde_json::Value> {
     let s = CommandContext::from_app(app_handle);
     let enable_notification = s.config.load().enable_notification;
     if cancel.is_some_and(|c| c.is_cancelled()) {
-        return;
+        return None;
     }
     let Some(first) = perform_quality_check(app_handle, adapter_name, adapter_ip, false).await else {
-        return;
+        return None;
     };
     let current = first["quality"].as_str().unwrap_or("unknown").to_string();
     let last = s.network.load().last_network_quality.clone();
@@ -77,10 +80,10 @@ pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str
                 };
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(SPIKE_CONFIRM_INTERVAL_SECS)) => {}
-                    _ = cancelled => return,
+                    _ = cancelled => return None,
                 }
                 if is_quitting.load(Ordering::Acquire) || cancel.is_some_and(|c| c.is_cancelled()) {
-                    return;
+                    return None;
                 }
                 // 复核轮轻量化：只测网关 + 1 个外网站点，15s×2 复核确认语义不变
                 match perform_quality_check(app_handle, adapter_name, adapter_ip, true).await {
@@ -115,4 +118,5 @@ pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str
             record_last_quality(&s, &current);
         }
     }
+    Some(first)
 }
