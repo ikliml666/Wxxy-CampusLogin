@@ -21,18 +21,20 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
                 return;
             }
 
-            run_background_check(&app_h, cancel_token.clone()).await;
+            // 动态检测间隔（dynamic_interval.rs）：未登录按配置基础间隔 ×2 逐步
+            // 退避（封顶 5 分钟）；已登录 10 分钟；已登录但门户不可达 1 分钟快排查。
+            // 配置基础间隔每轮重读，设置面板修改即时生效。
+            let mut dyn_interval = super::dynamic_interval::DynamicInterval::default();
+            let mut last_outcome = run_background_check(&app_h, cancel_token.clone()).await;
 
-            // 间隔动态读取：每次 tick 后重读 config.background_check_interval，
-            // 使设置面板修改的间隔即时生效（历史缺陷：interval 在 spawn 时捕获一次，
-            // 运行中修改间隔直到重启任务才生效）
             loop {
                 let interval_ms = {
                     let s = app_h.state::<AppState>();
                     let cfg = s.config.load();
-                    // 轻量化期间下限 300s（app/lightweight），非轻量化即配置值
+                    let base_ms = cfg.background_check_interval.max(10000);
+                    // 轻量化期间下限 300s（app/lightweight），非轻量化即动态间隔值
                     crate::app::lightweight::effective_background_interval_ms(
-                        cfg.background_check_interval.max(10000),
+                        dyn_interval.next_ms(last_outcome, base_ms),
                         crate::app::lightweight::is_lightweight_active(),
                     )
                 };
@@ -49,7 +51,7 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
                 if !s.task_manager.is_running("background_check") || s.exit.is_quitting.load(Ordering::Acquire) {
                     break;
                 }
-                run_background_check(&app_h, cancel_token.clone()).await;
+                last_outcome = run_background_check(&app_h, cancel_token.clone()).await;
             }
         }
     })?;

@@ -28,6 +28,9 @@ pub struct NetworkSnapshot {
     /// 上一检测周期的 login_available；false→true 上升沿表示门户重新可达（新的登录机会），
     /// 用于复位 prep_login_failures 退避。
     pub last_login_available: bool,
+    /// 「已登录但门户不可达」快速排查模式下，上次联动网络质量检测的时间；
+    /// None 或距上次超过 5 分钟才允许再次触发，避免 1 分钟快拍下重复全量外网检测。
+    pub last_fast_quality_at: Option<Instant>,
 }
 
 impl Default for NetworkSnapshot {
@@ -51,6 +54,7 @@ impl Default for NetworkSnapshot {
             a2_auth_failure_count: 0,
             prep_login_failures: 0,
             last_login_available: true,
+            last_fast_quality_at: None,
         }
     }
 }

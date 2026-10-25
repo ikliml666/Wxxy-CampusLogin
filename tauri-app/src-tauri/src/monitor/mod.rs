@@ -11,3 +11,4 @@ pub mod background_check;
 pub mod background_task;
 pub mod outbound_night;
 pub mod scheduled;
+pub mod dynamic_interval;

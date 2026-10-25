@@ -10,6 +10,7 @@ use super::auto_auth::{try_auto_login_on_preparation, try_disconnect_reconnect};
 use super::campus_check::{CampusCheckResult, adapter_campus_status, adapter_campus_message, check_campus_network};
 use super::portal_check::{PortalCheckResult, check_adapter_portal};
 use crate::auth::failure_tracker::handle_portal_request_failure;
+use super::dynamic_interval::{portal_reset_window_open, CheckOutcome};
 use super::background_emit::{handle_status_change, emit_background_check_result, update_network_state, BackgroundCheckResult};
 
 /// 巡检是否应把「已登录过」标记复位（会话失效判定，纯函数便于单测）。
@@ -26,12 +27,12 @@ pub(crate) fn should_reset_logged_online(reachable: bool, any_online: bool, has_
     reachable && !any_online && has_logged_online
 }
 
-pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &tokio_util::sync::CancellationToken) {
+pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &tokio_util::sync::CancellationToken) -> CheckOutcome {
     if state.exit.is_quitting.load(Ordering::Acquire) || cancel_token.is_cancelled() {
-        return;
+        return CheckOutcome::NotOnline;
     }
     let Some(_check_guard) = state.tasks.is_checking.try_acquire() else {
-        return;
+        return CheckOutcome::NotOnline;
     };
     let t_total = std::time::Instant::now();
 
@@ -46,7 +47,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             Ok(a) => a,
             Err(e) => {
                 crate::log_error!("background", "获取适配器列表失败: {}", e);
-                return;
+                return CheckOutcome::NotOnline;
             }
         }
     };
@@ -67,7 +68,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         &config.outbound_standby_route,
     ) {
         crate::log_debug!("background", "出站切换态，跳过本轮巡检");
-        return;
+        return CheckOutcome::NotOnline;
     }
     let campus_result = if crate::monitor::campus_check::is_campus_check_silent(now_min, config.campus_check_start_minutes, config.campus_check_end_minutes) {
         let hour = config.campus_check_start_minutes / 60;
@@ -157,14 +158,14 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             start_campus_exit(app_handle, state);
         }
         crate::log_debug!("background", "后台检测周期完成(校园网检测未通过), 总耗时{}ms", t_total.elapsed().as_millis());
-        return;
+        return CheckOutcome::NotOnline;
     }
 
     // 校园网验证通过：取消之前的退出流程（如果有的话）
     cancel_campus_exit(app_handle, state);
 
     if cancel_token.is_cancelled() {
-        return;
+        return CheckOutcome::NotOnline;
     }
 
     let t_portal = std::time::Instant::now();
@@ -211,25 +212,46 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     let any_request_failed = primary_is_request_failed || secondary_is_request_failed;
 
     if any_request_failed {
-        // 按适配器分别检查网关可达性：每个适配器从自己的 IP 绑定 ping 网关
-        let campus_gw = &config.campus_gateway;
-        let a1_ip = a1.map(|a| a.ip.as_str());
-        let a2_ip = a2.map(|a| a.ip.as_str());
+        // MAC 重置检测（门户不可达触发）只在每日 08:30 后启用：可登录时段之前
+        // 门户拒绝/断连属预期，不应累计触发换 MAC/IP；窗口未开时清零残留计数，
+        // 避免夜间失败在 8:31 第一拍立刻触发。
+        if portal_reset_window_open(now_min) {
+            // 按适配器分别检查网关可达性：每个适配器从自己的 IP 绑定 ping 网关
+            let campus_gw = &config.campus_gateway;
+            let a1_ip = a1.map(|a| a.ip.as_str());
+            let a2_ip = a2.map(|a| a.ip.as_str());
 
-        // 适配器1 失败处理
-        if primary_is_request_failed {
-            handle_portal_request_failure(
-                state, app_handle, a1, a1_ip,
-                campus_gw, AdapterFailureCounter::A1, "适配器1",
-            );
-        }
+            // 适配器1 失败处理
+            if primary_is_request_failed {
+                handle_portal_request_failure(
+                    state, app_handle, a1, a1_ip,
+                    campus_gw, AdapterFailureCounter::A1, "适配器1",
+                );
+            }
 
-        // 适配器2 失败处理
-        if secondary_is_request_failed {
-            handle_portal_request_failure(
-                state, app_handle, a2, a2_ip,
-                campus_gw, AdapterFailureCounter::A2, "适配器2",
-            );
+            // 适配器2 失败处理
+            if secondary_is_request_failed {
+                handle_portal_request_failure(
+                    state, app_handle, a2, a2_ip,
+                    campus_gw, AdapterFailureCounter::A2, "适配器2",
+                );
+            }
+        } else {
+            let (prev_a1, prev_a2) = {
+                let snap = state.network.load();
+                (snap.a1_auth_failure_count, snap.a2_auth_failure_count)
+            };
+            if prev_a1 > 0 || prev_a2 > 0 {
+                state.network.update(|s| {
+                    s.a1_auth_failure_count = 0;
+                    s.a2_auth_failure_count = 0;
+                });
+                crate::log_info!(
+                    "background",
+                    "Portal失败但未到08:30（MAC重置检测窗口未开），重置失败计数 a1={}→0 a2={}→0",
+                    prev_a1, prev_a2
+                );
+            }
         }
     }
 
@@ -391,20 +413,76 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         update_network_state(state, online, secondary_online, reachable, app_handle);
     }
 
+    // 动态间隔结局分类（dynamic_interval.rs）：
+    // - 门户可达且任一适配器在线 → Online（10 分钟慢拍）
+    // - 门户不可达但此前在线 → OnlineButPortalUnreachable（1 分钟快排查），
+    //   并联动一次网络质量检测（确认是否仍连着互联网），5 分钟节流防重复
+    let outcome = if reachable {
+        if any_online { CheckOutcome::Online } else { CheckOutcome::NotOnline }
+    } else if prev_online {
+        CheckOutcome::OnlineButPortalUnreachable
+    } else {
+        CheckOutcome::NotOnline
+    };
+    if outcome == CheckOutcome::OnlineButPortalUnreachable {
+        trigger_fast_quality_check(app_handle, state, &adapters, &config);
+    }
+
     crate::log_debug!("background", "后台检测周期完成, 总耗时{}ms", t_total.elapsed().as_millis());
+    outcome
+}
+
+/// 「已登录但门户不可达」快排查模式的联动质量检测：全量外网连通性确认，
+/// 结果照常推前端并落质量历史。5 分钟节流（snapshot.last_fast_quality_at），
+/// 避免 1 分钟快拍下每拍都跑 19 项外网目标。
+fn trigger_fast_quality_check(
+    app_handle: &AppHandle,
+    state: &AppState,
+    adapters: &[crate::network::Adapter],
+    config: &crate::config::model::Config,
+) {
+    let allowed = state
+        .network
+        .update_with_result(|s| {
+            let now = std::time::Instant::now();
+            let ok = s.last_fast_quality_at.map(|t| now.duration_since(t).as_secs() >= 300).unwrap_or(true);
+            if ok {
+                s.last_fast_quality_at = Some(now);
+            }
+            ok
+        });
+    if !allowed {
+        crate::log_debug!("background", "门户不可达快排查：质量检测5分钟节流中，跳过本轮联动");
+        return;
+    }
+    let (ip, name) = crate::network::select_adapter_for_quality(adapters, config);
+    if ip.is_empty() {
+        crate::log_debug!("background", "门户不可达快排查：无可质量检测适配器，跳过联动");
+        return;
+    }
+    crate::log_info!(
+        "background",
+        "已登录但门户不可达：降为1分钟快排查，并联动网络质量检测（适配器[{}]，确认互联网连通性）",
+        name
+    );
+    let app_h = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        super::quality_scheduler::run_quality_check(&app_h, &name, &ip, None).await;
+    });
 }
 
 /// 后台巡检：只负责连通性/Portal/重连，质量检测由定时测试循环独占
 /// （latency.rs 的 spawn_latency_test_loop → quality_scheduler::run_quality_check），
 /// 避免双定时器叠加触发全量外网检测、60s 节流吞掉用户自定义间隔（2026-09-04 收敛）
-pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::sync::Arc<tokio_util::sync::CancellationToken>) {
+pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::sync::Arc<tokio_util::sync::CancellationToken>) -> CheckOutcome {
     let app_h = app_handle.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let s = app_h.state::<AppState>();
         run_background_check_blocking(&app_h, &s, &cancel_token)
     }).await.unwrap_or_else(|e| {
         crate::log_error!("background", "后台检测异常: {}", e);
-    });
+        CheckOutcome::NotOnline
+    })
 }
 
 #[cfg(test)]
