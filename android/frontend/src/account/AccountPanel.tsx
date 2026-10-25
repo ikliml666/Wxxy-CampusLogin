@@ -241,7 +241,7 @@ export const AccountPanel = memo(function AccountPanel({
 
   return (
     <div className="space-y-4">
-      {/* 账号管理卡（上）：卡头（图标+标题+描述+通栏「＋添加登录信息」）+
+      {/* 账号管理卡（上）：卡头（图标+标题+描述）+
           堆叠账号卡（OnlineDeviceStack 竖排封面流，机制原样）+ 卡尾快捷操作区 */}
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
@@ -255,9 +255,6 @@ export const AccountPanel = memo(function AccountPanel({
                 <CardDescription>{t('account.accountManageDesc')}</CardDescription>
               </div>
             </div>
-            <Button variant="outline" className="mt-3 w-full gap-1.5" onClick={() => openLoginInfo('create')}>
-              <Plus className="h-4 w-4" /> {t('account.loginInfoCreateTitle')}
-            </Button>
           </CardHeader>
           <CardContent className="space-y-3">
             {accounts.length > 0 ? (
@@ -392,12 +389,20 @@ export const AccountPanel = memo(function AccountPanel({
                 <p className="mt-1 text-xs text-muted-foreground/60">{t('account.noSavedAccountsTip')}</p>
               </div>
             )}
-            {/* 卡尾快捷操作区：与桌面同款（并排两枚 secondary 小按钮） */}
-            <div className="grid grid-cols-2 gap-2">
+            {/* 卡尾快捷操作区：添加/编辑登录信息 + 绑定运营商，安卓端垂直排列 */}
+            <div className="grid grid-cols-1 gap-2">
               <Button
                 variant="secondary"
                 size="sm"
-                className="h-8 gap-1.5"
+                className="h-8 w-full gap-1.5"
+                onClick={() => openLoginInfo('create')}
+              >
+                <Plus className="h-3.5 w-3.5" /> {t('account.loginInfoCreateTitle')}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-8 w-full gap-1.5"
                 onClick={() => openLoginInfo('edit')}
               >
                 <KeyRound className="h-3.5 w-3.5" /> {t('account.editLoginInfo')}
@@ -405,7 +410,7 @@ export const AccountPanel = memo(function AccountPanel({
               <Button
                 variant="secondary"
                 size="sm"
-                className="h-8 gap-1.5"
+                className="h-8 w-full gap-1.5"
                 onClick={() => setBindOpen(true)}
               >
                 <Link2 className="h-3.5 w-3.5" /> {t('account.bindOperator')}
