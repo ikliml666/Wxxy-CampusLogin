@@ -20,6 +20,19 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { safeStorage } from '@/lib/utils'
 
 const TEMPLATE_KEY = 'campus-2d-face-template'
+
+declare global {
+  interface Window {
+    /** 安卓 onTrimMemory 兜底释放钩子（main.tsx）的查询标志：引擎至少加载过一次，
+     *  才值得动态 import 本模块做释放；否则 import 只会白拉 chunk（FE-A-04） */
+    __faceEngineLoaded?: boolean
+    /** 人脸会话进行中（enrollFace/verifyFace 未收尾）：此间收到系统内存压力
+     *  也不得释放引擎——轮询循环会持续调用已 reset 的实例直至静默超时 */
+    __faceSessionActive?: boolean
+    /** Kotlin MainActivity.onTrimMemory 经 evaluateJavascript 注入的内存压力回调 */
+    __onTrimMemory?: (level: number) => void
+  }
+}
 /** human match.similarity 默认归一化注释："similarity above 0.5 can be considered a match"；
  * 从严取 0.55，真机标定后可调 */
 const MATCH_THRESHOLD = 0.55
@@ -104,6 +117,8 @@ async function downloadModels(onProgress?: (percent: number) => void): Promise<s
  * asset 协议（tauri.conf.json assetProtocol scope）喂给 human */
 async function getHuman(): Promise<Human> {
   if (humanInstance) return humanInstance
+  // 标记"用过人脸"：此后 onTrimMemory 兜底释放才有意义（见 declare global）
+  window.__faceEngineLoaded = true
   if (!humanInitPromise) {
     const init = (async () => {
       const myGen = engineGen
@@ -256,27 +271,32 @@ export async function enrollFace(
   onProgress: (done: number, total: number) => void,
   onFacePresence?: (present: boolean) => void,
 ): Promise<{ ok: true } | { ok: false; reason: FaceFailReason }> {
-  const h = await getHuman()
-  const samples: number[][] = []
-  const deadline = Date.now() + ENROLL_TIMEOUT_MS
-  while (samples.length < ENROLL_FRAMES) {
-    if (Date.now() > deadline) return { ok: false, reason: 'timeout' }
-    const snap = await detectOnce(h, video).catch(() => null)
-    onFacePresence?.(!!snap)
-    // 门控：检测分够、有描述子、正脸（gesture 无明显转头）
-    if (snap && snap.score >= DETECT_SCORE_MIN && snap.embedding
-      && !snap.gestures.some(g => g === 'facing left' || g === 'facing right')) {
-      samples.push(snap.embedding)
-      onProgress(samples.length, ENROLL_FRAMES)
+  window.__faceSessionActive = true
+  try {
+    const h = await getHuman()
+    const samples: number[][] = []
+    const deadline = Date.now() + ENROLL_TIMEOUT_MS
+    while (samples.length < ENROLL_FRAMES) {
+      if (Date.now() > deadline) return { ok: false, reason: 'timeout' }
+      const snap = await detectOnce(h, video).catch(() => null)
+      onFacePresence?.(!!snap)
+      // 门控：检测分够、有描述子、正脸（gesture 无明显转头）
+      if (snap && snap.score >= DETECT_SCORE_MIN && snap.embedding
+        && !snap.gestures.some(g => g === 'facing left' || g === 'facing right')) {
+        samples.push(snap.embedding)
+        onProgress(samples.length, ENROLL_FRAMES)
+      }
+      await sleep(POLL_INTERVAL_MS)
     }
-    await sleep(POLL_INTERVAL_MS)
+    const dims = samples[0].length
+    const mean = new Array<number>(dims).fill(0)
+    for (const s of samples) for (let i = 0; i < dims; i++) mean[i] += s[i]
+    for (let i = 0; i < dims; i++) mean[i] /= samples.length
+    saveTemplate(mean)
+    return { ok: true }
+  } finally {
+    window.__faceSessionActive = false
   }
-  const dims = samples[0].length
-  const mean = new Array<number>(dims).fill(0)
-  for (const s of samples) for (let i = 0; i < dims; i++) mean[i] += s[i]
-  for (let i = 0; i < dims; i++) mean[i] /= samples.length
-  saveTemplate(mean)
-  return { ok: true }
 }
 
 /** 验证：随机动作挑战 → 挑战通过后采帧与模板比对（3 次机会） */
@@ -287,42 +307,47 @@ export async function verifyFace(
 ): Promise<FaceVerifyResult> {
   const template = loadTemplate()
   if (!template) return { ok: false, reason: 'mismatch' }
-  const h = await getHuman()
+  window.__faceSessionActive = true
+  try {
+    const h = await getHuman()
 
-  const challenges: FaceChallenge[] = ['blink', 'turn']
-  const challenge = challenges[Math.floor(Math.random() * challenges.length)]
-  onChallenge(challenge)
+    const challenges: FaceChallenge[] = ['blink', 'turn']
+    const challenge = challenges[Math.floor(Math.random() * challenges.length)]
+    onChallenge(challenge)
 
-  const deadline = Date.now() + CHALLENGE_TIMEOUT_MS
-  let challengeDone = false
-  while (Date.now() < deadline) {
-    const snap = await detectOnce(h, video).catch(() => null)
-    if (!snap) {
-      onFacePresence?.(false)
+    const deadline = Date.now() + CHALLENGE_TIMEOUT_MS
+    let challengeDone = false
+    while (Date.now() < deadline) {
+      const snap = await detectOnce(h, video).catch(() => null)
+      if (!snap) {
+        onFacePresence?.(false)
+        await sleep(POLL_INTERVAL_MS)
+        continue
+      }
+      onFacePresence?.(true)
+      if (challenge === 'blink') {
+        // 瞬态动作：本帧闭合即记完成（窗口内一次有效眨眼）
+        if (snap.eyesClosed) challengeDone = true
+      } else if (snap.gestures.includes('facing left') || snap.gestures.includes('facing right')) {
+        // 转头挑战：任一侧均可（镜像语义用户易转反，方向不是安全边界）
+        challengeDone = true
+      }
+      if (challengeDone) break
       await sleep(POLL_INTERVAL_MS)
-      continue
     }
-    onFacePresence?.(true)
-    if (challenge === 'blink') {
-      // 瞬态动作：本帧闭合即记完成（窗口内一次有效眨眼）
-      if (snap.eyesClosed) challengeDone = true
-    } else if (snap.gestures.includes('facing left') || snap.gestures.includes('facing right')) {
-      // 转头挑战：任一侧均可（镜像语义用户易转反，方向不是安全边界）
-      challengeDone = true
-    }
-    if (challengeDone) break
-    await sleep(POLL_INTERVAL_MS)
-  }
-  if (!challengeDone) return { ok: false, reason: 'challenge' }
+    if (!challengeDone) return { ok: false, reason: 'challenge' }
 
-  // 挑战通过后的同人比对：最多 3 帧，任一达到阈值即通过
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const snap = await detectOnce(h, video).catch(() => null)
-    if (snap?.embedding) {
-      const sim = h.match.similarity(template, snap.embedding)
-      if (sim >= MATCH_THRESHOLD) return { ok: true }
+    // 挑战通过后的同人比对：最多 3 帧，任一达到阈值即通过
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const snap = await detectOnce(h, video).catch(() => null)
+      if (snap?.embedding) {
+        const sim = h.match.similarity(template, snap.embedding)
+        if (sim >= MATCH_THRESHOLD) return { ok: true }
+      }
+      await sleep(250)
     }
-    await sleep(250)
+    return { ok: false, reason: 'mismatch' }
+  } finally {
+    window.__faceSessionActive = false
   }
-  return { ok: false, reason: 'mismatch' }
 }

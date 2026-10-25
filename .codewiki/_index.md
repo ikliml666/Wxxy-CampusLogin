@@ -39,6 +39,7 @@
 - [[decisions/protocol-core-single-source|协议核心单点共享（双端铁律）]]
 - [[decisions/deliberate-background-check-skips|后台巡检中被主动跳过的逻辑清单（易被误认为缺陷，实为设计）]]
 - [[decisions/wifi-ssid-permission-route|安卓 SSID 获取走 NEARBY_WIFI_DEVICES 免定位路线]]
+- [[decisions/android-webview-background-timers|安卓 WebView 后台停表与内存压力钩子]]
 - [[decisions/android-exit-guard-renderer-policy|安卓后台留存：退出护栏、质量循环稳态退避与 renderer 优先级放行]]
 - [[decisions/android-keepalive-fgs-architecture|安卓后台监控循环架构：FGS 保活 + Rust tokio 巡检 + 夜间切换]]
 - [[decisions/android-notification-channel-v2-migration|安卓常驻通知通道 v2：IMPORTANCE_DEFAULT + 版本化换 ID 迁移]]

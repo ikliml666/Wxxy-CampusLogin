@@ -116,11 +116,13 @@ function setupCrashRecovery() {
 setupCrashRecovery()
 
 // 安卓内存压力钩子：MainActivity.onTrimMemory 经 evaluateJavascript 调用（level 为
-// 系统 TRIM 常量）。RUNNING_LOW(10) 起释放人脸引擎——最大常驻缓存（TFJS 模型权重），
-// 弹窗关闭本就会释放，此处作为系统压力下的兜底；动态 import 保证未用过人脸功能时
-// 不把 faceService chunk 拉进首屏（FE-A-04）。
-;(window as unknown as { __onTrimMemory?: (level: number) => void }).__onTrimMemory = (level: number) => {
+// 系统 TRIM 常量；阈值判断在 Kotlin 侧已做过，仅高压力级别会到达这里）。释放人脸
+// 引擎——最大常驻缓存（TFJS 模型权重），弹窗关闭本就会释放，此处作为系统压力下的
+// 兜底。两个前置标志由 faceService 维护：没加载过引擎则 import 只会白拉 chunk
+// （FE-A-04）；会话进行中释放会让轮询循环打到已 reset 的实例直至静默超时。
+window.__onTrimMemory = (level: number) => {
   if (level < 10) return
+  if (!window.__faceEngineLoaded || window.__faceSessionActive) return
   import('./face/faceService')
     .then((m) => m.releaseFaceEngine())
     .catch(() => { /* best-effort：释放失败不重试 */ })

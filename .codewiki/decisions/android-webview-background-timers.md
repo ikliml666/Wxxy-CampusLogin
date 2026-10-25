@@ -1,3 +1,17 @@
+---
+title: "安卓 WebView 后台停表与内存压力钩子"
+type: decision
+source_files:
+  - android/src-tauri/gen/android/app/src/main/java/com/campuslogin/client/MainActivity.kt
+  - android/frontend/src/main.tsx
+  - android/frontend/src/face/faceService.ts
+tags:
+  - android
+  - webview
+  - background
+  - power
+---
+
 # 安卓 WebView 后台停表与内存压力钩子（android-webview-background-timers）
 
 - 日期：2026-10-25
@@ -13,7 +27,7 @@
 ## 决策
 
 1. **停表挂 `onStop/onStart` 而非 `onPause/onResume`**：onStop 才是"完全不可见"；分屏/悬浮窗下可见但不获焦（只走 onPause）时不误停，后台省电目标场景全覆盖。
-2. **`onTrimMemory` 经 `evaluateJavascript` 调 `window.__onTrimMemory(level)`**：不引入插件级 channel 管线；evaluateJavascript 直接派发执行，不受 pauseTimers 停表影响。前端钩子在 main.tsx，level≥10（RUNNING_LOW）动态 import faceService 释放人脸引擎（最大常驻缓存，TFJS 权重）；动态 import 保证不用人脸功能时不拉 chunk（FE-A-04）。
+2. **`onTrimMemory` 经 `evaluateJavascript` 调 `window.__onTrimMemory(level)`**：不引入插件级 channel 管线；evaluateJavascript 直接派发执行，不受 pauseTimers 停表影响。前端钩子在 main.tsx，level≥10（RUNNING_LOW）动态 import faceService 释放人脸引擎（最大常驻缓存，TFJS 权重）；动态 import 保证不用人脸功能时不拉 chunk（FE-A-04）。评审加固（fix/webview-trim-review）：阈值判断下沉 Kotlin 侧（低压力不注入 JS、不唤醒后台 WebView）；faceService 维护 `__faceEngineLoaded`/`__faceSessionActive` 两个 window 标志，钩子据此跳过"从未加载引擎"与"会话进行中"两种场景（后者释放会让轮询打到已 reset 实例直至静默超时）。
 3. 前端既有机制保持不变：心跳/rAF 探测已按 visibility 门控、GSAP 后台 pause、后端检测循环亮屏 60s/闲时 5min 分档——本次只补上"定时器仍按节流拍空转"这块缺口。
 
 ## 风险与边界

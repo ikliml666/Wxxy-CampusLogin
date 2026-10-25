@@ -1,5 +1,6 @@
 package com.campuslogin.client
 
+import android.content.ComponentCallbacks2
 import android.os.Bundle
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
@@ -36,8 +37,11 @@ class MainActivity : TauriActivity() {
 
   // 系统内存压力转发给前端全局钩子（main.tsx 的 __onTrimMemory）：释放人脸引擎等
   // 大缓存。evaluateJavascript 直接派发执行，不受 pauseTimers 停表影响。
+  // 阈值判断在本侧完成（前端同名常量兜底）：低压力级别不值得唤醒后台 WebView
+  // 跑一次 JS 注入——与后台省电目标一致。
   override fun onTrimMemory(level: Int) {
     super.onTrimMemory(level)
+    if (level < ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) return
     appWebView?.evaluateJavascript(
       "window.__onTrimMemory && window.__onTrimMemory($level)", null
     )
