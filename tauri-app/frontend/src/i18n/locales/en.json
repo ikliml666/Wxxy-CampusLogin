@@ -596,7 +596,7 @@
     "securityChanged": "Security setting updated",
     "qualityDetectionDesc": "Configure network latency and quality detection features",
     "enableQualityDetection": "Enable Network Quality Detection",
-    "enableQualityDetectionDesc": "Show latency test results in Dashboard and Network Quality panels",
+    "enableQualityDetectionDesc": "Show latency test results in Dashboard and Network Quality panels; even when off, a one-off Internet connectivity check still runs automatically when logged in but the campus portal is unreachable",
     "latencyCalcOptions": "Latency Calculation Options",
     "skipTtfb": "Skip TTFB Detection",
     "skipTtfbDesc": "Don't measure time to first byte, latency includes only DNS+TCP+TLS handshake time",

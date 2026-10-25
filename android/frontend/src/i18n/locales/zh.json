@@ -565,7 +565,7 @@
     "networkGroupDesc": "延迟质量检测",
     "advancedSection": "高级设置",
     "enableQualityDetection": "启用网络质量检测",
-    "enableQualityDetectionDesc": "在总览和网络质量面板中显示延迟检测结果",
+    "enableQualityDetectionDesc": "在总览和网络质量面板中显示延迟检测结果；关闭后，已登录但校园网门户不可达时仍会自动联动检测一次互联网连通性",
     "latencyCalcOptions": "延迟计算选项",
     "skipTtfb": "跳过TTFB检测",
     "skipTtfbDesc": "不测量首字节时间，延迟值仅包含DNS+TCP+TLS握手时间",
