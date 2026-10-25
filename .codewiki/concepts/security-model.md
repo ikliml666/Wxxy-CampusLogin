@@ -22,8 +22,8 @@ source_files:
 
 安全体系围绕三条主线展开，桌面（Tauri + Windows DPAPI）与安卓（Tauri + AndroidKeyStore AES-GCM）双端同构：
 
-1. **凭据出站唯一出口**：任何把配置发往前端/事件的路径，密码字段非空一律替换为 `"***"`（`PASSWORD_MASK`，`config/model.rs:3`）。收敛点为 `Config::masked_for_display`（`config/model.rs:326-330`），所有前端读取路径（`get_config` 命令 `commands/config_cmd.rs:226-229`、广播 `config/persist.rs:296-320` 中 `notify_config_changed` 包裹 `{config: emit_cfg}` 于行301-302）均经此出口。
-2. **落盘加密**：密码写入磁盘前必经加密——桌面 DPAPI（用户作用域 + additional entropy，`account/crypto.rs:42,88-106,221-229`），安卓 AndroidKeyStore AES-GCM（`plugins/keystore/src/lib.rs:28-40` 的 `CampusKeystore`）。"非空即加密，不排除掩码占位符"（`config/persist.rs:322-334`，注释 324-328 明确用户真实密码恰为 `***` 也须加密）。
+1. **凭据出站唯一出口**：任何把配置发往前端/事件的路径，密码字段非空一律替换为 `"***"`（`PASSWORD_MASK`，`config/model.rs:3`）。收敛点为 `Config::masked_for_display`（`config/model.rs:326-330`），所有前端读取路径（`get_config` 命令 `commands/config_cmd.rs:226-229`、广播 `config/persist.rs:296-322` 中 `notify_config_changed` 包裹 `{config: emit_cfg}` 于行301-302）均经此出口。
+2. **落盘加密**：密码写入磁盘前必经加密——桌面 DPAPI（用户作用域 + additional entropy，`account/crypto.rs:42,88-106,221-229`），安卓 AndroidKeyStore AES-GCM（`plugins/keystore/src/lib.rs:28-40` 的 `CampusKeystore`）。"非空即加密，不排除掩码占位符"（`config/persist.rs:324-336`，注释 326-330 明确用户真实密码恰为 `***` 也须加密）。
 3. **后端验证门**：敏感自助操作前要求本机身份验证，安卓端 TTL 600 秒、时间戳只存后端内存（`android/src-tauri/src/identity_gate.rs:6-33`，时钟回拨视为过期）。桌面端 `platform/identity.rs` 未在本文源码范围内，此处不展开。
 
 配套机制：登录/质量历史记录不含密码字段且损坏自动备份（`config/persist.rs:174-226,237-288`）；导入配置时切换态快照保留本机值以防系统残留（`commands/config_cmd.rs:177-182`）；账号档案读写加解密往返（`config/persist.rs:76-112`）；原子写防断电损坏（`config/persist.rs:13-44`）。
@@ -32,7 +32,7 @@ source_files:
 
 | 术语 | 含义 | 不变量 |
 | --- | --- | --- |
-| `PASSWORD_MASK` | 出站掩码占位符 `"***"` | 用户真实密码恰为 `***` 时不得排除加密（`persist.rs:324-328`） |
+| `PASSWORD_MASK` | 出站掩码占位符 `"***"` | 用户真实密码恰为 `***` 时不得排除加密（`persist.rs:326-330`） |
 | `masked_for_display` | 敏感信息出站唯一出口 | 空→空（未设置语义），非空→`***`（`model.rs:326-330`） |
 | `IDENTITY_VERIFY_TTL_SECS` | 验证门有效期 600s | 时间戳 0=从未验证；时钟回拨视为过期（`identity_gate.rs:8,23-33`） |
 | `atomic_write` | 临时文件+rename 原子写 | 断电/崩溃不残留半成品配置（`persist.rs:13-44`） |
@@ -50,9 +50,9 @@ source_files:
 全部字段（serde rename 见源码注释）：
 
 *   `user`: String (行 11)
-*   `password`: String (行 13, `#[serde(default)]`) — 出站掩码、落盘加密
+*   `password`: String (行 13, 前导 `#[serde(default)]` 行 12) — 出站掩码、落盘加密
 *   `self_hello_enabled`: bool (行 18, rename `selfHelloEnabled`, default `default_true` 行 210) — Windows Hello 验证开关；关闭后查看运营商密码仍强制验证（行 14-16 注释）
-*   `self_reverify_each_action`: bool (行 21, rename `selfReverifyEachAction`, default false) — 每次操作二次验证（无消费方，见 Known Issues）
+*   `self_reverify_each_action`: bool (行 20-21, rename `selfReverifyEachAction`, default false) — 每次操作二次验证（无消费方，见 Known Issues）
 *   `operator`: String (行 22)
 *   `adapter1`: String (行 23, default `自动检测` 见 Default 行 252)
 *   `adapter2`: String (行 24)
@@ -122,7 +122,7 @@ source_files:
 *   `default_true` (行 210), `default_campus_check_start_minutes` (行 212), `default_campus_check_end_minutes` (行 216), `default_campus_exit_start_minutes` (行 218), `default_campus_exit_end_minutes` (行 220), `default_fixed_gateway` (行 222), `default_log_retention_days` (行 226), `default_max_disconnect_reconnect` (行 228), `default_auto_login_cooldown_secs` (行 230), `default_portal_url` (行 232), `default_required_network_name` (行 236), `default_campus_gateway` (行 240)
 *   `impl Default for Config` (行 244-320)
 
-测试（行 339-403）：`default_reconnect_and_cooldown_config` (行 343), `serde_missing_reconnect_field_uses_default` (行 350), `serde_custom_reconnect_config` (行 362), `serde_account_fields_json_names_and_defaults` (行 374) 锁定 serde 契约。
+测试（行 339-403）：`default_reconnect_and_cooldown_config` (行 344), `serde_missing_reconnect_field_uses_default` (行 351), `serde_custom_reconnect_config` (行 363), `serde_account_fields_json_names_and_defaults` (行 375) 锁定 serde 契约。
 
 ### 2. 持久化层 (`tauri-app/src-tauri/src/config/persist.rs`)
 
@@ -143,10 +143,10 @@ source_files:
 *   `get_quality_history_path` (行 231-233)
 *   `append_quality_history(...)` (行 237-239) — 委托 `append_quality_history_to`
 *   `append_quality_history_to(data_dir: &Path, result: &...)` (行 241-288) — 头插，延迟 <0 落盘 null，上限 100
-*   `save_config_and_broadcast(app_handle: &AppHandle, config: &Config)` (行 296-320) — 调 `save_config_to_disk_encrypted` 后掩码发射 `config-changed` 事件（`notify_config_changed` 包裹 `{config: emit_cfg}` 行 301-302），并后台刷新无头核心凭据
-*   `save_config_to_disk_encrypted(data_dir: &Path, config: &Config)` (行 322-334) — 非空密码一律 `crypto::encrypt`（不排除 MASK），`atomic_write` 落盘
+*   `save_config_and_broadcast(app_handle: &AppHandle, config: &Config)` (行 296-322) — 调 `save_config_to_disk_encrypted` 后掩码发射 `config-changed` 事件（`notify_config_changed` 包裹 `{config: emit_cfg}` 行 301-302），并后台刷新无头核心凭据
+*   `save_config_to_disk_encrypted(data_dir: &Path, config: &Config)` (行 324-336) — 非空密码一律 `crypto::encrypt`（不排除 MASK），`atomic_write` 落盘
 
-测试（行 336-499）：`literal_star_password_is_encrypted_on_disk` (行 347), `empty_password_stays_empty` (行 365), `quality_history_head_insert_and_shape` (行 391), `quality_history_caps_at_100` (行 408), `quality_history_corrupt_backup_and_reset` (行 422), `list_account_items_missing_dir_is_empty` (行 438), `list_account_items_fallback_and_filter` (行 447), `account_config_roundtrip_encrypts_password` (行 477, Windows) 锁定加密契约。
+测试（行 338-502）：`literal_star_password_is_encrypted_on_disk` (行 350), `empty_password_stays_empty` (行 368), `quality_history_head_insert_and_shape` (行 394), `quality_history_caps_at_100` (行 411), `quality_history_corrupt_backup_and_reset` (行 425), `list_account_items_missing_dir_is_empty` (行 441), `list_account_items_fallback_and_filter` (行 450), `account_config_roundtrip_encrypts_password` (行 481, Windows) 锁定加密契约。
 
 ### 3. 命令层 (`tauri-app/src-tauri/src/commands/config_cmd.rs`)
 
@@ -158,12 +158,12 @@ source_files:
 *   `build_config_export_payload(current: &Config, include_password: bool) -> Result<serde_json::Value, String>` (行 73-94) — 掩码态或 DPAPI 加密态（`passwordEncrypted` 标志），绝不写明文
 *   `restore_imported_password_field(imported: &mut String, encrypted: bool, current: &str) -> Result<(), String>` (行 102-112) — 空/MASK 保留当前值，密文 decrypt，失败报错
 *   `export_config(...)` (行 117-137) — 阻塞 IO 移入 `spawn_blocking`，原子写 `<data_dir>/exports/config-<时间戳>.json`
-*   `import_config(...)` (行 144-206) — 大小防呆 1MB，解析 wrapper/裸 Config，密码还原先于校验，切换态四字段+安卓标记保留本机值（行 177-182），落盘同 `save_config` 路径
+*   `import_config(...)` (行 144-206) — 大小防呆 1MB，解析 wrapper/裸 Config，密码还原先于校验，切换态六字段+安卓标记保留本机值（行 177-182），落盘同 `save_config` 路径
 *   `show_window(app_handle: AppHandle)` (行 208-224) — 用户最小化保护
 *   `get_config(state: State<'_, AppState>) -> Result<Config, String>` (行 226-229) — 返回 `masked_for_display()`
 *   `save_config(...)` (行 234-286) — 校验，密码三态（clear/空或MASK保留当前/新值），同步 `update_portal_url` 与 `set_log_retention_days`，先落盘再更新内存，R2 自动建号
 
-测试（行 288-365）：`masked_for_display_masks_password` (行 297), `export_payload_never_contains_plaintext_password` (行 314, Windows), `import_password_restore_semantics` (行 341, Windows)。
+测试（行 288-365）：`masked_for_display_masks_password` (行 298), `export_payload_never_contains_plaintext_password` (行 316, Windows), `import_password_restore_semantics` (行 343, Windows)。
 
 ### 4. 桌面加密 (`tauri-app/src-tauri/src/account/crypto.rs`)
 
@@ -242,16 +242,16 @@ Windows DPAPI 模块 `dpapi` (行 1-219)：
 
 1. 前端调用 `save_config` (`commands/config_cmd.rs:234-286`)。
 2. `validate_config` 校验（行 241）。
-3. 密码三态：clear_password 置空；空或 MASK 保留当前（`state.config.load()` 行 255）；否则新值。
+3. 密码三态：clear_password 置空（行 251-252）；空或 MASK 保留当前（`state.config.load()` 行 255-256）；否则新值。
 4. 同步全局 `update_portal_url` (行 261) 与 `set_log_retention_days` (行 264)。
-5. `spawn_blocking` 调 `save_config_to_disk_encrypted` (行 271) → `persist::save_config_and_broadcast` (`persist.rs:296-320`) → `save_config_to_disk_encrypted` (`persist.rs:322-334`) 加密非空密码 → `atomic_write` (`persist.rs:13-44`)。
+5. `spawn_blocking` 调 `save_config_to_disk_encrypted` (行 271) → `persist::save_config_and_broadcast` (`persist.rs:296-322`) → `save_config_to_disk_encrypted` (`persist.rs:324-336`) 加密非空密码 → `atomic_write` (`persist.rs:13-44`)。
 6. 更新内存 `state.config.store` (`config_cmd.rs:274`)。
 7. R2 自动建号 `auto_create_account_for_current` (行 281)。
 
 ### 桌面导入导出流
 
 * **导出** (`export_config` 行 117-137)：`build_config_export_payload` (行 73-94) 掩码态或 DPAPI 加密态（`passwordEncrypted` 标志），写入 `<data_dir>/exports/`。
-* **导入** (`import_config` 行 144-206)：大小防呆 1MB，解析 wrapper/裸 Config，密码还原 `restore_imported_password_field` (行 172)，切换态保留本机值 (行 177-182)，校验后同保存路径落盘。
+* **导入** (`import_config` 行 144-206)：大小防呆 1MB，解析 wrapper/裸 Config，密码还原 `restore_imported_password_field` (行 172)，切换态六字段保留本机值 (行 177-182)，校验后同保存路径落盘。
 
 ### 安卓保存流（基于提供插件接口）
 

@@ -14,7 +14,7 @@ tags: [决策, 凭据, 配置, 安全, 引导]
 
 历史背景中，系统曾并存两套凭据：登录信息 `config.user`/`config.password` 与自助服务专用 `config.self_password`。由于校园网（Dr.COM/Portal）登录与自助服务系统在实际业务逻辑中共用同一套学号密码，双字段导致了用户需在两处分别输入、保存同一密码的冗余，且极易产生“自助密码、登录密码、账号档案密码”三态不一致的问题。
 
-本决策删除了独立的自助密码字段，后端所有涉及自助服务的命令均通过“前端传入优先，空/MASK 占位符回退已存登录密码”的逻辑获取凭据。此设计消除了凭据不一致类 Bug，并收敛了敏感信息的存储与传输路径。当前代码（见 `model.rs` 与双端命令文件）已无任何 `self_password` 字段，凭据解析统一由 `resolve_credential_password` / `resolve_self_password` 完成。
+本决策删除了独立的自助密码字段，后端所有涉及自助服务的命令均通过“前端传入优先，空/MASK 占位符回退已存登录密码”的逻辑获取凭据。此设计消除了凭据不一致类 Bug，并收敛了敏感信息的存储与传输路径。当前代码（见 `model.rs` 与双端命令文件）已无任何 `self_password` 字段，凭据解析统一由 `resolve_credential_password` (`self_service.rs:51-62`) / `resolve_self_password` (`self_service_cmds.rs:27-36`) 完成。
 
 ## Key Components
 
@@ -27,7 +27,7 @@ tags: [决策, 凭据, 配置, 安全, 引导]
     *   `pub const AUTO_DETECT_ADAPTER: &str = "自动检测"` (`model.rs:4`): 网卡自动检测标识。
 *   **结构体 `Config`** (`model.rs:10-182`):
     *   `pub user: String` (`model.rs:11`)
-    *   `pub password: String` (`model.rs:13`，带 `#[serde(default)]` 于行12)：**唯一的密码存储字段**，加载时由 DPAPI 解密，内存中为明文。
+    *   `pub password: String` (`model.rs:13`，`#[serde(default)]` 于 `model.rs:12`)：**唯一的密码存储字段**，加载时由 DPAPI 解密，内存中为明文。
     *   `pub self_hello_enabled: bool` (`model.rs:17`，重命名 `selfHelloEnabled`，默认 `true`)：是否启用 Windows Hello 操作验证。
     *   `pub self_reverify_each_action: bool` (`model.rs:20`，重命名 `selfReverifyEachAction`，默认 `false`)：自助面板每次操作二次验证。
     *   `pub operator: String` (`model.rs:22`)
@@ -137,8 +137,8 @@ tags: [决策, 凭据, 配置, 安全, 引导]
 *   **辅助函数**:
     *   `fn resolve_self_password(incoming: &str, settings: &crate::config_state::Settings) -> Option<String>` (`self_service_cmds.rs:27-36`)：**核心凭据解析逻辑**。与桌面同构：前端传非 MASK 明文优先，空/MASK 回退 `settings.password`，皆无返回 `None`。
     *   `fn ensure_identity_gate(settings: &crate::config_state::Settings) -> Option<String>` (`self_service_cmds.rs:39-48`)：验证门控。总开关关闭放行，否则检查 `identity_verified_recently()`。
-    *   `async fn load_settings(app: &tauri::AppHandle) -> Result<Settings, String>` (`self_service_cmds.rs:50-52`)：加载设置。
-    *   `fn local_addr_of(state: &tauri::State<'_, AndroidState>) -> Option<IpAddr>` (`self_service_cmds.rs:54-60`)：获取缓存源 IP。
+    *   `async fn load_settings(app: &tauri::AppHandle) -> Result<crate::config_state::Settings, String>` (`self_service_cmds.rs:50-52`)：加载设置。
+    *   `fn local_addr_of(state: &tauri::State<'_, crate::android_state::AndroidState>) -> Option<IpAddr>` (`self_service_cmds.rs:54-60`)：获取缓存源 IP。
     *   `fn is_iso_date(s: &str) -> bool` (`self_service_cmds.rs:187-199`)：严格 YYYY-MM-DD 日期校验（同构桌面）。
 *   **Tauri 命令**:
     *   `pub async fn verify_biometric_identity(success: bool, method: String, _consent_message: Option<String>)` (`self_service_cmds.rs:66-82`)：生物识别验证。仅 `success == true` 解锁验证门。
@@ -161,12 +161,12 @@ tags: [决策, 凭据, 配置, 安全, 引导]
        ▼                 ▼                 ▼
 ┌──────────────────────────────────────────────────────┐
 │ Tauri Backend: Config/Settings.password (model.rs:13)│
-│ resolve_credential_password (self_service.rs:51)     │
-│ resolve_self_password (self_service_cmds.rs:27)      │
+│ resolve_credential_password (self_service.rs:51-62)  │
+│ resolve_self_password (self_service_cmds.rs:27-36)   │
 │ Commands: bind/query/reveal (self_service.rs:66+)    │
 │   modify/reveal → ensure_identity_gate (15/39)       │
 │   query → no gate                                    │
-│ mask_in_place (model.rs:332) for display             │
+│ mask_in_place (model.rs:332-336) for display         │
 └───────────────────────────┬──────────────────────────┘
                             ▼
 ┌──────────────────────────────────────────────────────┐
@@ -191,7 +191,7 @@ tags: [决策, 凭据, 配置, 安全, 引导]
         *   内存也为空 → 返回 `None`，前端提示“请先在登录信息填写并保存密码”（桌面 `self_service.rs:88`，安卓 `self_service_cmds.rs:107`）。
 
 3.  **出站安全**:
-    *   配置发前端显示必经 `masked_for_display` (`model.rs:326`) → `mask_in_place` (`model.rs:332-336`)。
+    *   配置发前端显示必经 `masked_for_display` (`model.rs:326-330`) → `mask_in_place` (`model.rs:332-336`)。
     *   仅 `password` 非空替换为 `***`，确保前端缓存无明文。
 
 4.  **身份验证门控 (Identity Gate)**:

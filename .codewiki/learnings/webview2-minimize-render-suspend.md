@@ -186,24 +186,19 @@ tags: [教训, WebView2, 最小化, GPU 占用, wry, backdrop-filter, 轻量化]
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │                       Tauri App Runtime                      │
-│                                                              │
-│  ┌─────────────────┐     ┌───────────────────────────────┐   │
-│  │  Window Events   │────►│  src/app/window.rs            │   │
-│  │  (Startup.rs     │     │                               │   │
-│  │   L53-L65)       │     │  handle_window_resized_event  │───┼──► SetIsVisible (!minimized)
-│  │  Resized/Focused │     │  (Syncs Visibility L139-L159) │   │      (CoreWebView2 Controller)
-│  │                  │     │  handle_window_focus_event    │───┼──► SetMemoryUsageTargetLevel
-│  │                  │     │  (Adjusts Memory L92-L120)    │   │      (ICoreWebView2_19)
-│  └─────────────────┘     └───────────────────────────────┘   │
-│                          ┌───────────────────────────────┐   │
-│  │  System Cmds    │     │  src/commands/system.rs       │   │
-│  │  (L7-L42)       │────►│  minimize_window/close_window │───┼──► set_main_webview_suspended
-│  └─────────────────┘     └───────────────────────────────┘   │
-│                          ┌───────────────────────────────┐   │
-│  │  Lightweight     │    │  rebuild_main_window          │   │
-│  │  Rebuild (L209)  │────►│  reset_suspend_state_for_    │   │
-│  │                  │    │  new_webview (L53-L56)        │   │
-│  └─────────────────┘     └───────────────────────────────┘   │
+│  ┌─────────────────┐   ┌─────────────────────────────────┐  │
+│  │ Window Events   │──►│ src/app/window.rs               │  │
+│  │ (Startup L53-65)│   │ handle_resized (L139-159)       │──┼─► SetIsVisible
+│  │ Resized/Focused │   │ handle_focus (L92-120)          │──┼─► SetMemoryTarget
+│  └─────────────────┘   └─────────────────────────────────┘  │
+│  ┌─────────────────┐   ┌─────────────────────────────────┐  │
+│  │ System Cmds     │──►│ src/commands/system.rs          │  │
+│  │ (L7-L42)        │   │ minimize/close_window           │──┼─► set_main_webview_suspended
+│  └─────────────────┘   └─────────────────────────────────┘  │
+│  ┌─────────────────┐   ┌─────────────────────────────────┐  │
+│  │ Lightweight     │──►│ rebuild_main_window (L209-258)   │  │
+│  │ Rebuild         │   │ reset_suspend_state (L53-56)     │  │
+│  └─────────────────┘   └─────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
 ```
 

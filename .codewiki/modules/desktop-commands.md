@@ -38,10 +38,13 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 - `save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String>`（`commands/config_cmd.rs:8-15`）：包装 `persist::save_config_and_broadcast`（落盘+掩码广播 `config-changed`）并补刷托盘菜单。所有改写配置的命令最终都经此路径通知前端。
 - `load_config_from_file(app_handle: &AppHandle) -> Result<Config, String>`（`commands/config_cmd.rs:17-40`）：从磁盘读配置，解密密码字段，失败清密码保留其他。
 - `load_config_from_disk_or_default(app_handle: &AppHandle) -> Config`（`commands/config_cmd.rs:42-65`）：启动/受损恢复入口，解析失败时把原文件备份为 `*.json.corrupt-<ts>.bak`（48-60）后返回默认配置。
+
+同文件私有辅助函数（仅供命令调用，测试模块直接引用）：
+
 - `build_config_export_payload(current: &Config, include_password: bool) -> Result<serde_json::Value, String>`（`commands/config_cmd.rs:73-94`）：纯函数，组装导出 payload，掩码或 DPAPI 密文。
 - `restore_imported_password_field(imported: &mut String, encrypted: bool, current: &str) -> Result<(), String>`（`commands/config_cmd.rs:102-112`）：还原导入密码字段，空/MASK 保留当前值，密文 decrypt，明文直传。
 
-测试模块：`commands/config_cmd.rs:288-366` 含 `masked_for_display_masks_password`（297）、`export_payload_never_contains_plaintext_password`（316，windows）、`import_password_restore_semantics`（342，windows）三个测试。
+测试模块：`commands/config_cmd.rs:288-366` 含 `masked_for_display_masks_password`（297-309）、`export_payload_never_contains_plaintext_password`（314-336，windows）、`import_password_restore_semantics`（341-365，windows）三个测试。
 
 #### login.rs（2 条）
 
@@ -52,9 +55,9 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 同文件非命令函数与结构体：
 
-- `AdapterOnlineStatus` 结构体（`commands/login.rs:9-16`）：字段 `any_online: bool`、`a1_online: bool`、`a2_online: bool`、`probe_ok: bool`（审计 A8：探测链路是否全部可用，false 表示离线结论不可信）。
-- `check_any_adapter_online(state: &AppState) -> AdapterOnlineStatus`（`commands/login.rs:18-60`）：并行检测双适配器 Portal 状态，使用 `std::thread::scope` 与 `tauri::async_runtime::handle().inner().enter()` 修复 reqwest 超时上下文。
-- `perform_full_logout_sync(app_handle: &AppHandle, adapter_name: Option<&str>) -> CommandResult`（`commands/login.rs:105-198`）：注销核心，含互斥获取、调用 `full_logout`、1s 复检、状态复位（全量注销重置 `auto_exit_cancelled`/`failure_tracker`/`logout_protected_until` 等，单适配器仅重置 per-adapter 标志）。
+- `AdapterOnlineStatus` 结构体（`commands/login.rs:9-16`）：字段 `any_online: bool`、`a1_online: bool`、`a2_online: bool`、`probe_ok: bool`（审计 A8：探测链路是否全部可用，false 表示离线结论不可信）。无方法，仅数据持有。
+- `check_any_adapter_online(state: &AppState) -> AdapterOnlineStatus`（`commands/login.rs:18-60`）：私有函数，并行检测双适配器 Portal 状态，使用 `std::thread::scope` 与 `tauri::async_runtime::handle().inner().enter()` 修复 reqwest 超时上下文。
+- `perform_full_logout_sync(app_handle: &AppHandle, adapter_name: Option<&str>) -> CommandResult`（`commands/login.rs:105-198`，`pub(crate)`）：注销核心，含互斥获取、调用 `full_logout`、1s 复检、状态复位（全量注销重置 `auto_exit_cancelled`/`failure_tracker`/`logout_protected_until` 等，单适配器仅重置 per-adapter 标志）。
 
 #### background.rs（4 条）
 
@@ -67,9 +70,9 @@ tags: [desktop, tauri, ipc, commands, 命令面]
 
 同文件非命令函数：
 
-- `get_background_status_value(state: &AppState, _app_handle: &AppHandle, adapters: &[Adapter]) -> serde_json::Value`（`commands/background.rs:44-111`）：组装后台状态 JSON，接受外部适配器快照避免重复枚举。
+- `get_background_status_value(state: &AppState, _app_handle: &AppHandle, adapters: &[Adapter]) -> serde_json::Value`（`commands/background.rs:44-111`，`pub fn`）：组装后台状态 JSON，接受外部适配器快照避免重复枚举。
 
-### 命令层私有结构体
+### 命令层私有结构体字段明细
 
 `AdapterOnlineStatus`（`commands/login.rs:9-16`，仅 `login.rs` 内部使用）：
 

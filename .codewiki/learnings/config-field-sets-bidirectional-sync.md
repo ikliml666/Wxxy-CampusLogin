@@ -125,7 +125,9 @@ tags: [教训, 双端, 配置, 同步]
 - `masked_for_display` (config_state.rs:424-430)：掩码出口。
 - `emit_config_changed` (config_state.rs:436-439)：广播事件。
 - `resolve_password_field` (config_state.rs:442-451)：空串/MASK 回退已存值。
-- `#[tauri::command] get_config` (config_state.rs:503-516)、`save_config` (config_state.rs:503-534)、`current_settings` (config_state.rs:503-521，仅 `#[allow(dead_code)]` 非 `#[tauri::command]`)。
+- `#[tauri::command] get_config` (config_state.rs:453-466)。
+- `#[tauri::command] save_config` (config_state.rs:468-499)。
+- `current_settings` (config_state.rs:503-520，仅 `#[allow(dead_code)]` 非 `#[tauri::command]`)。
 - `#[cfg(test)] mod tests` (config_state.rs:522-827)：含加密落盘、迁移、SSID 扩值等测试。
 
 `Settings` struct 全字段（config_state.rs:26-128，共 47 字段，其中 43 个交集、4 个独有）：

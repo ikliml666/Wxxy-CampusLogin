@@ -26,11 +26,11 @@ tags: [决策, 账号, 适配器, 双适配器, 凭据]
 
 ### 认证服务层 (`tauri-app/src-tauri/src/auth/service.rs`)
 
-*   **`credentials_missing(config: &Config) -> bool`** (`service.rs:24-28`)：前置校验纯函数。全局凭据缺失**且**主/副适配器都未指定账号时才返回 `true`；若存在适配器绑定，则放行由后续逻辑接管（R1：适配器指定账号的凭据在账号档案里，全局为空不再提前失败）。单元测试 `credentials_missing_requires_global_and_no_binding` (`service.rs:397-419`) 验证了该规则。
+*   **`credentials_missing(config: &Config) -> bool`** (`service.rs:24-28`)：前置校验纯函数。全局凭据缺失**且**主/副适配器都未指定账号时才返回 `true`；若存在适配器绑定，则放行由后续逻辑接管（R1：适配器指定账号的凭据在账号档案里，全局为空不再提前失败）。单元测试 `credentials_missing_requires_global_and_no_binding` (`service.rs:399-419`) 验证了该规则。
 *   **`resolve_manual_adapter_account_id<'a>(name: &str, config: &'a Config) -> &'a str`** (`service.rs:33-41`)：手动指定网卡登录时的账号匹配规则纯函数（按 §4.5 规则 4）。网卡名 == 主适配器 → 返回 `adapter1_account`；== 副适配器 → 返回 `adapter2_account`；都不匹配 → 返回空串（跟随全局账号）。测试 `manual_adapter_account_matches_role` (`service.rs:389-395`) 覆盖此逻辑。
 *   **`credentials_config(base: &Config, account: Option<&Config>) -> Config`** (`service.rs:46-54`)：凭据覆盖纯函数。`account` 为 `None` 时返回 base 克隆；为 `Some` 时仅覆盖 `user`/`password`/`operator` 三个凭据字段，其余所有字段（含 `adapter1_account`/`adapter2_account`）保持 `base` 原值，防止账号档案污染设备映射。测试 `credentials_config_none_returns_base_clone` (`service.rs:359-370`) 与 `credentials_config_some_overrides_only_credentials` (`service.rs:374-386`) 验证此隔离。
 *   **`load_adapter_account_config(app_handle: &AppHandle, account_id: &str) -> Option<Config>`** (`service.rs:58-63`)：薄封装。空 id 直接返回 `None`；文件不存在/读取/解析/解密失败 → `log_warn` 后返回 `None`（回退语义，不阻断登录）。
-*   **`adapter_account_from_dir(data_dir: &Path, account_id: &str) -> Option<Config>`** (`service.rs:66-74`)：纯函数回退逻辑，便于单测（如 `adapter_account_missing_file_falls_back_to_none` 行422-429）。
+*   **`adapter_account_from_dir(data_dir: &Path, account_id: &str) -> Option<Config>`** (`service.rs:66-74`)：纯函数回退逻辑，便于单测（如 `adapter_account_missing_file_falls_back_to_none` 行423-429）。
 *   **`adapter_credentials(base: &Config, app_handle: &AppHandle, account_id: &str) -> Config`** (`service.rs:77-79`)：组装器。组合上述两步，返回最终的有效凭据副本（未指定账号时凭据与全局一致）。
 *   **`full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option<&str>) -> CommandResult`** (`service.rs:81-191`)：统一登录入口。R1: 全局凭据缺失不再直接拒绝（行87-90）。手动指定网卡（行115-131）按角色取绑定账号后调用 `adapter_credentials`；双适配器错峰并行登录（行141-181），为每个适配器构造 `Arc<Config>` 凭据副本（`config_shared1`/`config_shared2`，行154-163，空则 `Arc::clone(&config)` 零拷贝，非空则 `Arc::new(adapter_credentials(...))` 深拷）；主适配器路径（行183-190）同样按角色取绑定账号。
 *   **`logout_adapter_with_log(...)`** (`service.rs:193-206`)：适配器注销薄封装，仅依赖 `config.user` 与适配器 IP 发起请求（行204 `do_logout_with_retry(&config.user, Some(adapter_ip.as_str()), 2, is_quitting)`）。
