@@ -37,9 +37,7 @@
     "targets": [
       "nsis"
     ],
-    "externalBin": [
-      "binaries/campus-login-core"
-    ],
+
     "resources": [
       "resources/mascot-update-toast.png",
       "resources/mascot-toast/*",

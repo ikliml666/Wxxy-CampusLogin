@@ -303,6 +303,8 @@ pub fn save_config_and_broadcast(app_handle: &AppHandle, config: &Config) -> Res
 
     // 无头核心凭据跟随：核心字段变化时重写 core-config.json（指纹判变，多数
     // 保存无操作）。enable 走提权通道最长 90s，放后台线程避免阻塞本次保存。
+    // 仅 Windows 桌面存在无头核心，安卓/其他平台编译期直接裁掉。
+    #[cfg(all(desktop, target_os = "windows"))]
     {
         let app_h = app_handle.clone();
         let cfg_snap = config.clone();
