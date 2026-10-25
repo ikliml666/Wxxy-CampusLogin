@@ -6,7 +6,7 @@
     "beforeDevCommand": "cd frontend && npm run dev",
     "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "cd frontend && npm run build",
-    "beforeBundleCommand": "cargo build --release --bin campus-login-core && pwsh -NoProfile -Command \"$t=(cargo metadata --format-version 1 | ConvertFrom-Json).target_directory; New-Item -ItemType Directory -Force binaries | Out-Null; Copy-Item \\\"$t/release/campus-login-core.exe\\\" \\\"binaries/campus-login-core-x86_64-pc-windows-msvc.exe\\\" -Force\"",
+    "beforeBundleCommand": "cd src-tauri && cargo build --release --bin campus-login-core && pwsh -NoProfile -Command \"$t=(cargo metadata --format-version 1 | ConvertFrom-Json).target_directory; New-Item -ItemType Directory -Force binaries | Out-Null; Copy-Item ($t + [char]47 + 'release/campus-login-core.exe') 'binaries/campus-login-core-x86_64-pc-windows-msvc.exe' -Force\"",
     "frontendDist": "../frontend/dist"
   },
   "app": {
