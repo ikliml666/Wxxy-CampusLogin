@@ -127,6 +127,11 @@ pub fn run(core_count: usize) {
             crate::commands::self_service::query_self_online_log,
             crate::commands::self_service::self_offline_session,
             crate::commands::self_service::change_self_password,
+            crate::commands::vpn::vpn_save_credential,
+            crate::commands::vpn::vpn_credential_status,
+            crate::commands::vpn::vpn_clear_credential,
+            crate::commands::vpn::set_self_service_via_vpn,
+            crate::commands::vpn::vpn_test_connection,
             crate::infra::logger::set_debug_mode,
         ]);
 

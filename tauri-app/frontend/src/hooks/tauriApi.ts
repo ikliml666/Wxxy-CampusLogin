@@ -48,6 +48,16 @@ interface TauriApi {
   selfOfflineSession: (params: { account: string; password: string; sessionId: string }) => Promise<CommandResult>
   querySelfOnlineLog: (params: { account: string; password: string; startTime: string; endTime: string }) => Promise<CommandResult>
   changeSelfPassword: (params: { account: string; password: string; newPassword: string }) => Promise<CommandResult>
+  /** 保存自助服务 VPN 凭据（独立于登录密码，经 VPN 访问自助服务系统用） */
+  vpnSaveCredential: (params: { account: string; password: string }) => Promise<CommandResult>
+  /** VPN 凭据状态：data = { saved, accountMasked, viaVpn } */
+  vpnCredentialStatus: () => Promise<CommandResult>
+  /** 清除已保存的 VPN 凭据 */
+  vpnClearCredential: () => Promise<CommandResult>
+  /** 自助服务请求是否经 VPN 出站 */
+  setSelfServiceViaVpn: (enabled: boolean) => Promise<CommandResult>
+  /** 测试 VPN 到自助服务系统的连通性 */
+  vpnTestConnection: () => Promise<CommandResult>
   minimizeWindow: () => Promise<void>
   closeWindow: () => Promise<void>
   onBackgroundCheckResult: (cb: (data: BackgroundCheckEventData) => void) => () => void
@@ -171,6 +181,11 @@ const tauriApi: TauriApi = {
   selfOfflineSession: (params) => invoke<CommandResult>('self_offline_session', { ...params }),
   querySelfOnlineLog: (params) => invoke<CommandResult>('query_self_online_log', { ...params }),
   changeSelfPassword: (params) => invoke<CommandResult>('change_self_password', { ...params }),
+  vpnSaveCredential: (params) => invoke<CommandResult>('vpn_save_credential', { ...params }),
+  vpnCredentialStatus: () => invoke<CommandResult>('vpn_credential_status'),
+  vpnClearCredential: () => invoke<CommandResult>('vpn_clear_credential'),
+  setSelfServiceViaVpn: (enabled) => invoke<CommandResult>('set_self_service_via_vpn', { enabled }),
+  vpnTestConnection: () => invoke<CommandResult>('vpn_test_connection'),
   minimizeWindow: () => invoke<void>('minimize_window'),
   closeWindow: () => invoke<void>('close_window'),
   onBackgroundCheckResult: createEventListener<BackgroundCheckEventData>('background-check-result'),

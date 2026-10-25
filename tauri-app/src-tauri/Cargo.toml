@@ -48,6 +48,18 @@ getrandom = "0.3"
 sha2 = "0.10"
 md-5 = "0.10"
 
+# WebVPN 网关协议（src/vpn/，移植自 Wxxy-CampusHub 2026-10-25）：
+# AES-128-CFB128 host 加密 + URL 包装 + CAS 统一认证 + 会话/路由层。
+# 全部纯 Rust，Windows/Android 双端可编译
+aes = "0.8"
+# CFB128（全块段）：流式模式无 padding，密文长度 = 明文长度
+cfb-mode = "0.8"
+hex = "0.4"
+thiserror = "2"
+# CAS 登录密码 textbook RSA（Shapiro RSA.js 系无 padding）
+num-bigint-dig = "0.8"
+num-traits = "0.2"
+
 # 安卓 SO_BINDTODEVICE 物理网卡旁路(bound_socket.rs;cfg(target_os = "android") 门控,桌面不编译)。
 # socket2/hyper/http-body-util 均已在依赖树内(reqwest→hyper-util/hyper),此处仅补安卓目标直连
 # 声明,不新增编译产物;network-interface 与安卓壳工程(android/src-tauri)同版本。

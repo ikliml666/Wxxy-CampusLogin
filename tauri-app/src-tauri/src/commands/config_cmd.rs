@@ -170,6 +170,10 @@ pub async fn import_config(state: State<'_, AppState>, app_handle: AppHandle, pa
     // 长度必然超过 validate_password 的 128 上限，先还原成明文再校验
     let current = state.config.load();
     restore_imported_password_field(&mut config.password, password_encrypted, &current.password)?;
+    // WebVPN 凭据整体不随配置迁移（学号与加密密码是本机凭据对，专用命令管理）：
+    // 导入文件里的值一律丢弃，保留本机当前值，避免出现学号与密码错配
+    config.vpn_account = current.vpn_account.clone();
+    config.vpn_password_enc = current.vpn_password_enc.clone();
     // 切换态是本机系统状态（metric 快照/禁用名单/兜底路由/注销标记），不可随配置
     // 迁移：导入文件里的四字段一律丢弃，改保留本机当前值。若直接清空，切换中导入
     // 会把活跃快照整体顶掉——系统残留切换态（目标卡 metric=1/校园卡禁用/兜底路由）
@@ -254,6 +258,12 @@ pub async fn save_config(
         // 空密码或 mask 占位符：保留当前密码，避免前端未传密码时旧密码被覆盖
         let current = state.config.load();
         config.password = current.password.clone();
+    }
+    // WebVPN 凭据不归 save_config 管（专用命令 vpn_save_credential/vpn_clear_credential）：
+    // 前端回传空/mask 占位符时保留当前加密值，防止任意配置保存抹掉 VPN 凭据
+    if config.vpn_password_enc.is_empty() || config.vpn_password_enc == crate::config::model::PASSWORD_MASK {
+        let current = state.config.load();
+        config.vpn_password_enc = current.vpn_password_enc.clone();
     }
 
     // 历史缺陷：修改 Portal URL 仅存配置，不更新进程全局 PORTAL_URL，

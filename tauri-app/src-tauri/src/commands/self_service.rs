@@ -12,7 +12,7 @@ use crate::self_service::{self, BindParams};
 /// 要求后端 TTL 内验证通过（与 reveal 同源时间戳，webview 无法伪造）。查询类
 /// 命令有意不设门——总览卡自动刷新依赖免验证拉取（数据本就存于本机，掩码属
 /// 渲染层），补门会破坏该体验且不构成实际防线。
-fn ensure_identity_gate(state: &AppState) -> Option<String> {
+pub(crate) fn ensure_identity_gate(state: &AppState) -> Option<String> {
     if !state.config.load().self_hello_enabled {
         return None;
     }
@@ -99,15 +99,16 @@ pub async fn bind_operator(
         crate::log_warn!("self", "绑定运营商账号：未解析到有 IP 的校园网适配器，走系统默认路由");
     }
 
+    let (channel, via_vpn, hint) = crate::commands::vpn::resolve_self_service_channel(&state, local_addr).await?;
     let params = BindParams { account, password: &password, operator, phone, sms_password };
-    match self_service::bind_operator(&params, local_addr).await {
+    match self_service::bind_operator_via(&params, &channel).await {
         Ok(msg) => {
-            crate::log_info!("self", "绑定运营商账号成功: operator={}", operator);
+            crate::log_info!("self", "绑定运营商账号成功: operator={}, viaVpn={}", operator, via_vpn);
             Ok(CommandResult::ok_msg(&msg))
         }
         Err(e) => {
-            crate::log_warn!("self", "绑定运营商账号失败: operator={}, reason={}", operator, e);
-            Ok(CommandResult::err(&e))
+            crate::log_warn!("self", "绑定运营商账号失败: operator={}, viaVpn={}, reason={}", operator, via_vpn, e);
+            Ok(CommandResult::err(&crate::commands::vpn::append_hint(e, hint)))
         }
     }
 }
@@ -128,7 +129,8 @@ pub async fn query_bind_status(
     };
 
     let local_addr = resolve_campus_bind_addr(&state);
-    match self_service::query_bind_status(account, &password, local_addr).await {
+    let (channel, _via_vpn, hint) = crate::commands::vpn::resolve_self_service_channel(&state, local_addr).await?;
+    match self_service::query_bind_status_via(account, &password, &channel).await {
         Ok(bindings) => {
             let to_json = |b: &Option<self_service::OperatorBinding>| match b {
                 Some(b) => json!({ "account": b.masked_account, "passwordSet": b.password_set }),
@@ -143,7 +145,7 @@ pub async fn query_bind_status(
         }
         Err(e) => {
             crate::log_warn!("self", "查询绑定状态失败: {e}");
-            Ok(CommandResult::err(&e))
+            Ok(CommandResult::err(&crate::commands::vpn::append_hint(e, hint)))
         }
     }
 }
@@ -165,7 +167,8 @@ pub async fn query_self_dashboard(
     };
 
     let local_addr = resolve_campus_bind_addr(&state);
-    match self_service::query_dashboard(account, &password, local_addr).await {
+    let (channel, _via_vpn, hint) = crate::commands::vpn::resolve_self_service_channel(&state, local_addr).await?;
+    match self_service::query_dashboard_via(account, &password, &channel).await {
         Ok((online, history)) => Ok(CommandResult {
             success: true,
             message: None,
@@ -173,7 +176,7 @@ pub async fn query_self_dashboard(
         }),
         Err(e) => {
             crate::log_warn!("self", "查询自助服务在线信息失败: {e}");
-            Ok(CommandResult::err(&e))
+            Ok(CommandResult::err(&crate::commands::vpn::append_hint(e, hint)))
         }
     }
 }
@@ -206,11 +209,12 @@ pub async fn query_self_online_log(
     }
 
     let local_addr = resolve_campus_bind_addr(&state);
-    match self_service::query_online_log(account, &password, start_time, end_time, local_addr).await {
+    let (channel, _via_vpn, hint) = crate::commands::vpn::resolve_self_service_channel(&state, local_addr).await?;
+    match self_service::query_online_log_via(account, &password, start_time, end_time, &channel).await {
         Ok(log) => Ok(CommandResult { success: true, message: None, data: Some(log) }),
         Err(e) => {
             crate::log_warn!("self", "查询自助服务上网记录失败: {e}");
-            Ok(CommandResult::err(&e))
+            Ok(CommandResult::err(&crate::commands::vpn::append_hint(e, hint)))
         }
     }
 }
@@ -240,14 +244,15 @@ pub async fn self_offline_session(
     }
 
     let local_addr = resolve_campus_bind_addr(&state);
-    match self_service::offline_session(account, &password, session_id, local_addr).await {
+    let (channel, _via_vpn, hint) = crate::commands::vpn::resolve_self_service_channel(&state, local_addr).await?;
+    match self_service::offline_session_via(account, &password, session_id, &channel).await {
         Ok(()) => {
             crate::log_info!("self", "自助服务注销会话成功");
             Ok(CommandResult::ok_msg("注销成功"))
         }
         Err(e) => {
             crate::log_warn!("self", "自助服务注销会话失败: {e}");
-            Ok(CommandResult::err(&e))
+            Ok(CommandResult::err(&crate::commands::vpn::append_hint(e, hint)))
         }
     }
 }
@@ -282,14 +287,15 @@ pub async fn change_self_password(
     }
 
     let local_addr = resolve_campus_bind_addr(&state);
-    match self_service::change_password(account, &password, new_password, local_addr).await {
+    let (channel, _via_vpn, hint) = crate::commands::vpn::resolve_self_service_channel(&state, local_addr).await?;
+    match self_service::change_password_via(account, &password, new_password, &channel).await {
         Ok(msg) => {
             crate::log_info!("self", "修改自助服务密码成功");
             Ok(CommandResult::ok_msg(&msg))
         }
         Err(e) => {
             crate::log_warn!("self", "修改自助服务密码失败: {e}");
-            Ok(CommandResult::err(&e))
+            Ok(CommandResult::err(&crate::commands::vpn::append_hint(e, hint)))
         }
     }
 }
@@ -353,13 +359,14 @@ pub async fn reveal_operator_credential(
     }
 
     let local_addr = resolve_campus_bind_addr(&state);
-    match self_service::reveal_credential(account, &password, operator, local_addr).await {
+    let (channel, _via_vpn, hint) = crate::commands::vpn::resolve_self_service_channel(&state, local_addr).await?;
+    match self_service::reveal_credential_via(account, &password, operator, &channel).await {
         Ok((phone, sms_password)) => Ok(CommandResult {
             success: true,
             message: None,
             data: Some(json!({ "phone": phone, "smsPassword": sms_password })),
         }),
-        Err(e) => Ok(CommandResult::err(&e)),
+        Err(e) => Ok(CommandResult::err(&crate::commands::vpn::append_hint(e, hint))),
     }
 }
 

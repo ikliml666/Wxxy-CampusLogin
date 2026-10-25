@@ -156,16 +156,82 @@ fn build_session_client(local_addr: Option<IpAddr>) -> Result<reqwest::Client, S
     builder.build().map_err(|e| format!("创建自助服务HTTP客户端失败: {e}"))
 }
 
+/// 自助服务执行通道：一次操作（登录会话 + 业务请求）所用的 base URL 与 HTTP client。
+///
+/// - 直连通道（[`SelfServiceChannel::direct`]）：内网 `SELF_BASE_URL` + 独立会话
+///   client，现状行为；
+/// - WebVPN 通道（[`SelfServiceChannel::via_webvpn`]）：`wrap_url` 包装后的网关
+///   URL + WebVPN 会话的手动跟随 client（cookie 与网关登录态共享同一 jar）。
+///
+/// 协议按 302 Location 判定登录成功/失败与会话失效，故两个通道的 client 都必须
+/// 禁自动重定向；包装形态下 Location（`/http-8080/<hex>/Self/...` 或相对路径）
+/// 仍含 `/Self/dashboard`、`/Self/login` 字样，既有判定无需修改。
+#[derive(Clone)]
+pub struct SelfServiceChannel {
+    /// 业务 base URL（末尾带 `/Self`：直连原样，WebVPN 为网关包装形态）。
+    pub base: String,
+    /// 会话 client（cookie 会话保持，禁自动重定向）。
+    pub client: reqwest::Client,
+    /// 直连时的本地绑定地址（WebVPN 通道为 None；重试重建 client 时复用）。
+    local_addr: Option<IpAddr>,
+}
+
+impl SelfServiceChannel {
+    /// 直连通道（现状行为；无通道概念的调用方默认走此通道）。
+    pub fn direct(local_addr: Option<IpAddr>) -> Result<Self, String> {
+        Ok(Self {
+            base: SELF_BASE_URL.to_string(),
+            client: build_session_client(local_addr)?,
+            local_addr,
+        })
+    }
+
+    /// WebVPN 通道：`session` 登录态 client + `wrap_url` 包装后的业务 base。
+    pub fn via_webvpn(session: &crate::vpn::WebVpnSession) -> Result<Self, String> {
+        let base = crate::vpn::wrap_url(SELF_BASE_URL, crate::vpn::GATEWAY)
+            .map_err(|e| format!("WebVPN URL 包装失败: {e}"))?;
+        Ok(Self {
+            base,
+            client: session.wrapped_client_manual().clone(),
+            local_addr: None,
+        })
+    }
+
+    /// 重试用：直连通道重建全新会话 client（cookie 可能被半开连接污染）；
+    /// WebVPN 通道的 client 属网关会话（丢 cookie = 丢登录态），原样返回由
+    /// 上层在会话失效时整体重登。
+    fn fresh_session_client(&self) -> Result<Self, String> {
+        if self.base == SELF_BASE_URL {
+            Self::direct(self.local_addr)
+        } else {
+            Ok(self.clone())
+        }
+    }
+
+    /// 业务 path 拼接（`path` 以 `/` 开头；包装形态下与直连同构，直接前缀拼接）。
+    fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base)
+    }
+}
+
 /// 完整绑定流程：登录自助服务系统 → 取绑定表单 → 提交绑定。
 /// 成功返回服务端提示文本；失败返回可展示给用户的原因（服务端原文或本地判断）。
 pub async fn bind_operator(
     params: &BindParams<'_>,
     local_addr: Option<IpAddr>,
 ) -> Result<String, String> {
+    let channel = SelfServiceChannel::direct(local_addr)?;
+    bind_operator_via(params, &channel).await
+}
+
+/// [`bind_operator`] 的通道化变体：执行通道由调用方决定（直连或 WebVPN 包装）。
+pub async fn bind_operator_via(
+    params: &BindParams<'_>,
+    channel: &SelfServiceChannel,
+) -> Result<String, String> {
     let (acct_fld, pwd_fld) =
         operator_fld_pair(params.operator).ok_or_else(|| "请选择要绑定的运营商".to_string())?;
-    let (client, op_html) =
-        login_and_fetch_bind_page(params.account, params.password, local_addr).await?;
+    let op_html = login_and_fetch_bind_page(channel, params.account, params.password).await?;
     let csrftoken = extract_csrftoken(&op_html)
         .ok_or_else(|| "绑定页解析失败（csrftoken 缺失）".to_string())?;
     let prefilled = extract_fld_values(&op_html);
@@ -184,9 +250,10 @@ pub async fn bind_operator(
         };
         form.push((format!("FLDEXTRA{i}"), value));
     }
-    let bind_resp = client
-        .post(format!("{}/service/bind-operator", SELF_BASE_URL))
-        .header(reqwest::header::REFERER, format!("{}/service/operatorId", SELF_BASE_URL))
+    let bind_resp = channel
+        .client
+        .post(channel.url("/service/bind-operator"))
+        .header(reqwest::header::REFERER, channel.url("/service/operatorId"))
         .form(&form)
         .send().await
         .map_err(|e| format!("提交绑定请求失败: {e}"))?;
@@ -222,7 +289,17 @@ pub async fn query_bind_status(
     password: &str,
     local_addr: Option<IpAddr>,
 ) -> Result<[Option<OperatorBinding>; 3], String> {
-    let (_client, op_html) = login_and_fetch_bind_page(account, password, local_addr).await?;
+    let channel = SelfServiceChannel::direct(local_addr)?;
+    query_bind_status_via(account, password, &channel).await
+}
+
+/// [`query_bind_status`] 的通道化变体：执行通道由调用方决定。
+pub async fn query_bind_status_via(
+    account: &str,
+    password: &str,
+    channel: &SelfServiceChannel,
+) -> Result<[Option<OperatorBinding>; 3], String> {
+    let op_html = login_and_fetch_bind_page(channel, account, password).await?;
     let fld = extract_fld_values(&op_html);
     Ok([
         binding_from(&fld[0], &fld[1]),
@@ -239,9 +316,20 @@ pub async fn reveal_credential(
     operator: &str,
     local_addr: Option<IpAddr>,
 ) -> Result<(String, String), String> {
+    let channel = SelfServiceChannel::direct(local_addr)?;
+    reveal_credential_via(account, password, operator, &channel).await
+}
+
+/// [`reveal_credential`] 的通道化变体：执行通道由调用方决定。
+pub async fn reveal_credential_via(
+    account: &str,
+    password: &str,
+    operator: &str,
+    channel: &SelfServiceChannel,
+) -> Result<(String, String), String> {
     let (acct_fld, pwd_fld) =
         operator_fld_pair(operator).ok_or_else(|| "请选择要查看的运营商".to_string())?;
-    let (_client, op_html) = login_and_fetch_bind_page(account, password, local_addr).await?;
+    let op_html = login_and_fetch_bind_page(channel, account, password).await?;
     let fld = extract_fld_values(&op_html);
     let phone = fld[acct_fld - 1].clone();
     let sms_password = fld[pwd_fld - 1].clone();
@@ -279,11 +367,23 @@ pub async fn change_password(
     new_password: &str,
     local_addr: Option<IpAddr>,
 ) -> Result<String, String> {
-    let client = login_session_with_retry(account, password, local_addr).await?;
+    let channel = SelfServiceChannel::direct(local_addr)?;
+    change_password_via(account, password, new_password, &channel).await
+}
+
+/// [`change_password`] 的通道化变体：执行通道由调用方决定。
+pub async fn change_password_via(
+    account: &str,
+    password: &str,
+    new_password: &str,
+    channel: &SelfServiceChannel,
+) -> Result<String, String> {
+    login_session_with_retry(channel, account, password).await?;
 
     // 改密页取 csrftoken（302 = 登录会话失效）
-    let page_resp = client
-        .get(format!("{}/setting/changePassword", SELF_BASE_URL))
+    let page_resp = channel
+        .client
+        .get(channel.url("/setting/changePassword"))
         .send().await
         .map_err(|e| format!("打开修改密码页失败: {e}"))?;
     if page_resp.status().is_redirection() {
@@ -297,9 +397,10 @@ pub async fn change_password(
         .ok_or_else(|| "修改密码页解析失败（csrftoken 缺失）".to_string())?;
 
     // 提交改密（旧密码即登录密码，明文表单；服务端成功即强制下线）
-    let resp = client
-        .post(format!("{}/setting/changePasswordMethod", SELF_BASE_URL))
-        .header(reqwest::header::REFERER, format!("{}/setting/changePassword", SELF_BASE_URL))
+    let resp = channel
+        .client
+        .post(channel.url("/setting/changePasswordMethod"))
+        .header(reqwest::header::REFERER, channel.url("/setting/changePassword"))
         .form(&[
             ("csrftoken", csrftoken.as_str()),
             ("oldPassword", password),
@@ -347,18 +448,17 @@ fn binding_from(acct: &str, pwd: &str) -> Option<OperatorBinding> {
     })
 }
 
-/// 登录自助服务系统并返回会话客户端（绑定/dashboard 查询共用前 3 步）。
-/// 客户端须保持 cookie 会话供后续请求使用。
+/// 登录自助服务系统（绑定/dashboard 查询共用前 3 步）：在 `channel` 的会话
+/// client 中种下登录态 cookie，成功后调用方继续用同一 `channel` 发业务请求。
 async fn login_session(
+    channel: &SelfServiceChannel,
     account: &str,
     password: &str,
-    local_addr: Option<IpAddr>,
-) -> Result<reqwest::Client, String> {
-    let client = build_session_client(local_addr)?;
-
+) -> Result<(), String> {
     // 1. 登录页取 checkcode
-    let login_resp = client
-        .get(format!("{}/login/", SELF_BASE_URL))
+    let login_resp = channel
+        .client
+        .get(channel.url("/login/"))
         .send().await
         .and_then(|r| r.error_for_status())
         .map_err(|e| format!("无法连接自助服务系统: {e}"))?;
@@ -367,8 +467,9 @@ async fn login_session(
         .ok_or_else(|| "自助服务登录页解析失败（checkcode 缺失）".to_string())?;
 
     // 2. 预热会话验证码状态（见模块注释，跳过则 verify 必失败）
-    client
-        .get(format!("{}/login/randomCode", SELF_BASE_URL))
+    channel
+        .client
+        .get(channel.url("/login/randomCode"))
         .query(&[("t", "1")])
         .send().await
         .map_err(|e| format!("无法连接自助服务系统（预热验证码）: {e}"))?
@@ -376,8 +477,9 @@ async fn login_session(
         .map_err(|e| format!("预热验证码失败: {e}"))?;
 
     // 3. 登录（密码 MD5 后提交）
-    let verify_resp = client
-        .post(format!("{}/login/verify", SELF_BASE_URL))
+    let verify_resp = channel
+        .client
+        .post(channel.url("/login/verify"))
         .form(&[
             ("account", account),
             ("password", &md5_hex(password)),
@@ -394,8 +496,9 @@ async fn login_session(
         .unwrap_or(false);
     if !is_login_ok {
         // 失败：重新拉登录页提取服务端错误原文（如"账号或密码错误！"）
-        let fail_resp = client
-            .get(format!("{}/login/", SELF_BASE_URL))
+        let fail_resp = channel
+            .client
+            .get(channel.url("/login/"))
             .send().await
             .and_then(|r| r.error_for_status())
             .map_err(|e| format!("登录失败（{e}）"))?;
@@ -403,7 +506,7 @@ async fn login_session(
         let msg = extract_swal_msg(&fail_html).unwrap_or_default();
         return Err(if msg.is_empty() { "登录失败，请检查学号与自助服务密码".to_string() } else { msg });
     }
-    Ok(client)
+    Ok(())
 }
 
 /// 传输层可重试症状判定：仅网络/读取类错误（连接中途断开、chunked 截断、
@@ -423,18 +526,21 @@ fn is_retryable_transport_error(err: &str) -> bool {
 
 /// login_session 的整体重试包装：校园网自助服务服务器（10.1.80.200:8080）偶发
 /// 连接中途断开/chunked 截断，reqwest 表现为 "error decoding response body"，
-/// 一次失败即返回会让整次查询不可用。每次尝试经 login_session 重建全新 Client
-/// （cookie 会话可能已被半开连接污染，不可复用）；仅传输层症状重试，最多
-/// 尝试 3 次，间隔 1s。重试日志带原始错误全文（self_service 错误不含凭据）。
+/// 一次失败即返回会让整次查询不可用。直连通道每次尝试后经
+/// [`SelfServiceChannel::fresh_session_client`] 重建全新 client（cookie 会话可能
+/// 已被半开连接污染，不可复用）；WebVPN 通道的 client 属网关会话不可重建，登录态
+/// 失效由上层整体重建会话。仅传输层症状重试，最多尝试 3 次，间隔 1s。重试日志
+/// 带原始错误全文（self_service 错误不含凭据）。
 async fn login_session_with_retry(
+    channel: &SelfServiceChannel,
     account: &str,
     password: &str,
-    local_addr: Option<IpAddr>,
-) -> Result<reqwest::Client, String> {
+) -> Result<(), String> {
     const MAX_ATTEMPTS: usize = 3;
+    let mut channel = channel.clone();
     for attempt in 1..=MAX_ATTEMPTS {
-        match login_session(account, password, local_addr).await {
-            Ok(client) => return Ok(client),
+        match login_session(&channel, account, password).await {
+            Ok(()) => return Ok(()),
             Err(e) => {
                 if attempt == MAX_ATTEMPTS || !is_retryable_transport_error(&e) {
                     return Err(e);
@@ -444,6 +550,7 @@ async fn login_session_with_retry(
                     "登录自助服务会话失败（第 {attempt}/{MAX_ATTEMPTS} 次，原始错误：{e}），1s 后重建客户端重试"
                 );
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                channel = channel.fresh_session_client()?;
             }
         }
     }
@@ -451,17 +558,18 @@ async fn login_session_with_retry(
 }
 
 /// 登录自助服务系统并返回绑定表单页 HTML（绑定/查询共用前 4 步）。
-/// 返回 (会话客户端, 绑定页 HTML)——客户端须保持 cookie 会话供后续请求使用。
+/// 返回绑定页 HTML——会话 cookie 已在 `channel.client` 中，供后续请求使用。
 async fn login_and_fetch_bind_page(
+    channel: &SelfServiceChannel,
     account: &str,
     password: &str,
-    local_addr: Option<IpAddr>,
-) -> Result<(reqwest::Client, String), String> {
-    let client = login_session_with_retry(account, password, local_addr).await?;
+) -> Result<String, String> {
+    login_session_with_retry(channel, account, password).await?;
 
     // 4. 绑定表单页 HTML（302 = 登录会话失效）
-    let op_resp = client
-        .get(format!("{}/service/operatorId", SELF_BASE_URL))
+    let op_resp = channel
+        .client
+        .get(channel.url("/service/operatorId"))
         .send().await
         .map_err(|e| format!("打开绑定页失败: {e}"))?;
     if op_resp.status().is_redirection() {
@@ -470,19 +578,19 @@ async fn login_and_fetch_bind_page(
     let op_resp = op_resp
         .error_for_status()
         .map_err(|e| format!("打开绑定页失败: {e}"))?;
-    let op_html = read_bounded_body_async(op_resp, "绑定页").await?;
-    Ok((client, op_html))
+    read_bounded_body_async(op_resp, "绑定页").await
 }
 
 /// 请求 dashboard 查询接口并解析 JSON（getOnlineList / getLoginHistory 共用）。
 /// 302 = 登录会话失效；非 JSON = 服务端异常页。
 async fn fetch_dashboard_json(
-    client: &reqwest::Client,
+    channel: &SelfServiceChannel,
     path: &str,
     label: &str,
 ) -> Result<serde_json::Value, String> {
-    let resp = client
-        .get(format!("{}/dashboard/{path}", SELF_BASE_URL))
+    let resp = channel
+        .client
+        .get(channel.url(&format!("/dashboard/{path}")))
         .send().await
         .map_err(|e| format!("请求{label}失败: {e}"))?;
     if resp.status().is_redirection() {
@@ -502,9 +610,19 @@ pub async fn query_dashboard(
     password: &str,
     local_addr: Option<IpAddr>,
 ) -> Result<(serde_json::Value, serde_json::Value), String> {
-    let client = login_session_with_retry(account, password, local_addr).await?;
-    let online = fetch_dashboard_json(&client, "getOnlineList", "在线信息").await?;
-    let history = fetch_dashboard_json(&client, "getLoginHistory", "上网记录").await?;
+    let channel = SelfServiceChannel::direct(local_addr)?;
+    query_dashboard_via(account, password, &channel).await
+}
+
+/// [`query_dashboard`] 的通道化变体：执行通道由调用方决定。
+pub async fn query_dashboard_via(
+    account: &str,
+    password: &str,
+    channel: &SelfServiceChannel,
+) -> Result<(serde_json::Value, serde_json::Value), String> {
+    login_session_with_retry(channel, account, password).await?;
+    let online = fetch_dashboard_json(channel, "getOnlineList", "在线信息").await?;
+    let history = fetch_dashboard_json(channel, "getLoginHistory", "上网记录").await?;
     Ok((online, history))
 }
 
@@ -518,9 +636,22 @@ pub async fn query_online_log(
     end_time: &str,
     local_addr: Option<IpAddr>,
 ) -> Result<serde_json::Value, String> {
-    let client = login_session_with_retry(account, password, local_addr).await?;
-    let resp = client
-        .get(format!("{}/bill/getUserOnlineLog", SELF_BASE_URL))
+    let channel = SelfServiceChannel::direct(local_addr)?;
+    query_online_log_via(account, password, start_time, end_time, &channel).await
+}
+
+/// [`query_online_log`] 的通道化变体：执行通道由调用方决定。
+pub async fn query_online_log_via(
+    account: &str,
+    password: &str,
+    start_time: &str,
+    end_time: &str,
+    channel: &SelfServiceChannel,
+) -> Result<serde_json::Value, String> {
+    login_session_with_retry(channel, account, password).await?;
+    let resp = channel
+        .client
+        .get(channel.url("/bill/getUserOnlineLog"))
         .query(&[
             ("startTime", start_time),
             ("endTime", end_time),
@@ -555,9 +686,21 @@ pub async fn offline_session(
     session_id: &str,
     local_addr: Option<IpAddr>,
 ) -> Result<(), String> {
-    let client = login_session_with_retry(account, password, local_addr).await?;
-    let resp = client
-        .get(format!("{}/dashboard/tooffline", SELF_BASE_URL))
+    let channel = SelfServiceChannel::direct(local_addr)?;
+    offline_session_via(account, password, session_id, &channel).await
+}
+
+/// [`offline_session`] 的通道化变体：执行通道由调用方决定。
+pub async fn offline_session_via(
+    account: &str,
+    password: &str,
+    session_id: &str,
+    channel: &SelfServiceChannel,
+) -> Result<(), String> {
+    login_session_with_retry(channel, account, password).await?;
+    let resp = channel
+        .client
+        .get(channel.url("/dashboard/tooffline"))
         .query(&[("sessionid", session_id)])
         .send().await
         .map_err(|e| format!("请求注销失败: {e}"))?;

@@ -177,6 +177,17 @@ pub struct Config {
     pub auto_login_cooldown_secs: u64,
     #[serde(rename = "skipSha256WhenMissing", default)]
     pub skip_sha256_when_missing: bool,
+    /// WebVPN 登录账号（学号，明文；自助服务校外回退用，与校园网登录 user 允许不同）
+    #[serde(rename = "vpnAccount", default)]
+    pub vpn_account: String,
+    /// WebVPN CAS 登录密码（account::crypto DPAPI 密文，内存与磁盘同值；
+    /// 出站经 mask_in_place 一律打码，前端回传空/MASK 时 save_config 保留当前值）
+    #[serde(rename = "vpnPasswordEnc", default)]
+    pub vpn_password_enc: String,
+    /// 自助服务自动 VPN 回退总开关（默认 true）：非校园网且已保存 VPN 凭据时，
+    /// 自助服务请求自动经 WebVPN 网关包装访问；关闭则永远直连
+    #[serde(rename = "selfServiceViaVpn", default = "default_true")]
+    pub self_service_via_vpn: bool,
     #[serde(rename = "configVersion", default)]
     pub config_version: u32,
 }
@@ -313,6 +324,10 @@ impl Default for Config {
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
             skip_sha256_when_missing: false,
+            vpn_account: String::new(),
+            vpn_password_enc: String::new(),
+            // 2026-10-25 起自助服务校外自动回退 WebVPN（已保存凭据时），默认开启
+            self_service_via_vpn: true,
             // 2026-09-20 起 v5（夜切默认开启 + 定时动作禁用哨兵），见 validate.rs
             config_version: 5,
         }
@@ -332,6 +347,11 @@ impl Config {
     pub fn mask_in_place(&mut self) {
         if !self.password.is_empty() {
             self.password = PASSWORD_MASK.to_string();
+        }
+        // VPN 密码密文同样不出站：密文本机可解（DPAPI），出站即泄露可离线
+        // 尝试的攻击面，且前端 VpnManageDialog 只需要 saved 布尔与掩码账号
+        if !self.vpn_password_enc.is_empty() {
+            self.vpn_password_enc = PASSWORD_MASK.to_string();
         }
     }
 }

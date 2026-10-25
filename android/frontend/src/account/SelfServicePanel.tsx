@@ -1,9 +1,11 @@
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
-import { Globe, Loader2, RefreshCw } from 'lucide-react'
+import { Globe, Loader2, RefreshCw, ShieldCheck } from 'lucide-react'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { DeviceAliasDialog } from './DeviceAliasDialog'
+import { VpnCredentialDialog } from './VpnCredentialDialog'
+import { VpnManageDialog } from './VpnManageDialog'
 import { OnlineDeviceStack, OnlineDeviceStackCard, OnlineDeviceStackH } from './SelfOnlineStack'
 import { SelfOnlineRecords } from './SelfOnlineRecords'
 import {
@@ -34,6 +36,14 @@ interface SelfOnlineItem {
   terminalType: string // "#PC" 带 # 前缀
   sessionId: string
 }
+
+// VPN 凭据状态（vpn_credential_status 的 data 字段）
+interface VpnStatus {
+  saved: boolean
+  accountMasked: string
+  viaVpn: boolean
+}
+
 // 近期上网记录行：上线/注销时间 epoch ms、ip、mac、时长(分)、流量(M)、计费方式 1/2/3、金额、主机名、终端类型
 
 const toInt = (value: unknown) => {
@@ -83,6 +93,11 @@ export function SelfServicePanel() {
   // 设备改名：aliasTarget = 正在编辑的设备（null 关弹窗）；deviceAliases 持久化在 config
   const [aliasTarget, setAliasTarget] = useState<SelfOnlineItem | null>(null)
   const deviceAliases = useConfigStore((s) => s.config.deviceAliases)
+  // VPN 连接入口：vpnStatus 为 null 表示状态未知（查询失败静默降级），按钮按未保存态处理
+  const [vpnStatus, setVpnStatus] = useState<VpnStatus | null>(null)
+  const [vpnCredOpen, setVpnCredOpen] = useState(false)
+  const [vpnManageOpen, setVpnManageOpen] = useState(false)
+  const [vpnClearConfirmOpen, setVpnClearConfirmOpen] = useState(false)
   // 上网记录卡片：日期范围默认今天；logRows === null 表示从未查询
   const [logStart, setLogStart] = useState(() => localDateStr())
   const [logEnd, setLogEnd] = useState(() => localDateStr())
@@ -194,6 +209,89 @@ export function SelfServicePanel() {
     }
   }, [addToast, t])
 
+  // 拉取 VPN 凭据状态（挂载时一次）；失败静默降级为未保存态，点击按钮走保存流程即可自愈
+  const refreshVpnStatus = useCallback(async () => {
+    try {
+      const result = await tauriApiWithRetry.vpnCredentialStatus()
+      if (!mountedRef.current) return
+      if (result.success && result.data) {
+        const d = result.data as { saved?: boolean; accountMasked?: string; viaVpn?: boolean }
+        setVpnStatus({ saved: !!d.saved, accountMasked: d.accountMasked ?? '', viaVpn: !!d.viaVpn })
+      }
+    } catch {
+      // 状态查询失败不打扰用户，保持未保存态
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshVpnStatus()
+  }, [refreshVpnStatus])
+
+  // 连通性测试：结果 toast（后端 message 优先，i18n 文案兜底）；保存成功后也会自动调用
+  const handleVpnTest = useCallback(async () => {
+    try {
+      const result = await tauriApiWithRetry.vpnTestConnection()
+      if (!mountedRef.current) return
+      if (result.success) addToast(result.message || t('account.vpnTestOk'), 'success')
+      else addToast(result.message || t('account.vpnTestFail'), 'error')
+    } catch (err) {
+      if (mountedRef.current) addToast(extractErrorMessage(err) || t('account.vpnTestFail'), 'error')
+    }
+  }, [addToast, t])
+
+  // 保存 VPN 凭据：成功后关弹窗、刷新按钮态，并自动测试连通性（结果 toast）
+  const handleVpnSave = useCallback(async (account: string, password: string) => {
+    const result = await tauriApiWithRetry.vpnSaveCredential({ account, password })
+    if (!mountedRef.current) return
+    if (!result.success) {
+      addToast(result.message || t('account.vpnSaveFailed'), 'error')
+      throw new Error(result.message || t('account.vpnSaveFailed'))
+    }
+    addToast(t('account.vpnSavedOk'), 'success')
+    setVpnCredOpen(false)
+    void refreshVpnStatus()
+    void handleVpnTest()
+  }, [addToast, t, refreshVpnStatus, handleVpnTest])
+
+  // 经 VPN 访问自助服务开关：即时保存；失败 toast 并回滚开关（viaVpn 回写触发弹窗草稿同步）
+  const handleVpnToggle = useCallback(async (enabled: boolean) => {
+    const rollback = () => setVpnStatus((prev) => (prev ? { ...prev, viaVpn: !enabled } : prev))
+    try {
+      const result = await tauriApiWithRetry.setSelfServiceViaVpn(enabled)
+      if (!mountedRef.current) return
+      if (!result.success) {
+        addToast(result.message || t('account.vpnToggleFailed'), 'error')
+        rollback()
+        return
+      }
+      setVpnStatus((prev) => (prev ? { ...prev, viaVpn: enabled } : prev))
+    } catch (err) {
+      if (mountedRef.current) {
+        addToast(extractErrorMessage(err) || t('account.vpnToggleFailed'), 'error')
+        rollback()
+      }
+    }
+  }, [addToast, t])
+
+  // 清除 VPN 凭据（ConfirmDialog 确认后）：成功关管理弹窗并复位按钮态
+  const handleVpnClear = useCallback(async () => {
+    try {
+      const result = await tauriApiWithRetry.vpnClearCredential()
+      if (!mountedRef.current) return
+      if (result.success) {
+        addToast(result.message || t('account.vpnCleared'), 'success')
+        setVpnManageOpen(false)
+        setVpnStatus({ saved: false, accountMasked: '', viaVpn: false })
+      } else {
+        addToast(result.message || t('account.vpnClearFailed'), 'error')
+      }
+    } catch (err) {
+      if (mountedRef.current) addToast(extractErrorMessage(err) || t('account.vpnClearFailed'), 'error')
+    } finally {
+      setVpnClearConfirmOpen(false)
+    }
+  }, [addToast, t])
+
   const fetchOnlineLog = useCallback(async () => {
     if (!hasCred || logQuerying) return
     if (!(await ensureSelfVerified())) return
@@ -236,20 +334,31 @@ export function SelfServicePanel() {
                   <CardDescription>{t('account.selfDashboardDesc')}</CardDescription>
                 </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void fetchDashboard()}
-                disabled={!hasCred || querying}
-                className="gap-1.5 h-8 shrink-0"
-                title={hasCred ? undefined : t('account.selfDashboardNeedCred')}
-              >
-                {querying ? (
-                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.selfDashboardQuerying')}</>
-                ) : (
-                  <><RefreshCw className="h-3.5 w-3.5" /> {t('account.selfDashboardRefresh')}</>
-                )}
-              </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void fetchDashboard()}
+                  disabled={!hasCred || querying}
+                  className="gap-1.5 h-8"
+                  title={hasCred ? undefined : t('account.selfDashboardNeedCred')}
+                >
+                  {querying ? (
+                    <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.selfDashboardQuerying')}</>
+                  ) : (
+                    <><RefreshCw className="h-3.5 w-3.5" /> {t('account.selfDashboardRefresh')}</>
+                  )}
+                </Button>
+                {/* VPN 连接入口：已保存凭据时实心主色表示启用，点击进管理弹窗 */}
+                <Button
+                  variant={vpnStatus?.saved ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => { if (vpnStatus?.saved) setVpnManageOpen(true); else setVpnCredOpen(true) }}
+                  className="gap-1.5 h-8"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" /> {t('account.vpnConnectButton')}
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -343,6 +452,28 @@ export function SelfServicePanel() {
         initialName={aliasTarget?.mac ? (deviceAliases?.[aliasTarget.mac] ?? '') : ''}
         onSave={(name) => handleSaveAlias(aliasTarget?.mac ?? '', name)}
         onCancel={() => setAliasTarget(null)}
+      />
+      <VpnCredentialDialog
+        open={vpnCredOpen}
+        defaultAccount={configUser}
+        onSave={handleVpnSave}
+        onCancel={() => setVpnCredOpen(false)}
+      />
+      <VpnManageDialog
+        open={vpnManageOpen}
+        accountMasked={vpnStatus?.accountMasked ?? ''}
+        viaVpn={vpnStatus?.viaVpn ?? false}
+        onToggleViaVpn={handleVpnToggle}
+        onTest={handleVpnTest}
+        onClearRequest={() => setVpnClearConfirmOpen(true)}
+        onCancel={() => setVpnManageOpen(false)}
+      />
+      <ConfirmDialog
+        open={vpnClearConfirmOpen}
+        title={t('account.vpnClearConfirmTitle')}
+        message={t('account.vpnClearConfirm')}
+        onConfirm={() => void handleVpnClear()}
+        onCancel={() => setVpnClearConfirmOpen(false)}
       />
     </div>
   )

@@ -7,11 +7,21 @@ import { resetSelfSessionGate } from './selfServiceState'
 const querySelfDashboard = vi.fn()
 const selfOfflineSession = vi.fn()
 const verifyWindowsIdentity = vi.fn()
+const vpnCredentialStatus = vi.fn()
+const vpnSaveCredential = vi.fn()
+const vpnTestConnection = vi.fn()
+const setSelfServiceViaVpn = vi.fn()
+const vpnClearCredential = vi.fn()
 vi.mock('@/hooks/tauriApi', () => ({
   tauriApiWithRetry: {
     querySelfDashboard: (...args: unknown[]) => querySelfDashboard(...args),
     selfOfflineSession: (...args: unknown[]) => selfOfflineSession(...args),
     verifyWindowsIdentity: (...args: unknown[]) => verifyWindowsIdentity(...args),
+    vpnCredentialStatus: (...args: unknown[]) => vpnCredentialStatus(...args),
+    vpnSaveCredential: (...args: unknown[]) => vpnSaveCredential(...args),
+    vpnTestConnection: (...args: unknown[]) => vpnTestConnection(...args),
+    setSelfServiceViaVpn: (...args: unknown[]) => setSelfServiceViaVpn(...args),
+    vpnClearCredential: (...args: unknown[]) => vpnClearCredential(...args),
   },
 }))
 // t 直接回键名，断言 i18n 键参与渲染
@@ -52,6 +62,13 @@ beforeEach(() => {
   querySelfDashboard.mockReset()
   selfOfflineSession.mockReset()
   verifyWindowsIdentity.mockReset()
+  vpnCredentialStatus.mockReset()
+  vpnSaveCredential.mockReset()
+  vpnTestConnection.mockReset()
+  setSelfServiceViaVpn.mockReset()
+  vpnClearCredential.mockReset()
+  // 面板挂载即查一次 VPN 凭据状态：默认未保存（按钮走凭据弹窗分支）
+  vpnCredentialStatus.mockResolvedValue({ success: true, data: { saved: false, accountMasked: '', viaVpn: false } })
   // 面板操作前需过 Hello 门（切入面板验证一次后操作共用）
   verifyWindowsIdentity.mockResolvedValue({ success: true })
   mockConfigUser.current = ''
@@ -228,5 +245,61 @@ describe('SelfServicePanel', () => {
     await waitFor(() => {
       expect(container.textContent).not.toContain('10.0.0.1')
     })
+  })
+
+  it('未保存 VPN 凭据时点击 VPN 按钮弹凭据弹窗，账号预填登录学号且密码框不回显', async () => {
+    storeState.config.user = '24380002'
+    const { container } = render(<SelfServicePanel />)
+    await act(async () => { await Promise.resolve() })
+    const vpnBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.vpnConnectButton'))!
+    await act(async () => { fireEvent.click(vpnBtn) })
+    expect(screen.getByText('account.vpnDialogTitle')).toBeTruthy()
+    const account = screen.getByLabelText('account.vpnAccountLabel') as HTMLInputElement
+    expect(account.value).toBe('24380002')
+    const pwd = screen.getByLabelText('account.vpnPasswordLabel') as HTMLInputElement
+    expect(pwd.value).toBe('')
+    expect(pwd.getAttribute('type')).toBe('password')
+  })
+
+  it('已保存 VPN 凭据时点击弹管理弹窗：显示脱敏账号与开关初值', async () => {
+    storeState.config.user = '24380002'
+    vpnCredentialStatus.mockResolvedValue({ success: true, data: { saved: true, accountMasked: '2438****02', viaVpn: true } })
+    const { container } = render(<SelfServicePanel />)
+    await act(async () => { await Promise.resolve() })
+    const vpnBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.vpnConnectButton'))!
+    await act(async () => { fireEvent.click(vpnBtn) })
+    expect(screen.getByText('account.vpnSavedTitle')).toBeTruthy()
+    // radix Dialog 走 portal 挂在 body，container 查不到——用 screen 断言脱敏账号已展示
+    expect(screen.getByText('2438****02')).toBeTruthy()
+    const toggle = screen.getByLabelText('account.vpnToggleLabel')
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('凭据弹窗保存成功后自动测试连通性，保存与测试结果均 toast', async () => {
+    const { useLogToastStore } = await import('@/hooks/useLogToastStore')
+    useLogToastStore.getState().cleanupToasts()
+    storeState.config.user = '24380002'
+    vpnSaveCredential.mockResolvedValue({ success: true, message: '' })
+    vpnTestConnection.mockResolvedValue({ success: true, message: '连接正常' })
+    const { container } = render(<SelfServicePanel />)
+    await act(async () => { await Promise.resolve() })
+    const vpnBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.vpnConnectButton'))!
+    await act(async () => { fireEvent.click(vpnBtn) })
+    const pwd = screen.getByLabelText('account.vpnPasswordLabel') as HTMLInputElement
+    await act(async () => { fireEvent.change(pwd, { target: { value: 'secret1' } }) })
+    const saveBtn = screen.getByText('account.vpnSaveButton')
+    await act(async () => {
+      fireEvent.click(saveBtn)
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(vpnSaveCredential).toHaveBeenCalledWith({ account: '24380002', password: 'secret1' })
+    })
+    await waitFor(() => {
+      expect(vpnTestConnection).toHaveBeenCalledTimes(1)
+    })
+    const titles = useLogToastStore.getState().toasts.map((toast) => toast.title)
+    expect(titles.some((x) => x.includes('account.vpnSavedOk'))).toBe(true)
+    expect(titles.some((x) => x.includes('连接正常'))).toBe(true)
   })
 })

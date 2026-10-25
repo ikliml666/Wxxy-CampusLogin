@@ -6,6 +6,7 @@ pub mod infra;
 pub mod network;
 pub mod platform; // mod.rs 内部已按文件拆分:console_output 跨平台,其余 desktop
 pub mod self_service;
+pub mod vpn; // WebVPN 协议核心(移植自 Wxxy-CampusHub 2026-10-25):包装/会话/CAS/路由
 
 // 桌面专属:托盘/窗口/命令/监控/提权/更新,安卓 target 不编译
 #[cfg(desktop)]

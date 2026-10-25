@@ -305,6 +305,9 @@ mod tests {
             auto_login_cooldown_secs: 60,
             skip_sha256_when_missing: false,
             update_source: "mirror".to_string(),
+            vpn_account: String::new(),
+            vpn_password_enc: String::new(),
+            self_service_via_vpn: true,
             config_version: 2,
         }
     }
