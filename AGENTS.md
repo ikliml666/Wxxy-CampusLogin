@@ -4,7 +4,7 @@
 
 ## 必守约定
 
-1. **改动必须记入版本化 changelog（changelogs/）**：任何代码 / 配置 / 构建 / 文档改动，完成并验证后写入 `changelogs/CHANGELOG_v<版本>.md`（沿用既有分类：行为调整 / 缺陷修复 / 前端性能优化 / 架构改进 等），说清"改了什么 + 为什么 + 验证数据"。**默认内容存放的版本号 = 当前版本号 + 1**（当前版本 v2.3.7 → 新内容写 `changelogs/CHANGELOG_v2.3.8.md`；该文件即 v2.3.8 发布时的更新日志，发布后封版，新内容顺延写下一版文件）。`changelogs/` 在 .gitignore 中，仅本地留存、不提交；不再维护统一的 CHANGELOG.md（2026-09-15 起废弃），发布流程也没有快照步骤。
+1. **改动必须记入版本化 changelog（changelogs/）**：任何代码 / 配置 / 构建 / 文档改动，完成并验证后写入 `changelogs/CHANGELOG_v<版本>.md`（沿用既有分类：行为调整 / 缺陷修复 / 前端性能优化 / 架构改进 等），说清"改了什么 + 为什么 + 验证数据"。**写之前必须先确认当前版本号**：以 `tauri-app/src-tauri/tauri.conf.json` 的 `version` 字段为唯一权威源（见 CodeWiki 的 `decisions/version-single-source-build-rs`），不凭会话记忆或既有文件名顺延猜测。**目标文件 = 当前版本号 + 1**（如当前 2.4.1 → 写 `changelogs/CHANGELOG_v2.4.2.md`）；该文件即下一版发布时的更新日志——已存在就把新条目并入该文件（changelogs/ 里可能有多个未发布版本累积文件时，并入最早的那个），**绝不顺延开新的版本文件**，发布后封版，新内容再从新的"当前版本号 + 1"起步。`changelogs/` 在 .gitignore 中，仅本地留存、不提交；不再维护统一的 CHANGELOG.md（2026-09-15 起废弃），发布流程也没有快照步骤。
 
 2. **分支纪律**：改动全在主题分支（`feat/xxx`、`fix/xxx`、`perf/xxx`、`chore/xxx`），不直接改 main；commit 说明用 `feat:` / `fix:` / `perf:` / `chore:` / `docs:` 前缀；任务收尾可自行将本会话主题分支 merge 回 main（优先 `--ff-only`，遇冲突即停），但**不擅自 push、删分支**——由用户决定（2026-10-12 用户修订：合并放开，push/删分支仍禁止）。
 
