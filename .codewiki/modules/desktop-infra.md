@@ -68,7 +68,7 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `state/mod.rs:220-289` | `#[cfg(test)]` mod | `tests` | TaskLock/账号名/sanitize 测试 |
 | `state/mod.rs:291-298` | pub struct | `CommandResult` | 通用命令返回（`Serialize`） |
 | `state/mod.rs:300-310` | impl | `CommandResult` | `ok`/`ok_msg`/`err` |
-| `state/mod.rs:312-327` | pub struct | `AccountItem` | 账号列表条目（R3） |
+| `state/mod.rs:314-327` | pub struct | `AccountItem` | 账号列表条目（R3） |
 | `state/mod.rs:329-342` | pub struct | `AccountResult` | 账号操作返回（camelCase） |
 | `state/mod.rs:343-353` | impl | `AccountResult` | `ok`/`ok_with_account`/`err` |
 
@@ -99,17 +99,17 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 
 | 位置 | 可见性 | 项 | 用途 |
 | --- | --- | --- | --- |
-| `state/network.rs:7-28` | pub struct | `NetworkSnapshot` (`Clone`) | 16 字段网络状态快照（含 `Arc<str>` 字段减少拷贝） |
-| `state/network.rs:30-51` | impl | `Default for NetworkSnapshot` | 时间字段取 `Instant::now()` |
-| `state/network.rs:54-57` | pub struct | `NetworkState` | 封装 `ArcSwap<NetworkSnapshot>` |
-| `state/network.rs:59-63` | impl | `Default for NetworkState` | 委托 `new` |
-| `state/network.rs:65-70` | pub fn | `new() -> Self` | 建初值 |
-| `state/network.rs:73-75` | pub fn | `load(&self) -> Arc<NetworkSnapshot>` | 取一致快照 |
-| `state/network.rs:78-92` | pub fn | `update<F>(&self, f)` | CAS 循环写 |
-| `state/network.rs:98-113` | pub fn | `update_with_result<T, F>(&self, f) -> T` | CAS 写并返回闭包结果（避免 TOCTOU） |
-| `state/network.rs:116-139` | `#[cfg(test)]` mod | `tests` | 默认快照与原子更新测试 |
+| `state/network.rs:7-31` | pub struct | `NetworkSnapshot` (`Clone`) | 21 字段网络状态快照（含 `Arc<str>` 字段减少拷贝） |
+| `state/network.rs:33-56` | impl | `Default for NetworkSnapshot` | 时间字段取 `Instant::now()` |
+| `state/network.rs:59-61` | pub struct | `NetworkState` | 封装 `ArcSwap<NetworkSnapshot>` |
+| `state/network.rs:63-67` | impl | `Default for NetworkState` | 委托 `new` |
+| `state/network.rs:70` | pub fn | `new() -> Self` | 建初值 |
+| `state/network.rs:77` | pub fn | `load(&self) -> Arc<NetworkSnapshot>` | 取一致快照 |
+| `state/network.rs:82-96` | pub fn | `update<F>(&self, f)` | CAS 循环写 |
+| `state/network.rs:102-117` | pub fn | `update_with_result<T, F>(&self, f) -> T` | CAS 写并返回闭包结果（避免 TOCTOU） |
+| `state/network.rs:120-143` | `#[cfg(test)]` mod | `tests` | 默认快照与原子更新测试 |
 
-**`NetworkSnapshot` 字段** (`state/network.rs:7-28`)：`server_available`, `any_adapter_online`, `last_a1_online`, `last_a2_online`, `has_logged_online`, `disconnect_reconnect_count`, `background_check_count`, `last_auto_login_attempt: Instant`, `last_network_quality: Option<Arc<str>>`, `current_ssid: Option<Arc<str>>`, `on_campus_network`, `logout_protected_until: Instant`, `portal_failure_count`, `a1_auth_failure_count`, `a2_auth_failure_count`, `prep_login_failures: u32`。
+**`NetworkSnapshot` 字段** (`state/network.rs:7-31`)：`server_available`, `any_adapter_online`, `last_a1_online`, `last_a2_online`, `has_logged_online`, `disconnect_reconnect_count`, `background_check_count`, `last_auto_login_attempt: Instant`, `last_network_quality: Option<Arc<str>>`, `current_ssid: Option<Arc<str>>`, `on_campus_network`, `logout_protected_until: Instant`, `portal_failure_count`, `a1_auth_failure_count`, `a2_auth_failure_count`, `prep_login_failures: u32`, `last_login_available: bool`。
 
 ### infra/state/exit.rs
 
@@ -147,9 +147,9 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `logger.rs:75-80` | 私有 static | `LOGGER_SENDER`/`CLEAR_LOGS_MUTEX`/`LOGGER_THREAD`/`MIN_LOG_LEVEL` | 全局发送端、锁、线程、级别 |
 | `logger.rs:82-135` | pub fn | `init_logger(log_dir: PathBuf) -> Result<(), String>` | 建目录、开当天文件、起 worker；重复调用先 Shutdown 旧线程 |
 | `logger.rs:137-203` | 私有 fn | `logger_worker(state, receiver)` | 消费循环：超时分支小时级清理，drain+条件落盘 |
-| `logger.rs:142` | 私有 const | `CLEANUP_INTERVAL = 3600s` | worker 内清理间隔 |
-| `logger.rs:145` | 私有 const | `BATCH_FLUSH_THRESHOLD = 32` | 批量落盘条数阈值 |
-| `logger.rs:146` | 私有 const | `FLUSH_INTERVAL = 2000ms` | 距上次落盘时间阈值 |
+| `logger.rs:142` | 私有 const (在 worker 内) | `CLEANUP_INTERVAL = 3600s` | worker 内清理间隔 |
+| `logger.rs:145` | 私有 const (在 worker 内) | `BATCH_FLUSH_THRESHOLD = 32` | 批量落盘条数阈值 |
+| `logger.rs:146` | 私有 const (在 worker 内) | `FLUSH_INTERVAL = 2000ms` | 距上次落盘时间阈值 |
 | `logger.rs:205-221` | 私有 fn | `drain_channel(receiver, buffer)` | `try_recv` 排空（Shutdown 丢弃） |
 | `logger.rs:223-252` | 私有 fn | `flush_messages(state, buffer)` | 先 `rotate_if_needed`，写 Entry/Flush 回 ack |
 | `logger.rs:254-296` | 私有 fn | `rotate_if_needed(state)` | 跨天换文件；超 5MB 改名轮转 |
@@ -165,7 +165,7 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 | `logger.rs:432-443` | pub fn (`#[cfg(not(android))]` | `get_log_dir(&AppHandle) -> PathBuf` | 桌面 `current_exe()/logs` |
 | `logger.rs:445-487` | pub fn | `read_recent_logs(&AppHandle, lines) -> Result<String, String>` | 尾部按 8KB×2ⁿ 窗口倒读取尾 N 行 |
 | `logger.rs:489-498` | pub fn | `flush()` | 发 `Flush` 等 ack，超时 5s |
-| `logger.rs:501-510` | pub fn | `flush_quick()` | panic hook 专用，ack 超时 500ms |
+| `logger.rs:501-509` | pub fn | `flush_quick()` | panic hook 专用，ack 超时 500ms |
 | `logger.rs:511-526` | pub fn | `shutdown()` | swap sender、发 Shutdown、join 线程（500ms 超时） |
 | `logger.rs:528-533` | pub fn | `is_app_log_file(name: &str) -> bool` | `app-` 前缀 + `.log` 后缀 |
 | `logger.rs:535-591` | pub fn | `clear_logs(&AppHandle) -> Result<(), String>` | 先删应用日志文件，再换新 sender+线程 |
@@ -291,7 +291,7 @@ tags: [基础设施, 状态, 日志, 事件总线, 后台任务, 退出生命周
 
 - 装配入口：`AppState::new()` (`state/mod.rs:201`) 构造全部子状态；命令层通过 `CommandContext::from_app` (`command_context.rs:22`) 或 `app_handle.state::<AppState>()` 获取。
 - 配置变换统一走 CAS：`ConfigStore::update` (`state/store.rs:35-49`) → `ArcSwap::compare_and_swap` → 胜出返回新快照；读路径 `load()` (`state/store.rs:18`)。
-- 网络状态变换走 `NetworkState::update_with_result` (`state/network.rs:98-113`)，"读-改-判定"同一 CAS 循环内。
+- 网络状态变换走 `NetworkState::update_with_result` (`state/network.rs:102-117`)，"读-改-判定"同一 CAS 循环内。
 - 退出状态：`ExitStateStore` 方法 (`state/exit.rs:32-46`) 提供 deadline 读写。
 - 离开路径：仅通过 `EventBus` / `#[tauri::command]` 返回值 / `emit_notification` 三条出口。
 
