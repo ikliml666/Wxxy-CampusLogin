@@ -46,12 +46,12 @@ function formatSpeed(bps?: number): string {
   return `${Math.round(bps / 1e3)} Kbps`
 }
 
-/** 解析待切换状态 JSON（{target, tag}）取目标网卡名；空/非法 → null（无挂起） */
-function parsePendingSwitchTarget(json: string | undefined): string | null {
+/** 解析待切换状态 JSON（{target, tag}）；空/非法 → null（无挂起） */
+function parsePendingSwitch(json: string | undefined): { target: string; tag: string } | null {
   if (!json) return null
   try {
     const row = JSON.parse(json) as { target?: string; tag?: string }
-    return row.target || null
+    return row.target ? { target: row.target, tag: row.tag ?? '' } : null
   } catch {
     return null
   }
@@ -443,20 +443,28 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 />
               </div>
             </div>
-            {/* 功能描述移到标题行下方整行显示（沿 DNS 卡先例） */}
-            <CardDescription className="mt-2">
-              {t('network.nightOutboundSwitchDesc')}
-              {parsePendingSwitchTarget(config.outboundPendingSwitch) && (
-                <Badge
-                  variant="outline"
-                  className="ml-2 h-5 gap-1 border-amber-500/40 bg-amber-500/10 text-amber-600 text-[11px] font-medium"
-                  title={t('network.outboundPendingSwitchTip')}
-                >
-                  <AlertTriangle className="h-3 w-3" />
-                  {t('network.outboundPendingSwitch', { target: parsePendingSwitchTarget(config.outboundPendingSwitch) ?? '' })}
-                </Badge>
-              )}
-            </CardDescription>
+            {/* 功能描述移到标题行下方整行显示（沿 DNS 卡先例）。挂起徽标放在
+                CardDescription(<p>) 之外的同级 div——Badge 渲染为 div，嵌进
+                p 是非法 DOM 会被浏览器自动闭合错位 */}
+            <CardDescription className="mt-2">{t('network.nightOutboundSwitchDesc')}</CardDescription>
+            {(() => {
+              const pending = parsePendingSwitch(config.outboundPendingSwitch)
+              if (!pending) return null
+              return (
+                <div className="mt-1.5">
+                  <Badge
+                    variant="outline"
+                    className="h-5 gap-1 border-amber-500/40 bg-amber-500/10 text-amber-600 text-[11px] font-medium"
+                    title={t('network.outboundPendingSwitchTip')}
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    {pending.tag === 'waiting-login'
+                      ? t('network.outboundPendingWaitLogin', { target: pending.target })
+                      : t('network.outboundPendingSwitch', { target: pending.target })}
+                  </Badge>
+                </div>
+              )
+            })()}
           </CardHeader>
           <CardContent>
             {adapters.length === 0 ? (

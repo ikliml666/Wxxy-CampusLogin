@@ -389,11 +389,18 @@ fn write_outbound_metric(
 ///   其 USB 副卡应参与，运行期 disable/enable 对称性已实证）。
 /// - 切换完成后路由级验证（GetBestRoute）：到校园网关的最优路由仍指向校园卡
 ///   ifIndex 则判失败走重放；空禁用名单（误判漏禁）单独每天告警一次。
+///
 /// 目标网卡是否已在校园 Portal 登录（登录闸判定）。主/副卡直接采信监测模块的
-/// 在线结论（`last_a1_online`/`last_a2_online`，即"等待监测模块返回已登录消息"）；
-/// 目标卡不在监测名单内时，用监测同款原语绑源直查 Portal——直查失败/不可达
-/// 一律视同未登录（切过去就是断网，宁可多等一拍）。
-fn target_adapter_logged_in(app_handle: &AppHandle, config: &crate::config::Config, target_name: &str) -> bool {
+/// 在线结论（`last_a1_online`/`last_a2_online`，即"等待监测模块返回已登录消息"；
+/// 监测结论在 campus 检测失败/注销保护期会保持陈旧 false——挂起因此多等一拍，
+/// 属「宁可多等、不可切到未登录卡」口径内的可接受延迟）；目标卡不在监测名单内时，
+/// 用监测同款原语绑源直查 Portal——直查失败/不可达一律视同未登录（切过去就是
+/// 断网，宁可多等一拍）。
+fn target_adapter_logged_in(
+    app_handle: &AppHandle,
+    config: &crate::config::Config,
+    target_name: &str,
+) -> bool {
     let adapters = match crate::network::get_adapters_cached() {
         Ok(a) => a,
         Err(e) => {
@@ -403,35 +410,77 @@ fn target_adapter_logged_in(app_handle: &AppHandle, config: &crate::config::Conf
     };
     let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, config);
     let snap = app_handle.state::<AppState>().network.load();
-    if target_name == a1_name {
-        return snap.last_a1_online;
-    }
-    if !a2_name.is_empty() && target_name == a2_name {
-        return snap.last_a2_online;
-    }
-    match adapters.iter().find(|a| a.name == target_name) {
-        Some(a) if !a.ip.is_empty() => crate::auth::portal::check_portal_full(&a.ip, Some(&a.name))
-            .map(|s| s.online)
-            .unwrap_or(false),
-        _ => false,
+    match crate::monitor::outbound_switch::monitored_adapter_online(
+        target_name,
+        &a1_name,
+        &a2_name,
+        snap.last_a1_online,
+        snap.last_a2_online,
+    ) {
+        Some(online) => online,
+        None => match adapters.iter().find(|a| a.name == target_name) {
+            Some(a) if !a.ip.is_empty() => {
+                crate::auth::portal::check_portal_full(&a.ip, Some(&a.name))
+                    .map(|s| s.online)
+                    .unwrap_or(false)
+            }
+            _ => false,
+        },
     }
 }
 
-/// 写/清待切换状态（仅内容变化时才落盘+广播+store——排程 30s 一拍，逐拍重写
-/// 同值既写盘又触发前端 config-changed 刷新）。落盘失败只告警：待切换状态是
-/// 时序辅助记录，丢失的后果只是少一个前端徽标，下一拍会重写补回。
-fn write_pending_switch(app_handle: &AppHandle, pending: &str) {
+/// 改单份本机状态配置并落盘+广播+store（排程 30s 一拍，逐拍重写同值既写盘又
+/// 触发前端 config-changed 刷新，调用方自行做同值早退）。落盘失败仅告警但仍
+/// store 内存：内存值驱动排程判定（如待切换补驱动），若因落盘失败而不进内存，
+/// 下拍比对内存旧值仍会重试落盘——磁盘恢复后自动收敛，不丢整晚时序。
+fn persist_config_update(app_handle: &AppHandle, fresh: crate::config::Config) {
+    let state = app_handle.state::<AppState>();
+    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &fresh) {
+        crate::log_warn!("outbound", "夜间出站切换: 状态字段落盘失败: {e}");
+    }
+    state.config.store(fresh);
+}
+
+/// 写/清待切换状态（仅内容变化时才落盘+广播+store，见 persist_config_update）。
+/// 落盘失败的最坏后果：持久化值缺失一拍（前端徽标暂缺），内存已 store、
+/// 下拍重试落盘；仅磁盘持续故障到重启才会真正丢挂起记录。
+fn set_pending_switch(app_handle: &AppHandle, pending: &str) {
     let state = app_handle.state::<AppState>();
     let mut fresh: crate::config::Config = (*state.config.load_full()).clone();
     if fresh.outbound_pending_switch == pending {
         return;
     }
     fresh.outbound_pending_switch = pending.to_string();
-    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &fresh) {
-        crate::log_warn!("outbound", "夜间出站切换: 待切换状态落盘失败: {e}");
-        return;
+    persist_config_update(app_handle, fresh);
+}
+
+/// 待切换补驱动入口（排程 None 拍调用，须在 spawn_blocking 线程内）：封装挂起态
+/// 的全部生命周期判定——
+/// ① 功能已关闭 → 清残留（含徽标），用户关功能即退出挂起；
+/// ② 记录日非今日 → 清残留（挂起只属当晚切换窗口，跨日失效）；
+/// ③ 其余情况重跑登录闸：已登录则切换完成（apply 内清挂起态），未登录幂等刷新。
+pub(super) fn drive_pending_switch(
+    app_handle: &AppHandle,
+    config: &crate::config::Config,
+) -> Result<(), String> {
+    if config.outbound_pending_switch.is_empty() {
+        return Ok(());
     }
-    state.config.store(fresh);
+    if !config.enable_night_outbound_switch {
+        crate::log_debug!("outbound", "待切换补驱动: 功能已关闭，清理残留待切换状态");
+        set_pending_switch(app_handle, "");
+        return Ok(());
+    }
+    let today = chrono::Local::now().date_naive().num_days_from_ce();
+    let expired = crate::monitor::outbound_switch::parse_pending_switch(&config.outbound_pending_switch)
+        .map(|row| row.day != today)
+        .unwrap_or(true); // 持久化行损坏：视同过期，清掉让下一拍重判重写
+    if expired {
+        crate::log_debug!("outbound", "待切换补驱动: 待切换状态已跨日失效，清理");
+        set_pending_switch(app_handle, "");
+        return Ok(());
+    }
+    apply_outbound_switch(app_handle, config)
 }
 
 pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) -> Result<(), String> {
@@ -496,7 +545,11 @@ pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::conf
     // 绑源直查 Portal。未登录不记失败、不进退避：仅内容变化时落盘待切换状态
     // （防 30s 一拍重复写盘/广播），排程循环每拍重判，监测报告在线后自动切换
     if !target_adapter_logged_in(app_handle, config, &target.name) {
-        write_pending_switch(app_handle, &pending_switch_json(&target.name, PENDING_TAG_WAIT_LOGIN));
+        let today = chrono::Local::now().date_naive().num_days_from_ce();
+        set_pending_switch(
+            app_handle,
+            &pending_switch_json(&target.name, PENDING_TAG_WAIT_LOGIN, today),
+        );
         crate::log_warn!(
             "outbound",
             "夜间出站切换: 目标卡 {} 尚未登录校园网，本拍不切换（已记录待切换状态，登录确认后自动切换）",
@@ -508,7 +561,7 @@ pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::conf
         ));
     }
     // 目标卡已在线：清掉残留的待切换状态（若有），随后的切换落盘会一并覆盖
-    write_pending_switch(app_handle, "");
+    set_pending_switch(app_handle, "");
     // 只处理 IPv4+IPv6 两族（helper 的 set_metric 只认 2/23）
     let rows: Vec<MetricRow> = match crate::platform::metric::read_interface_metrics(&target.guid) {
         Ok(rows) => rows.into_iter().filter(|r| matches!(r.family, 2 | 23)).collect(),
@@ -1211,10 +1264,7 @@ fn set_outbound_manual_hold(app_handle: &AppHandle, day: i32) {
         return;
     }
     fresh.outbound_manual_hold_day = day;
-    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &fresh) {
-        crate::log_warn!("outbound", "夜间出站切换: 立即切换保持标记落盘失败: {e}");
-    }
-    state.config.store(fresh);
+    persist_config_update(app_handle, fresh);
 }
 
 /// 清 hold 标记（手动还原先行清；自动还原成功在 finish_outbound_restore 收尾清）。
@@ -1239,7 +1289,18 @@ pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), Strin
     clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
     set_outbound_manual_hold(app_handle, today);
     if let Err(reason) = apply_outbound_switch(app_handle, &config) {
-        clear_outbound_manual_hold(app_handle);
+        // 登录闸挂起（apply 已写入待切换状态）不是失败：保留 hold 让补驱动接管，
+        // 否则守卫窗内的自动 Switch 拍会与补驱动两条路径并存重复判定。
+        // 其余失败（无候选/退避等）按原语义清 hold 恢复当日自动切换。
+        let suspended = !app_handle
+            .state::<AppState>()
+            .config
+            .load_full()
+            .outbound_pending_switch
+            .is_empty();
+        if !suspended {
+            clear_outbound_manual_hold(app_handle);
+        }
         Err(reason)
     } else {
         Ok(())
@@ -1251,6 +1312,12 @@ pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), Strin
 pub(crate) fn manual_outbound_restore(app_handle: &AppHandle) -> Result<(), String> {
     let config = app_handle.state::<AppState>().config.load_full();
     if !outbound_switch_active(app_handle) {
+        // 挂起态（仅待切换状态非空、三份快照全空）也允许「立即还原」退出：
+        // 用户显式放弃等待，清掉徽标并终止补驱动
+        if !config.outbound_pending_switch.is_empty() {
+            set_pending_switch(app_handle, "");
+            return Ok(());
+        }
         return Err("当前未处于出站切换状态".to_string());
     }
     // hold 必须先清：否则还原失败后，还原窗内的自动重试会被 hold 一并冻结

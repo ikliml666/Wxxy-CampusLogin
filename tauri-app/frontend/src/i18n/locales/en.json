@@ -360,6 +360,7 @@
     "outboundRestoreNowFailed": "Restore incomplete",
     "outboundRestoring": "Restoring...",
     "outboundPendingSwitch": "Pending switch: {{target}} (waiting for login)",
+    "outboundPendingWaitLogin": "Pending switch: {{target}} (waiting for campus login)",
     "outboundPendingSwitchTip": "The target adapter is not logged into the campus network yet; the switch is on hold and will complete automatically once login is confirmed"
   },
   "monitor": {

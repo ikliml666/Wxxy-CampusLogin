@@ -360,6 +360,7 @@
     "outboundRestoreNowFailed": "还原未完成",
     "outboundRestoring": "还原中...",
     "outboundPendingSwitch": "待切换: {{target}}（等待登录确认）",
+    "outboundPendingWaitLogin": "待切换: {{target}}（等待该网卡登录校园网）",
     "outboundPendingSwitchTip": "目标网卡尚未登录校园网，切换已挂起；监测确认该网卡登录后将自动完成切换"
   },
   "monitor": {

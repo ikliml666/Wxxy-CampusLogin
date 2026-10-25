@@ -163,18 +163,24 @@ pub fn parse_disabled_adapters(json: &str) -> Result<Vec<DisabledRow>, String> {
 /// 待切换状态标签：目标网卡尚未登录校园网，切换挂起等待登录确认。
 pub const PENDING_TAG_WAIT_LOGIN: &str = "waiting-login";
 
-/// 待切换状态行（登录闸挂起记录：目标网卡名 + 挂起原因标签）。
+/// 待切换状态行（登录闸挂起记录：目标网卡名 + 挂起原因标签 + 记录日）。
+/// `day` = 记录当天的 `num_days_from_ce`，跨日即失效（切换窗口只属当晚，
+/// 次日残留由排程驱动清理，防徽标常驻）。旧版本行缺 day → 反序列化为 0，
+/// 视同已过期，同样走清理后重判。
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PendingSwitchRow {
     pub target: String,
     pub tag: String,
+    #[serde(default)]
+    pub day: i32,
 }
 
 /// 序列化待切换状态为 JSON。纯数据结构序列化不会失败，兜底返回空串（= 无挂起）。
-pub fn pending_switch_json(target: &str, tag: &str) -> String {
+pub fn pending_switch_json(target: &str, tag: &str, day: i32) -> String {
     serde_json::to_string(&PendingSwitchRow {
         target: target.to_string(),
         tag: tag.to_string(),
+        day,
     })
     .unwrap_or_default()
 }
@@ -186,6 +192,25 @@ pub fn parse_pending_switch(json: &str) -> Option<PendingSwitchRow> {
         return None;
     }
     serde_json::from_str(json.trim()).ok()
+}
+
+/// 登录闸匹配（纯函数）：目标卡是主/副监测卡时返回监测模块的在线结论
+/// （`last_a1_online`/`last_a2_online`，即"等待监测模块返回已登录消息"），
+/// 非监测卡返回 `None`，由调用方用监测同款原语绑源直查 Portal 兜底。
+pub fn monitored_adapter_online(
+    target: &str,
+    a1_name: &str,
+    a2_name: &str,
+    a1_online: bool,
+    a2_online: bool,
+) -> Option<bool> {
+    if !a1_name.is_empty() && target == a1_name {
+        return Some(a1_online);
+    }
+    if !a2_name.is_empty() && target == a2_name {
+        return Some(a2_online);
+    }
+    None
 }
 
 /// 历史兜底默认路由快照（v2.4.1 及更早版本切换时写入的 runtime 路由）。
@@ -553,15 +578,44 @@ mod tests {
 
     #[test]
     fn pending_switch_json_round_trip() {
-        let json = pending_switch_json("WLAN", PENDING_TAG_WAIT_LOGIN);
+        let json = pending_switch_json("WLAN", PENDING_TAG_WAIT_LOGIN, 739_000);
         assert_eq!(
             parse_pending_switch(&json),
-            Some(PendingSwitchRow { target: "WLAN".to_string(), tag: "waiting-login".to_string() })
+            Some(PendingSwitchRow {
+                target: "WLAN".to_string(),
+                tag: "waiting-login".to_string(),
+                day: 739_000,
+            })
         );
         // 空串/纯空白 → 无挂起；非法 JSON → 同样视同无挂起（下拍重写覆盖）
         assert_eq!(parse_pending_switch(""), None);
         assert_eq!(parse_pending_switch("   "), None);
         assert_eq!(parse_pending_switch("not json"), None);
+        // 旧版本行（无 day 字段）→ day 反序列化为 0，补驱动按跨日失效清理后重判
+        let legacy = r#"{"target":"WLAN","tag":"waiting-login"}"#;
+        assert_eq!(
+            parse_pending_switch(legacy),
+            Some(PendingSwitchRow {
+                target: "WLAN".to_string(),
+                tag: "waiting-login".to_string(),
+                day: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn monitored_adapter_online_matches_by_name() {
+        use monitored_adapter_online as f;
+        // 主卡：直接返回监测结论，无论真假
+        assert_eq!(f("WLAN", "WLAN", "eth1", true, false), Some(true));
+        assert_eq!(f("WLAN", "WLAN", "eth1", false, true), Some(false));
+        // 副卡：返回副卡监测结论
+        assert_eq!(f("eth1", "WLAN", "eth1", false, true), Some(true));
+        // 非监测卡 → None（调用方绑源直查 Portal 兜底）
+        assert_eq!(f("eth2", "WLAN", "eth1", true, true), None);
+        // 名字为空不参与匹配（适配器名缺失时不能把任意目标当成监测卡）
+        assert_eq!(f("", "", "", true, true), None);
+        assert_eq!(f("WLAN", "", "", true, true), None);
     }
 
     #[test]
