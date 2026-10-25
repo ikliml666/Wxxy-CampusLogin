@@ -9,159 +9,140 @@ tags: [教训, 安卓, 双端同步, 枚举, 白屏]
 
 ## Overview
 
-本文记录安卓端 `login-log` 事件 `type` 字段在后端与前端之间的字符串字面量漂移问题及修复过程。后端 `emit_login_log` 最初使用非标准 `"warn"`，而前端 `LogType` 枚举仅包含 `'info' | 'success' | 'error' | 'warning'`，导致图标映射取 `undefined` 引发白屏。后端已修正为 `'warning'`，前端通过消费侧多层兜底防止同类问题重演。
+本文记录安卓端 `login-log` 事件 `type` 字段在后端与前端之间的字符串字面量漂移问题及修复过程。后端 `emit_login_log`（位于 `android/src-tauri/src/monitor_loop.rs:176-180`）构造 `{ "message": ..., "type": ... }` 并通过 Tauri 事件 `login-log` 广播；前端 `LogType`（`android/frontend/src/shared/ui-types.ts:6`）严格定义为 `'info' | 'success' | 'error' | 'warning'`。历史上后端曾使用非标准 `"warn"` 导致前端图标映射取 `undefined` 引发白屏。当前代码后端所有 `emit_login_log` 调用（如 `:264`、`:279`、`:594`、`:604`、`:610`、`:613`、`:617`、`:627`、`:632`、`:761`、`:796`、`:910`、`:929`、`:944`、`:987`、`:1000`、`:1035`、`:1049`、`:1063`、`:1065`、`:1104`、`:1114`、`:1124`、`:1375`、`:1444`、`:1532`、`:1553`）均使用合法四值，前端通过消费侧兜底防止同类问题重演。
 
 ## Key Components
 
 ### 后端：android/src-tauri/src/monitor_loop.rs
 
-*   **`MONITOR`** (`:16`)：全局监控状态单例，类型为 `MonitorState`。
-*   **`OUTBOUND_RESTORE_FAIL_COUNT`** (`:23`)：夜间出站切换连续还原失败计数，原子类型 `AtomicU32`。
-*   **`OUTBOUND_RESTORE_MAX_FAILS`** (`:25`)：连续还原失败上限，值为 `3`。
-*   **`OUTBOUND_SWITCH_FAIL_COUNT`** (`:30`)：夜间出站切换连续注销失败计数，原子类型 `AtomicU32`。
-*   **`OUTBOUND_SWITCH_MAX_FAILS`** (`:32`)：连续注销失败上限，值为 `3`。
-*   **`MONITOR_GENERATION`** (`:37`)：监控循环代际 token，用于防 start/stop 竞速下的标志误清，原子类型 `AtomicU64`。
-*   **`LOGIN_ATTEMPT_LOCK`** (`:42`)：自动登录读-判-写 attempt 段互斥锁，原子类型 `tokio::sync::Mutex<()>`。
-*   **`MonitorState`** (`:47-86`)：监控循环的全局状态结构体。
-    *   `running`: `AtomicBool`，监控是否运行。
-    *   `check_count`: `AtomicU64`，检测总次数。
-    *   `consecutive_failures`: `AtomicU32`，连续失败次数（用于掉线重连熔断）。
-    *   `reconnect_count`: `AtomicU32`，本次在线周期内自动重连次数。
-    *   `last_login_attempt_ms`: `AtomicU64`，最近一次登录尝试时间戳。
-    *   `was_online`: `AtomicBool`，上一拍在线状态记忆。
-    *   `last_result`: `Mutex<Option<serde_json::Value>>`，最近一次检测结果。
-    *   `desired_interval_ms`: `AtomicU64`，目标检测间隔。
-    *   `idle_interval_ms`: `AtomicU64`，闲时巡检间隔。
-    *   `logout_protected_until_ms`: `AtomicU64`，注销保护期截止时间。
-    *   `wifi_event_ms`: `AtomicU64`，最近一次 WiFi 变化事件时间戳。
-    *   `notified_online`: `AtomicU8`，常驻通知已展示的在线状态码（0=未展示, 1=在线, 2=未连接, 3=非检测时段, 4=WiFi未连接）。
-    *   `scheduled_login_day`: `AtomicI32`，定时登录当日已触发标记。
-    *   `scheduled_logout_day`: `AtomicI32`，定时注销当日已触发标记。
-*   **`WIFI_EVENT_DELAY_MS`** (`:91`)：WiFi 连上事件延迟检测毫秒数，值为 `2500`。
-*   **`WIFI_LOST_EVENT_DELAY_MS`** (`:98`)：WiFi 断开事件延迟毫秒数，值为 `0`。
-*   **`WIFI_EVENT_DEBOUNCE_MS`** (`:101`)：WiFi 事件去抖窗口毫秒数，值为 `1000`。
-*   **`wifi_event_is_burst_start`** (`:104-107`)：纯函数，判定 WiFi 事件是否为风暴起点。
-*   **`effective_interval_ms`** (`:110-118`)：纯函数，根据屏幕状态和 WiFi 连接状态计算有效检测间隔。
-*   **`should_attempt_login`** (`:121-137`)：纯函数，判定是否应执行自动登录。受 `online`, `was_online`, `on_campus`, `auto_login_on_preparation`, `reconnect_count`, `max_reconnect`, `millis_since_last_attempt`, `cooldown_secs` 等多条件门控。
-*   **`status_value`** (`:140-158`)：构造后台状态 JSON，展平 `last_result` 中的关键字段到顶层。
-*   **`is_running`** (`:161-163`)：检查监控是否运行。
-*   **`epoch_ms`** (`:165-169`)：获取当前纪元毫秒时间戳。
-*   **`emit_login_log`** (`:171-175`)：核心日志发射函数。构造 `{ "message": ..., "type": ... }` JSON payload 并通过 Tauri `app.emit("login-log", payload)` 广播。`log_type` 参数现严格限定为 `"info"`, `"success"`, `"error"`, `"warning"`。
-*   **`notify_system`** (`:178-193`)：系统通知发送，区别于应用内 toast。支持看板娘大图显示，资源缺失时降级。
-*   **`with_vpn_hint`** (`:196-202`)：探测/登录失败通知追加 VPN 接管提示。
-*   **`start_background_check`** (`:205-250`)：启动后台监控命令。幂等处理，刷新间隔，启动前台服务保活及 WiFi 监听。
-*   **`stop_background_check`** (`:253-265`)：停止后台监控命令。
-*   **`WIFI_WATCHER_CHANNEL_ID`** (`:269`)：WiFi 变化监听 channel ID。
-*   **`WIFI_WATCHER_ACTIVE`** (`:270`)：WiFi 变化监听激活状态。
-*   **`start_wifi_watcher`** (`:273-290`)：注册 WiFi 变化监听。
-*   **`stop_wifi_watcher`** (`:293-307`)：注销 WiFi 变化监听。
-*   **`handle_wifi_event`** (`:310-340`)：WiFi 变化事件处理。去抖 + 延迟后执行一次完整检测。
-*   **`trigger_background_check`** (`:343-351`)：手动触发后台检测命令。
-*   **`get_background_status`** (`:354-356`)：获取后台状态命令。
-*   **`get_boot_autostart`** (`:359-370`)：获取开机自启开关命令。
-*   **`set_boot_autostart`** (`:373-392`)：设置开机自启开关命令。
-*   **`get_notification_enabled`** (`:395-397`)：获取通知开关命令。
-*   **`set_notification_enabled`** (`:400-417`)：设置通知开关命令。
-*   **`run_startup_tasks`** (`:420-470`)：启动恢复任务。并行拉起后台检测、质量首测、自动登录等。
-*   **`probe_with_retry`** (`:473-492`)：启动探测重试逻辑，3s 后重试一次。
-*   **`emit_auto_login_result`** (`:495-503`)：启动自动登录结果走应用内通知。
-*   **`auto_login_on_start`** (`:506-543`)：启动自动登录。在校内网环境下触发登录，成功/失败均通过 `emit_login_log` 记录。
-*   **`ProbeWindowGuard`** (`:546-554`)：探针窗口 guard，持 WifiLock/WakeLock。
-*   **`power_state`** (`:557-565`)：查询电源状态（屏幕交互中、当前活动网络为 WiFi）。
-*   **`monitor_tick_loop`** (`:568-621`)：监控循环主体。处理定时动作、间隔热更新、分档跳拍及调用 `run_check_once`。
-*   **`outbound_switch_active`** (`:624-629`)：判断是否处于夜间出站切换态。
-*   **`latest_settings`** (`:632-637`)：取最新配置用于构造落盘快照。
-*   **`logout_for_outbound_switch`** (`:640-676`)：切换侧注销逻辑。
-*   **`switch_logout_unconfirmed`** (`:679-697`)：注销未确认生效时的上限判定。
-*   **`portal_probe_on_little_cores`** (`:700-749`)：Portal 全量探测，专用短命线程执行并绑定小核。
-*   **`run_scheduled_actions`** (`:752-888`)：定时登录/定时注销判定与执行，附自动切换运营商。
-*   **`persist_settings`** (`:891-911`)：落盘夜间切换后的配置并刷新内存缓存。
-*   **`night_switch_login`** (`:914-946`)：夜切后的登录触发。直接走 run_login 内核。
-*   **`trigger_wifi_recheck`** (`:949-971`)：触发系统对当前 WiFi 重新验证。
-*   **`ensure_avoid_bad_wifi`** (`:974-1002`)：程序化确保 network_avoid_bad_wifi=1。
-*   **`restore_avoid_bad_wifi`** (`:1005-1027`)：按插件快照还原 network_avoid_bad_wifi。
-*   **`NIGHT_VERIFY_WAIT_SECS`** (`:1030`)：夜切验证等待秒数，值为 `15`。
-*   **`NIGHT_VERIFY_RETRY_SECS`** (`:1031`)：夜切验证重试间隔秒数，值为 `5`。
-*   **`NIGHT_VERIFY_ATTEMPTS`** (`:1032`)：夜切验证最大尝试次数，值为 `3`。
-*   **`NIGHT_VERIFY_HTTP_TIMEOUT_SECS`** (`:1033`)：夜切验证 HTTP 超时秒数，值为 `15`。
-*   **`portal_origin`** (`:1036-1047`)：提取 portal URL 的 origin。
-*   **`expected_operator_display`** (`:1050-1055`)：期望运营商的展示名。
-*   **`verify_night_switch`** (`:1058-1118`)：夜切后的登录生效自动验证。
-*   **`night_switch_verify_round`** (`:1121-1139`)：一轮验证，多次重试。
-*   **`night_switch_check_once`** (`:1142-1163`)：单次 chkstatus 查询+uid 核对。
-*   **`run_check_once`** (`:1166-1328`)：单次完整检测流程。包含校园网判定、Portal 探测、状态机翻转、自动重登决策及 payload 组装 emit。内部多处调用 `emit_login_log` 记录检测结果、自动登录成败及配置读取失败等信息。
-*   **`notify_state`** (`:1331-1338`)：常驻通知状态码与文案纯函数。
+*   **`MONITOR`** (`:15-17`)：惰性全局监控状态单例，类型为 `MonitorState`。
+*   **`OUTBOUND_RESTORE_FAIL_COUNT`** (`:21`)：夜间出站切换连续还原失败计数，原子类型 `AtomicU32`，初始 0。
+*   **`OUTBOUND_RESTORE_MAX_FAILS`** (`:23`)：连续还原失败上限，常量 `u32`，值为 `3`。
+*   **`OUTBOUND_SWITCH_FAIL_COUNT`** (`:26`)：夜间出站切换连续注销失败计数，原子类型 `AtomicU32`，初始 0。
+*   **`OUTBOUND_SWITCH_MAX_FAILS`** (`:28`)：连续注销失败上限，常量 `u32`，值为 `3`。
+*   **`MONITOR_GENERATION`** (`:32`)：监控循环代际 token，原子类型 `AtomicU64`，防 start/stop 竞速下标志误清。
+*   **`LOGIN_ATTEMPT_LOCK`** (`:37`)：自动登录读-判-写 attempt 段互斥锁，`tokio::sync::Mutex<()>` 常量。
+*   **`FORCE_CHECK_AFTER_RESTORE`** (`:47`)：夜间出站还原后无视静默期的一次性放行标记，`AtomicBool`。
+*   **`MonitorState`** (`:49-79`)：监控循环全局状态结构体，派生 `Default`。
+    *   `running: AtomicBool` (`:52`)：监控是否运行。
+    *   `check_count: AtomicU64` (`:53`)：检测总次数。
+    *   `consecutive_failures: AtomicU32` (`:54`)：连续失败次数（掉线重连熔断）。
+    *   `reconnect_count: AtomicU32` (`:56`)：本次在线周期内自动重连次数。
+    *   `last_login_attempt_ms: AtomicU64` (`:57`)：最近一次登录尝试时间戳。
+    *   `was_online: AtomicBool` (`:58`)：上一拍在线状态记忆。
+    *   `last_result: Mutex<Option<serde_json::Value>>` (`:59`)：最近一次检测结果。
+    *   `desired_interval_ms: AtomicU64` (`:62`)：运行中目标检测间隔（ms）。
+    *   `idle_interval_ms: AtomicU64` (`:64`)：闲时巡检间隔（ms）。
+    *   `logout_protected_until_ms: AtomicU64` (`:66`)：注销保护期截止（epoch ms）。
+    *   `wifi_event_ms: AtomicU64` (`:68`)：最近一次 WiFi 变化事件时间戳。
+    *   `notified_online: AtomicU8` (`:72`)：常驻通知状态码（0=未展示,1=在线,2=未连接,3=非检测时段,4=WiFi未连接）。
+    *   `scheduled_login_day: AtomicI32` (`:76`)：定时登录当日已触发标记（当日序号）。
+    *   `scheduled_logout_day: AtomicI32` (`:78`)：定时注销当日已触发标记。
+*   **`WIFI_EVENT_DELAY_MS`** (`:84`)：WiFi 连上事件延迟检测毫秒数，常量 `u64`，值 `2500`。
+*   **`WIFI_LOST_EVENT_DELAY_MS`** (`:89`)：WiFi 断开事件延迟毫秒数，常量 `u64`，值 `0`。
+*   **`WIFI_EVENT_DEBOUNCE_MS`** (`:92`)：WiFi 事件去抖窗口毫秒数，常量 `u64`，值 `1000`。
+*   **`wifi_event_is_burst_start`** (`:97-99`)：纯函数，判定 WiFi 事件是否为风暴起点（首事件或超去抖窗口）。
+*   **`effective_interval_ms`** (`:106-113`)：纯函数，根据屏幕/WiFi 算有效间隔，基础间隔下限 5000ms。
+*   **`should_attempt_login`** (`:117-138`)：纯函数，判定是否自动登录；条件含 online/was_online/on_campus/auto_login_on_preparation/reconnect_count/max_reconnect/cooldown。
+*   **`status_value`** (`:141-162`)：构造后台状态 JSON，展平 `last_result` 关键字段（online/message/onlineOperator/serverAvailable/onCampusNetwork）到顶层。
+*   **`is_running`** (`:165-167`)：检查监控是否运行。
+*   **`epoch_ms`** (`:169-174`)：获取当前纪元毫秒。
+*   **`emit_login_log`** (`:176-180`)：核心日志发射。构造 `{ "message": message, "type": log_type }` 并 `app.emit("login-log", payload)`。`log_type` 应为 `"info"|"success"|"error"|"warning"`。
+*   **`notify_system`** (`:185-202`)：系统通知（区别于常驻通知），支持看板娘大图，缺失降级纯文本。
+*   **`with_vpn_hint`** (`:208-214`)：失败消息追加 VPN 接管提示。
+*   **`start_background_check`** (`:218-266`)：启动后台监控命令，幂等刷新间隔、保活 FGS、启 WiFi 监听。
+*   **`stop_background_check`** (`:269-281`)：停止后台监控命令，推进代际、停服务、停 WiFi 监听。
+*   **`WIFI_WATCHER_CHANNEL_ID`** (`:285`)：WiFi 监听 channel id 原子量。
+*   **`WIFI_WATCHER_ACTIVE`** (`:287`)：WiFi 监听激活布尔原子量。
+*   **`start_wifi_watcher`** (`:292-314`)：注册 WiFi 变化监听，失败置 `WATCHER_FAILED` 降级。
+*   **`stop_wifi_watcher`** (`:318-330`)：注销 WiFi 变化监听。
+*   **`handle_wifi_event`** (`:335-373`)：WiFi 事件处理，去抖+延迟后 `run_check_once`。
+*   **`trigger_background_check`** (`:376-384`)：手动触发检测命令（仅运行中耳许）。
+*   **`get_background_status`** (`:387-389`)：返回 `status_value()`。
+*   **`get_boot_autostart`** (`:393-407`)：获取开机自启开关。
+*   **`set_boot_autostart`** (`:410-432`)：设置开机自启并落盘配置。
+*   **`get_notification_enabled`** (`:436-438`)：获取通知开关。
+*   **`set_notification_enabled`** (`:441-456`)：设置通知开关并落盘。
+*   **`run_startup_tasks`** (`:468-539`)：启动恢复，并行拉起后台检测/质量首测/自动登录/更新检查。
+*   **`probe_with_retry`** (`:545-563`)：启动探测，首次失败 3s 后重试一次。
+*   **`emit_auto_login_result`** (`:569-575`)：发射应用内 toast 结果事件 `auto-login-result`。
+*   **`auto_login_on_start`** (`:579-637`)：启动自动登录，含静默期跳过、绑 WiFi、探测、登录。
+*   **`ProbeWindowGuard`** (`:642-650`)：探针窗口 guard，Drop 释放 WifiLock/WakeLock。
+*   **`power_state`** (`:656-666`)：查询电源状态（屏幕亮、WiFi 连），失败保守 `(true,true)`。
+*   **`monitor_tick_loop`** (`:668-727`)：监控循环主体，代际校验、定时动作、间隔热更、分档跳拍。
+*   **`outbound_switch_active`** (`:731-736`)：判断是否处于夜间出站切换态。
+*   **`latest_settings`** (`:741-748`)：取最新配置避免 stale 快照。
+*   **`logout_for_outbound_switch`** (`:756-781`)：切换侧注销，返回离线是否生效。
+*   **`switch_logout_unconfirmed`** (`:786-803`)：注销未确认上限判定。
+*   **`portal_probe_on_little_cores`** (`:809-846`)：Portal 探测绑小核短命线程。
+*   **`run_scheduled_actions`** (`:860-1068`)：定时登录/注销/夜切/出站切换编排。
+*   **`persist_settings`** (`:1073-1096`)：落盘配置并刷缓存、广播 `config-changed`。
+*   **`night_switch_login`** (`:1102-1128`)：夜切登录内核，返回成功否。
+*   **`trigger_wifi_recheck`** (`:1134-1155`)：触发系统 WiFi 重检。
+*   **`ensure_avoid_bad_wifi`** (`:1160-1196`)：程序化设 `network_avoid_bad_wifi=1`。
+*   **`restore_avoid_bad_wifi`** (`:1199-1223`)：还原 `network_avoid_bad_wifi`。
+*   **`NIGHT_VERIFY_WAIT_SECS`** (`:1227`)：夜切验证等待 15s。
+*   **`NIGHT_VERIFY_RETRY_SECS`** (`:1228`)：重试间隔 5s。
+*   **`NIGHT_VERIFY_ATTEMPTS`** (`:1229`)：最大尝试 3 次。
+*   **`NIGHT_VERIFY_HTTP_TIMEOUT_SECS`** (`:1230`)：HTTP 超时 15s。
+*   **`portal_origin`** (`:1233-1245`)：取 portal URL 的 scheme+host。
+*   **`expected_operator_display`** (`:1248-1254`)：空串显“无锡学院”。
+*   **`verify_night_switch`** (`:1260-1314`)：夜切登录生效验证任务。
+*   **`night_switch_verify_round`** (`:1318-1335`)：一轮验证多次重试。
+*   **`night_switch_check_once`** (`:1338-1367`)：单次 chkstatus 核对 uid。
+*   **`run_check_once`** (`:1370-1610`)：单次检测全流程，发射 `background-check-result`。
+*   **`notify_state`** (`:1614-1622`)：常驻通知状态码纯函数（1在线/2未连接/4WiFi未连接）。
+*   **测试模块** (`:1624-1746`)：含 `notify_state` 状态码、`should_attempt_login` 各分支、`wifi_event_is_burst_start`、`effective_interval_ms`、`portal_origin`、`expected_operator_display`、`status_value` 展平测试。
 
 ### 类型定义：android/frontend/src/shared/ui-types.ts
 
-*   **`StatusState`** (`:1`)：状态类型枚举。`'loading' | 'online' | 'offline' | 'error'`。
-*   **`PanelName`** (`:2`)：面板名称枚举。`'dashboard' | 'account' | 'selfservice' | 'network' | 'monitor' | 'quality' | 'settings' | 'log' | 'speedtest'`。
-*   **`ThemeName`** (`:3`)：主题名称枚举。`'default' | 'vibrant' | 'forest' | 'midnight' | 'ocean' | 'cherry' | 'custom'`。
-*   **`LogType`** (`:4`)：日志类型枚举。定义为 `'info' | 'success' | 'error' | 'warning'`。这是前后端契约的关键部分。
-*   **`GpuTier`** (`:5`)：GPU 等级枚举。`'low-igpu' | 'mid-igpu' | 'high-igpu' | 'discrete' | 'unknown'`。
-*   **`GpuInfo`** (`:7-14`)：GPU 信息接口。包含 `vendor`, `model`, `vram_mb`, `is_integrated`, `tier`, `gpu_preference`。
-*   **`LogEntry`** (`:17-22`)：日志条目接口，包含 `id`, `time`, `message`, `type` (即 `LogType`) 及可选的 `count` (重复折叠计数)。
-*   **`ToastMessage`** (`:24-38`)：Toast 消息接口。包含 `id`, `title`, `description`, `type`, `duration`, `mascot`, `action`。
-*   **`AdapterDisabledWarningData`** (`:40-43`)：适配器禁用警告数据接口。
-*   **`AutoExitCountdownData`** (`:45-48`)：自动退出倒计时数据接口。
-*   **`SaveConfigResult`** (`:50-54`)：保存配置结果接口。
+*   **`StatusState`** (`:1`)：`'loading' | 'online' | 'offline' | 'error'`。
+*   **`PanelName`** (`:2`)：面板名枚举，含 dashboard/account/selfservice/network/monitor/quality/settings/log/speedtest。
+*   **`ThemeName`** (`:3`)：主题枚举，含 default/vibrant/forest/midnight/ocean/cherry/custom。
+*   **`GlassLevel`** (`:5`)：玻璃质感档位 `'off' | 'standard' | 'ultra'`。
+*   **`LogType`** (`:6`)：日志类型枚举 `'info' | 'success' | 'error' | 'warning'`，前后端契约关键。
+*   **`LogEntry`** (`:8-15`)：日志条目接口，含 `id,time,message,type:LogType,count?`。
+*   **`ToastMessage`** (`:17-29`)：Toast 接口，含 `id,title,description?,type,mascot?,action?`。
+*   **`AdapterDisabledWarningData`** (`:31-34`)：适配器禁用警告。
+*   **`AutoExitCountdownData`** (`:36-39`)：自动退出倒计时。
+*   **`SaveConfigResult`** (`:41-44`)：保存配置结果。
 
 ## Architecture
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│                     Android Backend                         │
-│  (android/src-tauri/src/monitor_loop.rs)                    │
-│                                                             │
-│  ┌──────────────────┐       ┌──────────────────────────┐    │
-│  │ run_check_once() │──────►│ emit_login_log(msg,type) │    │
-│  │ run_scheduled_   │       │ emits "login-log" event  │    │
-│  │ actions()        │       └──────────┬───────────────┘    │
-│  │ auto_login_on_   │                  │ (Tauri IPC)        │
-│  │ start()          │                  ▼                    │
-│  └──────────────────┘       ┌──────────────────────────┐    │
-│                             │ Tauri Event Bus           │    │
-│                             │ "login-log"               │    │
-│                             └──────────┬───────────────┘    │
-└────────────────────────────────────────┼───────────────────┘
-                                         │
-                                         ▼
+│ Android Backend (monitor_loop.rs)                           │
+│  run_check_once/:1370 ─┐                                    │
+│  run_scheduled_actions/:860 ─┤                             │
+│  auto_login_on_start/:579 ──► emit_login_log/:176          │
+│                            │  builds {message,type}         │
+│                            ▼                                │
+│                     app.emit("login-log")                   │
+└────────────────────────────┬────────────────────────────────┘
+                             │ Tauri IPC
+                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      Frontend                               │
-│  (android/frontend/)                                        │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ useEventListeners.ts                                  │   │
-│  │                                                       │   │
-│  │ onLoginLog(data)                                      │   │
-│  │   ├─ type: data.type as LogType || 'info'             │   │
-│  │   └─ addLog(message, type)                            │   │
-│  └───────────────────────┬──────────────────────────────┘   │
-│                          │                                  │
-│                          ▼                                  │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ ui-types.ts                                           │   │
-│  │                                                       │   │
-│  │ LogType = 'info'|'success'|'error'|'warning'          │   │
-│  │ LogEntry { type: LogType }                            │   │
-│  └──────────────────────────────────────────────────────┘   │
+│ Frontend (ui-types.ts / listeners)                          │
+│  LogType = 'info'|'success'|'error'|'warning'  (:6)         │
+│  onLoginLog: data.type as LogType || 'info' ─► addLog()     │
+│  LogEntry.type ─► icon/color render (no crash on drift)     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow
 
-1.  **后端生成日志**：`monitor_loop.rs` 中的 `run_check_once`、`run_scheduled_actions` 或 `auto_login_on_start` 根据运行状态（如检测失败、自动登录成功、定时任务触发）调用 `emit_login_log(app, message, log_type)`。
-2.  **事件发射**：`emit_login_log` 构造 JSON 对象 `{ "message": "...", "type": "warning" }`（注：现已修正为 `"warning"`），并通过 `app.emit("login-log", payload)` 发送给前端。
-3.  **前端接收**：`useEventListeners.ts` 中的 `api.onLoginLog` 回调捕获数据。
-4.  **类型转换与存储**：回调中将 `data.type` 转换为 `LogType` 类型（使用 `as LogType` 断言，若为空则 fallback 到 `'info'`），然后调用 `useLogToastStore.getState().addLog(message, type)` 存入前端状态。
-5.  **UI 渲染**：日志列表组件从 store 读取 `LogEntry`，根据其 `type` 匹配对应的图标和颜色样式进行渲染。
+1. **后端生成**：`run_check_once`（`:1370`）、`run_scheduled_actions`（`:860`）、`auto_login_on_start`（`:579`）等调用 `emit_login_log(app, message, log_type)`（`:176`）。
+2. **事件发射**：`emit_login_log` 构造 `{"message":..., "type":"warning"}` 等合法值，经 `app.emit("login-log", payload)`（`:179`）发送。
+3. **前端接收**：事件监听器捕获 `login-log`，取 `data.type`。
+4. **类型转换**：`(data.type as LogType) || 'info'` 兜底转换，存入日志 store。
+5. **UI 渲染**：`LogEntry` 按 `type` 匹配图标；因枚举与后端一致且前端兜底，漂移不白屏。
 
 ## Known Issues
 
-*   **历史白屏根因**：过去 `emit_login_log` 曾使用 `"warn"` 作为 `type` 值，该值不在前端 `LogType` 枚举中。前端 `LOG_ICONS[type]` 取值为 `undefined`，导致 React 组件渲染崩溃（白屏）。
-*   **当前状态**：后端代码已全面修正，所有 `emit_login_log` 调用均使用 `"info"`, `"success"`, `"error"`, `"warning"` 四个合法值。
-*   **防御性编程**：前端 `useEventListeners.ts` 增加了 `(data.type as LogType) || 'info'` 的兜底；`ui-types.ts` 定义了严格的 `LogType` 枚举。这确保了即使未来后端发生漂移，前端也不会崩溃，而是静默降级。
-*   **桌面端风险**：桌面端 (`tauri-app`) 尚未完全对齐此防御机制，其 `RightPanel.tsx` 中部分 `LOG_ICONS` 访问仍缺乏 `?? Info` 兜底，存在潜在的类似白屏风险。
+* **历史白屏根因**：后端曾发 `"warn"` 不在 `LogType`（`:6`）中，前端图标映射 `undefined` 致 React 崩溃。
+* **当前状态**：后端全部 `emit_login_log` 调用（见 Key Components 列举行号）均用四合法值。
+* **防御机制**：前端消费侧 `as LogType || 'info'` 兜底；`ui-types.ts` 严格枚举。
+* **桌面端风险**：桌面端 `tauri-app` 部分 `LOG_ICONS` 访问缺 `?? info` 兜底，存同类隐患。
 
 ## Connections
 

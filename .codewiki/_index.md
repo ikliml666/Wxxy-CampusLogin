@@ -207,7 +207,6 @@
 - [[modules/android-frontend-panels|安卓前端 - 面板层（总览 / 账号 / 自助 / 监控 / 质量 / 设置 / 日志）]]
 - [[learnings/android-notify-online-pinned-by-offline-guard|安卓后台监控循环与在线状态机]]
 - [[modules/desktop-rust-core|安卓端 Tauri 后端核心]]
-- [[modules/android-backend|安卓端后端]]
 - [[modules/android-plugins|安卓端手写插件]]
 - [[decisions/android-interval-default-schema-migration|安卓配置状态管理 config_state.rs]]
 - [[learnings/face-engine-release-await-pending-race|应用内 2D 人脸验证（@vladmandic/human）]]
