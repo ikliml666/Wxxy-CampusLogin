@@ -23,7 +23,7 @@ tags: [Tauri, IPC, Plugin, Android, Architecture]
 
 ## Overview
 
-`tauri-plugin-architecture` 定义了 Campus Login Assistant Android 应用的核心交互架构。该架构基于 Tauri v2 插件系统，采用“Rust 桥接 + Kotlin 原生实现”的双轨模式，通过 IPC 命令面暴露功能。其核心职责是将复杂的 Android 系统级操作（如 Wi-Fi 绑定、前台保活、生物识别密钥存储）封装为标准化的异步 API，并通过前端的 `tauriApi` 统一入口进行调用，同时处理网络不稳定下的重试逻辑与安全门控。安卓端对桌面专属功能（适配器/DHCP/DNS/窗口/托盘等）通过 `desktopOnly` 显式拒绝（tauriApi.ts:14-15, 203-208, 265-266, 284-286, 311, 317, 330-334），对桌面专属事件通过 `noopListener` 返回空清理函数（tauriApi.ts:18, 269-271, 312-315）。密码落盘经 AndroidKeyStore AES-GCM 加密（替代桌面 DPAPI，config_state.rs:203-240, KeystorePlugin.kt:39-89），校园网探测改用 TCP 可达替代 ICMP（campus_detect.rs:1-3, 44-53），网络绑定解决 captive portal 场景（NetworkBindPlugin.kt:24-47）。
+`tauri-plugin-architecture` 定义了 Campus Login Assistant Android 应用的核心交互架构。该架构基于 Tauri v2 插件系统，采用“Rust 桥接 + Kotlin 原生实现”的双轨模式，通过 IPC 命令面暴露功能。其核心职责是将复杂的 Android 系统级操作（如 Wi-Fi 绑定、前台保活、生物识别密钥存储）封装为标准化的异步 API，并通过前端的 `tauriApi` 统一入口进行调用，同时处理网络不稳定下的重试逻辑与安全门控。安卓端对桌面专属功能（适配器/DHCP/DNS/窗口/托盘等）通过 `desktopOnly` 显式拒绝（tauriApi.ts:14-15, 205, 208-210, 268-269, 287-289, 314, 333-337），对桌面专属事件通过 `noopListener` 返回空清理函数（tauriApi.ts:18, 272-274, 315-318）。密码落盘经 AndroidKeyStore AES-GCM 加密（替代桌面 DPAPI，config_state.rs:214-251, KeystorePlugin.kt:39-89），校园网探测改用 TCP 可达替代 ICMP（campus_detect.rs:1-3, 44-53），网络绑定解决 captive portal 场景（NetworkBindPlugin.kt:24-47）。
 
 ## Key Components
 
@@ -34,16 +34,16 @@ tags: [Tauri, IPC, Plugin, Android, Architecture]
 - **核心常量与类型**：
   - `desktopOnly<T>(name: string)` (14-15): 返回 `Promise.reject(new Error('桌面专属功能,安卓端不可用: '+name))` 的辅助函数，用于标记安卓不支持的功能。
   - `noopListener` (18): 返回 `() => {}` 的辅助函数，用于安卓端无对应事件的监听器。
-  - 类型 `ConnectionCampusStatus` (20-24)、`BatteryOptimizationInfo` (26-30)、`VendorSettingsResult` (32-36)、`CampusStatusResult` (38-46)、`AvoidBadWifiStatus` (153-162)、`RestoreWrittenSettingsResult` (164-167)。
-  - `TauriApi` 接口 (48-151): 定义所有可用的 IPC 方法签名，包含配置、网络、认证、账号、监控、更新、系统设置等模块。
+  - 类型 `ConnectionCampusStatus` (20-24)、`BatteryOptimizationInfo` (26-30)、`VendorSettingsResult` (32-36)、`CampusStatusResult` (38-46)、`AvoidBadWifiStatus` (155-164)、`RestoreWrittenSettingsResult` (165-169)。
+  - `TauriApi` 接口 (48-153): 定义所有可用的 IPC 方法签名，包含配置、网络、认证、账号、监控、更新、系统设置等模块。
   - `ALI_DNS` / `RECOMMENDED_DNS` 逻辑关联 `useDnsSetup`（但常量实际定义在 useDnsSetup.ts）。
 
 - **关键实现细节**：
-  - **事件监听封装 `createEventListener`** (169-198): 解决 Tauri `listen` 异步注册问题，返回清理函数支持在 `listen` Promise 完成前取消订阅（通过 `cancelled` 标志和 `.then` 链式清理，174-196）。DEV 模式打印失败日志但不阻断主流程 (183)。
-  - **生物识别验证门 `verifyWindowsIdentity`** (217-254): 优先检查 `shouldUseFaceFallback()` (231)，若开启且系统生物识别不可用则调用应用内人脸 `openFaceDialog('verify')` (235) 上报 `face2d`，否则 `biometricAuthenticate` (249) 上报 `biometric`；失败时归一化为 `{success:false, message}` 而非抛出异常 (221-227, 238-253)；`biometricCheckStatus` 查询异常不阻断主流程落回系统链路 (242-244)。
-  - **外部链接打开 `openExternal`** (291-302): 严格校验 URL 协议（仅 http/https，292）、长度（≤2048，293）及格式，调用 `@tauri-apps/plugin-opener` 的 `openerOpenUrl` 返回 boolean。
-  - **重试机制 `withRetry` & `tauriApiWithRetry`** (341-377): `isRetryableError` 识别包含 'timeout', 'network', 'fetch', 'connection' 的错误 (341-351)；`withRetry` 指数退避重试（基础 500ms，最大 2 次，353-369）；**差异化重试策略**：仅 `saveConfig` 启用重试 (376)，`checkPortalStatus`/`checkNetworkQuality` 因高频调用由业务层自行兜底。
-  - **对象 `tauriApi: TauriApi`** (200-339): 封装所有命令。`getConfig`(201)/`saveConfig`(202)；`exportConfig`/`importConfig`/`exportDiagnostics` 走 `desktopOnly`(203-205)；`getAdapters`/`enableAdapter`/`getAdapterDetails` 走 `desktopOnly`(206-208)；`bindToWifi`(209)/`checkPortalStatus`(210)/`checkCampusStatus`(211)/`requestWifiSsidPermission`(212)；`doLogin`(213)/`doLogout`(214)/`bindOperator`(215)/`getBindStatus`(216)；`verifyWindowsIdentity`(217-254)；`revealOperatorCredential`(255)/`querySelfDashboard`(256)/`selfOfflineSession`(257)/`querySelfOnlineLog`(258)/`changeSelfPassword`(259)；VPN 凭据相关 `vpnSaveCredential` 等 (260-264)；`minimizeWindow`/`closeWindow` 走 `desktopOnly`(265-266)；事件监听 `onBackgroundCheckResult`(267) 等用 `createEventListener`，`onAdaptersChanged`(269) 等用 `noopListener`；`listAccounts`(273) 等账号命令；`dhcpRenewAll` 等走 `desktopOnly`(284-286)；`checkNetworkQuality`(287)/`startLatencyTest`(289)；`openExternal`(291-302)；`getAutoLaunch`→`get_boot_autostart`(303)，`setAutoLaunch`→包装 `{success:true}`(304)；`getBatteryOptimizationInfo`(307) 等保活相关；`cancelAutoExit` 走 `desktopOnly`(311)；`onAutoExitCountdown` 等用 `noopListener`(312-315)；`getLogs`(318) 等调试；`checkUpdate`(323) 等更新；`checkDnsDohStatus` 等走 `desktopOnly`(330-332)；`getAvoidBadWifiStatus`(337)/`restoreWrittenSettings`(338)；`renderHeartbeat`/`notifyWindowReady` 走 `desktopOnly`(333-334)。
+  - **事件监听封装 `createEventListener`** (171-200): 解决 Tauri `listen` 异步注册问题，返回清理函数支持在 `listen` Promise 完成前取消订阅（通过 `cancelled` 标志和 `.then` 链式清理，174-196）。DEV 模式打印失败日志但不阻断主流程 (183)。
+  - **生物识别验证门 `verifyWindowsIdentity`** (219-256): 优先检查 `shouldUseFaceFallback()` (231)，若开启且系统生物识别不可用则调用应用内人脸 `openFaceDialog('verify')` (235) 上报 `face2d`，否则 `biometricAuthenticate` (249) 上报 `biometric`；失败时归一化为 `{success:false, message}` 而非抛出异常 (221-227, 238-253)；`biometricCheckStatus` 查询异常不阻断主流程落回系统链路 (242-244)。
+  - **外部链接打开 `openExternal`** (294-305): 严格校验 URL 协议（仅 http/https，295）、长度（≤2048，296）及格式，调用 `@tauri-apps/plugin-opener` 的 `openerOpenUrl` 返回 boolean。
+  - **重试机制 `withRetry` & `tauriApiWithRetry`** (344-379): `isRetryableError` 识别包含 'timeout', 'network', 'fetch', 'connection' 的错误 (344-354)；`withRetry` 指数退避重试（基础 500ms，最大 2 次，356-372）；**差异化重试策略**：仅 `saveConfig` 启用重试 (379)，`checkPortalStatus`/`checkNetworkQuality` 因高频调用由业务层自行兜底。
+  - **对象 `tauriApi: TauriApi`** (202-342): 封装所有命令。`getConfig`(203)/`saveConfig`(204)；`exportConfig`/`importConfig`/`exportDiagnostics` 走 `desktopOnly`(205-207)；`getAdapters`/`enableAdapter`/`getAdapterDetails` 走 `desktopOnly`(208-210)；`bindToWifi`(211)/`checkPortalStatus`(212)/`checkCampusStatus`(213)/`requestWifiSsidPermission`(214)；`doLogin`(215)/`doLogout`(216)/`bindOperator`(217)/`getBindStatus`(218)；`verifyWindowsIdentity`(219-256)；`revealOperatorCredential`(257)/`querySelfDashboard`(258)/`selfOfflineSession`(259)/`querySelfOnlineLog`(260)/`changeSelfPassword`(261)；VPN 凭据相关 `vpnSaveCredential` 等 (262-267)；`minimizeWindow`/`closeWindow` 走 `desktopOnly`(268-269)；事件监听 `onBackgroundCheckResult`(270) 等用 `createEventListener`，`onAdaptersChanged`(272) 等用 `noopListener`；`listAccounts`(276) 等账号命令；`dhcpRenewAll` 等走 `desktopOnly`(287-289)；`checkNetworkQuality`(290)/`startLatencyTest`(292)；`openExternal`(294-305)；`getAutoLaunch`→`get_boot_autostart`(306)，`setAutoLaunch`→包装 `{success:true}`(307)；`getBatteryOptimizationInfo`(310) 等保活相关；`cancelAutoExit` 走 `desktopOnly`(314)；`onAutoExitCountdown` 等用 `noopListener`(315-318)；`getLogs`(321) 等调试；`checkUpdate`(326) 等更新；`checkDnsDohStatus` 等走 `desktopOnly`(333-335)；`getAvoidBadWifiStatus`(340)/`restoreWrittenSettings`(341)；`renderHeartbeat`/`notifyWindowReady` 走 `desktopOnly`(336-337)。
 
 ### Network Module (`android/frontend/src/network/useDnsSetup.ts`)
 
@@ -176,7 +176,7 @@ Android 原生网络绑定插件，核心解决校园网 Captive Portal 下的�
 - **Kotlin (`NetworkBindPlugin.kt`)**：
   - `@TauriPlugin(permissions=[Permission(strings=[Manifest.permission.NEARBY_WIFI_DEVICES], alias="wifiSsid")])`(48-55)；`NetworkBindPlugin(activity)`(56)；`heldCallback`(59)、`lastBoundNetwork`(63)、`cm` getter(65-66)、`watcherCallback`(488)、`lastValidated`(491)、`guardPrefs`(309-311)、`KEY_AVOID_BAD_WIFI`(314)、`KEY_CAPTIVE_PORTAL_MODE`(315)、`PREF_PREFIX`(316)、`REQUEST_TIMEOUT_MS=3000`(659)、`WIFI_SSID_PERMISSION_ALIAS="wifiSsid"`(662)。
   - `bindToWifi`(69-165)：`AtomicBoolean done` 单次 resolve 保护(71-81)；直绑成功返 `allNetworks`/`already_bound`(98-103)；无 WiFi 返 `no_wifi_network`(109-112)；回退 `requestNetwork`(125-128)。
-  - `unbind`(168-175)；`acceptWifiNetwork`(192-238)：`canReachSetAcceptUnvalidated`(198,241-251) 无副作用；`trySetAcceptUnvalidated`(254-268)；`applyNetworkSettingsCompat`(284-298) 写 Global；`snapshotGlobalKey`(322-331)；`hasWriteSecureSettings`(334-336)；`hasPendingRestore`(339-341)；`restoreGlobalKey`(347-358)；`ensureAvoidBadWifi`(366-402)；`restoreAvoidBadWifi`(409-421)；`restoreWrittenSettings`(429-446)；`getSecureSettingsStatus`(454-468)；`describe`(472-476)；`hasVpn`(479-485)；`emitWifiEvent`(494-498)；`startWifiWatcher`(506-541) VALIDATED 翻转发 `wifiChanged`；`stopWifiWatcher`(544-554)；`getWifiSsid`(569-577) API33+ 查授权；`reportWifiUnusable`(586-618)；`requestWifiSsidPermission`(627-636)；`wifiSsidPermissionCallback`(639-642)；`readSsid`(646-655) 去引号归一空串。
+  - `unbind`(168-175)；`acceptWifiNetwork`(192-238)：`canReachSetAcceptUnvalidated`(241-251) 无副作用；`trySetAcceptUnvalidated`(254-268)；`applyNetworkSettingsCompat`(284-298) 写 Global；`snapshotGlobalKey`(322-331)；`hasWriteSecureSettings`(334-336)；`hasPendingRestore`(339-341)；`restoreGlobalKey`(347-358)；`ensureAvoidBadWifi`(366-402)；`restoreAvoidBadWifi`(409-421)；`restoreWrittenSettings`(429-446)；`getSecureSettingsStatus`(454-468)；`describe`(472-476)；`hasVpn`(479-485)；`emitWifiEvent`(494-498)；`startWifiWatcher`(506-541) VALIDATED 翻转发 `wifiChanged`；`stopWifiWatcher`(544-554)；`getWifiSsid`(569-577) API33+ 查授权；`reportWifiUnusable`(586-618)；`requestWifiSsidPermission`(627-636)；`wifiSsidPermissionCallback`(639-642)；`readSsid`(646-655) 去引号归一空串。
 - **Rust (`lib.rs`)**：
   - `PLUGIN_IDENTIFIER="com.campuslogin.plugin.networkbind"`(11)；`CampusNetworkBind<R>(PluginHandle<R>)`(13)。
   - `bind_to_wifi`(19-21)、`accept_wifi_network`(26-28)、`start_wifi_watcher`(32-43) 先 `registerListener` 建 Channel、`stop_wifi_watcher`(47-54) 先 `removeListener`、`get_wifi_ssid`(59-61)、`request_wifi_ssid_permission`(65-67)、`report_wifi_unusable`(73-75)、`ensure_avoid_bad_wifi`(82-84)、`restore_avoid_bad_wifi`(89-91)、`restore_written_settings`(96-98)、`get_secure_settings_status`(104-106)；注释强调 JNI 阻塞调用须 `spawn_blocking`。
@@ -188,18 +188,18 @@ Android 原生网络绑定插件，核心解决校园网 Captive Portal 下的�
 
 - **常量与锁**：
   - `PASSWORD_MASK="***"`(10)、`CONFIG_FILE="config.json"`(11)、`CONFIG_IO_LOCK: tokio::sync::Mutex<()>`(17-19)、`config_io_lock()`(22-24)。
-- **`struct Settings`** (26-128, `#[serde(rename_all = "camelCase", default)]`)：字段全量含 `user`, `password`, `self_hello_enabled`, `self_reverify_each_action`, `allow_2d_face_verify`(36), `operator`, `enable_night_operator_switch`, `night_operator_restore`, `enable_night_outbound_switch`, `outbound_priority`, `outbound_metric_restore`, `outbound_disabled_adapters`, `outbound_standby_route`, `night_outbound_restore`, `dns_optimize_adapters`, `device_aliases`(71-72), `auto_login_on_start`, `enable_background_check`, `background_check_interval`, `background_check_idle_interval`, `auto_login_on_preparation`, `max_disconnect_reconnect`, `auto_login_cooldown_secs`, `theme_mode`, `enable_notification`, `custom_theme_color`, `default_panel`, `display_name`, `active_account`, `enable_boot_autostart`, `enable_latency_test`, `latency_test_interval`, `enable_network_quality`, `skip_ttfb_in_latency`, `skip_content_in_latency`, `portal_url`, `fixed_gateway`, `required_network_name`, `enable_network_name_check`, `campus_gateway`, `campus_check_start_minutes`, `campus_check_end_minutes`, `scheduled_login_minutes`, `scheduled_logout_minutes`, `update_source`, `log_retention_days`, `config_schema_version`。
-- **`impl Default for Settings`** (130-200)：`self_hello_enabled=true`(135)、`enable_night_operator_switch=false`(141)、`background_check_interval=60_000`(155)、`background_check_idle_interval=300_000`(157)、`max_disconnect_reconnect=3`(159)、`portal_url="http://10.1.99.100"`(177)、`fixed_gateway`/`campus_gateway="10.2.127.254"`(178,183)、`required_network_name="i-wxxy、iwxxy-2、iwxxy-3"`(181)、`campus_check_start_minutes=460`(185)、`campus_check_end_minutes=1380`(188)、`scheduled_login_minutes`/`scheduled_logout_minutes=1440`(192-193)、`update_source="mirror"`(194)、`log_retention_days=7`(195)、`config_schema_version=7`(197)、`enable_network_quality=false`(174)、`latency_test_interval=600_000`(170)。
-- **`struct CryptoBridge`** (203-240, Clone)：含 `encrypt`/`decrypt` 的 `Arc<dyn Fn>`；`from_app`(209-240) mobile 走 `tauri_plugin_campus_keystore`(213)，非 mobile 返回 Err(235-236)。
-- **`struct EncodedSettings`** (243-248, 私有)：`settings: Settings` + `password_cipher: String`(247)。
+- **`struct Settings`** (26-136, `#[serde(rename_all = "camelCase", default)]`)：字段全量含 `user`(30), `password`(31), `self_hello_enabled`(32), `self_reverify_each_action`(33), `allow_2d_face_verify`(36), `operator`(37), `enable_night_operator_switch`(41), `night_operator_restore`(43), `enable_night_outbound_switch`(47), `outbound_priority`(50), `outbound_metric_restore`(53), `outbound_disabled_adapters`(56), `outbound_standby_route`(59), `night_outbound_restore`(64), `dns_optimize_adapters`(67), `device_aliases`(71-72), `auto_login_on_start`(74), `enable_background_check`(75), `background_check_interval`(76), `background_check_idle_interval`(81), `auto_login_on_preparation`(82), `max_disconnect_reconnect`(83), `auto_login_cooldown_secs`(84), `theme_mode`(86), `enable_notification`(87), `custom_theme_color`(88), `default_panel`(89), `display_name`(93), `active_account`(94), `enable_boot_autostart`(95), `enable_latency_test`(97), `latency_test_interval`(98), `enable_network_quality`(99), `skip_ttfb_in_latency`(100), `skip_content_in_latency`(101), `portal_url`(103), `fixed_gateway`(104), `required_network_name`(105), `enable_network_name_check`(106), `campus_gateway`(107), `campus_check_start_minutes`(109), `campus_check_end_minutes`(110), `scheduled_login_minutes`(113), `scheduled_logout_minutes`(115), `update_source`(118), `log_retention_days`(120), `vpn_account`(124), `vpn_password_enc`(125), `self_service_via_vpn`(128), `config_schema_version`(135)。
+- **`impl Default for Settings`** (138-211)：`self_hello_enabled=true`(143)、`enable_night_operator_switch=false`(149)、`background_check_interval=60_000`(163)、`background_check_idle_interval=300_000`(165)、`max_disconnect_reconnect=3`(167)、`portal_url="http://10.1.99.100"`(185)、`fixed_gateway`/`campus_gateway="10.2.127.254"`(186-191)、`required_network_name="i-wxxy、iwxxy-2、iwxxy-3"`(189)、`campus_check_start_minutes=460`(193)、`campus_check_end_minutes=1380`(196)、`scheduled_login_minutes`/`scheduled_logout_minutes=1440`(200-201)、`update_source="mirror"`(202)、`log_retention_days=7`(203)、`config_schema_version=7`(208)、`enable_network_quality=false`(182)、`latency_test_interval=600_000`(178)。
+- **`struct CryptoBridge`** (214-251, Clone)：含 `encrypt`/`decrypt` 的 `Arc<dyn Fn>`；`from_app`(221-250) mobile 走 `tauri_plugin_campus_keystore`(224)，非 mobile 返回 Err(242-249)。
+- **`struct EncodedSettings`** (254-259, 私有)：`settings: Settings` + `password_cipher: String`(258)。
 - **核心 IO 函数**：
-  - `load_file`(250-263)：无文件返回默认(253)，json 损坏报错(256)，密文非空才解密失败置空不报错(259-261)。
-  - `password_saved_at`(270-276)：查 `EncodedSettings.password_cipher` 非空判据(274)。
-  - `save_file`(278-308)：空密码不写密文(284-291)，加密失败返回 Err 绝不落明文(289)；带 pid 唯一 tmp 文件写再 rename(300-306)。
-  - `cleanup_stale_config_tmp`(313-324)；`load_from`(326-336) 调 `load_file` + `migrate_legacy_defaults` + 旧单值 "i-wxxy" 扩三值(332-334)；`migrate_legacy_defaults`(355-417) v0→v1(357-359), v<3(360-374), v<4(375-383), v<5(384-392), v<6(393-401), v<7(402-416)；`save_to`(419-421)；`masked_for_display`(424-430)；`emit_config_changed`(436-439)；`resolve_password_field`(442-451)。
+  - `load_file`(261-274)：无文件返回默认(264)，json 损坏报错(266)，密文非空才解密失败置空不报错(270-272)。
+  - `password_saved_at`(281-287)：查 `EncodedSettings.password_cipher` 非空判据(285)。
+  - `save_file`(289-319)：空密码不写密文(297-302)，加密失败返回 Err 绝不落明文(298-301)；带 pid 唯一 tmp 文件写再 rename(311-317)。
+  - `cleanup_stale_config_tmp`(324-335)；`load_from`(337-347) 调 `load_file` + `migrate_legacy_defaults` + 旧单值 "i-wxxy" 扩三值(343-345)；`migrate_legacy_defaults`(366-428) v0→v1(368-370), v<3(371-385), v<4(386-394), v<5(395-403), v<6(404-412), v<7(413-427)；`save_to`(430-432)；`masked_for_display`(437-446)；`emit_config_changed`(452-455)；`resolve_password_field`(458-467)。
 - **Tauri 命令与缓存**：
-  - `#[tauri::command] get_config`(453-466)；`save_config`(468-499) 持 `CONFIG_IO_LOCK`(477)，调 `auto_create_account_for_current`(494)，`emit_config_changed`(497)；`current_settings`(503-520, `#[allow(dead_code)]`)。
-  - 测试模块(522-827)：覆盖加密落盘无明文、解密失败置空、SSID 迁移、默认值语义、版本迁移幂等等。
+  - `#[tauri::command] get_config`(469-482)；`save_config`(484-520) 持 `CONFIG_IO_LOCK`(493)，调 `auto_create_account_for_current`(515)，`emit_config_changed`(518)；`current_settings`(524-541, `#[allow(dead_code)]`)。
+  - 测试模块(543-897)：覆盖加密落盘无明文、解密失败置空、SSID 迁移、默认值语义、版本迁移幂等等。
 
 ### Campus Detect (`android/src-tauri/src/campus_detect.rs`)
 
@@ -207,14 +207,14 @@ Android 原生网络绑定插件，核心解决校园网 Captive Portal 下的�
 
 - **常量**：`PORTAL_PORT=80`(9)、`TCP_TIMEOUT=Duration::from_secs(3)`(10)。
 - **源 IP 与可达性**：
-  - `pick_campus_source_ip`(15-37)：排除蜂窝 `rmnet*`/`ccmni*`(16-17) 等。
+  - `pick_campus_source_ip`(15-37)：排除蜂窝 `rmnet*`/`ccmni*`(17) 等。
   - `portal_reachable`(44-53) 走 `tcp_connect_bounded`(48)。
   - `struct CampusProbe`(56-63)：`source`, `portal_ok`, `on_campus`, `wifi_off`。
   - `probe_campus`(65-125)：枚举网卡(66-79)，pick source(80)；wifi_off 短路(85-93)；`is_same_subnet_18`(96)；`portal_host_of`(99)；三层判定(109-116)，`on_campus`(117)。
 - **文案与解析**：
   - `campus_status_message`(129-137)；`portal_host_of`(140-149)；`ssid_matches`(153-157) 默认名特判同源。
 - **SSID 与命令**：
-  - `current_wifi_ssid`(163-178) 经 `tauri_plugin_campus_network_bind`；`probe_campus_with_ssid`(185-200)；`cache_source_ip`(203-210)；`#[tauri::command] check_campus_status`(216-238) 调 `ensure_wifi_bound`(221) 返 JSON；`#[tauri::command] request_wifi_ssid_permission`(244-249)。
+  - `current_wifi_ssid`(163-178) 经 `tauri_plugin_campus_network_bind`；`probe_campus_with_ssid`(185-200)；`cache_source_ip`(203-210)；`#[tauri::command] check_campus_status`(215-238) 调 `ensure_wifi_bound`(221) 返 JSON；`#[tauri::command] request_wifi_ssid_permission`(243-249)。
   - 测试(251-321)。
 
 ## Architecture
@@ -255,18 +255,18 @@ Android 原生网络绑定插件，核心解决校园网 Captive Portal 下的�
 1. **初始化与桥接建立**：
    - 应用启动时，前端 Store 加载初始配置。
    - Rust 后端注册 Commands，Kotlin 插件通过 JNI 暴露原生方法。
-   - 前端通过 `tauriApi` 建立与后端的 IPC 通道，其中 `KeystorePlugin.kt` 与 `lib.rs` 配套：Rust `init` 注册 Kotlin 侧 `KeystorePlugin`，前端经 Tauri bridge 调 `encrypt`/`decrypt`（config_state.rs:209-240）。
+   - 前端通过 `tauriApi` 建立与后端的 IPC 通道，其中 `KeystorePlugin.kt` 与 `lib.rs` 配套：Rust `init` 注册 Kotlin 侧 `KeystorePlugin`，前端经 Tauri bridge 调 `encrypt`/`decrypt`（config_state.rs:221-250）。
 
 2. **UI 触发与指令转发**：
    - 用户在 `DashboardPanel` 或 `SettingsPanel` 执行操作，控制流进入 `useAuth()` 或相关 Hooks，调用 `tauriApi.invoke()`。
-   - `save_config` 入参 `config: Settings` + `clear_password: Option<bool>` (config_state.rs:468) → 合并后 `save_to` 落盘 `EncodedSettings`（`password_cipher` 密文）(config_state.rs:419) → 广播 `config-changed` 事件 payload `{config: masked Value}` (config_state.rs:436)。
+   - `save_config` 入参 `config: Settings` + `clear_password: Option<bool>` (config_state.rs:484) → 合并后 `save_to` 落盘 `EncodedSettings`（`password_cipher` 密文）(config_state.rs:430) → 广播 `config-changed` 事件 payload `{config: masked Value}` (config_state.rs:452)。
    - 网络质量/DNS 配置由 `useDnsSetup()` 介入，强制使用 `tauriApiWithRetry` 封装调用（useDnsSetup.ts:24）。
 
 3. **原生执行与安全门控**：
    - **普通操作**：IPC 消息直达 Rust Wrapper。例如 Wi-Fi 绑定由 `CampusNetworkBind` 接收，转发至 Kotlin `NetworkBindPlugin.kt`；保活服务由 `CampusMonitorService` 处理。
    - **敏感操作**：涉及密码读写时，流程指向 `CampusKeystore`，Rust 层调用 Kotlin `KeystorePlugin.kt` 利用 `AndroidKeyStore` 进行 AES-GCM 加解密，明文不落地（KeystorePlugin.kt:36-86）。
    - **生物识别门控**：在 `selfServiceState.ts` 中，`useHelloGate` 用于绑定/明文门；若未通过验证则拦截 IPC 请求（selfServiceState.ts:65-87）。
-   - **校园网探测**：`check_campus_status` (campus_detect.rs:216) 先调用 `ensure_wifi_bound` 绑 WiFi，取 `config_state::current_settings` 获取 `Settings` 以读 `campus_gateway`/`portal_url` 等，调 `probe_campus_with_ssid` 后 cache_source_ip，返回 `serde_json::Value` 含探测结果与 SSID。
+   - **校园网探测**：`check_campus_status` (campus_detect.rs:187) 先调用 `ensure_wifi_bound` 绑 WiFi，取 `config_state::current_settings` 获取 `Settings` 以读 `campus_gateway`/`portal_url` 等，调 `probe_campus_with_ssid` 后 cache_source_ip，返回 `serde_json::Value` 含探测结果与 SSID。
 
 4. **事件反向流与状态同步**：
    - `NetworkBindPlugin` 的 WiFi 变化经 `trigger("wifiChanged")` 发事件，Rust 侧 `start_wifi_watcher` 先 `registerListener` 建 Channel 接收 `{"event":...}` 负载，形成反向事件流；`stop_wifi_watcher` 经 `removeListener`+`stopWifiWatcher` 注销（network-bind/src/lib.rs:32-54）。
@@ -278,8 +278,8 @@ Android 原生网络绑定插件，核心解决校园网 Captive Portal 下的�
 
 ## Known Issues
 
-- **配置与加密边界** (config_state.rs)：无配置文件不报错返默认(253)；密文损坏/密钥变更密码置空而非配置不可用(259-261)；加密失败返回 Err 且绝不落明文(289)；`password_saved_at` 必须查密文位，外露 `settings.password` 落盘恒空(270-276)；迁移幂等：仅旧默认值被刷，用户显式改过的值保留(357-359)；新装 `config_schema_version=7` 不触发迁移(197)；非 mobile 构建 `CryptoBridge` 加解密均返 Err(235-236)，保证 host 测试需注入假桥；`enable_night_operator_switch` 默认 false(141) 但 v7 迁移刷存量 true(402-405)。
-- **校园网探测边界** (campus_detect.rs)：ICMP 被 SELinux 禁，以 Portal TCP 可达替代 ping(1-3)；蜂窝接口绝不入选 source IP(16-17)；WiFi 未连接（无非蜂窝 IPv4）短路返回 "WiFi 未连接" 不再空转 2×3s 探测(85-93)；`portal_host_of` 解析失败回退原串(140-149)；`current_wifi_ssid` 未授权/API<33/未连 WiFi 返 None(163-178)。
+- **配置与加密边界** (config_state.rs)：无配置文件不报错返默认(264)；密文损坏/密钥变更密码置空而非配置不可用(270-272)；加密失败返回 Err 且绝不落明文(298-301)；`password_saved_at` 必须查密文位，外露 `settings.password` 落盘恒空(281-287)；迁移幂等：仅旧默认值被刷，用户显式改过的值保留(368-370)；新装 `config_schema_version=7` 不触发迁移(208)；非 mobile 构建 `CryptoBridge` 加解密均返 Err(242-249)，保证 host 测试需注入假桥；`enable_night_operator_switch` 默认 false(149) 但 v7 迁移刷存量 true(413-416)。
+- **校园网探测边界** (campus_detect.rs)：ICMP 被 SELinux 禁，以 Portal TCP 可达替代 ping(1-3)；蜂窝接口绝不入选 source IP(17)；WiFi 未连接（无非蜂窝 IPv4）短路返回 "WiFi 未连接" 不再空转 2×3s 探测(85-93)；`portal_host_of` 解析失败回退原串(140-149)；`current_wifi_ssid` 未授权/API<33/未连 WiFi 返 None(163-178)。
 - **前台服务与权限边界** (MonitorServicePlugin.kt)：`@InvokeArg` 字段全可空，命令内显式判空 `reject` 避免炸插件线程(31-44)；catch `IllegalStateException` 兼容低版本(68)；`stopMonitor` 用 `startService(ACTION_STOP)` 让服务自身退出避免竞态(82)；`installApk` 仅取文件名拼 `filesDir/update/` 拒绝目录穿越(120)；厂商页跳转故意不用 `resolveActivity` 预探测，直接 `startActivity` catch `ActivityNotFoundException`(185-187)；`BootReceiver` 开机瞬间启 FGS 失败只记日志不炸广播接收器(431)。
-- **网络绑定陷阱** (NetworkBindPlugin.kt)：`bindToWifi` 不能仅用 `NET_CAPABILITY_INTERNET` 筛 WiFi（captive portal 会被漏掉，27-33）；`requestNetwork` 不能带 INTERNET 能力否则被 WifiNetworkFactory 拒绝(34-37)；`AtomicBoolean done` 防 `onAvailable`/`onUnavailable` 多次触发重复 resolve(71-81)；`lastBoundNetwork` 同网络重绑返 `already_bound` 使 Rust 侧跳过清空连接池(62-63)；`applyNetworkSettingsCompat` 直接试写 Global 不再预检 `canWrite`（此前误判，273-298）；普通签名无 `WRITE_SECURE_SETTINGS` 恒失败(368)；`startWifiWatcher` 的 `onCapabilitiesChanged` 只在 `VALIDATED` 翻转时上报(524-531)；SSID 读取 API33+ 用 `NEARBY_WIFI_DEVICES`（免定位），低版本因不引入定位权限恒 `granted=false`(562-563)；`getWifiSsid` 绝不弹框(560-561)，权限请求须前端显式触发(627-636)。
-- **前端状态与交互边界**：堆叠卡 `count===0` 返 null(91, 376)，`count===2` 无底露卡 `peekBottom=0`(93)；拖拽冲突容器 `touch-action:none` 防 WebView 滚动冲突(163, 440)；`gateFresh` 拒时钟回拨防前端永真后端拒死锁(selfServiceState.ts:58-62)；引导密码纪律掩码态留空后端回退已存，仅新密码非空才写 `password`(useOnboardingFlow.ts:224-227)；`mergeSelfEmpty` 仅无凭据且移动端时合并 selfOnline/selfLog 为空态卡(DashboardPanel.tsx:866,969-976)；桌面专属功能在安卓端经 `desktopOnly` 拒绝(tauriApi.ts:14-15, 203-208 等)，事件经 `noopListener` 空订阅(tauriApi.ts:18, 269-271)。
+- **网络绑定陷阱** (NetworkBindPlugin.kt)：`bindToWifi` 不能仅用 `NET_CAPABILITY_INTERNET` 筛 WiFi（captive portal 会被漏掉，27-33）；`requestNetwork` 不能带 INTERNET 能力否则被 WifiNetworkFactory 拒绝(34-37)；`AtomicBoolean done` 防 `onAvailable`/`onUnavailable` 多次触发重复 resolve(71-81)；`lastBoundNetwork` 同网络重绑返 `already_bound` 使 Rust 侧跳过清空连接池(62-63)；`applyNetworkSettingsCompat` 直接试写 Global 不再预检 `canWrite`（此前误判，273-298）；普通签名无 `WRITE_SECURE_SETTINGS` 恒失败(368)；`startWifiWatcher` 的 `onCapabilitiesChanged` 只在 `VALIDATED` 翻转时上报(524-531)；SSID 读取 API33+ 用 `NEARBY_WIFI_DEVICES`（免定位），低版本因不引入定位权限恒 `granted=false`(571-573)；`getWifiSsid` 绝不弹框(560-561)，权限请求须前端显式触发(627-636)。
+- **前端状态与交互边界**：堆叠卡 `count===0` 返 null(91, 376)，`count===2` 无底露卡 `peekBottom=0`(93)；拖拽冲突容器 `touch-action:none` 防 WebView 滚动冲突(163, 440)；`gateFresh` 拒时钟回拨防前端永真后端拒死锁(selfServiceState.ts:58-62)；引导密码纪律掩码态留空后端回退已存，仅新密码非空才写 `password`(useOnboardingFlow.ts:224-227)；`mergeSelfEmpty` 仅无凭据且移动端时合并 selfOnline/selfLog 为空态卡(DashboardPanel.tsx:866,969-976)；桌面专属功能在安卓端经 `desktopOnly` 拒绝(tauriApi.ts:14-15, 205 等)，事件经 `noopListener` 空订阅(tauriApi.ts:18, 272-274)。

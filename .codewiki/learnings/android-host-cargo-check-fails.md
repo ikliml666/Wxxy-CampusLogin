@@ -9,184 +9,192 @@ tags: [教训, 安卓, 构建, 验证]
 
 ## Overview
 
-`android/src-tauri` 是校园网登录助手（Campus Login）的 Android 端 Tauri 应用根 crate。它通过 `path` 依赖桌面端的协议核心 `campus-login`，并集成了多个安卓专属插件（网络绑定、Keystore、前台服务）。
+`android/src-tauri` 是校园网登录助手（Campus Login）的 Android 端 Tauri 应用根 crate（包名 `campus-login-android`，版本 `2.4.1`，见 `Cargo.toml` 行 2-3）。它通过 `path` 依赖桌面端的协议核心 `campus-login`（行 31）单点共享逻辑，并集成了多个安卓专属插件（网络绑定、Keystore、前台服务，见行 34-40）。
 
-**关键构建特性**：该模块在 Host（桌面开发机）上执行 `cargo check` 或 `cargo test` **必然失败**。这是因为其入口逻辑重度依赖 `#[cfg(mobile)]` 门控的平台特定插件与目标属性依赖。安卓 Rust 改动必须使用交叉编译验证。
+**关键构建特性**：该模块在 Host（桌面开发机，非 Android 目标）上执行 `cargo check` 或 `cargo test` **仍会失败**。当前 `Cargo.toml` 已无旧版所谓的 `[target.'cfg(target_os = "android")'.dependencies]` 段（旧文行号引用已过期），所有依赖均置于普通 `[dependencies]`（行 14-48），如 `libc`（行 28）跨平台可用。但 `lib.rs` 中 `#[cfg(mobile)]` 门控（行 35-42）在 Host 被跳过，仅走 `#[cfg(not(mobile))]` 分支（行 43-44）管理状态而不注册插件；而插件 crate（如 `tauri-plugin-campus-network-bind` 行 34）包含安卓特定实现，在 Host 缺少 NDK/JNI 时编译报错。因此安卓 Rust 改动必须使用交叉编译验证（详见 Known Issues）。
 
 ## Key Components
 
-### 配置与依赖 (`Cargo.toml`)
+### 配置与依赖 (`android/src-tauri/Cargo.toml`)
 
-- **Package**: `campus-login-android`, version `2.4.1`.
-- **Protocol Core**: `campus-login = { path = "../../tauri-app/src-tauri" }` (行 34)。单点共享协议逻辑。
-- **Android-Specific Dependencies** (行 28-31):
-    - `android_system_properties = "0.1"`: 读取 `ro.soc.model` 等系统属性。
-    - `libc = "0.2"`: 用于 `sched_setaffinity` 绑核。
-    - 仅当 `target_os = "android"` 时编译。
-- **Plugins**:
-    - `tauri-plugin-campus-network-bind`: WLAN 网络绑定 (`bindProcessToNetwork`)。
-    - `tauri-plugin-campus-keystore`: AndroidKeyStore AES-GCM 加解密。
-    - `tauri-plugin-campus-monitor-service`: 前台服务保活 (通知+WifiLock+WakeLock)。
-    - `tauri-plugin-biometric` & `tauri-plugin-opener`: 官方生物识别与外链支持。
-- **Release Profile** (行 56-59):
-    - `lto = "fat"`, `codegen-units = 1`, `strip = true`。
-    - **注意**: 未设置 `panic="abort"`。因为 Tauri 移动入口的 async 任务 panic 时 unwind 捕获为任务失败，若设 abort 则直接杀死进程（前台服务/保活随进程陪葬），可用性换体积不划算。
+- **[package]**（行 1-5）：`name = "campus-login-android"`（行 2），`version = "2.4.1"`（行 3），`edition = "2021"`（行 5）。
+- **[lib]**（行 7-9）：`name = "campus_login_android_lib"`（行 8），`crate-type = ["cdylib", "rlib"]`（行 9）。
+- **[build-dependencies]**（行 11-12）：`tauri-build = { version = "2", features = [] }`（行 12）。
+- **[dependencies]**（行 14-48）：
+  - 核心 Tauri：`tauri = { version = "2", features = ["protocol-asset"] }`（行 15），`tauri-plugin-notification = "2"`（行 16）。
+  - 序列化/异步：`serde`（行 17），`serde_json`（行 18），`tokio`（行 19，启用 `rt-multi-thread` 等），`chrono`（行 20），`lazy_static`（行 21），`regex`（行 22）。
+  - 网络与系统：`network-interface = "2"`（行 23），`sha2 = "0.10"`（行 25，APK 下载校验），`libc = "0.2"`（行 28，`sched_setaffinity` 绑核）。
+  - 协议核心与插件 path 依赖：`campus-login = { path = "../../tauri-app/src-tauri" }`（行 31），`tauri-plugin-campus-network-bind`（行 34），`tauri-plugin-campus-keystore`（行 37），`tauri-plugin-campus-monitor-service`（行 40），`tauri-plugin-biometric = "2"`（行 43），`tauri-plugin-opener = "2"`（行 44）。
+  - 更新流：`reqwest`（行 47，禁用默认特性启用 `rustls-tls` 避免安卓 openssl 交叉编译），`futures-util`（行 48）。
+- **[profile.release]**（行 55-58）：`lto = "fat"`（行 56），`codegen-units = 1`（行 57），`strip = true`（行 58）。注释（行 50-54）说明此为 workspace 根 release 档，且不设 `panic="abort"` 以保留前台服务进程。
 
-### 入口与插件注册 (`src/lib.rs`)
+### 入口与插件注册 (`android/src-tauri/src/lib.rs`)
 
-- **`run()`** (行 27-96): 安卓端 Tauri 入口函数。
-    - **Builder 配置** (行 32-43):
-        - `#[cfg(mobile)]` (行 33-39): 注册 `campus_network_bind`, `campus_keystore`, `campus_monitor_service`, `biometric`, `notification` 插件，并 `manage` `AndroidState`。
-        - `#[cfg(not(mobile))]` (行 41-42): **Host 编译路径**。仅 `manage` `AndroidState`，**不注册任何插件**。这是导致 Host `cargo check` 失败的主因之一。
-    - **Setup Hook** (行 44-58):
-        - 初始化日志到 `app_data_dir/logs`。
-        - 调用 `monitor_loop::run_startup_tasks` 启动后台检测/定时质量测试循环及自动登录。
-        - 异步清理上次崩溃遗留的配置临时文件 (`config_state::cleanup_stale_config_tmp`)。
-    - **Invoke Handler** (行 60-92): 注册所有命令面处理器。
-    - **Run Event Loop** (行 93-96):
-        - **退出护栏**: 拦截 `ExitRequested` 事件 (`api.prevent_exit()`)。
-        - **目的**: Tauri 默认行为是最后窗口关闭时 `process::exit(0)`，这会带走前台服务。安卓语义要求划掉任务只关 UI，进程随前台服务常驻以继续巡检/夜切/定时动作；彻底退出需走系统设置。
+- **`#[cfg_attr(mobile, tauri::mobile_entry_point)]`**（行 32）：移动端入口属性。
+- **`pub fn run()`**（行 33-139）：安卓端 Tauri 入口函数，本文件唯一公开函数。
+  - **Builder 初始化**（行 34）：`tauri::Builder::default()`。
+  - **`#[cfg(mobile)]` 插件注册块**（行 35-42）：
+    - 行 37：`tauri_plugin_campus_network_bind::init()`（WLAN 绑定）
+    - 行 38：`tauri_plugin_campus_keystore::init()`（Keystore 加密）
+    - 行 39：`tauri_plugin_campus_monitor_service::init()`（前台服务）
+    - 行 40：`tauri_plugin_biometric::init()`（注释指明该 crate 内部 `#![cfg(mobile)]`，host 编译为空）
+    - 行 41：`tauri_plugin_notification::init()`
+    - 行 42：`manage(android_state::AndroidState::default())`
+  - **`#[cfg(not(mobile))]` 块**（行 43-44）：仅 `manage(android_state::AndroidState::default())`，不注册任何插件。
+  - **通用插件与 setup**（行 45-66）：
+    - 行 46：注册 `tauri_plugin_opener::init()`
+    - 行 47-66：`setup` 闭包：计算日志目录 `app_data_dir/logs`（行 49-53），调用 `campus_login_lib::infra::logger::init_logger`（行 56），执行 `monitor_loop::run_startup_tasks`（行 60），异步清理残留 tmp 配置（行 63）。
+  - **Invoke Handler**（行 68-129）：注册全部命令处理器（见下节）。
+  - **构建与运行**（行 130-139）：`build(...).run(...)`，并在 `RunEvent::ExitRequested`（行 136）时调用 `api.prevent_exit()`（行 137）实现退出护栏。
 
-### 模块分工 (`lib.rs` 顶部注释, 行 5-13)
+### 模块声明与分工 (`lib.rs` 行 1-28)
 
-- `protocol_cmds`: 登录/注销/Portal 探测/WiFi 绑定。
-- `campus_detect`: 校园网探针 (检测卡 + check_campus_status)。
-- `config_state`: 全量配置 (Keystore 加密落盘/掩码出口)。
-- `self_service_cmds`: 自助服务六命令 + 生物识别验证门。
-- `identity_gate` / `login_history`: 验证门 TTL 与登录历史。
-- `quality_history`: 网络质量历史落盘 (形状与桌面端一致)。
-- `android_state`: 进程态 (源 IP 缓存/配置内存态/监控循环句柄)。
-- 其他导入模块: `cpu_affinity`, `monitor_loop`, `account_cmds`, `system_cmds`, `quality_cmds`, `update_cmds`, `face_model_cmds`, `battery_cmds`。
+顶部注释（行 1-11）与 `mod` 声明（行 12-28）定义以下模块：
 
-### 公开命令面 (按模块归类)
+- `campus_detect`（行 12，注释行 3-4）：校园网探针（`check_campus_status` 等）
+- `android_state`（行 13，注释行 10）：进程态（源 IP 缓存/配置内存态/监控循环句柄）
+- `config_state`（行 14，注释行 5）：全量配置（Keystore 加密落盘/掩码出口）
+- `cpu_affinity`（行 15）：绑核逻辑
+- `identity_gate`（行 16，注释行 8）：验证门 TTL
+- `login_history`（行 17，注释行 8）：登录历史
+- `protocol_cmds`（行 18，注释行 3）：登录/注销/Portal 探测/WiFi 绑定
+- `self_service_cmds`（行 19，注释行 6）：自助服务七网络命令 + 生物识别验证门
+- `vpn_cmds`（行 20，注释行 7）：WebVPN 凭据命令与自助服务校外自动路由
+- `monitor_loop`（行 21）：监控循环
+- `account_cmds`（行 22）：账户命令
+- `system_cmds`（行 23）：系统命令
+- `quality_cmds`（行 24）：网络质量命令
+- `quality_history`（行 25，注释行 9）：网络质量历史落盘
+- `update_cmds`（行 26）：更新命令
+- `face_model_cmds`（行 27）：人脸模型命令
+- `battery_cmds`（行 28）：电池优化命令
 
-**Protocol (`protocol_cmds`)**:
-- `ping_test`
-- `bind_to_wifi`
-- `accept_wifi_network`
-- `get_avoid_bad_wifi_status`
-- `restore_written_settings`
-- `do_login`
-- `do_logout`
-- `check_portal_status`
+### 公开命令面（按模块归类, `lib.rs` 行 68-129）
 
-**Campus Detect (`campus_detect`)**:
-- `detect_campus`
-- `check_campus_status`
-- `request_wifi_ssid_permission`
+以下命令通过 `tauri::generate_handler!` 宏注册，行号对应 `invoke_handler` 列表：
 
-**Config (`config_state`)**:
-- `get_config`
-- `save_config`
+**Protocol (`protocol_cmds`)** – 行 69-76：
+- `ping_test`（行 69）
+- `bind_to_wifi`（行 70）
+- `accept_wifi_network`（行 71）
+- `get_avoid_bad_wifi_status`（行 72）
+- `restore_written_settings`（行 73）
+- `do_login`（行 74）
+- `do_logout`（行 75）
+- `check_portal_status`（行 76）
 
-**Self Service (`self_service_cmds`)**:
-- `verify_biometric_identity`
-- `bind_operator`
-- `query_bind_status`
-- `query_self_dashboard`
-- `query_self_online_log`
-- `self_offline_session`
-- `change_self_password`
-- `reveal_operator_credential`
+**Campus Detect (`campus_detect`)** – 行 77-78：
+- `check_campus_status`（行 77）
+- `request_wifi_ssid_permission`（行 78）
 
-**Account (`account_cmds`)**:
-- `list_accounts`
-- `switch_account`
-- `rename_account`
-- `save_current_as_account`
-- `delete_account`
-- `get_active_account`
+**Config (`config_state`)** – 行 79-80：
+- `get_config`（行 79）
+- `save_config`（行 80）
 
-**System (`system_cmds`)**:
-- `get_init_data`
-- `get_soc_info`
-- `get_logs`
-- `clear_logs`
-- `get_log_retention_days`
-- `set_log_retention_days`
-- `get_debug_mode`
-- `set_debug_mode`
+**Self Service (`self_service_cmds`)** – 行 81-88：
+- `verify_biometric_identity`（行 81）
+- `bind_operator`（行 82）
+- `query_bind_status`（行 83）
+- `query_self_dashboard`（行 84）
+- `query_self_online_log`（行 85）
+- `self_offline_session`（行 86）
+- `change_self_password`（行 87）
+- `reveal_operator_credential`（行 88）
 
-**Monitor (`monitor_loop`)**:
-- `start_background_check`
-- `stop_background_check`
-- `trigger_background_check`
-- `get_background_status`
-- `get_boot_autostart`
-- `set_boot_autostart`
-- `get_notification_enabled`
-- `set_notification_enabled`
+**VPN (`vpn_cmds`)** – 行 89-93：
+- `vpn_save_credential`（行 89）
+- `vpn_credential_status`（行 90）
+- `vpn_clear_credential`（行 91）
+- `set_self_service_via_vpn`（行 92）
+- `vpn_test_connection`（行 93）
 
-**Battery (`battery_cmds`)**:
-- `get_battery_optimization_info`
-- `request_ignore_battery_optimizations`
-- `open_vendor_battery_settings`
-- `open_notification_settings`
+**Account (`account_cmds`)** – 行 94-100：
+- `list_accounts`（行 94）
+- `switch_account`（行 95）
+- `rename_account`（行 96）
+- `save_current_as_account`（行 97）
+- `create_account`（行 98）
+- `delete_account`（行 99）
+- `get_active_account`（行 100）
 
-**Quality (`quality_cmds`)**:
-- `check_network_quality`
-- `start_latency_test`
-- `stop_latency_test`
+**System (`system_cmds`)** – 行 101-107：
+- `get_init_data`（行 101）
+- `get_logs`（行 102）
+- `clear_logs`（行 103）
+- `get_log_retention_days`（行 104）
+- `set_log_retention_days`（行 105）
+- `get_debug_mode`（行 106）
+- `set_debug_mode`（行 107）
 
-**Update (`update_cmds`)**:
-- `check_update`
-- `download_update`
-- `get_mirror_urls`
-- `install_update`
+**Monitor (`monitor_loop`)** – 行 108-115：
+- `start_background_check`（行 108）
+- `stop_background_check`（行 109）
+- `trigger_background_check`（行 110）
+- `get_background_status`（行 111）
+- `get_boot_autostart`（行 112）
+- `set_boot_autostart`（行 113）
+- `get_notification_enabled`（行 114）
+- `set_notification_enabled`（行 115）
 
-**Face Model (`face_model_cmds`)**:
-- `face_models_state`
-- `face_models_download`
+**Battery (`battery_cmds`)** – 行 116-119：
+- `get_battery_optimization_info`（行 116）
+- `request_ignore_battery_optimizations`（行 117）
+- `open_vendor_battery_settings`（行 118）
+- `open_notification_settings`（行 119）
+
+**Quality (`quality_cmds`)** – 行 120-122：
+- `check_network_quality`（行 120）
+- `start_latency_test`（行 121）
+- `stop_latency_test`（行 122）
+
+**Update (`update_cmds`)** – 行 123-126：
+- `check_update`（行 123）
+- `download_update`（行 124）
+- `get_mirror_urls`（行 125）
+- `install_update`（行 126）
+
+**Face Model (`face_model_cmds`)** – 行 127-128：
+- `face_models_state`（行 127）
+- `face_models_download`（行 128）
 
 ## Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                   android/src-tauri                         │
-│                                                             │
-│  ┌──────────────────┐     ┌──────────────────────────────┐  │
-│  │   Tauri Builder  │     │      Invoke Handlers         │  │
-│  │                  │     │                              │  │
-│  │ [mobile] Plugins │     │ protocol_cmds                │  │
-│  │ • network-bind   │────►│ campus_detect                │  │
-│  │ • keystore       │     │ config_state                 │  │
-│  │ • monitor-svc    │     │ self_service_cmds            │  │
-│  │ • biometric      │     │ account_cmds                 │  │
-│  │ • notification   │     │ system_cmds                  │  │
-│  │                  │     │ monitor_loop                 │  │
-│  │ [not mobile]     │     │ quality_cmds                 │  │
-│  │ (Empty Plugins)  │     │ update_cmds                  │  │
-│  │                  │     │ face_model_cmds              │  │
-│  └────────┬─────────┘     │ battery_cmds                 │  │
-│           │               └──────────┬───────────────────┘  │
-│           │                          │                      │
-│           ▼                          ▼                      │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │              Shared State & Logic                     │   │
-│  │                                                      │   │
-│  │ • android_state (IP cache, mem config, monitor handle)│   │
-│  │ • campus-login (path dep from ../../tauri-app)        │   │
-│  │ • infra::logger (init at startup)                     │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
-│  Exit Guard: prevents_exit() on window close to keep        │
-│  foreground service alive for monitoring/auto-switch.       │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│ android/src-tauri lib.rs run() (行33-139)     │
+│ ┌────────────────┐   ┌──────────────────────┐ │
+│ │ Tauri Builder  │   │ Invoke Handlers      │ │
+│ │ [mobile] plugins│─►│ 命令 行69-128        │ │
+│ │ (行37-41)      │   │ (protocol, vpn...)   │ │
+│ │ [not mobile]   │   └──────────┬───────────┘ │
+│ │ only manage   │              │             │
+│ └──────┬────────┘              ▼             │
+│        ▼             ┌──────────────────────┐ │
+│ ┌──────────────────────────────────────────┐ │
+│ │ Shared: AndroidState(42,44),             │ │
+│ │ campus-login(Cargo 31), logger(56)      │ │
+│ └──────────────────────────────────────────┘ │
+│ Exit Guard: prevent_exit() 行136-138         │
+└──────────────────────────────────────────────┘
 ```
 
 ## Data Flow
 
-1.  **Startup**: `run()` 被调用 -> 根据 `#[cfg(mobile)]` 注册插件 -> Setup 阶段初始化日志、启动后台监控循环 (`monitor_loop::run_startup_tasks`)、清理孤儿 tmp 文件。
-2.  **Runtime**: 前端通过 Tauri Commands 调用后端逻辑。例如 `do_login` 触发 `protocol_cmds::do_login`，可能涉及 `campus-login` 核心逻辑和 `config_state` 读写。
-3.  **Background**: `monitor_loop` 在后台运行检测和定时任务，不受 UI 窗口关闭影响（得益于 Exit Guard）。
-4.  **Shutdown**: 用户划掉任务 -> `ExitRequested` 事件触发 -> `api.prevent_exit()` -> 进程保留，前台服务继续运行。只有用户通过系统设置彻底退出时，进程才会终止。
+1. **Startup**：`run()`（行 33）被调用 -> 依据 `#[cfg(mobile)]`（行 35）注册安卓插件 -> `setup` 阶段（行 47）初始化日志目录并调用 `init_logger`（行 56）、启动后台任务 `monitor_loop::run_startup_tasks`（行 60）、异步清理孤儿 tmp 文件（行 63）。
+
+2. **Runtime**：前端通过 Tauri Commands 调用已注册命令（如 `protocol_cmds::do_login` 行 74），后端逻辑可能调用 `campus-login` 核心（Cargo.toml 行 31）与 `config_state` 读写。
+
+3. **Background**：`monitor_loop` 模块（行 21）在后台运行检测/定时任务，不受 UI 关闭影响（得益于退出护栏）。
+
+4. **Shutdown**：用户划掉任务 -> `RunEvent::ExitRequested`（行 136）触发 -> `api.prevent_exit()`（行 137）-> 进程保留，前台服务继续；仅系统设置彻底退出才终止。
 
 ## Known Issues
 
-- **Host Build Failure**: 在 Host 环境（非 Android 目标）下，`cargo check` 和 `cargo test` **必然失败**。
-    - **原因**: `lib.rs` 中的 `#[cfg(mobile)]` 块在 Host 上被跳过，导致平台特定插件未注册；同时 `Cargo.toml` 中的 `[target.'cfg(target_os = "android")'.dependencies]` 段（如 `android_system_properties`, `libc`）在 Host 上不可用。
-    - **结论**: 基线状态下 Host `cargo check` 就是失败的，不要用它来判断安卓改动是否有问题。
-    - **解决方案**: 必须使用交叉编译进行验证：`cargo check --target aarch64-linux-android --all-targets`（需配置 NDK 工具链环境变量），或使用构建脚本 `pwsh android/build-apk.ps1` 一键出包。在 Host 上进行功能测试需要注入假桥（Mock）。
+- **Host Build Failure**：在 Host 环境（非 Android 目标）下，`cargo check` 和 `cargo test` **仍会失败**。
+  - **过期原因修正**：旧文章声称失败是因为 `Cargo.toml` 中存在 `[target.'cfg(target_os = "android")'.dependencies]` 段（如 `android_system_properties`）在 Host 不可用。当前源码（行 14-48）已全部为普通 `[dependencies]`，无 target 门控；`libc`（行 28）跨平台，`android_system_properties` 已移除。
+  - **真实原因**：`lib.rs` 中 `#[cfg(mobile)]` 块（行 35-42）在 Host 编译时被忽略，仅执行 `#[cfg(not(mobile))]`（行 43-44）空插件管理；但插件 crate 如 `tauri-plugin-campus-network-bind`（行 34）、`tauri-plugin-campus-keystore`（行 37）等是安卓专属 path 依赖，其内部使用安卓 JNI/NDK 接口，在 Host 缺少对应目标时编译报错，导致整体 `cargo check` 失败。`tauri_plugin_biometric`（行 40）注释声明自身 `#![cfg(mobile)]` 在 host 编译为空，不是失败主因。
+  - **结论**：基线状态下 Host `cargo check` 不可用，不要用它判断安卓改动正确性。
+  - **解决方案**：必须使用交叉编译验证：`cargo check --target aarch64-linux-android --all-targets`（需配置 NDK 工具链），或使用构建脚本出包。功能测试需注入 Mock。
 
 ## Connections
 
