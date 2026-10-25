@@ -25,6 +25,9 @@ const LENS_MAGNIFY = 0.16
 const LIFT_SNAP = 0.975
 /** 镜头离目标还有这么远时先不落，单位是项（`_liftRelease`） */
 const LIFT_RELEASE = 0.04
+/** 长距离移动时压低放大，避免整排图标随镜头高速扫过；靠近目标再恢复 */
+const TRAVEL_MAGNIFY_ATTENUATION = 0.65
+const TRAVEL_LIFT_ATTENUATION = 0.35
 /** 果冻：速度参考值与拉伸量（`_jellySpeed/_jellyStretch`） */
 const JELLY_SPEED = 3
 const JELLY_STRETCH = 0.2
@@ -50,11 +53,12 @@ const TOUCH_SLOP = 8
 const SPRING = {
   /** 拖动的镜头跟随：要跟手，不能回弹 */
   follow: springOfRatio(900, 1),
-  /** 点选后镜头走向目标项：快，收尾带一点回弹 */
+  /** 邻近项移动：保留原有短距离手感，收尾带一点回弹 */
   travel: springOfDuration(320, 0.12),
-  /** 抬起：按下去要立刻起来 */
+  /** 长距离移动：完全阻尼，不让高速过冲放大中间图标 */
+  travelFar: springOfRatio(420, 1),
+  /** 抬起：保留短距离原有的轻微回弹 */
   lift: springOfDuration(280, 0.08),
-  /** 整条膨胀 */
   /** 越界拉伸回弹 */
   pull: springOfDuration(200, 0.2),
   /** 果冻形变：留回弹才有弹性 */
@@ -107,6 +111,10 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
     let widths: number[] = []
     let barW = 0
     let barH = 0
+    let stripX = 0
+    let stripY = 0
+    let stripW = 0
+    let stripH = 0
     const itemsOf = () => Array.from(nav.querySelectorAll<HTMLElement>('[data-dock-item]'))
     const measure = () => {
       const items = itemsOf()
@@ -117,6 +125,11 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       widths = items.map((el) => el.offsetWidth)
       barW = nav.clientWidth
       barH = nav.clientHeight
+      // 这些几何量在 render 中绝不能回读：上一帧刚写过镜头宽高，回读会强制重排。
+      stripX = stripEl?.offsetLeft ?? 0
+      stripY = stripEl?.offsetTop ?? 0
+      stripW = stripEl?.clientWidth ?? 0
+      stripH = stripEl?.clientHeight ?? 0
     }
     measure()
 
@@ -147,14 +160,24 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
     let pressedIndex: number | null = null
     let dragging = false
     let dropping = false
+    let travelAttenuation = 0
+    let framePending = false
+    let renderRaf = 0
     let glowAt = { x: 0, y: 0 }
     /** 最近几次横向位置，用来估松手速度（投掷） */
     let samples: Array<{ x: number; t: number }> = []
 
-    // ---- 渲染：每帧只写 style ----
+    // ---- 渲染：同一帧最多写一次，所有布局测量已在 measure 中完成 ----
+    let lastStretch: number | null = null
+    let lastGlowX: number | null = null
+    let lastGlowY: number | null = null
+    let lastGlowAlpha: number | null = null
+    let lastGlowReach: number | null = null
     const render = () => {
       const l = lens.value
-      const lf = Math.min(1, Math.max(0, lift.value))
+      // 目标距离决定途中倍率，而不是按经过几个项反复闪烁；慢速拖动的短距离手感不变。
+      const far = travelAttenuation * saturate(Math.abs(lens.goal - l) * 1.2)
+      const lf = Math.min(1, Math.max(0, lift.value)) * (1 - far * TRAVEL_LIFT_ATTENUATION)
       const baseW = widthAt(l)
       const w = (baseW + LENS_GROWTH * 2 * lf) * (1 + jelly.value)
       const h = (barH + LENS_GROWTH * 2 * lf) * (1 - jelly.value * JELLY_ASPECT)
@@ -162,6 +185,7 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       const top = (barH - h) / 2
       const left = cx - w / 2
 
+      // 外框只做 GPU 平移；尺寸只在一个节点上变化，不让 nav 自身参与每帧布局。
       lensEl.style.width = `${w}px`
       lensEl.style.height = `${h}px`
       lensEl.style.transform = `translate3d(${left}px, ${top}px, 0)`
@@ -173,7 +197,7 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       // 会跟着一起放大，边缘就对不上（这正是镜片边上露出错位图标的根因）。
       // 显隐是硬开关不是渐变：镜片里同一时刻只能有一份内容，淡入淡出让
       // 放大副本和原项各半透明地叠着，看起来就是重影。
-      const mag = 1 + LENS_MAGNIFY * lf
+      const mag = 1 + LENS_MAGNIFY * lf * (1 - far * TRAVEL_MAGNIFY_ATTENUATION)
       magEl.style.clipPath = `inset(${top}px ${Math.max(0, barW - cx - w / 2)}px ${Math.max(
         0,
         barH - top - h,
@@ -185,7 +209,10 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       // 越界拉伸：只在把镜头拖出栏外时横向让开，是水平方向的退让，
       // 不做整条缩放——缩放会把 box-shadow 一起乘，阴影跟着变大变浓，
       // 观感是「整条栏连同阴影浮起来」，而 1.2% 的放大本身根本看不出来。
-      nav.style.setProperty('--dock-stretch', `${stretch.value}px`)
+      if (lastStretch !== stretch.value) {
+        nav.style.setProperty('--dock-stretch', `${stretch.value}px`)
+        lastStretch = stretch.value
+      }
 
       // 镜片盖住的那段必须从原项里挖掉，否则放大副本底下还压着原来的图标
       // 和文字，两套错位叠着就是残影。挖的是药丸而不是方框——方框的四个角
@@ -195,10 +222,10 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
         if (lf <= 0.01 || w < 2 || h < 2) {
           if (stripEl.style.clipPath !== '') stripEl.style.clipPath = ''
         } else {
-          const sw = stripEl.clientWidth
-          const sh = stripEl.clientHeight
-          const x0 = left - stripEl.offsetLeft
-          const y0 = top - stripEl.offsetTop
+          const sw = stripW
+          const sh = stripH
+          const x0 = left - stripX
+          const y0 = top - stripY
           const x1 = x0 + w
           const y1 = y0 + h
           const r = h / 2
@@ -212,13 +239,35 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
 
       // 光斑：强度走二次曲线，松手时半径同时扩到 4 倍，读起来是「散开」不是「熄灭」
       const g = glow.value
-      nav.style.setProperty('--dock-glow-x', `${glowAt.x}px`)
-      nav.style.setProperty('--dock-glow-y', `${glowAt.y}px`)
-      nav.style.setProperty('--dock-glow-alpha', String(GLOW_PEAK * g * g))
-      nav.style.setProperty(
-        '--dock-glow-reach',
-        `${GLOW_REACH * (1 + GLOW_GROWTH * glowSpread.value)}px`,
-      )
+      const alpha = GLOW_PEAK * g * g
+      const reach = GLOW_REACH * (1 + GLOW_GROWTH * glowSpread.value)
+      if (lastGlowX !== glowAt.x) {
+        nav.style.setProperty('--dock-glow-x', `${glowAt.x}px`)
+        lastGlowX = glowAt.x
+      }
+      if (lastGlowY !== glowAt.y) {
+        nav.style.setProperty('--dock-glow-y', `${glowAt.y}px`)
+        lastGlowY = glowAt.y
+      }
+      if (lastGlowAlpha !== alpha) {
+        nav.style.setProperty('--dock-glow-alpha', String(alpha))
+        lastGlowAlpha = alpha
+      }
+      if (lastGlowReach !== reach) {
+        nav.style.setProperty('--dock-glow-reach', `${reach}px`)
+        lastGlowReach = reach
+      }
+    }
+
+    // 六条弹簧共享一个 rAF，但回调可能先后触发；合并后再写，避免同帧重复裁剪与重绘。
+    const requestRender = () => {
+      if (framePending) return
+      framePending = true
+      renderRaf = requestAnimationFrame(() => {
+        framePending = false
+        renderRaf = 0
+        render()
+      })
     }
 
     // 果冻：驱动量就是镜头自己的速度，所以在镜头每帧回调里算
@@ -242,17 +291,25 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
 
     const lens = new Motion(selected, () => {
       wobbler()
-      render()
+      requestRender()
       maybeDrop()
     })
     const lift = new Motion(0, () => {
-      render()
+      requestRender()
       maybeDrop()
     })
-    const stretch = new Motion(0, render)
-    const jelly = new Motion(0, render)
-    const glow = new Motion(0, render)
-    const glowSpread = new Motion(0, render)
+    const stretch = new Motion(0, requestRender)
+    const jelly = new Motion(0, requestRender)
+    const glow = new Motion(0, requestRender)
+    const glowSpread = new Motion(0, requestRender)
+
+    /** 跨两个及以上项距时使用无过冲弹簧，短距离仍走原来的 travel。 */
+    const moveLens = (target: number, allowFollow = false) => {
+      const far = !allowFollow && Math.abs(target - lens.value) >= 2
+      travelAttenuation = far ? 1 : 0
+      if (far) requestRender()
+      lens.to(target, far ? SPRING.travelFar : allowFollow ? SPRING.follow : SPRING.travel)
+    }
 
     /** 指针横坐标 → 连续的项坐标（0 = 第一项中心，1 = 第二项中心…） */
     const positionAt = (clientX: number) => {
@@ -299,12 +356,26 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       if (!dragging) return
 
       const position = positionAt(e.clientX)
-      lens.to(position, SPRING.follow)
+      moveLens(position, true)
       pressedIndex = clampIndex(position)
     }
 
+    /**
+     * 按下点是否落在「项区域」里。
+     * 栏里除了项还有登录/注销按钮、分隔条和适配器菜单，它们各自处理点击；
+     * 这套手势若不区分目标、只把按下点按横坐标映射成项坐标，点右侧按钮就会被
+     * 算成「点选最右那一项」——松手时标签页被切走，按钮自己的 click 反而落空。
+     * 项区域按 [data-dock-strip] 判定：项之间的空隙也算（点空隙选最近的项），
+     * 只有按钮、分隔条、菜单这些独立控件不接管。
+     */
+    const inItemStrip = (target: EventTarget | null) =>
+      !stripEl || (target instanceof Node && stripEl.contains(target))
+
     const onDown = (e: PointerEvent) => {
       if (pointerId !== null || e.button !== 0) return
+      // 不接管栏内其它控件的按下：一旦 setPointerCapture 抢走指针，
+      // 那些控件的 click 就跟着没了
+      if (!inItemStrip(e.target)) return
       pointerId = e.pointerId
       pressX = e.clientX
       dragging = false
@@ -323,7 +394,7 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       glowSpread.jump(0)
       glow.to(1, SPRING.glowIn)
       lift.to(1, SPRING.lift)
-      lens.to(pressedIndex, SPRING.travel)
+      moveLens(pressedIndex)
     }
 
     /** 松手速度投影成「还能再带几项」，最多越过当前按着的那一项 */
@@ -356,7 +427,7 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       if (pressed !== null) {
         const target = commit ? flingTarget(pressed) : selected
         dropping = true
-        lens.to(target, SPRING.travel)
+        moveLens(target)
         maybeDrop()
         if (commit && target !== selected) {
           selected = target
@@ -388,7 +459,7 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
     // 外部改选中（键盘、程序化跳转）：只动镜头，不触发 onSelect
     syncRef.current = (index: number) => {
       selected = clampIndex(index)
-      if (pointerId === null) lens.to(selected, SPRING.travel)
+      if (pointerId === null) moveLens(selected)
     }
 
     const ro = new ResizeObserver(() => {
@@ -415,6 +486,7 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onCancel)
       window.removeEventListener('blur', onBlur)
+      if (renderRaf) cancelAnimationFrame(renderRaf)
       syncRef.current = null
       for (const m of [lens, lift, stretch, jelly, glow, glowSpread]) {
         m.dispose()
