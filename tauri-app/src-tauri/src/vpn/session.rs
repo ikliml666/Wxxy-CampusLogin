@@ -20,9 +20,10 @@
 //! - 多域恢复须把 RecordingJar 的 (名, 值) 快照模型扩成 (名, 值, 域) 三元组，牵动 M1
 //!   门户 session.json 格式与 `restore` 的单域回填语义（jar.rs:15 `RESTORE_URL`），
 //!   破坏面大于收益。
-//! 本会话仍复用 RecordingJar 作 cookie 存储与 (名, 值) 记录（[`WebVpnSession::jar`]），
-//! 不改变其现有 recording/回填语义；会话失效由 [`WebVpnSession::is_alive`] 或业务响应
-//! 暴露，上层凭 TGT 重新 [`WebVpnSession::login`]（静默重登）。
+//! 本会话仍复用 RecordingJar 作 cookie 存储与 (名, 值) 记录（`new` 内经
+//! `cookie_provider` 挂载），不改变其现有 recording/回填语义；会话失效由
+//! [`WebVpnSession::is_alive`] 或业务响应暴露，上层凭 TGT 重新
+//! [`WebVpnSession::login`]（静默重登）。
 
 use super::wrap::{wrap_url, GATEWAY};
 use super::WebVpnError;
@@ -33,6 +34,10 @@ use std::sync::Arc;
 use url::form_urlencoded;
 
 /// 深澜网关 ticket cookie 名（初始值与登录态同名，REPORT 三·二步骤 1/3 实测）。
+///
+/// 协议事实命名常量：登录态判定经 302 Location（[`WebVpnSession::is_alive`]），
+/// 代码不读 cookie 名，取值由测试锚定。
+#[allow(dead_code)]
 pub const COOKIE_TICKET: &str = "wengine_vpn_ticketwebvpn_cwxu_edu_cn";
 
 /// 302 链手动跟随上限（webvpn.js 用 6 跳，这里留余量到 10，与 cas.rs sso_follow 一致）。
@@ -47,9 +52,6 @@ const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 /// 共享同一 cookie jar。
 #[derive(Clone)]
 pub struct WebVpnSession {
-    jar: Arc<RecordingJar>,
-    /// 自动跟随重定向（业务请求句柄，[`WebVpnSession::wrapped_client`]）。
-    http: reqwest::Client,
     /// 手动跟随重定向（登录 302 链与探活用；链中存在 body 中断的跳，默认策略会整链失败）。
     http_manual: reqwest::Client,
 }
@@ -58,10 +60,6 @@ impl WebVpnSession {
     /// 全新空会话（无 cookie）。
     pub fn new() -> Result<Self, WebVpnError> {
         let jar = Arc::new(RecordingJar::new());
-        let http = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .cookie_provider(jar.clone())
-            .build()?;
         // 手动跟随用：深澜 302 链存在响应 body 中断的跳（hyper IncompleteMessage，
         // cas.rs sso_follow 同款教训），手动跟随只要 Location 与 Set-Cookie 即可继续。
         let http_manual = reqwest::Client::builder()
@@ -69,11 +67,7 @@ impl WebVpnSession {
             .cookie_provider(jar.clone())
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
-        Ok(Self {
-            jar,
-            http,
-            http_manual,
-        })
+        Ok(Self { http_manual })
     }
 
     /// CAS TGT 静默登录 WebVPN 网关（REPORT 三·二步骤 1→2→3）。
@@ -120,22 +114,11 @@ impl WebVpnSession {
         !is_login_redirect(status, loc.as_deref())
     }
 
-    /// 业务 HTTP 句柄（自动跟随重定向，与登录共用同一 cookie jar）：
-    /// 批 4 路由接入用 `wrap_url` 包装目标 URL 后经本 client 请求。
-    pub fn wrapped_client(&self) -> &reqwest::Client {
-        &self.http
-    }
-
     /// 业务 HTTP 句柄（**手动**跟随重定向，与登录共用同一 cookie jar）：
     /// 供按 302 Location 自行判定的协议使用（自助服务登录 verify 成功/失败、
     /// 会话失效均以 Location 区分），禁自动跟随才拿得到中间跳的 Location。
     pub fn wrapped_client_manual(&self) -> &reqwest::Client {
         &self.http_manual
-    }
-
-    /// 会话 Jar 句柄（调试 / 日志用：snapshot 只含 (名, 值)，不落盘）。
-    pub fn jar(&self) -> Arc<RecordingJar> {
-        self.jar.clone()
     }
 
     /// 手动跟随 302 链到落点，**每一跳 URL 先经 `transform`**（M4 路由接入用）。

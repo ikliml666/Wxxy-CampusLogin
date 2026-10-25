@@ -34,8 +34,6 @@ pub mod rsa;
 pub mod session;
 pub mod wrap;
 
-pub use cache::{ensure_alive as ensure_vpn_session_alive, login_and_cache, reset as reset_vpn_session};
-pub use crypto::{decrypt_host, encrypt_host};
 pub use error::CasAuthError;
 pub use route::{route, NetZone, RouteDecision};
 pub use session::WebVpnSession;
@@ -54,6 +52,8 @@ pub enum WebVpnError {
     #[error("invalid hex ciphertext: {0}")]
     InvalidHex(#[from] hex::FromHexError),
     #[error("IV segment missing or does not equal the fixed gateway IV")]
+    // 仅 decrypt_host（测试锚定的对称实现，见 crypto.rs）构造
+    #[allow(dead_code)]
     InvalidIv,
     #[error("decrypted host is not valid UTF-8: {0}")]
     InvalidUtf8(#[from] std::string::FromUtf8Error),

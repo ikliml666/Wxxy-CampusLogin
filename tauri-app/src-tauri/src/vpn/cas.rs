@@ -32,13 +32,15 @@ const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 #[derive(Clone)]
 pub struct CasClient {
     http: reqwest::Client,
-    jar: Arc<RecordingJar>,
 }
 
 /// CAS 登录成功结果。
 #[derive(Debug, Clone)]
 pub struct CasLoginOk {
     pub tgt: String,
+    /// 协议响应完整形态（REPORT.md 三节：顶层 `{tgt, ticket}`）；
+    /// 当前流程仅消费 tgt，ticket 由 parse 测试锚定。
+    #[allow(dead_code)]
     pub ticket: String,
 }
 
@@ -66,18 +68,7 @@ impl CasClient {
             .user_agent(USER_AGENT)
             .cookie_provider(jar.clone())
             .build()?;
-        Ok(Self { http, jar })
-    }
-
-    /// 会话 Jar 句柄。
-    pub fn jar(&self) -> Arc<RecordingJar> {
-        self.jar.clone()
-    }
-
-    /// 共享本会话 Cookie jar 的 HTTP client 句柄；
-    /// reqwest::Client 为 Arc 包装，clone 与原实例共享 jar。
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.http
+        Ok(Self { http })
     }
 
     /// POST {CAS_BASE}/v1/tickets：CAS 账密登录。

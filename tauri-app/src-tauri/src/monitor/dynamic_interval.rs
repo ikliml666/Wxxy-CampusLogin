@@ -71,12 +71,6 @@ impl DynamicInterval {
         }
         ms
     }
-
-    /// 当前连续未在线轮数（测试用）
-    #[cfg(test)]
-    pub fn offline_streak(&self) -> u32 {
-        self.offline_streak
-    }
 }
 
 /// 未登录退避：基础间隔 ×2^(streak-1)，封顶 [`BACKOFF_CAP_MS`]；

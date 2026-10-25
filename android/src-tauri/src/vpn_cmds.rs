@@ -13,10 +13,10 @@ use tauri::Manager;
 
 use campus_login_lib::self_service::SelfServiceChannel;
 use campus_login_lib::vpn::cache::{
-    ensure_alive, map_cas_auth_error, map_cas_login_error, map_webvpn_error,
-    reset as reset_vpn_session, store as store_vpn_session,
+    ensure_alive, reset as reset_vpn_session, store as store_vpn_session,
 };
 use campus_login_lib::vpn::cas::CasClient;
+use campus_login_lib::vpn::error::{map_cas_auth_error, map_cas_login_error, map_webvpn_error};
 use campus_login_lib::vpn::{NetZone, WebVpnSession};
 
 use crate::config_state::{current_settings, CryptoBridge, Settings};

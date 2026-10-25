@@ -4,6 +4,10 @@
 //! `reqwest::cookie::CookieStore`（set_cookies / cookies 两方法，0.12.28 均为 `&self`），
 //! 委托内置 `reqwest::cookie::Jar` 并记录 (名, 值) 供 check_session / session.json 持久化使用
 //! （DPAPI 加密由上层做）。
+//!
+//! `snapshot` / `restore` / `has` 为 M1 会话恢复的预留冻结接口，当前无调用方：
+//! 上层批 3 取舍为「WebVPN 会话不落盘、失效重登」（见 session.rs 模块文档），
+//! 接口按原计划保留。
 
 use reqwest::cookie::CookieStore;
 use reqwest::header::HeaderValue;
@@ -12,6 +16,7 @@ use std::sync::Mutex;
 /// restore 回填的目标域：M1 会话恢复的核心是门户会话（customsid / Authorization /
 /// rememberMe，REPORT.md 三节实测均种在 my.cwxu.edu.cn）。
 /// 多域恢复（WebVPN 等）待 M4 按需扩展；(名, 值) 快照本身不含域信息（计划冻结接口）。
+#[allow(dead_code)] // 预留冻结接口（见模块文档）
 const RESTORE_URL: &str = "https://my.cwxu.edu.cn/";
 
 /// 委托内置 Jar 的记录型 CookieStore（`CasClient::new` 内经
@@ -36,12 +41,14 @@ impl RecordingJar {
     }
 
     /// 全部已见 cookie（供 session.json 持久化）。
+    #[allow(dead_code)] // 预留冻结接口（见模块文档）
     pub fn snapshot(&self) -> Vec<(String, String)> {
         self.locked().clone()
     }
 
     /// 启动回填：把快照 cookies 重新塞回内置 Jar（按门户域，使请求真正携带）并计入记录。
     /// 同名 cookie 覆盖旧值（幂等，重复 restore 不累积）。
+    #[allow(dead_code)] // 预留冻结接口（见模块文档）
     pub fn restore(&self, cookies: &[(String, String)]) {
         {
             let mut recorded = self.locked();
@@ -61,6 +68,7 @@ impl RecordingJar {
     }
 
     /// 浅检测：是否存在指定 cookie（如 check_session 用 customsid）。
+    #[allow(dead_code)] // 预留冻结接口（见模块文档）
     pub fn has(&self, name: &str) -> bool {
         self.locked().iter().any(|(n, _)| n == name)
     }

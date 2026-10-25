@@ -48,7 +48,8 @@ pub enum RouteDecision {
     Wrapped(String),
     /// 校外 + 内网目标 + 无 WebVPN 会话：需要先登录（上层给「请重新登录」类文案）。
     NeedLogin,
-    /// 无可用路径（**本函数不产生**，预留位，见模块头注）。
+    /// 无可用路径（**本函数不产生**，预留位，见模块头注；commands/vpn.rs 已就绪匹配）。
+    #[allow(dead_code)]
     Unreachable(String),
 }
 

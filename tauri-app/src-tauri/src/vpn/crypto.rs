@@ -9,6 +9,9 @@ use cfb_mode::{Decryptor, Encryptor};
 const KEY: [u8; 16] = *b"wrdvpnisthebest!";
 
 type Aes128CfbEnc = Encryptor<aes::Aes128>;
+// 解密侧无生产调用方（本端只做 URL 包装加密），保留为算法对称实现，
+// 由测试（golden 向量 / roundtrip / 坏 IV 拒绝）锚定回归。
+#[allow(dead_code)]
 type Aes128CfbDec = Decryptor<aes::Aes128>;
 
 /// 加密 host（域名或 IP），返回 `hex(IV) + hex(密文)`。
@@ -24,6 +27,7 @@ pub fn encrypt_host(host: &str) -> String {
 /// 解密网关 URL 中抠出的 `hex(IV)+hex(密文)` 整段，还原 host。
 ///
 /// IV 段须等于固定网关 IV（本网关恒为 key），不符时报 [`WebVpnError::InvalidIv`]。
+#[allow(dead_code)] // 对称 API，仅测试锚定（见 Aes128CfbDec 处注释）
 pub fn decrypt_host(hex_text: &str) -> Result<String, WebVpnError> {
     let buf = hex::decode(hex_text)?;
     if buf.len() <= KEY.len() || buf[..KEY.len()] != KEY {

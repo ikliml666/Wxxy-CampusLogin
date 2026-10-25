@@ -216,15 +216,7 @@ impl SelfServiceChannel {
 
 /// 完整绑定流程：登录自助服务系统 → 取绑定表单 → 提交绑定。
 /// 成功返回服务端提示文本；失败返回可展示给用户的原因（服务端原文或本地判断）。
-pub async fn bind_operator(
-    params: &BindParams<'_>,
-    local_addr: Option<IpAddr>,
-) -> Result<String, String> {
-    let channel = SelfServiceChannel::direct(local_addr)?;
-    bind_operator_via(params, &channel).await
-}
-
-/// [`bind_operator`] 的通道化变体：执行通道由调用方决定（直连或 WebVPN 包装）。
+/// 通道化变体：执行通道由调用方决定（直连或 WebVPN 包装）。
 pub async fn bind_operator_via(
     params: &BindParams<'_>,
     channel: &SelfServiceChannel,
@@ -284,16 +276,7 @@ pub struct OperatorBinding {
 
 /// 查询当前绑定状态：登录自助系统 → 解析绑定表单预填值。
 /// 未绑定的运营商为 None；已绑定返回掩码账号（不返回任何明文凭据）。
-pub async fn query_bind_status(
-    account: &str,
-    password: &str,
-    local_addr: Option<IpAddr>,
-) -> Result<[Option<OperatorBinding>; 3], String> {
-    let channel = SelfServiceChannel::direct(local_addr)?;
-    query_bind_status_via(account, password, &channel).await
-}
-
-/// [`query_bind_status`] 的通道化变体：执行通道由调用方决定。
+/// 通道化变体：执行通道由调用方决定。
 pub async fn query_bind_status_via(
     account: &str,
     password: &str,
@@ -310,17 +293,7 @@ pub async fn query_bind_status_via(
 
 /// 查看某运营商的明文凭据（手机号 + 运营商账户密码）。
 /// 调用方必须先完成 Windows 本地身份验证（platform::identity::verify_identity）。
-pub async fn reveal_credential(
-    account: &str,
-    password: &str,
-    operator: &str,
-    local_addr: Option<IpAddr>,
-) -> Result<(String, String), String> {
-    let channel = SelfServiceChannel::direct(local_addr)?;
-    reveal_credential_via(account, password, operator, &channel).await
-}
-
-/// [`reveal_credential`] 的通道化变体：执行通道由调用方决定。
+/// 通道化变体：执行通道由调用方决定。
 pub async fn reveal_credential_via(
     account: &str,
     password: &str,
@@ -361,17 +334,7 @@ fn parse_change_password_response(text: &str) -> Result<String, String> {
 /// 修改自助服务系统密码（= 校园网登录密码，凭据统一语义）。旧密码固定为
 /// `password`（即登录密码，前端不再收集旧密码）；成功后服务端强制下线，调用方
 /// 必须同步更新本地保存的登录密码，否则后续自动登录将失败。
-pub async fn change_password(
-    account: &str,
-    password: &str,
-    new_password: &str,
-    local_addr: Option<IpAddr>,
-) -> Result<String, String> {
-    let channel = SelfServiceChannel::direct(local_addr)?;
-    change_password_via(account, password, new_password, &channel).await
-}
-
-/// [`change_password`] 的通道化变体：执行通道由调用方决定。
+/// 通道化变体：执行通道由调用方决定。
 pub async fn change_password_via(
     account: &str,
     password: &str,
@@ -605,16 +568,7 @@ async fn fetch_dashboard_json(
 
 /// 查询自助服务 dashboard 数据（在线信息 + 近期上网记录）。
 /// 一次登录会话连拉两个接口，返回原始 JSON（数组结构），展示格式化由前端完成。
-pub async fn query_dashboard(
-    account: &str,
-    password: &str,
-    local_addr: Option<IpAddr>,
-) -> Result<(serde_json::Value, serde_json::Value), String> {
-    let channel = SelfServiceChannel::direct(local_addr)?;
-    query_dashboard_via(account, password, &channel).await
-}
-
-/// [`query_dashboard`] 的通道化变体：执行通道由调用方决定。
+/// 通道化变体：执行通道由调用方决定。
 pub async fn query_dashboard_via(
     account: &str,
     password: &str,
@@ -628,19 +582,7 @@ pub async fn query_dashboard_via(
 
 /// 查询自助服务"上网记录"账单页数据（协议见模块注释第 9 条）。
 /// 日期范围 YYYY-MM-DD（含端点）；一次请求大 pageSize 拉全（前端不做翻页），
-/// 返回原始 `{ rows, summary, total }`。
-pub async fn query_online_log(
-    account: &str,
-    password: &str,
-    start_time: &str,
-    end_time: &str,
-    local_addr: Option<IpAddr>,
-) -> Result<serde_json::Value, String> {
-    let channel = SelfServiceChannel::direct(local_addr)?;
-    query_online_log_via(account, password, start_time, end_time, &channel).await
-}
-
-/// [`query_online_log`] 的通道化变体：执行通道由调用方决定。
+/// 返回原始 `{ rows, summary, total }`。通道化变体：执行通道由调用方决定。
 pub async fn query_online_log_via(
     account: &str,
     password: &str,
@@ -680,17 +622,7 @@ fn parse_offline_success(text: &str) -> bool {
 }
 
 /// 注销指定上网会话（dashboard 在线信息卡片操作列，GET tooffline?sessionid=）。
-pub async fn offline_session(
-    account: &str,
-    password: &str,
-    session_id: &str,
-    local_addr: Option<IpAddr>,
-) -> Result<(), String> {
-    let channel = SelfServiceChannel::direct(local_addr)?;
-    offline_session_via(account, password, session_id, &channel).await
-}
-
-/// [`offline_session`] 的通道化变体：执行通道由调用方决定。
+/// 通道化变体：执行通道由调用方决定。
 pub async fn offline_session_via(
     account: &str,
     password: &str,
