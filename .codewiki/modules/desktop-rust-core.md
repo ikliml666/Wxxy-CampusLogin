@@ -28,7 +28,7 @@ tags:
 
 三条贯穿全模块的纪律：
 
-1. **敏感信息唯一出站出口**：密码落盘为密文（`CryptoBridge` → `campus_keystore`，`config_state.rs:220-257`），外发配置恒经 `masked_for_display` 掩码（`config_state.rs:443-452`，非空密码 → `"***"`）；日志/错误/事件 payload 不得携带 password（`protocol_cmds.rs:37-41`），运营商归属只打 `user_len`/`operator_len` 长度、不打原文（`protocol_cmds.rs:37`）。
+1. **敏感信息唯一出站出口**：密码落盘为密文（`CryptoBridge` → `campus_keystore`，`config_state.rs:220-257`），外发配置恒经 `masked_for_display` 掩码（`config_state.rs:443-452`，非空密码 → `"***"`）；日志/错误/事件 payload 不得携带 password（`protocol_cmds.rs:37`），运营商归属只打 `user_len`/`operator_len` 长度、不打原文（`protocol_cmds.rs:37`）。
 
 2. **配置读改写全局串行**：`CONFIG_IO_LOCK`（`tokio::Mutex`，`config_state.rs:17-19`）由锁的使用者统一加锁；`account_cmds` 的 `config_io_lock` 是对 `config_state::CONFIG_IO_LOCK` 的转发（`account_cmds.rs:20-22`），防止「读旧配置 → 账号命令落盘 → 旧基线覆盖」的丢更新。
 
@@ -36,20 +36,18 @@ tags:
 
 ## Key Components
 
-### 应用装配 lib.rs（141 行）
+### 应用装配 lib.rs
 
 | 符号 | 行号 | 职责 |
 | --- | --- | --- |
-| 模块清单（17 个子模块） | `lib.rs:12-28` | campus_detect、android_state、config_state、cpu_affinity、identity_gate、login_history、protocol_cmds、self_service_cmds、vpn_cmds、monitor_loop、account_cmds、system_cmds、quality_cmds、quality_history、update_cmds、face_model_cmds、battery_cmds |
+| 模块清单（18 个子模块） | `lib.rs:12-28` | campus_detect、android_state、config_state、cpu_affinity、identity_gate、login_history、protocol_cmds、self_service_cmds、vpn_cmds、monitor_loop、account_cmds、system_cmds、quality_cmds、quality_history、update_cmds、face_model_cmds、battery_cmds |
 | `run()` | `lib.rs:33-141` | `#[cfg_attr(mobile, tauri::mobile_entry_point)]` 入口 |
 | 移动插件链 | `lib.rs:35-42` | `#[cfg(mobile)]` 下注册 campus_network_bind / campus_keystore / campus_monitor_service / biometric（该 crate `#![cfg(mobile)]`，host 编译为空）/ notification，并 `manage(AndroidState::default())`（`lib.rs:42`） |
 | host 支路 | `lib.rs:43-44` | 仅 `manage(AndroidState::default())`，无插件 |
-| setup 钩子 | `lib.rs:47-66` | 见下文 |
+| setup 钩子 | `lib.rs:56-75` | 日志目录 `app_data_dir/logs`（`lib.rs:56-60`）；`init_logger` 失败必须 `eprintln!("[startup] 日志初始化失败,日志将不可用")`（`lib.rs:56-58`，不静默）；spawn `monitor_loop::run_startup_tasks`（`lib.rs:56`）；spawn `config_state::cleanup_stale_config_tmp` 清理孤儿 tmp（`lib.rs:56`） |
 | `invoke_handler` | `lib.rs:68-130` | `generate_handler` 注册 IPC 命令 |
 | `Builder::build` | `lib.rs:131-132` | `unwrap_or_else` 直接 panic |
-| 退出护栏 | `lib.rs:138-141` | `RunEvent::ExitRequested` → `api.prevent_exit()`（`lib.rs:138-140`） |
-
-setup 细节：日志目录 `app_data_dir/logs`（`lib.rs:56-60`）；`init_logger` 失败必须 `eprintln!("[startup] 日志初始化失败,日志将不可用")`（`lib.rs:56-58`，不静默）；spawn `monitor_loop::run_startup_tasks`（`lib.rs:56`）；spawn `config_state::cleanup_stale_config_tmp` 清理孤儿 tmp（`lib.rs:56-58`）。
+| 退出护栏 | `lib.rs:138-140` | `RunEvent::ExitRequested` → `api.prevent_exit()`（`lib.rs:138-140`） |
 
 命令注册分组（`lib.rs:68-130`）：
 
@@ -70,7 +68,7 @@ setup 细节：日志目录 `app_data_dir/logs`（`lib.rs:56-60`）；`init_logg
 
 退出护栏：`RunEvent::ExitRequested` → `api.prevent_exit()`（`lib.rs:138-140`）。根因是 tauri #15671：安卓上划掉任务只关 UI，进程随前台服务常驻；不拦住会把常驻服务一起杀掉。
 
-### 配置状态 config_state.rs（903 行）
+### 配置状态 config_state.rs
 
 常量与锁：
 
@@ -142,12 +140,12 @@ setup 细节：日志目录 `app_data_dir/logs`（`lib.rs:56-60`）；`init_logg
 | 方法/类型 | 行号 | 职责 |
 | --- | --- | --- |
 | `CryptoBridge` | `config_state.rs:220-257` | encrypt/decrypt 回调（`Arc<dyn Fn>`） |
-| `CryptoBridge::from_app` | `config_state.rs:230-259` | mobile → `tauri_plugin_campus_keystore`（227-247）；not(mobile) 恒 Err "Keystore 仅移动端可用"（248-256） |
+| `CryptoBridge::from_app` | `config_state.rs:230-259` | mobile → `tauri_plugin_campus_keystore`（228-247）；not(mobile) 恒 Err "Keystore 仅移动端可用"（248-256） |
 | `EncodedSettings` | `config_state.rs:260-265` | 磁盘形态 `{settings, passwordCipher}` |
 | `load_file` | `config_state.rs:267-280` | 文件不存在 → default（270）；解析失败 Err "配置损坏"（273）；解密失败置空不报错（276-278） |
 | `password_saved_at` | `config_state.rs:287-293` | 「密码已保存」判据=密文位 passwordCipher 非空；外露字段恒空，用户真机反馈后修复（doc 282-286） |
 | `save_file` | `config_state.rs:295-325` | 建目录（296-300）；非空密码加密，失败 eprintln 诊断 + Err 绝不落明文（303-308）；落盘前 `settings.password` 置空（310）；pid 唯一 tmp + rename 防陈旧 tmp 竞争（317-323） |
-| `cleanup_stale_config_tmp` | `config_state.rs:330-341` | 清 `*.json.<pid>.tmp` 孤儿（startup spawn，`lib.rs:63-65`） |
+| `cleanup_stale_config_tmp` | `config_state.rs:330-341` | 清 `*.json.<pid>.tmp` 孤儿（startup spawn，`lib.rs:63`） |
 | `load_from` | `config_state.rs:343-353` | load_file + `migrate_legacy_defaults`（345）+ 旧单值 SSID 幂等扩三值（349-351） |
 | `migrate_legacy_defaults` | `config_state.rs:372-434` | v0→v7 一次性迁移（doc 355-371）：v0→v1 间隔 15s→60s（374-376）；legacy(<3) 自动化开关刷开（377-391）；v4 闲时间隔 300s（392-400）；v5 检测终点 0→1380（401-409）；v6 质量间隔 60s→600s（410-418）；v7 夜切默认开 + 定时 0→1440（419-433）；每段落盘失败 log_warn、幂等重迁 |
 | `save_to` | `config_state.rs:436-438` | `save_file` 薄封装 |
@@ -160,7 +158,7 @@ setup 细节：日志目录 `app_data_dir/logs`（`lib.rs:56-60`）；`init_logg
 
 tests：`config_state.rs:549-903`（base64 假加密桥、加密落盘不含明文往返、解密失败置空、SSID 扩三值、默认值业务语义、迁移幂等（迁移后用户改回不被覆盖）、camelCase 形状、掩码出口、密码回退语义与桌面同构、空密码不写密文位、密码已保存判据）。
 
-### 多账号 account_cmds.rs（838 行）
+### 多账号 account_cmds.rs
 
 与桌面 `commands/account.rs` 同构：一账号一 JSON（同 `EncodedSettings` 格式，仅目录不同 `accounts/`）、密码密文落盘、切换只合并登录字段。
 
@@ -178,13 +176,13 @@ tests：`config_state.rs:549-903`（base64 假加密桥、加密落盘不含明�
 | `list_accounts` | `account_cmds.rs:158-164` | spawn_blocking 包装 |
 | `load_account_file` | `account_cmds.rs:165-170` | 不存在 → `Ok(None)` |
 | `persist_current` | `account_cmds.rs:172-183` | save_to + 刷缓存 + masked |
-| `switch_account` | `account_cmds.rs:211-253` | 持锁（198）；账号不存在 err（199-201）；合并 user/password/operator（206-208）；清 `night_operator_restore`（211，残留会把 A 运营商恢复到 B）；清 `night_outbound_restore`（214，残留让巡检整轮跳过）；display_name 空兜底 id（215-219）；`restore_avoid_bad_wifi` 收尾（225） |
-| `save_current_as_account` | `account_cmds.rs:229-257` | 持锁（242）→ `merge_save_as_target`（247）→ 落盘档案（248）→ 主配置同步 active_account/display_name 防串号（252-255） |
-| `create_account` | `account_cmds.rs:259-294` | user 空拒绝（271-273）；重名拒绝（279-281）；仅登录字段+显示名，不动主配置不切换（283-291） |
+| `switch_account` | `account_cmds.rs:186-227` | 持锁（198）；账号不存在 err（199-201）；合并 user/password/operator（206-208）；清 `night_operator_restore`（211，残留会把 A 运营商恢复到 B）；清 `night_outbound_restore`（214，残留让巡检整轮跳过）；display_name 空兜底 id（215-219）；`restore_avoid_bad_wifi` 收尾（225） |
+| `save_current_as_account` | `account_cmds.rs:230-257` | 持锁（242）→ `merge_save_as_target`（247）→ 落盘档案（248）→ 主配置同步 active_account/display_name 防串号（252-255） |
+| `create_account` | `account_cmds.rs:260-294` | user 空拒绝（271-273）；重名拒绝（279-281）；仅登录字段+显示名，不动主配置不切换（283-291） |
 | `merge_save_as_target` | `account_cmds.rs:302-331` | 纯函数：另存场景（current.active_account != safe_name，307）落盘副本 display_name 置空防串号（310-312）；已存在档案 → 保留非登录字段、登录字段用当前配置覆盖（314-321）；主配置最终显示名=档案非空优先否则兜底 id（325-329） |
 | `delete_account` | `account_cmds.rs:334-363` | 持锁（345）→ 删文件（346-348）；删当前账号 → 清 active_account（352）+ 清 night_outbound_restore（355）+ persist（356）+ `restore_avoid_bad_wifi`（358）；非当前 → ok(masked)（361） |
-| `get_active_account` | `account_cmds.rs:365-368` | |
-| `rename_account` | `account_cmds.rs:369-401` | 业务错误走 IPC `Err(String)`（381）；激活账号同步 display_name（390-394） |
+| `get_active_account` | `account_cmds.rs:365-367` | |
+| `rename_account` | `account_cmds.rs:370-401` | 业务错误走 IPC `Err(String)`（381）；激活账号同步 display_name（390-394） |
 | `rename_account_core` | `account_cmds.rs:405-429` | 校验显示名（411）→ 存在性（413-415）→ 重名检查排除自身、对方空显示名兜底 id 参与（420-424）→ 只改 displayName 写回（426-427） |
 | `validate_display_name` | `account_cmds.rs:434-447` | trim 后 1..=32 字符；控制字符/换行拒绝；空格/emoji/`@` 允许 |
 | `auto_create_account_for_current` | `account_cmds.rs:451-460` | R2 自动建号入口，失败仅 log_warn |
@@ -192,26 +190,26 @@ tests：`config_state.rs:549-903`（base64 假加密桥、加密落盘不含明�
 
 tests：`account_cmds.rs:512-838`（消毒放行/路径穿越拒绝/长度边界、列举过滤排序兜底、sanitize 边界、显示名边界、自动建号幂等短路、改名核心、`AccountItem` JSON 形状锁、另存显示名不串号/覆盖同 id 保留自定义名、撞库防护）。
 
-### 登录注销与 Portal 探测 protocol_cmds.rs（390 行）
+### 登录注销与 Portal 探测 protocol_cmds.rs
 
 敏感纪律（`protocol_cmds.rs:1-3`）：日志/错误/事件 payload 不得携带 password。
 
 | 函数 | 行号 | 职责 |
 | --- | --- | --- |
-| `do_login` | `protocol_cmds.rs:9-63` | `ensure_wifi_bound` 先行（21）；user/password 空回退 `current_settings`（23-31）；空凭据 Err（32-35）；日志只打 user_len/operator_len（37）；operator 空回退配置（38-42）；`run_login`（44）；`login_history::append(..., "manual")` 落账（46-52）；成功清 consecutive_failures/logout_protected_until_ms + 置 was_online=true（56-61） |
+| `do_login` | `protocol_cmds.rs:10-63` | `ensure_wifi_bound` 先行（21）；user/password 空回退 `current_settings`（23-31）；空凭据 Err（32-35）；日志只打 user_len/operator_len（37）；operator 空回退配置（38-42）；`run_login`（44）；`login_history::append(..., "manual")` 落账（46-52）；成功清 consecutive_failures/logout_protected_until_ms + 置 was_online=true（56-61） |
 | `run_login` | `protocol_cmds.rs:66-90` | `cached_adapter_ip`（72）；spawn_blocking 调共享 `campus_login_lib::auth::protocol::do_login_with_retry(user, password, operator, adapter_ip.as_deref(), 3, &is_quitting)`（77-87） |
 | `do_logout` | `protocol_cmds.rs:94-143` | `ensure_wifi_bound`（101）；user 回退（103-107）；空凭据拒绝（108-110）；spawn_blocking `do_logout_with_retry`（113-123）；login_history 落账（125-131）；注销保护期 `logout_protected_until_ms = now + 60_000`（134-141） |
 | `check_portal_status` | `protocol_cmds.rs:147-164` | `ensure_wifi_bound`（153）；IP 回退缓存（154-157）；spawn_blocking `check_portal_full(&ip, None)`（159-163） |
 | `cached_adapter_ip` | `protocol_cmds.rs:166-174` | 读 `AndroidState.cached_source_ip` |
 | `ping_test` | `protocol_cmds.rs:177-180` | → "pong" |
-| `bind_to_wifi` | `protocol_cmds.rs:182-196` | mobile 插件（184-190）；not(mobile) Err（191-195） |
-| `accept_wifi_network` | `protocol_cmds.rs:200-214` | 同构（202-208 / 209-213） |
-| `get_avoid_bad_wifi_status` | `protocol_cmds.rs:220-236` | WRITE_SECURE_SETTINGS 授权状态与 avoid_bad_wifi 值/快照（224-228）；not(mobile) Err（230-234） |
-| `restore_written_settings` | `protocol_cmds.rs:239-255` | 插件还原写入的系统设置（244-248）；not(mobile) Err（250-254） |
+| `bind_to_wifi` | `protocol_cmds.rs:183-196` | mobile 插件（184-190）；not(mobile) Err（191-195） |
+| `accept_wifi_network` | `protocol_cmds.rs:201-214` | 同构（202-208 / 209-213） |
+| `get_avoid_bad_wifi_status` | `protocol_cmds.rs:220-235` | WRITE_SECURE_SETTINGS 授权状态与 avoid_bad_wifi 值/快照（224-228）；not(mobile) Err（230-234） |
+| `restore_written_settings` | `protocol_cmds.rs:240-255` | 插件还原写入的系统设置（244-248）；not(mobile) Err（250-254） |
 | `ensure_wifi_bound` | `protocol_cmds.rs:269-338` | pub(crate)。`bind_capability()==Supported`（274-279）时跳过；JNI spawn_blocking（280-285）；bound 且 path != "already_bound" 才 `clear_client_pool()`（287-295）；结果 log_info + eprintln 双写（298-312）；随后 `accept_campus_wifi`（316）；失败 warn 回落默认路由（318-336） |
 | `accept_campus_wifi` | `protocol_cmds.rs:350-390` | 三路径：反射 hidden API `setAcceptUnvalidated` → 回退写 Settings.Global；Kotlin 侧无动作返回 already_validated（348-389） |
 
-### 后台监控 monitor_loop.rs（1746 行）
+### 后台监控 monitor_loop.rs
 
 全局状态与常量：
 
@@ -239,7 +237,7 @@ tests：`account_cmds.rs:512-838`（消毒放行/路径穿越拒绝/长度边界
 | `status_value` | `monitor_loop.rs:141-162` | isRunning/checkCount/consecutiveFailures/reconnectCount/lastResult/watcherFailed + 展平最近检测 online/message/onlineOperator/serverAvailable/onCampusNetwork |
 | `is_running` | `monitor_loop.rs:165-167` | |
 | `notify_state` | `monitor_loop.rs:1614-1622` | (true,\_)→(1,"在线")；(\_,wifi_off)→(4,"WiFi 未连接")；else (2,"未连接")；3 被「非检测时段」占用 |
-| `portal_origin` | `monitor_loop.rs:1233-1245` | 取 scheme+host 去路径；空回退 `default_portal_url` |
+| `portal_origin` | `monitor_loop.rs:1240-1252` | 取 scheme+host 去路径；空回退 `default_portal_url` |
 | `expected_operator_display` | `monitor_loop.rs:1248-1254` | 空 → "无锡学院"，其余原样 |
 
 事件与展示辅助：`emit_login_log` → "login-log" 事件（`monitor_loop.rs:176-180`）；`notify_system`（185-202）；`with_vpn_hint`（208-214）。
@@ -252,10 +250,10 @@ tests：`account_cmds.rs:512-838`（消毒放行/路径穿越拒绝/长度边界
 | `stop_background_check` | `monitor_loop.rs:268-281` | 先推进代际再清 running + stop_wifi_watcher + stop_monitor |
 | `start/stop_wifi_watcher` | `monitor_loop.rs:292-314` / `318-330` | 建 Channel 回调 handle_wifi_event；失败置 WATCHER_FAILED |
 | `handle_wifi_event` | `monitor_loop.rs:335-373` | !is_running 兜底；去抖；lost 零延迟；延迟后校验 wifi_event_ms==now |
-| `trigger_background_check` | `monitor_loop.rs:375-384` | 未运行 Err |
-| `get_background_status` | `monitor_loop.rs:386-389` | → `status_value` |
+| `trigger_background_check` | `monitor_loop.rs:376-384` | 未运行 Err |
+| `get_background_status` | `monitor_loop.rs:387-389` | → `status_value` |
 | `get/set_boot_autostart` | `monitor_loop.rs:393-407` / `409-432` | 插件 + 持 config_io_lock 改配置 |
-| `get/set_notification_enabled` | `monitor_loop.rs:436-438` / `440-456` | 同款 |
+| `get/set_notification_enabled` | `monitor_loop.rs:436-438` / `441-456` | 同款 |
 
 启动与登录编排：
 
@@ -265,7 +263,7 @@ tests：`account_cmds.rs:512-838`（消毒放行/路径穿越拒绝/长度边界
 | `probe_with_retry` | `monitor_loop.rs:545-563` | probe_campus_with_ssid 失败/非 campus 3s 后重试 |
 | `emit_auto_login_result` | `monitor_loop.rs:569-575` | → "auto-login-result" |
 | `auto_login_on_start` | `monitor_loop.rs:579-637` | 空凭据跳过；ensure_wifi_bound；probe_with_retry；cache_source_ip；!on_campus 跳过；run_login 成功 → 置 was_online + 清保护 + toast |
-| `ProbeWindowGuard` | `monitor_loop.rs:642-650` | Drop 调 `end_probe_window` |
+| `ProbeWindowGuard` | `monitor_loop.rs:651-659` | Drop 调 `end_probe_window` |
 | `power_state` | `monitor_loop.rs:656-666` | 插件 get_power_state 失败保守 (true, true) |
 | `monitor_tick_loop` | `monitor_loop.rs:668-727` | 主循环：启动对账；每拍代际校验 → run_scheduled_actions → 间隔热更新 → 分档跳拍 → run_check_once |
 
@@ -279,7 +277,7 @@ tests：`account_cmds.rs:512-838`（消毒放行/路径穿越拒绝/长度边界
 | `switch_logout_unconfirmed` | `monitor_loop.rs:786-803` | 计数达上限按断网规律建态 |
 | `portal_probe_on_little_cores` | `monitor_loop.rs:809-846` | 专用裸线程 + 绑小核 + reactor enter + catch_unwind |
 
-`run_scheduled_actions`（`monitor_loop.rs:860-1068`）：出站动作判定 `evaluate_outbound_action_with_restore`（874-891）；Switch 分支（893-913）；Restore 分支（914-954）；运营商夜切 `evaluate_night_switch_gated_with_restore`（973-981）；双禁用早退（1012-1015）；定时判定 `evaluate_scheduled_actions`（1024-1032）；fire_login/fire_logout（1033-1067）。
+`run_scheduled_actions`（`monitor_loop.rs:976-1184`）：出站动作判定 `evaluate_outbound_action_with_restore`（874-891）；Switch 分支（893-913）；Restore 分支（914-954）；运营商夜切 `evaluate_night_switch_gated_with_restore`（973-981）；双禁用早退（1012-1015）；定时判定 `evaluate_scheduled_actions`（1024-1032）；fire_login/fire_logout（1033-1067）。
 
 夜切与系统设置：
 
@@ -298,13 +296,13 @@ tests：`account_cmds.rs:512-838`（消毒放行/路径穿越拒绝/长度边界
 
 tests：`monitor_loop.rs:1624-1746`
 
-### 网络质量 quality_cmds.rs（170 行）
+### 网络质量 quality_cmds.rs
 
 | 符号 | 行号 | 说明 |
 | --- | --- | --- |
 | `LATENCY_RUNNING` + `LATENCY_GENERATION` | `quality_cmds.rs:11-17` | AtomicBool + 代际 token |
 | `run_quality_once` | `quality_cmds.rs:19-49` | 复用共享 `check_network_quality_async`；`quality_history::append` 落盘 |
-| `check_network_quality` | `quality_cmds.rs:51-54` | 单次检测命令 |
+| `check_network_quality` | `quality_cmds.rs:52-54` | 单次检测命令 |
 | `start_latency_test` | `quality_cmds.rs:57-74` | `LATENCY_RUNNING.swap(true)` 幂等；读配置失败复位标志 |
 | `stop_latency_test` | `quality_cmds.rs:77-83` | 先推进代际再清标志 |
 | `GOOD_LEVELS` | `quality_cmds.rs:89` | `["excellent","great","good"]` |
@@ -315,7 +313,7 @@ tests：`monitor_loop.rs:1624-1746`
 
 tests：`quality_cmds.rs:136-170`
 
-### 自更新 update_cmds.rs（739 行）
+### 自更新 update_cmds.rs
 
 常量与全局：
 
@@ -359,11 +357,11 @@ tests：`quality_cmds.rs:136-170`
 | `check_update_inner` | `update_cmds.rs:282-333` | 4 源降级；三态记账 |
 | `start_update_check_loop` | `update_cmds.rs:340-382` | 24h 循环 + 退避 |
 | `get_mirror_urls` | `update_cmds.rs:385-393` | 镜像 JSON |
-| `download_update` | `update_cmds.rs:400-408` | swap 互斥 |
+| `download_update` | `update_cmds.rs:401-408` | swap 互斥 |
 | `download_update_inner` | `update_cmds.rs:410-502` | 流式写盘 + SHA256 三态校验 |
 | `download_tag` | `update_cmds.rs:506-510` | 提取 release tag |
 | `verify_file_sha256` | `update_cmds.rs:517-544` | pub(crate) 人脸复用；非 64 hex → Err；vec 缓冲 |
-| `install_update` | `update_cmds.rs:548-570` | canonicalize 限目录 + install_apk |
+| `install_update` | `update_cmds.rs:549-570` | canonicalize 限目录 + install_apk |
 | `cleanup_stale_apks` | `update_cmds.rs:576-610` | 超龄删 .apk |
 
 tests：`update_cmds.rs:612-739`
@@ -396,7 +394,7 @@ spawn + 500ms 就绪窗 → 读配置失败 → log_error + emit "startup-failed
 
 ### 配置写路径
 
-`save_config`（`config_state.rs:491-526`）与 `persist_settings`（`monitor_loop.rs:1073-1096`）同构：持 CONFIG_IO_LOCK → `load_from` 基线 → merge/`resolve_password_field` → `save_to` 落盘 → 刷缓存 → `auto_create_account_for_current` → `emit_config_changed`。
+`save_config`（`config_state.rs:491-526`）与 `persist_settings`（`monitor_loop.rs:1093-1116`）同构：持 CONFIG_IO_LOCK → `load_from` 基线 → merge/`resolve_password_field` → `save_to` 落盘 → 刷缓存 → `auto_create_account_for_current` → `emit_config_changed`。
 
 ### 更新下载与校验三态
 
@@ -418,12 +416,12 @@ spawn + 500ms 就绪窗 → 读配置失败 → log_error + emit "startup-failed
 ## Known Issues
 
 1. **AccountItem.password_saved 判据已修复**：走 `password_saved_at` 密文位（`config_state.rs:287-293`、`account_cmds.rs:111-121`）。
-2. **Settings::default 与 v7 迁移夜切默认不一致（定案）**：`enable_night_operator_switch` 默认 2026-10-02 起关闭（`config_state.rs:149` 及注释 151-153），存量已落盘 true 不迁移；迁移侧 v7 刷开仅旧默认（`config_state.rs:419-429`）。
-3. **night_outbound_restore 魔法字符串状态位**：空串/非空即状态机，误写非空值会静默压住整轮巡检（`run_check_once` 闸 `monitor_loop.rs:1385-1388`）；多处写入（`873`、`900`、`920` 等）与读取（`731-736`）无类型保护。
+2. **Settings::default 与 v7 迁移夜切默认不一致（定案）**：`enable_night_operator_switch` 默认 2026-10-02 起关闭（`config_state.rs:153` 及注释 151-153），存量已落盘 true 不迁移；迁移侧 v7 刷开仅旧默认（`config_state.rs:419-433`）。
+3. **night_outbound_restore 魔法字符串状态位**：空串/非空即状态机，误写非空值会静默压住整轮巡检（`run_check_once` 闸 `monitor_loop.rs:1385-1388`）；多处写入（`900`、`920`、`939` 等）与读取（`731-736`、`873` 等）无类型保护。
 4. **桌面专属字段镜像不消费**：outbound_priority 等（`config_state.rs:52-63`、`69-71`）仅为契约镜像；安卓出站切换走 night_outbound_restore + 系统 network_avoid_bad_wifi（`monitor_loop.rs:1160-1223`）。
 5. **host 编译能力编译期禁用**：移动插件（`lib.rs:35-42`）与 cfg(mobile) 分支在 host 上恒 Err；`cargo test`（host）只覆盖纯函数与文件 IO。
-6. **#[allow(dead_code)] 历史遗留**：`current_settings`（`config_state.rs:530`）仍带标注；实际已被调用。
-7. **delete_account 不清 night_operator_restore**：删当前账号只清 active_account 与 night_outbound_restore（`account_cmds.rs:351-355`），运营商恢复位残留。
+6. **#[allow(dead_code)] 历史遗留**：`current_settings`（`config_state.rs:530-531`）仍带标注；实际已被调用。
+7. **delete_account 不清 night_operator_restore**：删当前账号只清 active_account 与 night_outbound_restore（`account_cmds.rs:334-363`，351-355），运营商恢复位残留。
 8. **do_login operator 回退时机**：operator_len 记录于回退配置值之前（`protocol_cmds.rs:37-42`）。
 9. **MAX_DOWNLOAD_BYTES 与 content_length 无联动**：响应无 Content-Length 时进度 percent 恒 0（`update_cmds.rs:421-473`）。
 10. **夜切验证时序硬编码**：NIGHT_VERIFY_*（`monitor_loop.rs:1227-1230`）不可配，弱网整轮可达数十秒。

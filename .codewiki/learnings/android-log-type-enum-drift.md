@@ -9,7 +9,7 @@ tags: [教训, 安卓, 双端同步, 枚举, 白屏]
 
 ## Overview
 
-本文记录安卓端 `login-log` 事件 `type` 字段在后端与前端之间的字符串字面量漂移问题及修复过程。后端 `emit_login_log`（位于 `android/src-tauri/src/monitor_loop.rs:176-180`）构造 `{ "message": ..., "type": ... }` 并通过 Tauri 事件 `login-log` 广播；前端 `LogType`（`android/frontend/src/shared/ui-types.ts:6`）严格定义为 `'info' | 'success' | 'error' | 'warning'`。历史上后端曾使用非标准 `"warn"` 导致前端图标映射取 `undefined` 引发白屏。当前代码后端所有 `emit_login_log` 调用（如 `:264`、`:279`、`:594`、`:604`、`:610`、`:613`、`:617`、`:627`、`:632`、`:761`、`:796`、`:910`、`:929`、`:944`、`:987`、`:1000`、`:1035`、`:1049`、`:1063`、`:1065`、`:1104`、`:1114`、`:1124`、`:1375`、`:1444`、`:1532`、`:1553`）均使用合法四值，前端通过消费侧兜底防止同类问题重演。
+本文记录安卓端 `login-log` 事件 `type` 字段在后端与前端之间的字符串字面量漂移问题及修复过程。后端 `emit_login_log`（位于 `android/src-tauri/src/monitor_loop.rs:176-180`）构造 `{ "message": ..., "type": ... }` 并通过 Tauri 事件 `login-log` 广播；前端 `LogType`（`android/frontend/src/shared/ui-types.ts:6`）严格定义为 `'info' | 'success' | 'error' | 'warning'`。历史上后端曾使用非标准 `"warn"` 导致前端图标映射取 `undefined` 引发白屏。当前代码后端所有 `emit_login_log` 调用（如 `:264`、`:279`、`:594`、`:604`、`:610`、`:613`、`:617`、`:627`、`:632`、`:761`、`:796`、`:910`、`:929`、`:944`、`:987`、`:1000`、`:1035`、`:1049`、`:1063`、`:1065`、`:1078`、`:1083`、`:1104`、`:1114`、`:1124`、`:1375`、`:1444`、`:1532`、`:1553`）均使用合法四值，前端通过消费侧兜底防止同类问题重演。
 
 ## Key Components
 
@@ -38,7 +38,7 @@ tags: [教训, 安卓, 双端同步, 枚举, 白屏]
     *   `notified_online: AtomicU8` (`:72`)：常驻通知状态码（0=未展示,1=在线,2=未连接,3=非检测时段,4=WiFi未连接）。
     *   `scheduled_login_day: AtomicI32` (`:76`)：定时登录当日已触发标记（当日序号）。
     *   `scheduled_logout_day: AtomicI32` (`:78`)：定时注销当日已触发标记。
-*   **`WIFI_EVENT_DELAY_MS`** (`:84`)：WiFi 连上事件延迟检测毫秒数，常量 `u64`，值 `2500`。
+*   **`WIFI_EVENT_DELAY_MS`** (`:84`)：WiFi 事件触发检测的延迟毫秒数，常量 `u64`，值 `2500`。
 *   **`WIFI_LOST_EVENT_DELAY_MS`** (`:89`)：WiFi 断开事件延迟毫秒数，常量 `u64`，值 `0`。
 *   **`WIFI_EVENT_DEBOUNCE_MS`** (`:92`)：WiFi 事件去抖窗口毫秒数，常量 `u64`，值 `1000`。
 *   **`wifi_event_is_burst_start`** (`:97-99`)：纯函数，判定 WiFi 事件是否为风暴起点（首事件或超去抖窗口）。
@@ -105,7 +105,7 @@ tags: [教训, 安卓, 双端同步, 枚举, 白屏]
 *   **`ToastMessage`** (`:17-29`)：Toast 接口，含 `id,title,description?,type,mascot?,action?`。
 *   **`AdapterDisabledWarningData`** (`:31-34`)：适配器禁用警告。
 *   **`AutoExitCountdownData`** (`:36-39`)：自动退出倒计时。
-*   **`SaveConfigResult`** (`:41-44`)：保存配置结果。
+*   **`SaveConfigResult`** (`:41-45`)：保存配置结果。
 
 ## Architecture
 

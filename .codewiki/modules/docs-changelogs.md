@@ -2,11 +2,11 @@
 title: modules/docs-changelogs.md
 type: module
 source_files:
+  - tauri-app/src-tauri/src/monitor/mod.rs
   - tauri-app/src-tauri/src/monitor/scheduled.rs
   - tauri-app/src-tauri/src/monitor/outbound_switch.rs
-  - tauri-app/src-tauri/src/monitor/mod.rs
-  - tauri-app/src-tauri/src/app/startup.rs
   - tauri-app/src-tauri/src/monitor/outbound_night.rs
+  - tauri-app/src-tauri/src/app/startup.rs
   - tauri-app/src-tauri/src/monitor/watcher.rs
 tags: [changelog, audit, outbound-switch, monitor, account, android, desktop, architecture]
 ---
@@ -18,7 +18,7 @@ tags: [changelog, audit, outbound-switch, monitor, account, android, desktop, ar
 - `tauri-app/src-tauri/src/monitor/mod.rs`：声明监控子系统模块树（第 1-14 行），含 `scheduled`、`outbound_switch`、`outbound_night`、`watcher` 等子模块。
 - `tauri-app/src-tauri/src/monitor/scheduled.rs`：独立轻量循环（30s 一拍，第 44 行常量），复用跨平台纯函数判定定时动作，编排登录/注销、夜间出站切换与运营商夜切验证（第 54-197 行主循环）。
 - `tauri-app/src-tauri/src/monitor/outbound_switch.rs`：夜间出站切换的桌面侧动作纯判定与快照序列化层（目标卡选择、逐卡校园网判定、快照 JSON，第 1-735 行）。
-- `tauri-app/src-tauri/src/monitor/outbound_night.rs`：夜间出站切换的动作执行层（从 scheduled.rs 原样外移，第 1 行注释），含提权 helper 调用、退避、还原、看门狗等（第 1-1490 行）。
+- `tauri-app/src-tauri/src/monitor/outbound_night.rs`：夜间出站切换的动作执行层（从 scheduled.rs 原样外移，第 1 行注释），含提权 helper 调用、退避、还原、看门狗等（第 1-1507 行）。
 - `tauri-app/src-tauri/src/app/startup.rs`：构建 Tokio runtime、运行 Tauri 应用、在 `setup_app` 中拉起适配器监听与 `run_startup_tasks`（第 6-272 行）。
 - `tauri-app/src-tauri/src/monitor/watcher.rs`：启动任务编排，拉起后台检测、质量测试、自动登录及定时动作循环（第 16-72 行）。
 
@@ -146,7 +146,7 @@ tags: [changelog, audit, outbound-switch, monitor, account, android, desktop, ar
     *   `manual_outbound_switch` (1275-1296): 「立即切换」命令入口（桌面）。
     *   `manual_outbound_restore` (1300-1313): 「立即还原」命令入口（桌面）。
     *   `reconcile_outbound_on_startup` (1320-1378): 启动对账（残留切换态还原或重放）。
-*   **测试模块** (1380-1490): 包含 `还原失败告警_首达阈值触发_此后周期重复` (1384-1397)、`重放闸_仅切换态且留有失败历史时才补齐` (1399-1410)、`退避窗_起步六十秒_每失败翻倍封顶三百秒` (1412-1420)、`退避闸_无失败历史恒放行` (1422-1428)、`退避闸_首败六十秒内压制_六十秒后放行` (1430-1435)、`退避闸_第二败退避翻倍` (1437-1442)、`退避闸_封顶后三百秒内压制_三百秒后放行` (1444-1451)、`退避闸_时钟回拨按压制处理` (1453-1456)、`快照解析_空串为空表_非法json报错` (1458-1469)、`单飞闸_同一时刻只放一个出站动作_释放后可再取` (1473-1486) 等。
+*   **测试模块** (1380-1507): 包含 `还原失败告警_首达阈值触发_此后周期重复` (1384-1397)、`重放闸_仅切换态且留有失败历史时才补齐` (1399-1410)、`退避窗_起步六十秒_每失败翻倍封顶三百秒` (1412-1420)、`退避闸_无失败历史恒放行` (1422-1428)、`退避闸_首败六十秒内压制_六十秒后放行` (1430-1435)、`退避闸_第二败退避翻倍` (1437-1442)、`退避闸_封顶后三百秒内压制_三百秒后放行` (1444-1451)、`退避闸_时钟回拨按压制处理` (1453-1456)、`快照解析_空串为空表_非法json报错` (1458-1469)、`单飞闸_同一时刻只放一个出站动作_释放后可再取` (1490-1503) 等。
 
 ### 启动入口 (Startup)
 
