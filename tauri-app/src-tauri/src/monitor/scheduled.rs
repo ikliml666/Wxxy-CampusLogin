@@ -118,8 +118,8 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
             restore_active,
             config_snapshot.outbound_manual_hold_day,
             today_day,
-            // 恢复时刻可配置（默认 07:30）：归一化 0/越界 → 默认
-            crate::config::night_switch::restore_start_minutes(config_snapshot.night_restore_minutes),
+            // 恢复时刻可配置（默认 07:30）：原始值直传，归一化在判定函数内部完成
+            config_snapshot.night_restore_minutes,
         ) {
             NightOutboundAction::Switch => {
                 let switched = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), apply_outbound_switch)
@@ -187,7 +187,8 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
                 &config.operator,
                 &config.night_operator_restore,
                 outbound_active,
-                crate::config::night_switch::restore_start_minutes(config.night_restore_minutes),
+                // 原始值直传，归一化在判定函数内部完成
+                config.night_restore_minutes,
             )
         };
         if night_action != NightSwitchAction::None {

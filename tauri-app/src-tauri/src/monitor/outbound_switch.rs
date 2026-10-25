@@ -160,28 +160,6 @@ pub fn parse_disabled_adapters(json: &str) -> Result<Vec<DisabledRow>, String> {
     serde_json::from_str(json.trim()).map_err(|e| format!("禁用名单快照损坏: {e}"))
 }
 
-/// 待切换状态行（历史遗留：旧登录闸的挂起记录结构）。
-///
-/// 2026-10-26 起夜间切换不再挂起（登录闸方向错误，见
-/// `.codewiki/learnings/night-outbound-login-gate-deadlock`），本结构只为**解析旧版本
-/// 落盘的残留**而保留——`drive_pending_switch` 每拍把残留行清空，前端徽标随之消失。
-/// 不再提供序列化入口：本版本不会产生新的挂起记录。
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PendingSwitchRow {
-    pub target: String,
-    pub tag: String,
-    #[serde(default)]
-    pub day: i32,
-}
-
-/// 解析待切换状态（空串/非法 JSON → `None`）。仅用于识别历史版本残留。
-pub fn parse_pending_switch(json: &str) -> Option<PendingSwitchRow> {
-    if json.trim().is_empty() {
-        return None;
-    }
-    serde_json::from_str(json.trim()).ok()
-}
-
 /// 历史兜底默认路由快照（v2.4.1 及更早版本切换时写入的 runtime 路由）。
 /// 2026-10-18 事故后该路由不再创建：它与目标卡自己的 DHCP 默认路由共享
 /// 「下一跳 + 接口」、只差跃点，而 Windows 判重与删除都不看跃点——既加不上（同键
@@ -543,28 +521,6 @@ mod tests {
         assert!(parse_disabled_adapters("").unwrap().is_empty());
         assert!(parse_disabled_adapters("not json").is_err());
         assert_eq!(disabled_adapters_json(&[]), "[]");
-    }
-
-    /// 历史残留行仍可解析（清理逻辑依赖它识别旧版本的 waiting-login 记录）。
-    /// 本版本不再产生新的挂起行，故只保留解析侧用例。
-    #[test]
-    fn pending_switch_parses_legacy_rows() {
-        // 空串/纯空白 → 无挂起；非法 JSON → 同样视同无挂起（交给清理逻辑直接清空）
-        assert_eq!(parse_pending_switch(""), None);
-        assert_eq!(parse_pending_switch("   "), None);
-        assert_eq!(parse_pending_switch("not json"), None);
-        // 旧版本行（无 day 字段）→ day 反序列化为 0；跨日字段两种形态都能读出
-        let legacy = r#"{"target":"WLAN","tag":"waiting-login"}"#;
-        assert_eq!(
-            parse_pending_switch(legacy),
-            Some(PendingSwitchRow {
-                target: "WLAN".to_string(),
-                tag: "waiting-login".to_string(),
-                day: 0,
-            })
-        );
-        let dated = r#"{"target":"WLAN","tag":"waiting-login","day":739000}"#;
-        assert_eq!(parse_pending_switch(dated).map(|r| r.day), Some(739_000));
     }
 
     #[test]

@@ -186,7 +186,8 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                             c.enable_night_outbound_switch,
                             now.weekday().num_days_from_sunday(),
                             now.hour() * 60 + now.minute(),
-                            crate::config::night_switch::restore_start_minutes(c.night_restore_minutes),
+                            // 原始配置值直接传入：归一化在判定函数内部完成（幂等）
+                            c.night_restore_minutes,
                         ) && crate::config::outbound_switch::outbound_restore_active(
                             &c.outbound_metric_restore,
                             &c.outbound_disabled_adapters,

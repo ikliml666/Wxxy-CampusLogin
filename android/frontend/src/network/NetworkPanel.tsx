@@ -23,9 +23,24 @@ interface NetworkPanelProps {
   onUpdateConfig: (partial: Partial<Config>) => void
 }
 
+/** 恢复时刻默认值 07:30：与后端 `config::night_switch::DEFAULT_RESTORE_START_MINUTES`
+ *  同值；配置为 0/越界时后端同样回落此值，故显示层也按它展示（复刻树不可共享常量，
+ *  故与桌面端各自具名，取值必须一致） */
+const RESTORE_TIME_DEFAULT_MINUTES = 450
+/** 恢复时刻上限 22:59：必须早于最早的切换时刻 23:00（1380），否则恢复窗为空、
+ *  永不还原。与后端 `restore_start_minutes` 的「>= 1380 判越界」同口径 */
+const RESTORE_TIME_MAX_MINUTES = 1379
+/** 恢复时刻下限 05:00：产品口径（比后端纯函数的 `> 0` 更紧）。原因是 00:00–05:00
+ *  是「凌晨补切窗口」——机器错过切点时靠这段补切；把恢复点设进该窗口会让补切
+ *  与还原互相顶掉，用户几乎总是误触，故 UI 层钳到 05:00，后端另有归一化兜底 */
+const RESTORE_TIME_MIN_MINUTES = 300
+
 /** 恢复时刻显示：分钟数 → "HH:MM"；0/越界（后端同口径回落默认 07:30）按默认显示 */
 function formatRestoreTime(minutes: number | undefined): string {
-  const m = minutes && minutes > 0 && minutes < 1380 ? minutes : 450
+  const m =
+    minutes && minutes > 0 && minutes < RESTORE_TIME_MAX_MINUTES + 1
+      ? minutes
+      : RESTORE_TIME_DEFAULT_MINUTES
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 }
 
@@ -152,8 +167,14 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                 onChange={e => {
                   const [h, min] = e.target.value.split(':').map(Number)
                   if (!isNaN(h) && !isNaN(min)) {
-                    // 早于 05:00 视为误触（凌晨补切窗口），钳到 05:00；后端另有归一化兜底
-                    onUpdateConfig({ nightRestoreMinutes: Math.min(1379, Math.max(300, h * 60 + min)) })
+                    // 钳到 [05:00, 22:59]（理由见 RESTORE_TIME_MIN/MAX 常量注释）；
+                    // 后端 restore_start_minutes 另有归一化兜底
+                    onUpdateConfig({
+                      nightRestoreMinutes: Math.min(
+                        RESTORE_TIME_MAX_MINUTES,
+                        Math.max(RESTORE_TIME_MIN_MINUTES, h * 60 + min)
+                      ),
+                    })
                   }
                 }}
                 className="w-24 h-7 text-sm font-mono shrink-0"

@@ -41,16 +41,11 @@ fn log_line(msg: &str) {
     }
 }
 
-/// 校园检查静默窗判断（与 monitor::campus_check::is_campus_check_silent 同语义：
-/// start==0 无窗口；now<start 或 (end>start 且 now>=end) 视为静默）。
+/// 校园检查静默窗判断：直接复用双端共享单点
+/// [`campus_login_lib::config::schedule::is_campus_check_silent`]
+/// （2026-10-26 前此处是手写副本，注释只能声称"同语义"，规则一改就漂移）。
 fn in_silent_window(now_minutes: u16, start: u16, end: u16) -> bool {
-    if start == 0 {
-        return false;
-    }
-    if now_minutes < start {
-        return true;
-    }
-    end > start && now_minutes >= end
+    campus_login_lib::config::schedule::is_campus_check_silent(now_minutes, start, end)
 }
 
 fn now_minutes() -> u16 {

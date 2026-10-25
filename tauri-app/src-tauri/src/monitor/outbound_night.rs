@@ -822,7 +822,8 @@ pub(super) fn watchdog_re_disable_campus(app_handle: &AppHandle, config: &crate:
         config.enable_night_outbound_switch,
         now.weekday().num_days_from_sunday(),
         now.hour() * 60 + now.minute(),
-        restore_start_minutes(config.night_restore_minutes),
+        // 原始值直传，归一化在判定函数内部完成
+        config.night_restore_minutes,
     ) || !switch_gate_open()
     {
         return Ok(());

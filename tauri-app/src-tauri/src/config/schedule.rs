@@ -29,11 +29,59 @@ pub fn should_fire_scheduled_action(now_minutes: u16, target_minutes: u16, last_
     last_fired_day != today_day
 }
 
+/// 校园网检测静默期判定（now/start/end 均为当日分钟数 0-1439，双端单点）。
+///
+/// `start == 0` 表禁用门控（不静默）；`end == 0` 或 `end <= start` 时只受开始时间
+/// 限制（等价旧单边语义，亦与 `lifecycle::is_within_campus_exit_window` 的退化规则
+/// 一致，防止误设导致检测整天静默失效）。
+///
+/// 2026-10-26 从桌面 `monitor::campus_check` 下沉到共享面：此前同一段边界判定在
+/// 桌面巡检、安卓巡检、安卓开机自启、无头 core 四处各写一份（三份逐字重复 + 一份
+/// 注释声称"同语义"的私有副本），任一处改退化规则就会两端不一致。
+pub fn is_campus_check_silent(now_minutes: u16, start: u16, end: u16) -> bool {
+    if start == 0 {
+        return false;
+    }
+    if now_minutes < start {
+        return true;
+    }
+    end > start && now_minutes >= end
+}
+
 #[cfg(test)]
 mod tests {
-    use super::should_fire_scheduled_action;
+    use super::{is_campus_check_silent, should_fire_scheduled_action};
 
     const TODAY: i32 = 739_776;
+
+    // ===== is_campus_check_silent（自 campus_check.rs 随函数下沉迁移）=====
+
+    #[test]
+    fn 静默期_起点0为禁用门控() {
+        // start=0 全程不静默（含 00:00 本身与任意时刻）
+        assert!(!is_campus_check_silent(0, 0, 0));
+        assert!(!is_campus_check_silent(400, 0, 0));
+        assert!(!is_campus_check_silent(1439, 0, 1380));
+    }
+
+    #[test]
+    fn 静默期_单边语义_终点0或小于起点() {
+        // end=0：只受开始时间限制，早于起点即静默，到点后全天不静默
+        assert!(is_campus_check_silent(400, 460, 0));
+        assert!(!is_campus_check_silent(460, 460, 0));
+        assert!(!is_campus_check_silent(1439, 460, 0));
+        // end<start：同样退化为单边（防误设整天失效）
+        assert!(!is_campus_check_silent(1380, 1380, 100));
+    }
+
+    #[test]
+    fn 静默期_双边窗口() {
+        let (start, end) = (460u16, 1380u16);
+        assert!(is_campus_check_silent(400, start, end)); // 早于起点
+        assert!(!is_campus_check_silent(460, start, end)); // 恰好起点
+        assert!(!is_campus_check_silent(1379, start, end)); // 终点前一分钟
+        assert!(is_campus_check_silent(1380, start, end)); // 恰好终点（不含）
+    }
 
     #[test]
     fn 禁用哨兵1440_永不触发() {

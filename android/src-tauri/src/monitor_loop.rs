@@ -584,13 +584,16 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
     // auto_auth::run_auto_login_on_start 及本文件 run_check_once 的闸同语义
     // （2026-10-25 修复，见桌面 background_check.rs 同名注释）——静默期内校园网
     // 本就断网，启动即发起探测/认证只会在日志里留一串失败。
+    // 2026-10-26：边界判定改调共享单点 campus_login_lib::config::schedule::
+    // is_campus_check_silent（此前四份手写展开，见该函数文档）。
     if settings.campus_check_start_minutes > 0 {
         let now = chrono::Local::now();
         let minutes_now = now.hour() as u16 * 60 + now.minute() as u16;
-        let end = settings.campus_check_end_minutes;
-        if minutes_now < settings.campus_check_start_minutes
-            || (end > settings.campus_check_start_minutes && minutes_now >= end)
-        {
+        if campus_login_lib::config::schedule::is_campus_check_silent(
+            minutes_now,
+            settings.campus_check_start_minutes,
+            settings.campus_check_end_minutes,
+        ) {
             emit_login_log(app, "启动检测:校园网检测静默期(非检测时段),跳过校园网判定与自动登录", "info");
             return;
         }
@@ -878,7 +881,7 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
         // 判定走共享编排函数（双端单点）：关闭兜底（切换态残留按 Restore 立即
         // 还原并清标记——缺这条兜底时残留标记没有出口，巡检会永久跳过）在函数内；
         // hold 参数安卓恒传 0（「立即切换」当日保持是桌面独有输入）；
-        // 恢复时刻与桌面共用 nightRestoreMinutes（0/越界归一化为默认 07:30）
+        // 恢复时刻与桌面共用 nightRestoreMinutes（原始值直传，归一化在判定函数内部完成）
         evaluate_outbound_action_with_restore(
             settings.enable_night_outbound_switch,
             now.weekday().num_days_from_sunday(),
@@ -886,7 +889,7 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             outbound_active,
             0,
             today_day,
-            campus_login_lib::config::night_switch::restore_start_minutes(settings.night_restore_minutes),
+            settings.night_restore_minutes,
         )
     };
     match outbound_action {
@@ -977,7 +980,8 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             &settings.operator,
             &settings.night_operator_restore,
             outbound_active,
-            campus_login_lib::config::night_switch::restore_start_minutes(settings.night_restore_minutes),
+            // 原始值直传，归一化在判定函数内部完成
+            settings.night_restore_minutes,
         );
         match action {
             campus_login_lib::config::night_switch::NightSwitchAction::SwitchToCampus => {
@@ -1399,10 +1403,11 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     if settings.campus_check_start_minutes > 0 && !forced_after_restore {
         let now = chrono::Local::now();
         let minutes_now = now.hour() as u16 * 60 + now.minute() as u16;
-        let end = settings.campus_check_end_minutes;
-        if minutes_now < settings.campus_check_start_minutes
-            || (end > settings.campus_check_start_minutes && minutes_now >= end)
-        {
+        if campus_login_lib::config::schedule::is_campus_check_silent(
+            minutes_now,
+            settings.campus_check_start_minutes,
+            settings.campus_check_end_minutes,
+        ) {
             // 非检测时段不探测,但常驻通知不能停在上一拍的"在线"(2026-09-13 真机反馈);
             // 状态码 3=非检测时段,与在线(1)/未连接(2)区分,仅首次进入本状态时重建通知
             #[cfg(mobile)]

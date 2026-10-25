@@ -50,6 +50,10 @@ pub fn evaluate_scheduled_actions(
 /// ② 「立即切换」当日保持（桌面独有输入，安卓无此概念恒传 0）：手动切换落盘的
 /// hold 标记冻结当日的自动 Switch/Restore 判定（否则 23:00 自动切换与手动切换
 /// 叠加、恢复窗内的自动还原会撤销手动切换），次日自动恢复原有生命周期。
+/// **仅测试期可用**：生产代码一律调 [`evaluate_outbound_action_with_restore`] 并
+/// 显式传入 `nightRestoreMinutes`——恢复时刻已可配置，走默认常量包装等于把用户
+/// 设置写死。留它只为让既有编排用例保持可读。
+#[cfg(test)]
 pub fn evaluate_outbound_action(
     enable_night_outbound_switch: bool,
     weekday_sunday: u32,
@@ -69,9 +73,9 @@ pub fn evaluate_outbound_action(
     )
 }
 
-/// 带自定义恢复起点的出站动作判定（`restore_start` 由
-/// [`super::night_switch::restore_start_minutes`] 归一化后传入）：语义与
-/// [`evaluate_outbound_action`] 完全一致，仅恢复窗起点可变。
+/// 带自定义恢复起点的出站动作判定（`restore_start` 可传原始配置值，归一化在
+/// 下层判定函数内部完成）：语义与 [`evaluate_outbound_action`] 完全一致，仅恢复
+/// 窗起点可变。
 #[allow(clippy::too_many_arguments)] // 透传纯判定所需入参，拆结构体只为少一两个参数不值
 pub fn evaluate_outbound_action_with_restore(
     enable_night_outbound_switch: bool,
@@ -104,6 +108,8 @@ pub fn evaluate_outbound_action_with_restore(
 /// 运营商夜切判定（双端单点）：出站切换态下夜切让位——切侧从热点出站登录校园
 /// portal 必然失败，切了白切；恢复侧标记非空即还原未成功（重试中），也不允许
 /// 夜切恢复抢跑。非切换态透传 [`evaluate_night_switch`]。
+/// **仅测试期可用**：生产代码一律调 [`evaluate_night_switch_gated_with_restore`]。
+#[cfg(test)]
 pub fn evaluate_night_switch_gated(
     enable_night_operator_switch: bool,
     weekday_sunday: u32,

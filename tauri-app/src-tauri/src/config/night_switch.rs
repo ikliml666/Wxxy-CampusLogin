@@ -49,7 +49,7 @@ fn is_switchable_operator(operator: &str) -> bool {
     matches!(operator, "@telecom" | "@unicom" | "@cmcc")
 }
 
-/// 晚间断网切换判定（纯函数）：
+/// 晚间断网切换判定（纯函数，恢复起点固定默认 07:30）：
 /// - `!enabled`：功能关闭，一律 None；
 /// - 恢复：`restore_operator` 非空（处于切换态）且当前 operator 为空串（确实在
 ///   无锡学院态，用户手动切回的场景不误恢复）且 `now_minutes` 落在恢复窗口
@@ -59,6 +59,11 @@ fn is_switchable_operator(operator: &str) -> bool {
 ///   （`is_switchable_operator`：@telecom/@unicom/@cmcc；已是无锡学院（空串）
 ///   无需切，非白名单脏值如"校园"不属于断网 ISP，不切）→ SwitchToCampus；
 /// - 其余 → None。
+///
+/// **仅测试期可用**：生产代码一律调 [`evaluate_night_switch_with_restore`] 并显式
+/// 传入 `nightRestoreMinutes` 配置值——恢复时刻已可配置，若生产路径走这个包装，
+/// 就成了「把默认常量写死」的隐患。留它只为让数十条既有用例保持可读。
+#[cfg(test)]
 pub fn evaluate_night_switch(
     enabled: bool,
     weekday: u32,
@@ -76,9 +81,12 @@ pub fn evaluate_night_switch(
     )
 }
 
-/// 带自定义恢复起点的判定（`restore_start` 由 [`restore_start_minutes`] 归一化后传入）。
-/// 除恢复窗起点外语义与 [`evaluate_night_switch`] 完全一致——拆成两个函数是为了
-/// 保住原签名（数十处调用/测试不必传第五个参数）。
+/// 带自定义恢复起点的判定。
+///
+/// `restore_start` 可直接传原始配置值（`nightRestoreMinutes`）：函数内部会经
+/// [`restore_start_minutes`] 归一化（0/越界 → 默认 07:30），再归一化已归一化值
+/// 是幂等的。**归一化放在函数内部而非调用方**是有意为之——此前要求调用方各自
+/// 先归一化，归一化散落 7 个调用点，漏一处就把恢复窗变成全天还原。
 pub fn evaluate_night_switch_with_restore(
     enabled: bool,
     weekday: u32,
@@ -87,6 +95,7 @@ pub fn evaluate_night_switch_with_restore(
     restore_operator: &str,
     restore_start: u32,
 ) -> NightSwitchAction {
+    let restore_start = restore_start_minutes(restore_start);
     if !enabled {
         return NightSwitchAction::None;
     }

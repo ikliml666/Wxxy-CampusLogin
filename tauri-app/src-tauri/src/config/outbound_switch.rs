@@ -16,14 +16,12 @@ pub enum NightOutboundAction {
     Restore,
 }
 
-/// 夜间出站切换判定（纯函数，恢复起点用默认 07:30——保留原签名供既有调用/测试）：
-/// - `!enabled` → None；
-/// - `restore_active`（切换态）且 now ∈ [恢复起点, 1380) → Restore；
-/// - `!restore_active` 且 now < 恢复起点（凌晨）→ Switch（补切：机器在切点前后
-///   睡眠/关机错过切换时，凌晨视为前一晚切换窗口的尾部——此时校园线路已断、
-///   热点可用；恢复窗自会收敛）；
-/// - `!restore_active` 且当日有切换时刻且 now >= 时刻（过点补触发）→ Switch；
-/// - 其余（白天、切换态夜间保持）→ None。
+/// 夜间出站切换判定（纯函数，恢复起点固定默认 07:30）。
+///
+/// **仅测试期可用**：生产代码一律调 [`evaluate_night_outbound_with_restore`] 并显式
+/// 传入 `nightRestoreMinutes`——恢复时刻已可配置，生产路径走默认常量包装等于把
+/// 用户设置写死。留它只为让既有用例保持可读。
+#[cfg(test)]
 pub fn evaluate_night_outbound(enabled: bool, weekday: u32, now_minutes: u32, restore_active: bool) -> NightOutboundAction {
     evaluate_night_outbound_with_restore(
         enabled,
@@ -34,8 +32,8 @@ pub fn evaluate_night_outbound(enabled: bool, weekday: u32, now_minutes: u32, re
     )
 }
 
-/// 带自定义恢复起点的判定。`restore_start` 须已由
-/// [`super::night_switch::restore_start_minutes`] 归一化（0/越界 → 默认 07:30）。
+/// 带自定义恢复起点的判定。`restore_start` 可传原始配置值，函数内部经
+/// [`super::night_switch::restore_start_minutes`] 归一化（该函数幂等）。
 pub fn evaluate_night_outbound_with_restore(
     enabled: bool,
     weekday: u32,
@@ -43,6 +41,7 @@ pub fn evaluate_night_outbound_with_restore(
     restore_active: bool,
     restore_start: u32,
 ) -> NightOutboundAction {
+    let restore_start = super::night_switch::restore_start_minutes(restore_start);
     if !enabled {
         return NightOutboundAction::None;
     }
@@ -61,13 +60,16 @@ pub fn evaluate_night_outbound_with_restore(
     }
 }
 
-/// 夜间出站切换的守护窗口判定（纯函数，桌面巡检闸门用）：
-/// 当日切换时刻（含过点补触发语义）起，至次日 07:30 恢复窗开为止。
+/// 夜间出站切换的守护窗口判定（纯函数，桌面巡检闸门用，恢复起点固定默认 07:30）：
+/// 当日切换时刻（含过点补触发语义）起，至次日恢复窗开为止。
 /// 用户在切换前手动禁用的手选适配器无 IP、进不了六期闸门名单
 /// （select 只收有 IP 的卡），名单为空时闸门失效，巡检自动启用会顶掉
 /// 切换（2026-09-27 夜实证）；窗口内巡检一律不出自动启用目标，还原交给
-/// 恢复窗的 scheduled.rs。凌晨分支（now < 07:30）覆盖前一晚切换时刻
+/// 恢复窗的 scheduled.rs。凌晨分支（now < 恢复起点）覆盖前一晚切换时刻
 /// （23:00/23:30）之后的全部时段，跨日天然成立。
+///
+/// **仅测试期可用**：生产代码一律调 [`is_night_outbound_guard_window_with_restore`]。
+#[cfg(test)]
 pub fn is_night_outbound_guard_window(enabled: bool, weekday: u32, now_minutes: u32) -> bool {
     is_night_outbound_guard_window_with_restore(
         enabled,
@@ -78,13 +80,15 @@ pub fn is_night_outbound_guard_window(enabled: bool, weekday: u32, now_minutes: 
 }
 
 /// 带自定义恢复起点的守护窗口判定：窗口止于 `restore_start`（恢复窗一开，
-/// 巡检即可正常自动启用，无需再让位于夜切）。
+/// 巡检即可正常自动启用，无需再让位于夜切）。`restore_start` 可传原始配置值，
+/// 函数内部归一化。
 pub fn is_night_outbound_guard_window_with_restore(
     enabled: bool,
     weekday: u32,
     now_minutes: u32,
     restore_start: u32,
 ) -> bool {
+    let restore_start = super::night_switch::restore_start_minutes(restore_start);
     if !enabled {
         return false;
     }

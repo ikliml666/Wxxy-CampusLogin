@@ -299,23 +299,16 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
     }
 }
 
-/// 校园网检测静默期判定（now/start/end 均为当日分钟数 0-1439）。
-/// start=0 表示禁用门控；end=0 或 end<=start 时仅受开始时间限制
-/// （等价旧单边语义，与 lifecycle::is_within_campus_exit_window 的退化规则一致，
-/// 防止误设导致检测整天静默失效）。
-pub fn is_campus_check_silent(now_minutes: u16, start: u16, end: u16) -> bool {
-    if start == 0 {
-        return false;
-    }
-    if now_minutes < start {
-        return true;
-    }
-    end > start && now_minutes >= end
-}
+/// 校园网检测静默期判定——实现已下沉到双端共享面
+/// [`crate::config::schedule::is_campus_check_silent`]（2026-10-26：此前桌面巡检、
+/// 安卓巡检、安卓开机自启、无头 core 各写一份同语义边界判定，共享 crate 无此函数，
+/// 违反「新增跨平台判定优先放共享面」的约定）。此处仅保留 crate 内转出，
+/// 调用方可继续按 monitor 模块路径引用。
+pub use crate::config::schedule::is_campus_check_silent;
 
 #[cfg(test)]
 mod tests {
-    use super::{campus_name_list, is_campus_check_silent};
+    use super::campus_name_list;
 
     #[test]
     fn 名称名单_解析多分隔符与空项() {
@@ -328,28 +321,6 @@ mod tests {
         assert_eq!(campus_name_list("i-wxxy"), vec!["i-wxxy"]);
     }
 
-    #[test]
-    fn 静默期判定_开始时间单边() {
-        // 旧语义：0=禁用门控；早于开始时间静默
-        assert!(!is_campus_check_silent(400, 0, 0));
-        assert!(is_campus_check_silent(400, 460, 0));
-        assert!(!is_campus_check_silent(460, 460, 0));
-        assert!(!is_campus_check_silent(1439, 460, 0));
-    }
-
-    #[test]
-    fn 静默期判定_时间段双边() {
-        // 生效窗口 [07:40, 23:00)：窗口外静默
-        assert!(is_campus_check_silent(400, 460, 1380));
-        assert!(!is_campus_check_silent(460, 460, 1380));
-        assert!(!is_campus_check_silent(1379, 460, 1380));
-        assert!(is_campus_check_silent(1380, 460, 1380));
-    }
-
-    #[test]
-    fn 静默期判定_结束不晚于开始时退化为单边() {
-        // end <= start：仅受开始时间限制，防止误设导致整天静默
-        assert!(!is_campus_check_silent(1380, 460, 460));
-        assert!(!is_campus_check_silent(1380, 1380, 100));
-    }
+    // 静默期三条边界用例已随函数迁移到 config/schedule.rs 的同名测试模块
+    // （双端共享单点，避免同一语义的断言两处维护）。
 }
