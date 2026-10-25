@@ -44,7 +44,7 @@ pub(crate) fn set_adapter_failure_count(state: &AppState, counter: AdapterFailur
 /// 单适配器全局失败计数：连续 5 次认证失败触发该登录适配器的 MAC 重置。
 /// `adapter_name` 为本次登录用的适配器（调用方 resolve 后传入）——
 /// 只重置它，不再对系统全部适配器做 MAC 重置。
-pub fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_result: &CommandResult, campus_gw: &str, adapter_name: &str) {
+pub fn update_auth_failure_count(state: &AppState, cmd_result: &CommandResult, adapter_name: &str) {
     if cmd_result.success {
         let prev = state.network.load().portal_failure_count;
         if prev > 0 {
@@ -74,7 +74,6 @@ pub fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_r
     // 也会返回认证失败码，以此为触发条件会在不可登录时段反复换 MAC/IP。
     // MAC 重置的唯一触发源改为"门户 HTTP 不可达"（见 handle_portal_request_failure）。
     // 此处仅保留计数与日志，供诊断账号态问题。
-    let _ = (app_handle, campus_gw);
     if new_count >= MAX_FAILURES {
         crate::log_warn!("login", "{} 连续{}次认证失败（不再触发MAC重置，请检查账号状态/是否在可登录时段）", adapter_name, new_count);
         state.network.update(|s| s.portal_failure_count = 0);
@@ -84,24 +83,20 @@ pub fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_r
 /// 双适配器分别计数：对认证失败的适配器单独递增计数，连续 5 次触发该适配器的 MAC 重置
 pub fn update_dual_adapter_auth_failure(
     state: &AppState,
-    app_handle: &AppHandle,
     r1: &Option<CommandResult>,
     r2: &Option<CommandResult>,
     a1_name: &str,
     a2_name: &str,
-    campus_gw: &str,
 ) {
-    handle_single_adapter_failure(state, app_handle, r1, a1_name, campus_gw, AdapterFailureCounter::A1);
-    handle_single_adapter_failure(state, app_handle, r2, a2_name, campus_gw, AdapterFailureCounter::A2);
+    handle_single_adapter_failure(state, r1, a1_name, AdapterFailureCounter::A1);
+    handle_single_adapter_failure(state, r2, a2_name, AdapterFailureCounter::A2);
 }
 
 /// 处理单个适配器的认证失败计数与 MAC 重置
 fn handle_single_adapter_failure(
     state: &AppState,
-    app_handle: &AppHandle,
     result: &Option<CommandResult>,
     adapter_name: &str,
-    campus_gw: &str,
     counter: AdapterFailureCounter,
 ) {
     let success = result.as_ref().map(|r| r.success).unwrap_or(false);
@@ -140,7 +135,6 @@ fn handle_single_adapter_failure(
 
     // 触发机制重设计（2026-10-25）：认证失败不再触发 MAC 重置（同 update_auth_failure_count），
     // 仅保留计数与日志。MAC 重置唯一触发源为门户 HTTP 不可达（handle_portal_request_failure）。
-    let _ = (app_handle, campus_gw);
     if new_count >= MAX_FAILURES {
         crate::log_warn!("login", "{} 连续{}次认证失败（不再触发MAC重置，请检查账号状态/是否在可登录时段）", adapter_name, new_count);
         set_adapter_failure_count(state, counter, 0);

@@ -1139,6 +1139,23 @@ fn run_register_boot_task(config_b64: &str, logs: &mut Vec<String>) -> HelperRes
         return fail(format!("创建核心配置目录失败: {} - {e}", dir.display()), logs);
     }
 
+    // 先收紧 ACL 再写文件：目录去继承（含 /T 清理既有文件残留的 Users 继承 ACE
+    // ——机器作用域 DPAPI 任何本机用户可解密，等价明文），仅 SYSTEM 与
+    // Administrators 完全控制；目录带 (OI)(CI)，之后写入的文件自动继承同一收口。
+    let acl_output = crate::network::discovery::new_command("icacls")
+        .arg(dir.as_os_str())
+        .args(["/inheritance:r", "/T", "/grant:r", "SYSTEM:(OI)(CI)F", "/grant:r", "Administrators:(OI)(CI)F"])
+        .output();
+    match acl_output {
+        Ok(o) if o.status.success() => logs.push("helper: 核心目录 ACL 已收紧（SYSTEM+Administrators，含既有文件）".to_string()),
+        Ok(o) => {
+            let detail = crate::platform::console_output::decode_console_bytes(&o.stderr);
+            // ACL 失败即整体失败：配置含密码密文，不能留在默认继承权限下
+            return fail(format!("收紧核心目录 ACL 失败: {}", detail.trim()), logs);
+        }
+        Err(e) => return fail(format!("icacls 执行失败: {e}"), logs),
+    }
+
     // 原子写：tmp 同目录 rename，避免 core 读到半截配置
     let config_path = core_autostart::core_config_path();
     let tmp = dir.join("core-config.json.tmp");
@@ -1152,23 +1169,24 @@ fn run_register_boot_task(config_b64: &str, logs: &mut Vec<String>) -> HelperRes
     if let Err(e) = std::fs::rename(&tmp, &config_path) {
         return fail(format!("核心配置落盘失败: {e}"), logs);
     }
-    logs.push(format!("helper: 核心配置已写入 {}", config_path.display()));
-
-    // 收紧 ACL：去继承，仅 SYSTEM 与 Administrators 完全控制（目录与文件都设，
-    // 目录带 (OI)(CI) 让后续 core.log 继承同一收口）
-    let acl_output = crate::network::discovery::new_command("icacls")
-        .arg(dir.as_os_str())
-        .args(["/inheritance:r", "/grant:r", "SYSTEM:(OI)(CI)F", "/grant:r", "Administrators:(OI)(CI)F"])
+    // 双保险：对配置文件本身显式设一次（防目录继承被外部改动）
+    let file_acl = crate::network::discovery::new_command("icacls")
+        .arg(config_path.as_os_str())
+        .args(["/inheritance:r", "/grant:r", "SYSTEM:F", "/grant:r", "Administrators:F"])
         .output();
-    match acl_output {
-        Ok(o) if o.status.success() => logs.push("helper: 核心目录 ACL 已收紧（SYSTEM+Administrators）".to_string()),
+    match file_acl {
+        Ok(o) if o.status.success() => {}
         Ok(o) => {
             let detail = crate::platform::console_output::decode_console_bytes(&o.stderr);
-            // ACL 失败即整体失败：配置含密码密文，不能留在默认继承权限下
-            return fail(format!("收紧核心目录 ACL 失败: {}", detail.trim()), logs);
+            let _ = std::fs::remove_file(&config_path);
+            return fail(format!("收紧核心配置文件 ACL 失败: {}", detail.trim()), logs);
         }
-        Err(e) => return fail(format!("icacls 执行失败: {e}"), logs),
+        Err(e) => {
+            let _ = std::fs::remove_file(&config_path);
+            return fail(format!("icacls 执行失败: {e}"), logs);
+        }
     }
+    logs.push(format!("helper: 核心配置已写入 {}", config_path.display()));
 
     let core_exe = match core_autostart::core_exe_path() {
         Ok(p) => p,

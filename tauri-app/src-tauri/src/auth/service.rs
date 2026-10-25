@@ -123,7 +123,7 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
                 let effective_config = adapter_credentials(&config, app_handle, account_id);
                 let result = login_adapter_with_log(a, &effective_config, app_handle, state.exit.is_quitting.as_ref())
                     .unwrap_or_else(|| CommandResult::err("登录请求失败"));
-                update_auth_failure_count(state, app_handle, &result, &config.campus_gateway, name);
+                update_auth_failure_count(state, &result, name);
                 return result;
             }
             None => return CommandResult::err(&format!("未找到适配器: {name}")),
@@ -147,7 +147,6 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
         //（spawn_blocking 要求 'static，闭包需持有所有权；Arc 仅复制引用计数）
         let a1_clone = a1_ref.clone();
         let a2_clone = a2_ref.clone();
-        let campus_gateway = config.campus_gateway.clone();
         // R1: 每个适配器各持一份按角色解析出的凭据副本（未指定账号时凭据与全局一致，行为不变）；
         // Arc<Config> 满足 execute_dual 闭包的 'static 约束，其余字段保持 base 值。
         // 未指定账号（account id 为空）时直接共享 base 的 Arc（保持 BE-A-09 的
@@ -175,8 +174,8 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
         let result = dual_result.build_command_result();
         // 双适配器分别计数：对认证失败的适配器单独递增计数，连续5次触发该适配器 MAC 重置
         update_dual_adapter_auth_failure(
-            state, app_handle, &dual_result.primary, &dual_result.secondary,
-            &adapter1_name, &adapter2_name, &campus_gateway,
+            state, &dual_result.primary, &dual_result.secondary,
+            &adapter1_name, &adapter2_name,
         );
         return result;
     }
@@ -187,7 +186,7 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
     let effective_config = adapter_credentials(&config, app_handle, &config.adapter1_account);
     let result = login_adapter_with_log(a1_ref, &effective_config, app_handle, state.exit.is_quitting.as_ref())
         .unwrap_or_else(|| CommandResult::err("登录请求失败"));
-    update_auth_failure_count(state, app_handle, &result, &config.campus_gateway, &adapter1_name);
+    update_auth_failure_count(state, &result, &adapter1_name);
     result
 }
 

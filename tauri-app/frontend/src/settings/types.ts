@@ -117,7 +117,6 @@ export interface InitData {
   isAutoStart: boolean
   autoLaunch: boolean
   /** 系统级（未登录 Windows）自动登录是否已开启：SYSTEM 计划任务存在即 true */
-  coreAutostart?: boolean
   notificationEnabled: boolean
   /** 原一次性 get_log_retention_days 命令并入此处：logger 运行期真实值 */
   logRetentionDays: number

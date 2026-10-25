@@ -24,7 +24,7 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use chrono::{Datelike, Timelike};
+use chrono::Datelike;
 use tauri::{AppHandle, Manager};
 use crate::config::night_switch::{parse_chkstatus, uid_matches, NightSwitchAction};
 use crate::config::outbound_switch::{outbound_restore_active, NightOutboundAction};
@@ -76,7 +76,7 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
             break;
         }
         let now = chrono::Local::now();
-        let now_minutes = now.hour() as u16 * 60 + now.minute() as u16;
+        let now_minutes = crate::infra::local_now_minutes();
         let today_day = now.date_naive().num_days_from_ce();
         let config_snapshot: Arc<crate::config::Config> = {
             let s = app_h.state::<AppState>();
@@ -211,7 +211,7 @@ fn reconcile_scheduled_logout_on_startup(app_handle: &AppHandle) {
     let s = app_handle.state::<AppState>();
     let config = s.config.load_full();
     let now = chrono::Local::now();
-    let now_minutes = now.hour() as u16 * 60 + now.minute() as u16;
+    let now_minutes = crate::infra::local_now_minutes();
     let today_day = now.date_naive().num_days_from_ce();
     if now_minutes >= config.scheduled_logout_minutes {
         s.scheduled.logout_day.store(today_day, Ordering::Release);
@@ -337,8 +337,9 @@ fn spawn_login_action(app_handle: &AppHandle, trigger_log: &str, result_prefix: 
 }
 
 /// 定时登录当日失败补试上限：到点登录失败（如登录时段刚开服务端仍拒绝）后，
-/// 按 30s 拍间隔有限补试，而非一次失败即当日放弃
-const SCHEDULED_LOGIN_MAX_RETRIES: u32 = 3;
+/// 按 30s 拍间隔有限补试，而非一次失败即当日放弃。20 次 × 30s ≈ 10 分钟窗口，
+/// 覆盖服务端延迟放行几分钟的常见情况（评审：原 3 次 90s 窗口太短）。
+const SCHEDULED_LOGIN_MAX_RETRIES: u32 = 20;
 
 /// 晚间断网切换动作：改内存配置 → 落盘（复用 save_config_to_disk_encrypted，
 /// 含 config-changed 事件与托盘刷新）→ 触发登录（复用定时登录的登录路径）。
@@ -637,7 +638,10 @@ mod tests {
         let state = AppState::new();
         assert_eq!(state.scheduled.bump_login_retry(TODAY), 1);
         assert_eq!(state.scheduled.bump_login_retry(TODAY), 2);
-        assert_eq!(state.scheduled.bump_login_retry(TODAY), 3);
+        for _ in 3..SCHEDULED_LOGIN_MAX_RETRIES {
+            state.scheduled.bump_login_retry(TODAY);
+        }
+        assert_eq!(state.scheduled.bump_login_retry(TODAY), SCHEDULED_LOGIN_MAX_RETRIES);
         // 成功/放弃路径清零后重新计数
         state.scheduled.reset_login_retry();
         assert_eq!(state.scheduled.bump_login_retry(TODAY), 1);
@@ -658,9 +662,10 @@ mod tests {
         state.scheduled.login_day.store(i32::MIN, AOrd::Release);
         assert!(evaluate_scheduled(&state, 505, TODAY, false).0, "额度回退后过点补触发必须放行");
         // 三次补试用尽：login_day 保留 TODAY → 当日不再触发
-        state.scheduled.bump_login_retry(TODAY);
-        state.scheduled.bump_login_retry(TODAY);
-        assert_eq!(state.scheduled.bump_login_retry(TODAY), 3);
+        for _ in 1..SCHEDULED_LOGIN_MAX_RETRIES {
+            state.scheduled.bump_login_retry(TODAY);
+        }
+        assert_eq!(state.scheduled.bump_login_retry(TODAY), SCHEDULED_LOGIN_MAX_RETRIES);
         state.scheduled.login_day.store(TODAY, AOrd::Release);
         assert!(!evaluate_scheduled(&state, 600, TODAY, false).0, "补试用尽后当日不得再触发");
     }

@@ -28,7 +28,7 @@ pub fn start_campus_exit(app_handle: &AppHandle, state: &AppState) {
     }
 
     let now = chrono::Local::now();
-    let now_min = now.hour() as u16 * 60 + now.minute() as u16;
+    let now_min = crate::infra::local_now_minutes();
     if !is_within_campus_exit_window(now_min, config.campus_exit_start_minutes, config.campus_exit_end_minutes) {
         crate::log_info!(
             "campus_exit",

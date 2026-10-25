@@ -156,7 +156,7 @@ pub fn get_core_autostart() -> Result<bool, String> {
 /// 开启路径组装当前明文配置（密码换机器作用域 DPAPI）并经提权通道写配置 + 注册
 /// BOOT 任务；关闭路径删任务 + 删配置。全程复用现有提权基础设施。
 #[tauri::command]
-pub async fn set_core_autostart(enabled: bool, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn set_core_autostart(enabled: bool, state: State<'_, AppState>, app_handle: AppHandle) -> Result<serde_json::Value, String> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (enabled, state);
@@ -165,6 +165,7 @@ pub async fn set_core_autostart(enabled: bool, state: State<'_, AppState>) -> Re
     #[cfg(target_os = "windows")]
     {
         let cfg = state.config.load();
+        let cfg_for_marker = cfg.clone();
         let result = tauri::async_runtime::spawn_blocking(move || {
             if enabled {
                 crate::platform::core_autostart::enable_core_autostart(&cfg)
@@ -176,6 +177,12 @@ pub async fn set_core_autostart(enabled: bool, state: State<'_, AppState>) -> Re
         .map_err(|e| format!("系统级自启设置任务失败: {e}"))?;
         match result {
             Ok(()) => {
+                // 指纹标记随开关同步：开启写入（避免下次保存白跑重写）、关闭清除
+                if enabled {
+                    crate::platform::core_autostart::write_core_config_marker(&app_handle, &cfg_for_marker);
+                } else {
+                    crate::platform::core_autostart::clear_core_config_marker(&app_handle);
+                }
                 crate::log_info!("system", "系统级自动登录已{}", if enabled { "开启" } else { "关闭" });
                 Ok(serde_json::json!({
                     "success": true,
@@ -216,10 +223,7 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
 
     let version = env!("APP_VERSION").to_string();
     let auto_launch = crate::platform::autostart::get_auto_launch_enabled();
-    #[cfg(target_os = "windows")]
-    let core_autostart = crate::platform::core_autostart::core_autostart_enabled();
-    #[cfg(not(target_os = "windows"))]
-    let core_autostart = false;
+
     let refresh_rate = crate::platform::gpu::detect_display_refresh_rate();
 
     let adapters = crate::network::get_adapters_cached().unwrap_or_default();
@@ -241,7 +245,6 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
         "accounts": accounts,
         "version": version,
         "autoLaunch": auto_launch,
-        "coreAutostart": core_autostart,
         "refreshRate": refresh_rate,
         "adapters": adapters,
         "adapterDetails": adapter_details,

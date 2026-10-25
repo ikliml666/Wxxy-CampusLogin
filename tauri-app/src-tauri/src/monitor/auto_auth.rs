@@ -2,7 +2,6 @@ use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use chrono::Timelike;
 use crate::network::get_adapters_force;
 use crate::auth::portal::check_portal_full;
 use crate::infra::state::{AppState, CommandResult};
@@ -144,7 +143,7 @@ pub fn try_auto_login_on_preparation(
         return;
     }
 
-    // 冷却按当前失败计数退避（上限内=普通冷却，达上限=指数退避封顶 30 分钟）
+    // 冷却按当前失败计数退避（上限内=普通冷却，达上限=指数退避退避封顶 5 分钟）
     let failures = snap.prep_login_failures;
     let last_attempt = snap.last_auto_login_attempt;
     if !prep_login_cooldown_ready(failures, last_attempt.elapsed().as_secs(), config.auto_login_cooldown_secs) {
@@ -383,7 +382,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
         let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
 
         if config.enable_network_name_check {
-            let now_min = chrono::Local::now().hour() as u16 * 60 + chrono::Local::now().minute() as u16;
+            let now_min = crate::infra::local_now_minutes();
             let skip_campus = crate::monitor::campus_check::is_campus_check_silent(now_min, config.campus_check_start_minutes, config.campus_check_end_minutes);
 
             if skip_campus {

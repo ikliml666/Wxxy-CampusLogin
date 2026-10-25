@@ -1,7 +1,6 @@
 use tauri::{AppHandle, Manager};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use chrono::Timelike;
 use crate::network::{get_adapters_cached, get_adapters_force};
 use crate::infra::state::AppState;
 use crate::infra::lifecycle::{start_campus_exit, cancel_campus_exit};
@@ -29,10 +28,10 @@ pub(crate) fn should_reset_logged_online(reachable: bool, any_online: bool, has_
 
 pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &tokio_util::sync::CancellationToken) -> CheckOutcome {
     if state.exit.is_quitting.load(Ordering::Acquire) || cancel_token.is_cancelled() {
-        return CheckOutcome::NotOnline;
+        return CheckOutcome::Skipped;
     }
     let Some(_check_guard) = state.tasks.is_checking.try_acquire() else {
-        return CheckOutcome::NotOnline;
+        return CheckOutcome::Skipped;
     };
     let t_total = std::time::Instant::now();
 
@@ -47,7 +46,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             Ok(a) => a,
             Err(e) => {
                 crate::log_error!("background", "获取适配器列表失败: {}", e);
-                return CheckOutcome::NotOnline;
+                return CheckOutcome::Skipped;
             }
         }
     };
@@ -58,8 +57,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
 
     let (a1, a2) = crate::network::find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
 
-    let now = chrono::Local::now();
-    let now_min = now.hour() as u16 * 60 + now.minute() as u16;
+    let now_min = crate::infra::local_now_minutes();
     // 出站切换态（三份快照任一非空）：巡检整体跳过（portal 检测走热点出站必失败，
     // 会累计触发 MAC 重置提权与整夜告警；见 decisions/night-outbound-switch）。下一拍（30s）恢复。
     if crate::config::outbound_switch::outbound_restore_active(
@@ -68,7 +66,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         &config.outbound_standby_route,
     ) {
         crate::log_debug!("background", "出站切换态，跳过本轮巡检");
-        return CheckOutcome::NotOnline;
+        return CheckOutcome::Skipped;
     }
     let campus_result = if crate::monitor::campus_check::is_campus_check_silent(now_min, config.campus_check_start_minutes, config.campus_check_end_minutes) {
         let hour = config.campus_check_start_minutes / 60;
@@ -165,7 +163,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     cancel_campus_exit(app_handle, state);
 
     if cancel_token.is_cancelled() {
-        return CheckOutcome::NotOnline;
+        return CheckOutcome::Skipped;
     }
 
     let t_portal = std::time::Instant::now();
@@ -516,7 +514,7 @@ pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::syn
         run_background_check_blocking(&app_h, &s, &cancel_token)
     }).await.unwrap_or_else(|e| {
         crate::log_error!("background", "后台检测异常: {}", e);
-        CheckOutcome::NotOnline
+        CheckOutcome::Skipped
     })
 }
 

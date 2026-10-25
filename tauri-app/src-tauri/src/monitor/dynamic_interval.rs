@@ -33,32 +33,43 @@ pub enum CheckOutcome {
     Online,
     /// 此前在线但本轮门户不可达：疑似"已登录但门户异常"，进入快速排查
     OnlineButPortalUnreachable,
+    /// 本轮未执行有效检测（退出中/抢锁失败/取适配器失败/出站切换态等早退）：
+    /// 保持上一拍节奏，既不累计退避也不复位状态
+    Skipped,
 }
 
 /// 检测间隔退避状态：跟踪连续未在线轮数
 #[derive(Debug, Default)]
 pub struct DynamicInterval {
     offline_streak: u32,
+    /// 上一拍计算出的间隔，Skipped 时沿用
+    last_ms: Option<u64>,
 }
 
 impl DynamicInterval {
     /// 根据本轮结局与配置基础间隔，给出下一拍间隔（毫秒）。
     /// 状态转换（登录成功 / 门户恢复）自动复位退避计数。
     pub fn next_ms(&mut self, outcome: CheckOutcome, base_ms: u64) -> u64 {
-        match outcome {
+        let ms = match outcome {
             CheckOutcome::OnlineButPortalUnreachable => {
                 self.offline_streak = 0;
                 FAST_INTERVAL_MS
             }
             CheckOutcome::Online => {
                 self.offline_streak = 0;
-                ONLINE_INTERVAL_MS
+                // 已登录档取 10 分钟与用户配置基础间隔的较大者：用户配得更长时尊重用户
+                ONLINE_INTERVAL_MS.max(base_ms)
             }
             CheckOutcome::NotOnline => {
                 self.offline_streak = self.offline_streak.saturating_add(1);
                 backoff_ms(base_ms, self.offline_streak)
             }
+            CheckOutcome::Skipped => self.last_ms.unwrap_or(base_ms),
+        };
+        if outcome != CheckOutcome::Skipped {
+            self.last_ms = Some(ms);
         }
+        ms
     }
 
     /// 当前连续未在线轮数（测试用）
@@ -131,5 +142,28 @@ mod tests {
         assert!(portal_reset_window_open(510)); // 08:30
         assert!(portal_reset_window_open(23 * 60 + 59));
         assert!(!portal_reset_window_open(0)); // 凌晨
+    }
+}
+
+#[cfg(test)]
+mod skipped_tests {
+    use super::*;
+
+    #[test]
+    fn skipped沿用上一拍且不累计退避() {
+        let mut d = DynamicInterval::default();
+        assert_eq!(d.next_ms(CheckOutcome::Skipped, 15_000), 15_000); // 无历史用 base
+        d.next_ms(CheckOutcome::NotOnline, 15_000);
+        let after_skip = d.next_ms(CheckOutcome::Skipped, 15_000);
+        assert_eq!(after_skip, 15_000); // 沿用上拍，不因跳过累积
+        // 跳过后继续 NotOnline 仍按真实轮数爬坡（streak=2 → 30s）
+        assert_eq!(d.next_ms(CheckOutcome::NotOnline, 15_000), 30_000);
+    }
+
+    #[test]
+    fn 已登录档尊重更大的用户配置() {
+        let mut d = DynamicInterval::default();
+        assert_eq!(d.next_ms(CheckOutcome::Online, 900_000), 900_000);
+        assert_eq!(d.next_ms(CheckOutcome::Online, 15_000), ONLINE_INTERVAL_MS);
     }
 }

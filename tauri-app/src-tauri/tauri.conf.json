@@ -6,6 +6,7 @@
     "beforeDevCommand": "cd frontend && npm run dev",
     "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "cd frontend && npm run build",
+    "beforeBundleCommand": "cargo build --release --bin campus-login-core && pwsh -NoProfile -Command \"$t=(cargo metadata --format-version 1 | ConvertFrom-Json).target_directory; New-Item -ItemType Directory -Force binaries | Out-Null; Copy-Item \\\"$t/release/campus-login-core.exe\\\" \\\"binaries/campus-login-core-x86_64-pc-windows-msvc.exe\\\" -Force\"",
     "frontendDist": "../frontend/dist"
   },
   "app": {
@@ -33,8 +34,17 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
-    "resources": ["resources/mascot-update-toast.png", "resources/mascot-toast/*", "icons/128x128.png"],
+    "targets": [
+      "nsis"
+    ],
+    "externalBin": [
+      "binaries/campus-login-core"
+    ],
+    "resources": [
+      "resources/mascot-update-toast.png",
+      "resources/mascot-toast/*",
+      "icons/128x128.png"
+    ],
     "icon": [
       "icons/icon.ico",
       "icons/32x32.png",
@@ -48,11 +58,13 @@
       },
       "nsis": {
         "installMode": "both",
-        "languages": ["SimpChinese", "English"],
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
         "installerHooks": "./windows/hooks.nsh"
       }
     }
   },
-  "plugins": {
-  }
+  "plugins": {}
 }

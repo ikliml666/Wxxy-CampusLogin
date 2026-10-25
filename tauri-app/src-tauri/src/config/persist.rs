@@ -300,6 +300,22 @@ pub fn save_config_and_broadcast(app_handle: &AppHandle, config: &Config) -> Res
     // 直发裸 Config 会让前端监听静默失效
     let emit_cfg = config.masked_for_display();
     let _ = app_handle.notify_config_changed(&serde_json::json!({ "config": emit_cfg }));
+
+    // 无头核心凭据跟随：核心字段变化时重写 core-config.json（指纹判变，多数
+    // 保存无操作）。enable 走提权通道最长 90s，放后台线程避免阻塞本次保存。
+    {
+        let app_h = app_handle.clone();
+        let cfg_snap = config.clone();
+        std::thread::spawn(move || {
+            match crate::platform::core_autostart::refresh_core_config_if_changed(&app_h, &cfg_snap) {
+                Some(Ok(())) => {}
+                Some(Err(e)) => {
+                    crate::log_warn!("config", "无头核心凭据跟随更新失败: {}", e)
+                }
+                None => {}
+            }
+        });
+    }
     Ok(())
 }
 

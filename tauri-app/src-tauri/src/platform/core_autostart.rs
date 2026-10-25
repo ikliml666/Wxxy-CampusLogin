@@ -169,6 +169,71 @@ pub fn disable_core_autostart() -> Result<(), String> {
     }
 }
 
+/// 无头核心凭据跟随：配置落盘后检测核心关心的关键字段（账号/密码/运营商/
+/// 门户/适配器/静默窗）是否与上次写入 core-config.json 时一致，不一致则重写
+/// 配置并重注册任务（COM 注册幂等覆盖）。指纹文件存用户配置目录（仅 FNV-1a
+/// 摘要，不含明文）。账号或密码为空时无法重建核心配置，跳过（保持旧配置，
+/// 待用户在设置页重新保存完整凭据）。
+pub fn refresh_core_config_if_changed(app_handle: &tauri::AppHandle, cfg: &Config) -> Option<Result<(), String>> {
+    if !core_autostart_enabled() {
+        return None;
+    }
+    if cfg.user.trim().is_empty() || cfg.password.is_empty() {
+        return None;
+    }
+    let fingerprint = core_config_fingerprint(cfg);
+    let marker = core_config_marker_path(app_handle);
+    if let Ok(prev) = std::fs::read_to_string(&marker) {
+        if prev.trim() == fingerprint {
+            return None;
+        }
+    }
+    crate::log_info!("core_autostart", "核心凭据关键字段变化，重写无头核心配置");
+    let result = enable_core_autostart(cfg);
+    if result.is_ok() {
+        let _ = std::fs::write(&marker, &fingerprint);
+    }
+    Some(result)
+}
+
+/// 凭据指纹文件路径（用户配置目录，非 ProgramData——用户态可写）。
+fn core_config_marker_path(app_handle: &tauri::AppHandle) -> std::path::PathBuf {
+    crate::config::persist::get_data_dir(app_handle).join("core-config-fingerprint.txt")
+}
+
+/// 开启系统级自启成功后写入指纹，避免下一次 save_config 因指纹缺失多做一次重写。
+pub fn write_core_config_marker(app_handle: &tauri::AppHandle, cfg: &Config) {
+    let _ = std::fs::write(core_config_marker_path(app_handle), core_config_fingerprint(cfg));
+}
+
+/// 关闭系统级自启后清除指纹（下次重新开启时会重新写入）。
+pub fn clear_core_config_marker(app_handle: &tauri::AppHandle) {
+    let _ = std::fs::remove_file(core_config_marker_path(app_handle));
+}
+
+/// 核心配置关键字段指纹（FNV-1a 64）：仅做变更检测，非安全用途。
+/// 密码以明文参与摘要——DPAPI 机器作用域密文每次加密都不同，不能直接比密文。
+fn core_config_fingerprint(cfg: &Config) -> String {
+    let parts: [&str; 10] = [
+        "v1",
+        &cfg.user,
+        &cfg.password,
+        &cfg.operator,
+        &cfg.portal_url,
+        &cfg.adapter1,
+        &cfg.adapter2,
+        &format!("{}", cfg.dual_adapter),
+        &format!("{}", cfg.campus_check_start_minutes),
+        &format!("{}", cfg.campus_check_end_minutes),
+    ];
+    let src = parts.join("");
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in src.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
 /// core 选卡：dual_adapter 时按 adapter1/adapter2 名单匹配；否则取任一有 IP 的适配器。
 /// 「自动检测」/空名不参与名单匹配（交给自动检测语义）。
 #[allow(dead_code)] // 供无头核心 bin 使用，主 bin 不引用

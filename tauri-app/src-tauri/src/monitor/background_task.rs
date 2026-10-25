@@ -32,11 +32,13 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
                     let s = app_h.state::<AppState>();
                     let cfg = s.config.load();
                     let base_ms = cfg.background_check_interval.max(10000);
-                    // 轻量化期间下限 300s（app/lightweight），非轻量化即动态间隔值
-                    crate::app::lightweight::effective_background_interval_ms(
-                        dyn_interval.next_ms(last_outcome, base_ms),
+                    // 轻量化下限 300s 只作用于退避基础值：快排查（1 分钟）与已登录档
+                    // 不被抬回 5 分钟，保证"门户不可达快排查"在轻量化下依然有效
+                    let base_eff = crate::app::lightweight::effective_background_interval_ms(
+                        base_ms,
                         crate::app::lightweight::is_lightweight_active(),
-                    )
+                    );
+                    dyn_interval.next_ms(last_outcome, base_eff)
                 };
                 let mut interval_timer = tokio::time::interval(Duration::from_millis(interval_ms));
                 interval_timer.tick().await;
