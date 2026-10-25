@@ -91,6 +91,12 @@ pub struct Config {
     /// 安卓端不消费此字段
     #[serde(rename = "outboundManualHoldDay", default)]
     pub outbound_manual_hold_day: i32,
+    /// 待切换状态：`{target, tag}` JSON（tag 标签如 "waiting-login"）。非空 = 目标
+    /// 网卡尚未登录校园网、切换被挂起；监测确认目标卡在线后由排程循环自动完成
+    /// 切换，切换成功/还原时清空。与切换态快照同属本机状态，导入配置时保留本机值。
+    /// 安卓端不消费此字段
+    #[serde(rename = "outboundPendingSwitch", default)]
+    pub outbound_pending_switch: String,
     /// 安卓切换态标记：值恒 "logged_out"（纯标记，不暂存账号名）。非空 = 安卓处于
     /// 出站切换态（已注销等待晨间重登）。切账号时清空。桌面端不消费此字段
     #[serde(rename = "nightOutboundRestore", default)]
@@ -270,6 +276,7 @@ impl Default for Config {
             outbound_disabled_adapters: String::new(),
             outbound_standby_route: String::new(),
             outbound_manual_hold_day: 0,
+            outbound_pending_switch: String::new(),
             dns_optimize_adapters: Vec::new(),
             device_aliases: std::collections::HashMap::new(),
             night_outbound_restore: String::new(),

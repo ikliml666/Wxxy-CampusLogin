@@ -29,6 +29,7 @@ export const DEFAULT_CONFIG: Config = {
   outboundDisabledAdapters: '',
   outboundStandbyRoute: '',
   outboundManualHoldDay: 0,
+  outboundPendingSwitch: '',
   nightOutboundRestore: '',
   dnsOptimizeAdapters: [],
   autoExitOnOnline: false,

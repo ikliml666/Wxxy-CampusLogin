@@ -151,6 +151,15 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
                     })
                     .await;
                 }
+                // 待切换补驱动：手动「立即切换」被登录闸挂起后已记 hold 日（当日
+                // 自动 Switch 冻结），守卫窗外也没有 Switch 拍——由这里每拍重判，
+                // 监测确认目标卡登录后自动完成切换；仍未登录则 apply 幂等地刷新
+                // 待切换状态（同值不写盘）。切换态成立时挂起态已随切换成功清空
+                if !config_snapshot.outbound_pending_switch.is_empty() && !restore_active {
+                    let _ =
+                        run_outbound_blocking(app_h.clone(), config_snapshot.clone(), apply_outbound_switch)
+                            .await;
+                }
                 // 夜间看门狗：guard 窗口 ∧ 切换态下复核禁用名单，名单内校园网卡被
                 // 外部重新启用（用户手动启用/网络重置/驱动重装）时重新禁用（P2-3）。
                 // 提权结果轮询最长 30s/卡，与其他出站动作一样下放阻塞线程池

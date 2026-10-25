@@ -274,6 +274,7 @@ mod tests {
             outbound_disabled_adapters: String::new(),
             outbound_standby_route: String::new(),
             outbound_manual_hold_day: 0,
+            outbound_pending_switch: String::new(),
             night_outbound_restore: String::new(),
             dns_optimize_adapters: Vec::new(),
             auto_exit_on_online: false,

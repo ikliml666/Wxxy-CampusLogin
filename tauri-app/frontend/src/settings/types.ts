@@ -46,6 +46,8 @@ export interface Config {
   outboundStandbyRoute: string
   /** 「立即切换」当日保持标记（days since CE，后端内部状态；0=无保持——手动切换当日冻结自动 Switch/Restore，次日恢复） */
   outboundManualHoldDay: number
+  /** 待切换状态（PendingSwitchRow JSON，后端内部状态；非空=目标网卡未登录校园网、切换挂起等监测确认） */
+  outboundPendingSwitch: string
   nightOutboundRestore: string
   /** DNS 优化目标适配器名单（网卡名，可多选）；空 = 未选择，优化/恢复时后端提示先选择 */
   dnsOptimizeAdapters: string[]

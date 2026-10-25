@@ -46,6 +46,17 @@ function formatSpeed(bps?: number): string {
   return `${Math.round(bps / 1e3)} Kbps`
 }
 
+/** 解析待切换状态 JSON（{target, tag}）取目标网卡名；空/非法 → null（无挂起） */
+function parsePendingSwitchTarget(json: string | undefined): string | null {
+  if (!json) return null
+  try {
+    const row = JSON.parse(json) as { target?: string; tag?: string }
+    return row.target || null
+  } catch {
+    return null
+  }
+}
+
 /** 长按触发拖拽的时长（ms）；行体按下后移出死区即取消，防止滚动/点击误触发 */
 const DRAG_LONG_PRESS_MS = 250
 /** 长按等待期内允许的位移死区（px），超出视为滚动意图并取消长按 */
@@ -433,7 +444,19 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               </div>
             </div>
             {/* 功能描述移到标题行下方整行显示（沿 DNS 卡先例） */}
-            <CardDescription className="mt-2">{t('network.nightOutboundSwitchDesc')}</CardDescription>
+            <CardDescription className="mt-2">
+              {t('network.nightOutboundSwitchDesc')}
+              {parsePendingSwitchTarget(config.outboundPendingSwitch) && (
+                <Badge
+                  variant="outline"
+                  className="ml-2 h-5 gap-1 border-amber-500/40 bg-amber-500/10 text-amber-600 text-[11px] font-medium"
+                  title={t('network.outboundPendingSwitchTip')}
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  {t('network.outboundPendingSwitch', { target: parsePendingSwitchTarget(config.outboundPendingSwitch) ?? '' })}
+                </Badge>
+              )}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {adapters.length === 0 ? (
