@@ -31,7 +31,14 @@ import { useTranslation } from 'react-i18next'
 import { BottomNav, type MobileTab } from '@/components/layout/BottomNav'
 import { MobileDashboard } from '@/components/mobile/MobileDashboard'
 import { MobileMore } from '@/components/mobile/MobileMore'
-import { TabletShell } from '@/components/tablet/TabletShell'
+// 平板外壳按需加载（前台内存）：手机端永不求值 TabletShell 及其整棵模块树
+// （TitleBar/DockNav/RightPanel/LogPanel/StatusBar/useSettings），这些模块的
+// 顶层代码与看板娘取图逻辑在手机上是纯浪费；静态 import 会让它们在启动时就
+// 进入 JS 堆并常驻。useFormFactor 是同步判定，平板端首帧命中懒加载——用
+// 下方 TABLET_SHELL_PREFETCH 在判定为平板后立刻预取，正常情况下一帧内到位。
+const TabletShell = lazy(() =>
+  import('@/components/tablet/TabletShell').then((mod) => ({ default: mod.TabletShell }))
+)
 import { FaceCaptureDialog } from '@/face/FaceCaptureDialog'
 import { useFormFactor } from '@/hooks/useFormFactor'
 import { AccountPanel } from '@/account/AccountPanel'
@@ -360,12 +367,30 @@ function AppInner() {
 
 // 双外壳:平板(sw600dp 语义,短边≥600dp)渲染桌面 Dock 布局(TabletShell,
 // 面板内容仍为安卓版),手机维持移动底部导航外壳(AppInner)
+//
+// TabletShell 是 lazy 的（见顶部注释）：手机形态下它连模块求值都不发生，
+// 只有平板形态才下载并执行平板外壳那棵树。fallback 用外壳同款底色占位，
+// 避免平板端首帧出现白闪——正常情况下预取已在同一帧内完成，用户看不到它。
 export default function App() {
   const formFactor = useFormFactor()
+  const isTablet = formFactor === 'tablet'
+  // 平板形态一旦判定就预取外壳块：lazy 的首次渲染会同步触发同一 import，
+  // 这里提前一拍发起，让 chunk 在 Suspense 落地前已在路上（手机端不执行）。
+  useEffect(() => {
+    if (isTablet) void import('@/components/tablet/TabletShell')
+  }, [isTablet])
   return (
     <ErrorBoundary>
       <AnimationActiveProvider>
-        {formFactor === 'tablet' ? <TabletShell /> : <AppInner />}
+        {isTablet ? (
+          <Suspense
+            fallback={<div className="h-full" style={{ background: 'var(--surface-main)' }} />}
+          >
+            <TabletShell />
+          </Suspense>
+        ) : (
+          <AppInner />
+        )}
         {/* 2D 人脸录入/验证弹窗单例:验证门(tauriApi)命令式驱动,双外壳共用 */}
         <FaceCaptureDialog />
         <NotificationPermissionGate />
