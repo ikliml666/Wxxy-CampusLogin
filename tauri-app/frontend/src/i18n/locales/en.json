@@ -238,6 +238,7 @@
     "vpnSavedTitle": "VPN Credentials",
     "vpnToggleLabel": "Automatically use VPN off campus",
     "vpnAutoDesc": "Connects directly on campus; automatically relayed through the campus VPN when off campus.",
+    "vpnActivateAccount": "Activate account",
     "vpnTestButton": "Test Connection",
     "vpnTesting": "Testing...",
     "vpnClearButton": "Clear Credentials",

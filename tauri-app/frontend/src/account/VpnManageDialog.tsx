@@ -10,6 +10,11 @@ import {
 } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { ExternalLink } from 'lucide-react'
+import { tauriApiWithRetry } from '@/hooks/tauriApi'
+
+// 统一身份认证账号激活页（凭据无法登录时的自助激活入口）
+const ACCOUNT_ACTIVATION_URL = 'https://wxcas.cwxu.edu.cn/sf/#/account/accountActivation'
 
 // 自助服务 VPN 凭据管理弹窗：展示脱敏账号、「校外自动经 VPN」开关（即时保存）、
 // 连通性测试与清除入口（清除的二次确认由面板层 ConfirmDialog 负责）。
@@ -70,6 +75,14 @@ export function VpnManageDialog({ open, accountMasked, viaVpn, onToggleViaVpn, o
             <Switch id="vpn-via-toggle" checked={viaVpnDraft} onCheckedChange={toggleViaVpn} />
           </div>
           <p className="text-[11px] text-muted-foreground/70">{t('account.vpnAutoDesc')}</p>
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto w-fit p-0 text-xs"
+            onClick={() => void tauriApiWithRetry.openExternal(ACCOUNT_ACTIVATION_URL)}
+          >
+            <ExternalLink className="h-3 w-3" /> {t('account.vpnActivateAccount')}
+          </Button>
         </div>
         <div className="mt-3 flex justify-between gap-3">
           <Button variant="destructive" size="sm" onClick={onClearRequest} className="min-w-20">

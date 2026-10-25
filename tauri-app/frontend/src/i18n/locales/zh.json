@@ -238,6 +238,7 @@
     "vpnSavedTitle": "VPN 凭据",
     "vpnToggleLabel": "校外自动经 VPN 访问",
     "vpnAutoDesc": "校园网内自动直连；检测到非校园网时自动经学校 VPN 中转",
+    "vpnActivateAccount": "账号激活",
     "vpnTestButton": "测试连接",
     "vpnTesting": "测试中...",
     "vpnClearButton": "清除凭据",

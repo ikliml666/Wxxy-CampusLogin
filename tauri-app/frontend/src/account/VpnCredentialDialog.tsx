@@ -10,6 +10,11 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ExternalLink } from 'lucide-react'
+import { tauriApiWithRetry } from '@/hooks/tauriApi'
+
+// 统一身份认证账号激活页（凭据无法登录时的自助激活入口）
+const ACCOUNT_ACTIVATION_URL = 'https://wxcas.cwxu.edu.cn/sf/#/account/accountActivation'
 
 // 自助服务 VPN 凭据录入弹窗：账号默认预填当前登录学号，密码每次手动输入（不回显已存值）。
 // 与 DeviceAliasDialog 同构：open=false 时复位草稿；保存按钮 async 期间禁用防双击。
@@ -85,13 +90,23 @@ export function VpnCredentialDialog({ open, defaultAccount, onSave, onCancel }: 
             />
           </div>
         </div>
-        <div className="mt-3 flex justify-end gap-3">
-          <Button variant="outline" disabled={saving} onClick={onCancel} className="min-w-20">
-            {t('account.vpnCancelButton')}
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto p-0 text-xs"
+            onClick={() => void tauriApiWithRetry.openExternal(ACCOUNT_ACTIVATION_URL)}
+          >
+            <ExternalLink className="h-3 w-3" /> {t('account.vpnActivateAccount')}
           </Button>
-          <Button disabled={!canSave} onClick={() => void submit()} className="min-w-20">
-            {t('account.vpnSaveButton')}
-          </Button>
+          <div className="flex gap-3">
+            <Button variant="outline" disabled={saving} onClick={onCancel} className="min-w-20">
+              {t('account.vpnCancelButton')}
+            </Button>
+            <Button disabled={!canSave} onClick={() => void submit()} className="min-w-20">
+              {t('account.vpnSaveButton')}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
