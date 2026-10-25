@@ -3,7 +3,8 @@
 //! - protocol_cmds:登录/注销/Portal 探测/WiFi 绑定
 //! - campus_detect:校园网探针(检测卡 + check_campus_status)
 //! - config_state:全量配置(Keystore 加密落盘/掩码出口)
-//! - self_service_cmds:自助服务六命令 + 生物识别验证门
+//! - self_service_cmds:自助服务七网络命令(自动路由直连/WebVPN) + 生物识别验证门
+//! - vpn_cmds:WebVPN 凭据命令与自助服务校外自动路由(桌面 commands/vpn.rs 同构)
 //! - identity_gate / login_history:验证门 TTL 与登录历史
 //! - quality_history:网络质量历史落盘(形状与桌面端一致)
 //! - android_state:进程态(源 IP 缓存/配置内存态/监控循环句柄)
@@ -16,6 +17,7 @@ mod identity_gate;
 mod login_history;
 mod protocol_cmds;
 mod self_service_cmds;
+mod vpn_cmds;
 mod monitor_loop;
 mod account_cmds;
 mod system_cmds;
@@ -84,6 +86,11 @@ pub fn run() {
             self_service_cmds::self_offline_session,
             self_service_cmds::change_self_password,
             self_service_cmds::reveal_operator_credential,
+            vpn_cmds::vpn_save_credential,
+            vpn_cmds::vpn_credential_status,
+            vpn_cmds::vpn_clear_credential,
+            vpn_cmds::set_self_service_via_vpn,
+            vpn_cmds::vpn_test_connection,
             account_cmds::list_accounts,
             account_cmds::switch_account,
             account_cmds::rename_account,

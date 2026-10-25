@@ -1,6 +1,9 @@
-//! 自助服务命令面:六个命令包装 campus_login_lib::self_service 协议(纯 HTTP,跨平台),
+//! 自助服务命令面:七个网络命令包装 campus_login_lib::self_service 协议(纯 HTTP,跨平台),
 //! 命令名/参数/返回形状与桌面 commands/self_service.rs 同构。
 //! 生物识别验证门:改状态命令(bind/offline/reveal)设门,查询类不设门;reveal 不受总开关影响。
+//! 通道自动路由(桌面 resolve_self_service_channel 同构):执行前经
+//! vpn_cmds::resolve_self_service_channel 决策直连或 WebVPN 包装,校外直连
+//! 失败文案附加配置指引。
 
 use serde::Serialize;
 
@@ -36,7 +39,7 @@ fn resolve_self_password(incoming: &str, settings: &crate::config_state::Setting
 }
 
 /// 验证门:总开关关闭 → 放行;未在 TTL 内验证 → 拦截文案(桌面 ensure_identity_gate 同构)
-fn ensure_identity_gate(settings: &crate::config_state::Settings) -> Option<String> {
+pub(crate) fn ensure_identity_gate(settings: &crate::config_state::Settings) -> Option<String> {
     if !settings.self_hello_enabled {
         return None;
     }
@@ -47,7 +50,7 @@ fn ensure_identity_gate(settings: &crate::config_state::Settings) -> Option<Stri
     }
 }
 
-async fn load_settings(app: &tauri::AppHandle) -> Result<crate::config_state::Settings, String> {
+pub(crate) async fn load_settings(app: &tauri::AppHandle) -> Result<crate::config_state::Settings, String> {
     crate::config_state::current_settings(app).await
 }
 
@@ -120,9 +123,11 @@ pub async fn bind_operator(
         phone: &phone,
         sms_password: &sms_password,
     };
-    match campus_login_lib::self_service::bind_operator(&params, local_addr_of(&state)).await {
+    let (channel, _via_vpn, hint) =
+        crate::vpn_cmds::resolve_self_service_channel(&app, local_addr_of(&state)).await?;
+    match campus_login_lib::self_service::bind_operator_via(&params, &channel).await {
         Ok(msg) => Ok(CommandResult::ok_msg(&msg)),
-        Err(e) => Ok(CommandResult::err(&e)),
+        Err(e) => Ok(CommandResult::err(&crate::vpn_cmds::append_hint(e, hint))),
     }
 }
 
@@ -141,7 +146,9 @@ pub async fn query_bind_status(
     let Some(password) = resolve_self_password(&password, &settings) else {
         return Ok(CommandResult::err("请输入自助服务系统密码"));
     };
-    match campus_login_lib::self_service::query_bind_status(&account, &password, local_addr_of(&state)).await {
+    let (channel, _via_vpn, hint) =
+        crate::vpn_cmds::resolve_self_service_channel(&app, local_addr_of(&state)).await?;
+    match campus_login_lib::self_service::query_bind_status_via(&account, &password, &channel).await {
         Ok(bindings) => {
             let to_json = |b: &Option<campus_login_lib::self_service::OperatorBinding>| match b {
                 Some(b) => serde_json::json!({ "account": b.masked_account, "passwordSet": b.password_set }),
@@ -154,7 +161,7 @@ pub async fn query_bind_status(
             });
             Ok(CommandResult { success: true, message: None, data: Some(data) })
         }
-        Err(e) => Ok(CommandResult::err(&e)),
+        Err(e) => Ok(CommandResult::err(&crate::vpn_cmds::append_hint(e, hint))),
     }
 }
 
@@ -173,13 +180,15 @@ pub async fn query_self_dashboard(
     let Some(password) = resolve_self_password(&password, &settings) else {
         return Ok(CommandResult::err("请输入自助服务系统密码"));
     };
-    match campus_login_lib::self_service::query_dashboard(&account, &password, local_addr_of(&state)).await {
+    let (channel, _via_vpn, hint) =
+        crate::vpn_cmds::resolve_self_service_channel(&app, local_addr_of(&state)).await?;
+    match campus_login_lib::self_service::query_dashboard_via(&account, &password, &channel).await {
         Ok((online, history)) => Ok(CommandResult {
             success: true,
             message: None,
             data: Some(serde_json::json!({ "onlineList": online, "loginHistory": history })),
         }),
-        Err(e) => Ok(CommandResult::err(&e)),
+        Err(e) => Ok(CommandResult::err(&crate::vpn_cmds::append_hint(e, hint))),
     }
 }
 
@@ -221,9 +230,11 @@ pub async fn query_self_online_log(
     if start_time > end_time {
         return Ok(CommandResult::err("开始日期不能晚于结束日期"));
     }
-    match campus_login_lib::self_service::query_online_log(&account, &password, &start_time, &end_time, local_addr_of(&state)).await {
+    let (channel, _via_vpn, hint) =
+        crate::vpn_cmds::resolve_self_service_channel(&app, local_addr_of(&state)).await?;
+    match campus_login_lib::self_service::query_online_log_via(&account, &password, &start_time, &end_time, &channel).await {
         Ok(log) => Ok(CommandResult { success: true, message: None, data: Some(log) }),
-        Err(e) => Ok(CommandResult::err(&e)),
+        Err(e) => Ok(CommandResult::err(&crate::vpn_cmds::append_hint(e, hint))),
     }
 }
 
@@ -249,9 +260,11 @@ pub async fn self_offline_session(
     if session_id.trim().is_empty() {
         return Ok(CommandResult::err("缺少会话标识"));
     }
-    match campus_login_lib::self_service::offline_session(&account, &password, &session_id, local_addr_of(&state)).await {
+    let (channel, _via_vpn, hint) =
+        crate::vpn_cmds::resolve_self_service_channel(&app, local_addr_of(&state)).await?;
+    match campus_login_lib::self_service::offline_session_via(&account, &password, &session_id, &channel).await {
         Ok(()) => Ok(CommandResult::ok_msg("注销成功")),
-        Err(e) => Ok(CommandResult::err(&e)),
+        Err(e) => Ok(CommandResult::err(&crate::vpn_cmds::append_hint(e, hint))),
     }
 }
 
@@ -284,14 +297,16 @@ pub async fn change_self_password(
     if !is_valid_new {
         return Ok(CommandResult::err("新密码应为 6-11 位数字或英文"));
     }
-    match campus_login_lib::self_service::change_password(&account, &password, &new_password, local_addr_of(&state)).await {
+    let (channel, _via_vpn, hint) =
+        crate::vpn_cmds::resolve_self_service_channel(&app, local_addr_of(&state)).await?;
+    match campus_login_lib::self_service::change_password_via(&account, &password, &new_password, &channel).await {
         Ok(msg) => {
             campus_login_lib::log_info!("self", "修改自助服务密码成功");
             Ok(CommandResult::ok_msg(&msg))
         }
         Err(e) => {
             campus_login_lib::log_warn!("self", "修改自助服务密码失败: {}", e);
-            Ok(CommandResult::err(&e))
+            Ok(CommandResult::err(&crate::vpn_cmds::append_hint(e, hint)))
         }
     }
 }
@@ -317,13 +332,15 @@ pub async fn reveal_operator_credential(
     let Some(password) = resolve_self_password(&password, &settings) else {
         return Ok(CommandResult::err("请输入自助服务系统密码"));
     };
-    match campus_login_lib::self_service::reveal_credential(&account, &password, &operator, local_addr_of(&state)).await {
+    let (channel, _via_vpn, hint) =
+        crate::vpn_cmds::resolve_self_service_channel(&app, local_addr_of(&state)).await?;
+    match campus_login_lib::self_service::reveal_credential_via(&account, &password, &operator, &channel).await {
         Ok((phone, sms_password)) => Ok(CommandResult {
             success: true,
             message: None,
             data: Some(serde_json::json!({ "phone": phone, "smsPassword": sms_password })),
         }),
-        Err(e) => Ok(CommandResult::err(&e)),
+        Err(e) => Ok(CommandResult::err(&crate::vpn_cmds::append_hint(e, hint))),
     }
 }
 

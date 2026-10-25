@@ -118,6 +118,14 @@ pub struct Settings {
     pub update_source: String,
     // 日志
     pub log_retention_days: u32,
+    // WebVPN 校外访问(与桌面 Config 同契约):vpn_password_enc 内存态与落盘态
+    // 均为「平台加密器密文」——桌面为 DPAPI 密文,安卓为 AndroidKeyStore
+    // (tauri-plugin-campus-keystore)密文,两侧密文互不可解、语义一致
+    pub vpn_account: String,
+    pub vpn_password_enc: String,
+    /// 「校外经 WebVPN 访问」总开关(默认开,对齐桌面 selfServiceViaVpn 默认 true):
+    /// 仅控制校外自动回退,校内始终直连
+    pub self_service_via_vpn: bool,
     /// 配置结构版本:旧版本文件缺省反序列化为 0,load_from 据此执行一次性
     /// 默认值迁移(0→1:后台检测间隔 15s→60s;1→2:自动化登录/检测与网络验证、
     /// 质量跳过项开关默认改为开启;2→3:网络质量检测默认改为关闭;
@@ -193,6 +201,9 @@ impl Default for Settings {
             scheduled_logout_minutes: 1440,
             update_source: "mirror".to_string(),
             log_retention_days: 7,
+            vpn_account: String::new(),
+            vpn_password_enc: String::new(),
+            self_service_via_vpn: true,
             // 新装即当前版本,跳过迁移;旧文件缺字段反序列化为 0 触发迁移
             config_schema_version: 7,
         }
@@ -420,11 +431,16 @@ pub async fn save_to(dir: &Path, bridge: &CryptoBridge, s: &Settings) -> Result<
     save_file(&dir.join(CONFIG_FILE), bridge, s).await
 }
 
-/// 出站掩码:非空密码 → "***"(对齐桌面 masked_for_display 唯一出口语义)
+/// 出站掩码:非空密码 → "***"(对齐桌面 masked_for_display 唯一出口语义)。
+/// vpn_password_enc 同打码:密文本机 Keystore 可解,出站即泄露攻击面(桌面
+/// mask_in_place 同理由)
 pub fn masked_for_display(s: &Settings) -> serde_json::Value {
     let mut m = s.clone();
     if !m.password.is_empty() {
         m.password = PASSWORD_MASK.to_string();
+    }
+    if !m.vpn_password_enc.is_empty() {
+        m.vpn_password_enc = PASSWORD_MASK.to_string();
     }
     serde_json::to_value(&m).unwrap_or(serde_json::Value::Null)
 }
@@ -484,6 +500,11 @@ pub async fn save_config(
     let mut merged = config;
     merged.password =
         resolve_password_field(&merged.password, &current.password, clear_password == Some(true));
+    // VPN 凭据不归 save_config 管(前端 Config 类型不含 vpnPasswordEnc,回传恒为
+    // 空/MASK/掩码):空或掩码一律回退已存密文,防掩码占位覆盖真实密文(桌面
+    // config_cmd save_config 对 vpn_password_enc 的回退同构)
+    merged.vpn_password_enc =
+        resolve_password_field(&merged.vpn_password_enc, &current.vpn_password_enc, false);
     save_to(&dir, &bridge, &merged).await?;
     let state = app.state::<crate::android_state::AndroidState>();
     if let Ok(mut cache) = state.config.lock() {
@@ -661,6 +682,10 @@ mod tests {
         assert!(s.skip_content_in_latency);
         // 开机自启不属于登录自动化,保持用户主动开启
         assert!(!s.enable_boot_autostart);
+        // WebVPN 校外访问(对齐桌面默认:凭据空、总开关开)
+        assert_eq!(s.vpn_account, "");
+        assert_eq!(s.vpn_password_enc, "");
+        assert!(s.self_service_via_vpn, "校外经 WebVPN 访问默认开启(桌面同默认)");
     }
 
     #[tokio::test]
@@ -761,6 +786,10 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"backgroundCheckInterval\""));
         assert!(json.contains("\"enableNetworkNameCheck\""));
+        // VPN 3 字段与桌面 Config 序列化键名一致(camelCase IPC 契约)
+        assert!(json.contains("\"vpnAccount\""));
+        assert!(json.contains("\"vpnPasswordEnc\""));
+        assert!(json.contains("\"selfServiceViaVpn\""));
         let back: Settings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.user, s.user);
     }
@@ -774,6 +803,47 @@ mod tests {
         s.password.clear();
         let v = masked_for_display(&s);
         assert_eq!(v["password"], "");
+    }
+
+    #[test]
+    fn 掩码出口_vpn密文打码() {
+        let mut s = sample_settings();
+        s.vpn_password_enc = "keystore-cipher-xyz".to_string();
+        let v = masked_for_display(&s);
+        assert_eq!(v["vpnPasswordEnc"], "***", "VPN 密文出站必须打码");
+        assert!(!v.to_string().contains("keystore-cipher-xyz"), "密文原文不得出站");
+        s.vpn_password_enc.clear();
+        let v = masked_for_display(&s);
+        assert_eq!(v["vpnPasswordEnc"], "");
+    }
+
+    #[tokio::test]
+    async fn vpn密文落盘回环_原样保留不二次加密() {
+        // vpn_password_enc 内存态即密文(Keystore 加密产物),save_file 不再处理,
+        // 落盘/读回必须原样保留(与桌面密文即落盘形态同语义)
+        let dir = tmp_dir("vpn-enc-roundtrip");
+        let bridge = fake_bridge();
+        let mut s = sample_settings();
+        s.vpn_account = "20250001".to_string();
+        s.vpn_password_enc = "keystore-cipher-xyz".to_string();
+        s.self_service_via_vpn = true;
+        save_to(&dir, &bridge, &s).await.unwrap();
+        let raw = std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap();
+        assert!(raw.contains("\"vpnPasswordEnc\": \"keystore-cipher-xyz\""), "密文原样落盘: {raw}");
+        let back = load_from(&dir, &bridge).await.unwrap();
+        assert_eq!(back.vpn_account, "20250001");
+        assert_eq!(back.vpn_password_enc, "keystore-cipher-xyz");
+        assert!(back.self_service_via_vpn);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn vpn密码字段回退_掩码与空保留已存密文() {
+        // save_config 对 vpn_password_enc 的回退语义(桌面 config_cmd 同构):
+        // 前端 Config 不含该字段,回传恒空;掩码回传不得覆盖真实密文
+        assert_eq!(resolve_password_field("", "stored_cipher", false), "stored_cipher");
+        assert_eq!(resolve_password_field("***", "stored_cipher", false), "stored_cipher");
+        assert_eq!(resolve_password_field("new_cipher", "stored_cipher", false), "new_cipher");
     }
 
     #[test]
