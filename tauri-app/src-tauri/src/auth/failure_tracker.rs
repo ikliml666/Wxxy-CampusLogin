@@ -70,28 +70,13 @@ pub fn update_auth_failure_count(state: &AppState, app_handle: &AppHandle, cmd_r
         .and_then(|v| v.as_str())
         .unwrap_or(""));
 
+    // 触发机制重设计（2026-10-25）：认证失败不再触发 MAC 重置——时间窗外/账号态异常
+    // 也会返回认证失败码，以此为触发条件会在不可登录时段反复换 MAC/IP。
+    // MAC 重置的唯一触发源改为"门户 HTTP 不可达"（见 handle_portal_request_failure）。
+    // 此处仅保留计数与日志，供诊断账号态问题。
+    let _ = (app_handle, campus_gw);
     if new_count >= MAX_FAILURES {
-        crate::log_warn!("login", "连续{}次认证失败，触发{}的MAC重置+DHCP续租", new_count, adapter_name);
-        let event_bus = EventBus::new(app_handle);
-        let _ = event_bus.emit_login_log("连续5次认证失败，正在重置MAC并重新获取IP...", "warning");
-        // 审计 A16：MAC 重置循环发生，对外发事件（前端可提示/记录）
-        let _ = event_bus.emit_mac_reset_cycle();
-        match crate::network::dhcp_release_renew_single(adapter_name, campus_gw) {
-            Ok(r) => {
-                let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
-                let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-                if skipped {
-                    crate::log_debug!("login", "{} MAC重置跳过(非校园网子网)", adapter_name);
-                } else if success {
-                    crate::log_info!("login", "{} MAC重置成功", adapter_name);
-                } else {
-                    crate::log_warn!("login", "{} MAC重置失败", adapter_name);
-                }
-            }
-            Err(e) => {
-                crate::log_error!("login", "{} MAC重置+DHCP续租失败: {}", adapter_name, e);
-            }
-        }
+        crate::log_warn!("login", "{} 连续{}次认证失败（不再触发MAC重置，请检查账号状态/是否在可登录时段）", adapter_name, new_count);
         state.network.update(|s| s.portal_failure_count = 0);
     }
 }
@@ -153,31 +138,11 @@ fn handle_single_adapter_failure(
             .and_then(|v| v.as_str())
             .unwrap_or(""));
 
+    // 触发机制重设计（2026-10-25）：认证失败不再触发 MAC 重置（同 update_auth_failure_count），
+    // 仅保留计数与日志。MAC 重置唯一触发源为门户 HTTP 不可达（handle_portal_request_failure）。
+    let _ = (app_handle, campus_gw);
     if new_count >= MAX_FAILURES {
-        crate::log_warn!("login", "{} 连续{}次认证失败，触发该适配器MAC重置", adapter_name, new_count);
-        let event_bus = EventBus::new(app_handle);
-        let _ = event_bus.emit_login_log(
-            &format!("{adapter_name} 连续5次认证失败，正在重置该适配器MAC..."),
-            "warning",
-        );
-        // 审计 A16：MAC 重置循环发生，对外发事件（前端可提示/记录）
-        let _ = event_bus.emit_mac_reset_cycle();
-        match crate::network::dhcp_release_renew_single(adapter_name, campus_gw) {
-            Ok(r) => {
-                let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
-                let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-                if skipped {
-                    crate::log_debug!("login", "{} MAC重置跳过(非校园网子网)", adapter_name);
-                } else if success {
-                    crate::log_info!("login", "{} MAC重置成功", adapter_name);
-                } else {
-                    crate::log_warn!("login", "{} MAC重置失败", adapter_name);
-                }
-            }
-            Err(e) => {
-                crate::log_error!("login", "{} MAC重置失败: {}", adapter_name, e);
-            }
-        }
+        crate::log_warn!("login", "{} 连续{}次认证失败（不再触发MAC重置，请检查账号状态/是否在可登录时段）", adapter_name, new_count);
         set_adapter_failure_count(state, counter, 0);
     }
 }
@@ -194,13 +159,16 @@ pub fn reset_all(state: &AppState) {
     crate::log_info!("logout", "已重置所有认证失败计数");
 }
 
-/// Portal 请求失败连续触发阈值
-const PORTAL_REQUEST_FAILURE_THRESHOLD: u32 = 5;
+/// Portal 请求失败连续触发阈值（2026-10-25 由 5 调整为 3）：门户 HTTP 连续 3 次不可达
+/// 即触发——这是 MAC 重置的唯一触发源，更快换 MAC/IP 恢复"IP 被标记"场景。
+const PORTAL_REQUEST_FAILURE_THRESHOLD: u32 = 3;
 
 /// 处理单个适配器 Portal 请求失败（`PortalCheckResult::Error { is_request_failed: true }`）的统一逻辑
 ///
 /// 网关不可达时跳过计数并重置（校园网断网/维护期避免误重置 MAC）；
-/// 网关可达时累加失败计数，连续 5 次触发该适配器 MAC 重置。
+/// 网关可达时累加失败计数，连续 [`PORTAL_REQUEST_FAILURE_THRESHOLD`] 次触发该适配器 MAC 重置；
+/// 若该适配器不在校园网子网（如路由器后其他私有网段），跳过自动重置并经
+/// 系统通知 + 应用内日志提醒用户更换路由器 MAC 地址。
 ///
 /// 与 `handle_single_adapter_failure` 的区别：
 /// 后者针对认证失败（ac_auth_failed/1/4），本函数针对 Portal HTTP 请求失败，
@@ -269,8 +237,22 @@ pub fn handle_portal_request_failure(
             Ok(r) => {
                 let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
                 let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-                if skipped {
-                    crate::log_debug!("background", "{} MAC重置跳过(非校园网子网)", adapter_label);
+                let reason = r.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+                if skipped && reason.contains("非校园网子网") {
+                    // 非校园网子网（路由器后其他私有网段）：自动换本机 MAC 无意义，
+                    // 需要用户到路由器侧换 MAC——系统通知 + 应用内日志双通道提醒
+                    let msg = format!("连续{PORTAL_REQUEST_FAILURE_THRESHOLD}次无法访问校园网门户，当前不在校园网子网（{}），请更换路由器 MAC 地址后重试", adapter.ip);
+                    crate::log_warn!("background", "{}：{}", adapter_label, msg);
+                    let event_bus = EventBus::new(app_handle);
+                    let _ = event_bus.emit_login_log(&msg, "warning");
+                    crate::infra::notification::emit_notification(
+                        app_handle,
+                        "校园网门户不可达",
+                        &msg,
+                        "mascot-warn",
+                    );
+                } else if skipped {
+                    crate::log_debug!("background", "{} MAC重置跳过({reason})", adapter_label);
                 } else if success {
                     crate::log_info!("background", "{} MAC重置成功", adapter_label);
                 } else {

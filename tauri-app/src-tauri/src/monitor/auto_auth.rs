@@ -21,8 +21,11 @@ const RECONNECT_REMINDER_INTERVAL: u32 = 10;
 /// 只有手动登录成功/注销才能复位。现为指数退避降频、有界且不放弃。
 const PREP_LOGIN_MAX_FAILURES: u32 = 5;
 
-/// 失败退避封顶（秒）：错误凭据下降频到最长 30 分钟一次，兼顾防刷与"时间窗到达后必然重试"
-const PREP_LOGIN_BACKOFF_CAP_SECS: u64 = 1800;
+/// 失败退避封顶（秒）：检测报可登录（离线）期间降频到最长 5 分钟一次。
+/// 封顶必须远小于登录时段间隔（小时级），保证"非登录时段开机、到了
+/// 可登录时段"场景最坏等一个封顶周期必然恢复登录；时间窗拒绝类失败
+/// 不计入退避（见 [`prep_failures_after_failure`]），实际通常 ≤ 一个基础冷却。
+const PREP_LOGIN_BACKOFF_CAP_SECS: u64 = 300;
 
 /// 断线重连尝试是否放行（纯函数便于单测）：
 /// 未达上限照常；达到上限后每 [`RECONNECT_REMINDER_INTERVAL`] 个周期再放行一次
@@ -633,19 +636,20 @@ mod tests {
         assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES - 1, 60), 60);
     }
 
-    /// 达上限后指数退避：60 → 120 → 240 ……，有界且必然到期（时间窗到达后必然重试）
+    /// 达上限后指数退避：60 → 120 → 240，封顶 300s 截断第三次翻倍
     #[test]
     fn prep_login_backoff_grows_exponentially_after_limit() {
         assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES, 60), 120);
         assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES + 1, 60), 240);
-        assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES + 2, 60), 480);
+        assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES + 2, 60), 300);
     }
 
-    /// 退避封顶 30 分钟：失败再多也不超过 PREP_LOGIN_BACKOFF_CAP_SECS
+    /// 退避封顶 5 分钟：失败再多也不超过 PREP_LOGIN_BACKOFF_CAP_SECS，
+    /// 保证检测报可登录时最坏等一个封顶周期必然重试
     #[test]
     fn prep_login_backoff_capped() {
-        assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES + 10, 60), 1800);
-        assert_eq!(prep_login_backoff_secs(1000, 60), 1800);
+        assert_eq!(prep_login_backoff_secs(PREP_LOGIN_MAX_FAILURES + 10, 60), 300);
+        assert_eq!(prep_login_backoff_secs(1000, 60), 300);
     }
 
     /// 修复核心断言：失败拉满后冷却期满（elapsed ≥ 退避时长）必须放行重试——
