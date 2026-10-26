@@ -25,7 +25,7 @@ pub use dhcp::{dhcp_release_renew_all, dhcp_release_renew_single};
 #[cfg(not(target_os = "windows"))]
 pub use dhcp::dhcp_release_renew_single;
 pub use subnet::{
-    check_gateway_reachable, check_gateway_reachable_from,
+    check_gateway_reachable_from,
     is_same_subnet_18,
     get_wireless_ssid, get_wired_network_profile,
 };

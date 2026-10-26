@@ -132,10 +132,6 @@ fn get_wired_network_profile_uncached() -> Result<Option<String>, String> {
     Ok(None)
 }
 
-pub fn check_gateway_reachable(gateway: &str) -> bool {
-    check_gateway_reachable_from(gateway, None)
-}
-
 /// 网关 ICMP 可达性探测（surge_ping 异步实现，替代 spawn `ping` 子进程）。
 /// 需要绑定源 IP 时通过 Config::bind 绑定（对应原 `ping -S <src>`）。
 /// 返回 true 表示可达，语义与原 `ping -n 1 -w 2000` 一致。

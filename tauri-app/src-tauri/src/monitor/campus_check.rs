@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn 无IP的卡_直接判非校园且不探测() {
+    fn 无ip的卡_直接判非校园且不探测() {
         let c = ctx(vec!["i-wxxy"], "10.2.127.254", "");
         let mut probes = 0;
         let mut probe = |_t: &str, _s: &str| {
@@ -388,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn 网关失败但Portal命中_判校园() {
+    fn 网关失败但portal命中_判校园() {
         let c = ctx(vec![], "10.2.127.254", "10.1.99.100");
         let mut probe = |t: &str, _s: &str| t == "10.1.99.100";
         let status = judge_adapter(&adapter("以太网", "192.168.6.114", false), &c, &mut probe);
@@ -397,7 +397,7 @@ mod tests {
     }
 
     #[test]
-    fn 网关与Portal都失败_判非校园() {
+    fn 网关与portal都失败_判非校园() {
         let c = ctx(vec![], "10.2.127.254", "10.1.99.100");
         let mut probe = |_t: &str, _s: &str| false;
         let status = judge_adapter(&adapter("以太网", "192.168.6.114", false), &c, &mut probe);
@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn 聚合_命中卡文案优先_无卡返回None() {
+    fn 聚合_命中卡文案优先_无卡返回none() {
         let cards = vec![
             AdapterCampusStatus { name: "以太网".into(), wireless: false, on_campus: false, matched_by: None, message: "失败A".into() },
             AdapterCampusStatus { name: "以太网 2".into(), wireless: false, on_campus: true, matched_by: Some("gateway".into()), message: "成功B".into() },
