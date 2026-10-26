@@ -98,6 +98,42 @@ pub fn is_night_outbound_guard_window_with_restore(
     switch_time_for(weekday).is_some_and(|t| now_minutes >= t)
 }
 
+/// 夜间出站切换的**预判定提前量**（分钟）：切换时刻前 1 分钟开始算计划。
+///
+/// 动机：到点那一拍要做的绑源 ICMP 探测（每张候选卡 × 网关/portal 各两次）与
+/// helper 提权都在秒级，23:00 断网后晚几秒切就等于多掉线几秒。预判定把这些**只读**
+/// 计算前置到 T-1 分钟，到点只做落盘 + 提权写入。
+pub const OUTBOUND_PREP_LEAD_MINUTES: u32 = 1;
+
+/// 是否处于夜间出站切换的**预判定窗口** `[t - 1min, t)`（纯函数）。
+///
+/// 判定口径：
+/// - 功能关闭 / 已处于切换态（三份快照任一非空）→ 不需要预判定：前者不切，
+///   后者等还原（还原侧不做预判定，2026-10-26 用户明确只优化切换侧）；
+/// - `now < restore_start` 的凌晨补切分支排除：那一支的 Switch 是**立即**补切
+///   （错过的切换），没有提前量可言；
+/// - 只有「当日确实有切换时刻 t」且 `t - 1 <= now < t` 才为真。
+///
+/// tick 为 30s、时刻为分钟粒度，因此窗口内通常落 2 拍：每拍重算、后者覆盖前者
+/// （越接近到点越可信，网卡状态在这 1 分钟内也可能变化）。
+pub fn in_outbound_prep_window(
+    enabled: bool,
+    weekday: u32,
+    now_minutes: u32,
+    restore_active: bool,
+    restore_start: u32,
+) -> bool {
+    let restore_start = super::night_switch::restore_start_minutes(restore_start);
+    if !enabled || restore_active || now_minutes < restore_start {
+        return false;
+    }
+    match switch_time_for(weekday) {
+        // t - LEAD <= now < t（saturating 防 t=0 的极端配置下溢）
+        Some(t) => now_minutes < t && now_minutes.saturating_add(OUTBOUND_PREP_LEAD_MINUTES) >= t,
+        None => false,
+    }
+}
+
 /// 夜间出站切换的切换态判定（纯函数，桌面）：
 /// metric 快照 / 禁用名单 / 兜底路由三份快照任一非空即处于切换态。
 /// 六期起切换动作=写 metric + 禁校园网卡一次落盘；兜底路由自 2026-10-18 事故后
@@ -210,5 +246,42 @@ mod tests {
         assert_eq!(evaluate_night_outbound(false, 0, 100, false), NightOutboundAction::None);
         // 白天（≥450）未到切点仍不切
         assert_eq!(evaluate_night_outbound(true, 0, 600, false), NightOutboundAction::None);
+    }
+
+    // 预判定窗口：切点前 1 分钟那一整分钟（分钟粒度，30s 拍内落 2 拍）
+    #[test]
+    fn prep_window_covers_minute_before_switch_time() {
+        // 周日至周四 23:00（1380）→ 窗口只有 1379（22:59）
+        assert!(in_outbound_prep_window(true, 0, 1379, false, 450));
+        assert!(in_outbound_prep_window(true, 4, 1379, false, 450));
+        // 1378（22:58）太早、1380（23:00）已到点（那拍该直接切，不再预判定）
+        assert!(!in_outbound_prep_window(true, 0, 1378, false, 450));
+        assert!(!in_outbound_prep_window(true, 0, 1380, false, 450));
+        // 周五/周六 23:30（1410）→ 窗口 1409
+        assert!(in_outbound_prep_window(true, 5, 1409, false, 450));
+        assert!(in_outbound_prep_window(true, 6, 1409, false, 450));
+        assert!(!in_outbound_prep_window(true, 5, 1408, false, 450));
+        assert!(!in_outbound_prep_window(true, 5, 1410, false, 450));
+    }
+
+    #[test]
+    fn prep_window_needs_enabled_and_not_switched() {
+        // 功能关闭不预判定
+        assert!(!in_outbound_prep_window(false, 0, 1379, false, 450));
+        // 已处切换态（等还原）不预判定：切换侧已完成，还原侧不做预判定
+        assert!(!in_outbound_prep_window(true, 0, 1379, true, 450));
+    }
+
+    #[test]
+    fn prep_window_never_overlaps_predawn_catch_up_branch() {
+        // 凌晨补切分支的条件是 now < 恢复起点，而恢复起点经归一化最大只能到 1379
+        // （`restore_start_minutes` 把 ≥1380 一律回落 450）；预判定窗口下界同为 1379
+        // （t-1，t 最小 1380）→ 两者在真实取值范围内互斥。这里守住该不变量：
+        // 越界恢复起点（1380）归一化回 450，窗口照常成立而非被误判成凌晨分支
+        assert_eq!(super::super::night_switch::restore_start_minutes(1380), 450);
+        assert!(in_outbound_prep_window(true, 0, 1379, false, 1380));
+        // 恢复起点取合法上界 1379 时，1379 已不属于凌晨分支（now >= restore_start）
+        assert_eq!(super::super::night_switch::restore_start_minutes(1379), 1379);
+        assert!(in_outbound_prep_window(true, 0, 1379, false, 1379));
     }
 }

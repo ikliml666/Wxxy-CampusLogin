@@ -29,14 +29,16 @@ use tauri::{AppHandle, Manager};
 use crate::config::night_switch::{parse_chkstatus, uid_matches, NightSwitchAction};
 use crate::config::outbound_switch::{outbound_restore_active, NightOutboundAction};
 use crate::config::scheduled_tick::{
-    evaluate_night_switch_gated_with_restore, evaluate_outbound_action_with_restore, evaluate_scheduled_actions,
+    evaluate_night_switch_gated_with_restore, evaluate_outbound_action_with_restore,
+    evaluate_outbound_prep_with_restore, evaluate_scheduled_actions,
 };
 use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
 use super::outbound_night::{
     apply_outbound_restore, apply_outbound_switch, drive_pending_switch, needs_replay,
-    outbound_switch_active, reconcile_outbound_on_startup, replay_outbound_switch,
-    run_outbound_blocking, watchdog_re_disable_campus, OUTBOUND_SWITCH_FAIL_COUNT,
+    outbound_switch_active, prepare_outbound_switch, reconcile_outbound_on_startup,
+    replay_outbound_switch, run_outbound_blocking, watchdog_re_disable_campus,
+    OUTBOUND_SWITCH_FAIL_COUNT,
 };
 
 /// 判定拍间隔：分钟粒度判定，30s 保证最多半分钟偏差；错过（休眠/拍间隔）由
@@ -138,6 +140,26 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
                 }
             }
             NightOutboundAction::None => {
+                // 到点前预判定（T-1 分钟那一拍）：先把选卡/探测/跃点/禁用名单算好存内存，
+                // 切点那拍直接消费，省掉切点才做的绑源 ICMP 探测耗时（切点正是运营商
+                // 断网时刻，晚切几秒就是多断几秒）。只读、不写系统状态，失败不缓存；
+                // 窗口 1 分钟跨 2 拍，每拍重算并由后者覆盖（越接近切点越可信）
+                if evaluate_outbound_prep_with_restore(
+                    config_snapshot.enable_night_outbound_switch,
+                    now.weekday().num_days_from_sunday(),
+                    now_minutes as u32,
+                    restore_active,
+                    config_snapshot.outbound_manual_hold_day,
+                    today_day,
+                    config_snapshot.night_restore_minutes,
+                ) {
+                    let _ = run_outbound_blocking(
+                        app_h.clone(),
+                        config_snapshot.clone(),
+                        prepare_outbound_switch,
+                    )
+                    .await;
+                }
                 // 切换态下的"未生效补齐"：helper 部分失败时快照已保留（切换态成立），
                 // Switch 分支不会再触发（restore_active 下判定恒为 None）→ 由这里按退避重试。
                 // 终止条件看 needs_replay：切换成功后失败计数清零，稳态（夜间约 900 拍）

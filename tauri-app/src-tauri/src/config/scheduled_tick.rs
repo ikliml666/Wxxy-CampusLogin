@@ -17,7 +17,9 @@
 //! 快照三字段 / 安卓 `night_outbound_restore` 配置标记），本模块不感知存储形态。
 
 use super::night_switch::{evaluate_night_switch_with_restore, NightSwitchAction};
-use super::outbound_switch::{evaluate_night_outbound_with_restore, NightOutboundAction};
+use super::outbound_switch::{
+    evaluate_night_outbound_with_restore, in_outbound_prep_window, NightOutboundAction,
+};
 use super::schedule::should_fire_scheduled_action;
 
 /// 定时动作判定（双端单点）：命中返回 (应登录, 应注销)，不置任何标记——
@@ -103,6 +105,36 @@ pub fn evaluate_outbound_action_with_restore(
         return NightOutboundAction::None;
     }
     evaluated
+}
+
+/// 预判定拍判定（桌面独有，安卓无网卡选择概念不调用）：当前是否该为「马上要发生的
+/// 夜间出站切换」预先把计划算好。
+///
+/// 与 [`evaluate_outbound_action_with_restore`] 同源复用「清理分支优先 / hold 冻结」，
+/// 保证预判定与真切换看到同一套前置条件——否则会出现「预判定算了但到点因 hold 不切」
+/// （白耗一次探测）或反过来「hold 已过预判定没算」（退化成改造前的现场判定）。
+/// 清理分支（功能关闭但留有切换态）不预判定：那一支立刻还原，与切换无关。
+#[allow(clippy::too_many_arguments)] // 与 evaluate_outbound_action_with_restore 同构透传
+pub fn evaluate_outbound_prep_with_restore(
+    enable_night_outbound_switch: bool,
+    weekday_sunday: u32,
+    now_minutes: u32,
+    outbound_restore_active: bool,
+    outbound_manual_hold_day: i32,
+    today_day: i32,
+    restore_start: u32,
+) -> bool {
+    // hold=0 表示无保持（num_days_from_ce 恒 >0，测试传 0 即无保持）
+    if outbound_manual_hold_day != 0 && outbound_manual_hold_day == today_day {
+        return false;
+    }
+    in_outbound_prep_window(
+        enable_night_outbound_switch,
+        weekday_sunday,
+        now_minutes,
+        outbound_restore_active,
+        restore_start,
+    )
 }
 
 /// 运营商夜切判定（双端单点）：出站切换态下夜切让位——切侧从热点出站登录校园
@@ -260,6 +292,38 @@ mod tests {
         assert_eq!(evaluate_outbound_action(true, 0, 450, true, TODAY, TODAY), NightOutboundAction::None);
         // hold=0（无保持）：窗口语义不变
         assert_eq!(evaluate_outbound_action(true, 0, 450, true, 0, TODAY), NightOutboundAction::Restore);
+    }
+
+    // ===== evaluate_outbound_prep_with_restore =====
+
+    #[test]
+    fn 预判定_窗口内且未保持时成立() {
+        // 周日 22:59（1379）= 23:00 切点前一分钟 → 预判定
+        assert!(evaluate_outbound_prep_with_restore(true, 0, 1379, false, 0, TODAY, 450));
+        // 周五 23:29（1409）= 23:30 切点前一分钟 → 预判定
+        assert!(evaluate_outbound_prep_with_restore(true, 5, 1409, false, 0, TODAY, 450));
+    }
+
+    #[test]
+    fn 预判定_非窗口时刻不成立() {
+        // 22:58 太早（提前量只有 1 分钟）
+        assert!(!evaluate_outbound_prep_with_restore(true, 0, 1378, false, 0, TODAY, 450));
+        // 23:00 已到点：那一拍该直接切，不再预判定
+        assert!(!evaluate_outbound_prep_with_restore(true, 0, 1380, false, 0, TODAY, 450));
+        // 恢复窗内（07:30）与预判定无关
+        assert!(!evaluate_outbound_prep_with_restore(true, 0, 450, false, 0, TODAY, 450));
+    }
+
+    #[test]
+    fn 预判定_保持当日与关闭时冻结() {
+        // 手动切换当日保持：预判定同样冻结（算了也不切，白耗一次探测）
+        assert!(!evaluate_outbound_prep_with_restore(true, 0, 1379, false, TODAY, TODAY, 450));
+        // 次日 hold≠today：恢复预判定
+        assert!(evaluate_outbound_prep_with_restore(true, 0, 1379, false, TODAY - 1, TODAY, 450));
+        // 功能关闭：不预判定
+        assert!(!evaluate_outbound_prep_with_restore(false, 0, 1379, false, 0, TODAY, 450));
+        // 已处切换态（等还原）：切换侧已完成，预判定无意义
+        assert!(!evaluate_outbound_prep_with_restore(true, 0, 1379, true, 0, TODAY, 450));
     }
 
     // ===== evaluate_night_switch_gated =====
