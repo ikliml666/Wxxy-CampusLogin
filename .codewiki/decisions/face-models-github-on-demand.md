@@ -98,7 +98,7 @@ tags: [决策, 安卓, 人脸, 下载, 安全, APK 体积]
 
 ### Config: `android/src-tauri/tauri.conf.json`
 
-- `version` (行 4): `2.4.1`。
+- `version` (行 4): `2.4.3`。
 - `security.csp` (行 19): `connect-src` 含 `http://asset.localhost`。
 - `assetProtocol.enable` (行 21): `true`。
 - `assetProtocol.scope` (行 22): `["$APPDATA/files/face-models/**"]` 精确放行。
@@ -119,7 +119,7 @@ tags: [决策, 安卓, 人脸, 下载, 安全, APK 体积]
 └───────────┬──────────────────────────────────────────────────┘
             │
             ▼
-┌───────────────────────────┐   ┌──────────────────────────────┐
+┌──────────────────────────────────────────────────────────────┐
 │ face_model_cmds.rs        │──►│ update_cmds.rs               │
 │ face_models_state/download│   │ allowed_url/verify_file_sha256│
 │ download_one (emit prog)  │   │ http_client                  │

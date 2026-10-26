@@ -20,7 +20,7 @@ tags: [meta, docs, build, release, gitignore, changelog, night-switch, outbound-
 ---
 
 ## Overview
-模块 `workspace-meta-and-docs` 负责维护仓库根级元数据、工程规范、构建脚本及核心设计文档。它不直接包含业务逻辑代码，而是定义项目的“宪法”与基础设施。该模块涵盖了从 AI 助手工作约定 (`AGENTS.md`)、CI/CD 流程 (`make-release.ps1`, `clean-build-cache.ps1`)、版本控制策略 (`.gitignore`) 到关键功能的技术规格书（夜间出站切换、账号适配器绑定）及事故复盘（RTSS 崩溃）。
+模块 `workspace-meta-and-docs` 负责维护仓库根级元数据、工程规范、构建脚本及核心设计文档。它不直接包含业务逻辑代码，而是定义项目的“宪法”与基础设施。该模块涵盖了从 AI 助手工作约定 (`AGENTS.md`)、CI/CD 流程 (`make-release.ps1`, `clean-build-cache.ps1`)、版本控制策略 (`.gitignore`) 到关键功能的技术规格书（夜间出站切换、账号适配器绑定）及事故复盘（RTSS 崩溃）。当前源码中，设计文档仍基于接口 metric 改写方案，而后出的调研报告已论证禁用网卡路线更可靠，二者尚未对齐；测试基线与恢复时间窗在多处文档间存在数值分歧。
 
 ## Key Components
 
@@ -29,20 +29,13 @@ tags: [meta, docs, build, release, gitignore, changelog, night-switch, outbound-
 #### `.gitignore`
 - **职责**：定义 Git 忽略规则，隔离构建产物、本地配置及内部文档（行 1-112）。
 - **关键规则**：
-    - **构建产物忽略**：行 5-11（`target/`, `dist/`, `release/`, `output/`, `app-output/`, `app-v/`, `tauri-release/`）；行 13 忽略本地 `make-release.ps1`。
+    - **依赖与构建产物**：行 1-12（`node_modules/`、`target/`、`dist/`、`release/`、`output/`、`app-output/`、`app-v/`、`tauri-release/`）；行 13 忽略本地 `make-release.ps1`。
     - **Tauri 生成文件**：行 18-19（`tauri-app/src-tauri/gen/`）。
-    - **环境文件**：行 21-23（`.env`, `.env.test`）。
-    - **IDE 配置**：行 25-28（`.trae/`, `.vscode/`, `.idea/`）。
-    - **日志与临时文件**：行 30-32（`*.log`, `logs/`）；行 39-44（`*.tmp`, `*.pdb`, `temp/`, `asar_check2/`, `asar_restore/`）。
-    - **会话临时产物**：行 46-48（`preview-shots/`, `target-tmp/`，注释 2026-10-02 确认）。
-    - **运行时数据**：行 50-51（`config.json`）。
-    - **发布资产与文档**：行 53-59（`RELEASE_*.md`, `v*.*.*-更新日志.md`, `CHANGELOG.md`, `changelogs/`）；行 61-63（`ersikDocumentstrae_projects1`, `docs/`）。
-    - **构建脚本**：行 66-68（`tauri-app/build.ps1`, `clean-build-cache.ps1`）。
-    - **辅助二进制**：行 70-71（`tauri-app/src-tauri/campus-helper.exe`）。
-    - **内部文档**：行 73-77（`ANIMATION_GUIDE.md`, `CODE_WIKI.md`）。
-    - **TypeScript 构建信息**：行 79-80（`*.tsbuildinfo`）。
-    - **Android 相关**：行 82-93（`.android-git-backup/`, `android/*.apk`, `android/*.apk.idsig`, `android/build-apk.ps1`, `mock-tauri*.js`, `.zcode/`）。
-    - **本地实验残留**：行 95-99（`.tmp-esbuild/`, `.probe/`, `design-prototypes/`, `archx_*/`）；行 102-103（`shots/`）；行 105-106（`design/`）；行 108-110（`pnpm-lock.yaml`, `pnpm-workspace.yaml`）。
+    - **环境/IDE/日志/临时**：行 21-23（`.env`）、行 25-28（`.trae/` 等）、行 30-32（`*.log`）、行 39-44（`*.tmp` 等）、行 46-48（会话临时 `preview-shots/`、`target-tmp/`）。
+    - **运行时与发布文档**：行 50-51（`config.json`）；行 53-59（`RELEASE_*.md`、`CHANGELOG.md`、`changelogs/`）；行 61-63（`docs/` 忽略）。
+    - **构建脚本与二进制**：行 66-68（`tauri-app/build.ps1`、`clean-build-cache.ps1`）；行 70-71（`campus-helper.exe`）。
+    - **内部文档与 TS 缓存**：行 73-77（`ANIMATION_GUIDE.md`、`CODE_WIKI.md`）；行 79-80（`*.tsbuildinfo`）。
+    - **Android 与本地实验**：行 82-93（`.android-git-backup/`、`android/*.apk`、`build-apk.ps1`、`mock-tauri*.js`）；行 95-110（`.tmp-esbuild/`、`pnpm-*` 等）；行 112（iOS 壳 crate 产物）。
 
 #### `AGENTS.md`
 - **职责**：定义面向 AI 编码助手与贡献者的项目级工作约定（行 1-27）。
@@ -61,7 +54,7 @@ tags: [meta, docs, build, release, gitignore, changelog, night-switch, outbound-
 - **维护约定**：`cw status` 判定三态，`cw index`/`cw meta update` 随代码提交（行 31-32）。
 
 #### `LICENSE` & `LICENSE-ASSETS.md`
-- **LICENSE**：MIT 覆盖源码与构建脚本（行 1-21）；美术素材例外见 LICENSE-ASSETS（行 25-27）；第三方见 THIRD-PARTY-NOTICES（行 28）。
+- **LICENSE**：MIT 覆盖源码与构建脚本（行 1-21）；美术素材例外见 LICENSE-ASSETS（行 23-27）；第三方见 THIRD-PARTY-NOTICES（行 28）。
 - **LICENSE-ASSETS.md**：资产清单含 `assets/ui-girl/`、`public/girl/`、应用图标等（行 6-10）；权利范围禁止提取/改编/商用/训练 AI（行 14-23）；授权需书面请求（行 26-27）。
 
 #### `README.md`
@@ -74,15 +67,17 @@ tags: [meta, docs, build, release, gitignore, changelog, night-switch, outbound-
 ### 构建与发布脚本
 
 #### `clean-build-cache.ps1`
-- **职责**：清理可重建的编译缓存与构建中间产物（行 1-134）。
-- **参数**：`-WhatIf`（行 26），`-Confirm:$false`（行 28）。
-- **逻辑**：进程检查（行 51-55）；计算待删大小（行 57-76）；读 `tauri.conf.json` 定位 WebView2 缓存（行 81-106）；APK 唯一副本告警（行 113-121）；确认后删除（行 123-133）。
+- **职责**：清理可重建的编译缓存与构建中间产物（行 1-208）。
+- **参数**：`[CmdletBinding(SupportsShouldProcess, ConfirmImpact="High")] param()`（行 40-41）；`-WhatIf`（行 36），`-Confirm:$false`（行 38）。
+- **函数**：
+    - `Test-OwnedTargetDir`：行 61-71，依据 `.fingerprint` 内是否含本项目 crate 名判定目录归属。
+- **逻辑**：进程检查（行 102-106）；计算待删大小（行 108-127）；读 `tauri.conf.json` 定位 WebView2 缓存（行 129-157）；APK/NSIS 唯一副本告警（行 164-195）；确认后删除（行 204-208）。
 
 #### `make-release.ps1`
-- **职责**：构建并汇总 Release 资产到 `release/`（行 1-122）。
-- **参数**：`-SkipBuild`（行 15-17）。
-- **函数**：`Fail([string]$msg)` 退出报错（行 30-33）。
-- **逻辑**：设 UTF-8（行 22-23）；读 `tauri.conf.json` version（行 36-39）；`npx tauri build`（行 42-54）；读 `.cargo/config.toml` target-dir（行 58-64）；重命名 setup.exe + sha256（行 67-93）；收集 APK/NOTES（行 96-116）。
+- **职责**：构建并汇总 Release 资产到 `release/`（行 1-139）。
+- **参数**：`param([switch]$SkipBuild)`（行 15-17）。
+- **函数**：`Fail([string]$msg)` 退出报错（行 38-41）。
+- **逻辑**：设 UTF-8（行 29-31）；读 `tauri.conf.json` version（行 44-46）；`npx tauri build`（行 50-62）；读 `.cargo/config.toml` target-dir（行 64-71）；重命名 setup.exe + sha256（行 100-113）；收集 NOTES（行 115-139）。
 
 #### `build-release.log`
 - **职责**：记录一次 Tauri v2.0.0 构建日志（行 1-73）。
@@ -124,13 +119,13 @@ tags: [meta, docs, build, release, gitignore, changelog, night-switch, outbound-
 - **启示**：禁用网卡路线经得起论证（行 407）。
 
 #### `docs/superpowers/plans/2026-09-14-account-adapter-binding.md`
-- **职责**：账号体系增强实施计划 R1-R4（行 1-241）。
+- **职责**：账号体系增强实施计划 R1-R5（行 1-241，R5 明确不实施见行 20-22）。
 - **数据契约（行 35-78）**：
     - `display_name` (行 41)：默认 `""`，显示名。
     - `adapter1_account` (行 42)：默认 `""`，主适配器账号 id。
     - `adapter2_account` (行 43)：默认 `""`，副适配器账号 id。
     - `list_accounts` 返回 `Vec<AccountItem>`（行 52）；`rename_account` 新增（行 53）；`switch_account` 补 `activeAccount`（行 54）。
-    - `AccountItem` struct（行 58-64）：`id: String`, `display_name: String`。
+    - `AccountItem` struct（行 58-64）：字段 `id: String`（账号文件名 stem）、`display_name: String`（空值兜底）。
 - **行为规则**：账号 id sanitize（行 86）；`save_config` 后自动建号（行 91-100）；R4 前端守卫改 `!== undefined`（行 115）；适配器指定账号优先级（行 122-129）。
 - **双端同步清单**：适配器指定账号仅桌面（行 214）。
 
@@ -140,35 +135,33 @@ tags: [meta, docs, build, release, gitignore, changelog, night-switch, outbound-
 ┌─────────────────────────────────────────────────────────────┐
 │                     Workspace Meta & Docs                   │
 ├─────────────────────────────────────────────────────────────┤
-│  [AGENTS.md] ──► [AI Assistants / Contributors]             │
+│  [AGENTS.md] ──► [AI Assistants / Contributors] (行7,9,11)   │
 │       ▲                                                     │
 │       │ 指引                                                  │
-│  [CodeWiki.md] ──► [Module Index / Arch Overview]           │
-│       ▲                                                     │
-│       │ 入口                                                  │
+│  [CodeWiki.md] ──► [Module Index / Arch Overview] (行11-13)  │
 ├─────────────────────────────────────────────────────────────┤
 │  [Build Scripts]                                              │
-│  ├─ make-release.ps1 ──► [Release Assets]                    │
-│  └─ clean-build-cache.ps1 ──► [Clean Targets]                │
+│  ├─ make-release.ps1 ──► [Release Assets] (行44-139)         │
+│  └─ clean-build-cache.ps1 ──► [Clean Targets] (行1-208)      │
 ├─────────────────────────────────────────────────────────────┤
 │  [Design Specs & Research]                                    │
-│  ├─ night-outbound-switch-design.md ──► [Desktop/Android]   │
-│  ├─ windows-outbound-switch-research.md ──► [Win Low-Level] │
-│  └─ account-adapter-binding.md ──► [Account System]         │
+│  ├─ night-outbound-switch-design.md ──► [Desktop/Android]     │
+│  ├─ windows-outbound-switch-research.md ──► [Win Low-Level]   │
+│  └─ account-adapter-binding.md ──► [Account System]          │
 ├─────────────────────────────────────────────────────────────┤
 │  [Changelog Tools]                                            │
-│  ├─ changelog-entry-rtss.md                                  │
-│  └─ insert-rtss-changelog.js ──► [CHANGELOG.md]             │
+│  ├─ changelog-entry-rtss.md (行1)                             │
+│  └─ insert-rtss-changelog.js ──► [CHANGELOG.md] (行13-18)    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow
 
 1. **构建与发布流**：
-    * `make-release.ps1` 读取 `tauri.conf.json` 获取版本号（行 36-39）。
-    * 执行 `npx tauri build`（行 42-54），触发 Vite 与 Rust 编译。
-    * 重命名 `*-setup.exe` 为 `Wxxy-CampusLogin_<版本>_<架构>-setup.exe` 并生成 `.sha256`（行 67-93），汇总至 `release/`（行 118-122）。
-    * `clean-build-cache.ps1` 独立扫描 `target/`、`dist/`、WebView2 缓存（行 8-20, 81-106），检测构建进程则安全退出（行 51-55）。
+    * `make-release.ps1` 读取 `tauri.conf.json` 获取版本号（行 44-46）。
+    * 执行 `npx tauri build`（行 50-62），触发 Vite 与 Rust 编译。
+    * 重命名 `*-setup.exe` 为 `Wxxy-CampusLogin_<版本>_<架构>-setup.exe` 并生成 `.sha256`（行 100-113），汇总至 `release/`（行 103-139）。
+    * `clean-build-cache.ps1` 独立扫描 `target/`、`dist/`、WebView2 缓存（行 84-95, 129-157），检测构建进程则安全退出（行 102-106）。
 
 2. **变更日志流**：
     * 编写 `docs/changelog-entry-rtss.md`（行 1）。
@@ -189,8 +182,8 @@ tags: [meta, docs, build, release, gitignore, changelog, night-switch, outbound-
 ## Known Issues
 
 1. **`.gitignore` 与 `docs/` 目录一致性**：`.gitignore` 行 63 忽略 `docs/`，但 `docs/changelog-entry-rtss.md` 与 `docs/insert-rtss-changelog.js` 在提供文件列表中，可能为本地未跟踪或历史遗留，需注意文档入库策略。
-2. **测试基线文档不一致**：`AGENTS.md` 行 15 记 `cargo test` 基线 397 用例（2026-09-22）；`README.md` 行 186-187 声明 432 单测+4 集成；`docs/changelog-entry-rtss.md` 行 1 记 328 passed。各文件基线数值矛盾，应以 CodeWiki `decisions/verification-baseline` 为权威。
+2. **测试基线文档不一致**：`AGENTS.md` 行 15 记 `cargo test` 基线 397 用例（lib 396 + 集成 1，2026-09-22）；`README.md` 行 186-187 声明 432 单测+4 集成；`docs/changelog-entry-rtss.md` 行 1 记 328 passed。各文件基线数值矛盾，应以 CodeWiki `decisions/verification-baseline` 为权威。
 3. **恢复时间窗文档分歧**：设计文档 `night-outbound-switch-design.md` 行 14 定义恢复窗口 06:30~23:00；`README.md` 行 40-41、62 描述次日 7:30 起还原/重登。双端文档未对齐。
 4. **出站切换方案潜在缺陷**：设计文档行 45 采用 Iphlpapi 改接口 metric（Metric=1），但调研报告行 125-149 证明 TUN/VPN 存在时合成 metric 被 RouteMetric=0 压制、仅禁用网卡可靠（行 407 结论）。设计文档尚未根据调研更新为禁用路线。
 5. **安卓端切换非确定性**：安卓依赖系统 `MultinetworkPolicyTracker` 探测周期（设计文档行 95），非精确 23:00 整点切换。
-6. **账号 ID 与 Name 分离复杂度**：`account-adapter-binding.md` 行 107-108 改名不改文件名与 `active_account`，前端须正确处理显示名回退与事件同步。
+6. **账号 ID 与 Name 分离复杂度**：`account-adapter-binding.md` 行 107-108 改名不改文件名与 `active_account`，前端须正确处理显示名回退与事件同步（行 115）。

@@ -19,14 +19,19 @@ source_files:
   - tauri-app/frontend/src/components/layout/DockNav.tsx
   - tauri-app/frontend/src/components/layout/TitleBar.tsx
   - tauri-app/frontend/src/components/ui/animated-card.tsx
+  - tauri-app/frontend/src/network/adapters.ts
+  - tauri-app/frontend/src/lib/glass-dock.ts
+  - tauri-app/frontend/src/lib/dock-lens.ts
+  - tauri-app/frontend/src/lib/animations.ts
+  - tauri-app/frontend/src/lib/utils.ts
 tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i18n, 布局]
 ---
 
 ## Overview
 
-本模块是桌面前端的"展示层与工具层"：`shared/` 放跨面板复用的业务组件（日志面板、确认框、toast 容器、看板娘、赞助浮层等），`components/ui/` 是基于 Radix UI + `class-variance-authority` 的无样式原语，`components/layout/` 是应用三段式骨架（标题栏 / 左侧 Dock），`lib/` 是零状态的纯函数与常量（缓动、颜色、延迟解析、渲染存活判定、cn/错误提取/安全存储），`i18n/` 是 i18next 初始化与 zh/en 双语词条。
+本模块是桌面前端（Tauri App）的展示层与复用组件层：`shared/` 存放跨面板复用的业务组件（日志面板、确认框、数字滚动、刷新按钮、段标签、Toast 容器、流体背景、错误边界、看板娘图片、赞助浮层），`components/layout/` 提供应用骨架（标题栏 `TitleBar`、底部 Dock 导航 `DockNav`），`components/ui/` 提供动画卡片原语 `AnimatedCard`。所有组件依赖 `lib/`（被间接引用如 `cn`、`extractErrorMessage`）、`i18n`（通过 `react-i18next` 与 `i18next` 直接调用）以及 [[desktop-frontend-hooks]] 的 store/hook。
 
-依赖方向单向：`components/*` 与 `shared/*` 从 `lib/*`、`i18n` 和 [[desktop-frontend-hooks]] 的 store/hook 取数据，反向不成立（`lib/*` 只依赖 `@/monitor`、`@/network/constants` 的类型与常量）。安卓前端是独立复刻树，本模块描述的是桌面端实现（`tauri-app/frontend/src/`）。
+依赖方向单向：`components/*` 与 `shared/*` 从 `lib/*`、`i18n` 和 hooks 层取数据，反向不成立。安卓前端为独立复刻树，本模块描述桌面端实现（`tauri-app/frontend/src/`）。
 
 ## Key Components
 
@@ -53,7 +58,7 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | 行号 | 类型 | 字段 |
 |---|---|---|
 | 1-5 | `UpdateAvailableData` | `hasUpdate: boolean`、`latestVersion: string`、`releaseNotes?: string` |
-| 7-17 | `UpdateInfo` | `hasUpdate`、`latestVersion`、`releaseNotes: string`、`assets: { name; url; size }[]`、`sha256Checksum?: string`、`lastCheckError: string \| null`（14，最近一次检查失败原因）、`lastCheckTime: number \| null`（16，最近一次检查完成时间 unix ms） |
+| 7-17 | `UpdateInfo` | `hasUpdate`、`latestVersion`、`releaseNotes: string`、`assets: { name; url; size }[]`、`sha256Checksum?: string`、`lastCheckError: string \| null`（14，最近一次检查失败原因快照）、`lastCheckTime: number \| null`（16，最近一次检查完成时间 unix ms） |
 | 19-24 | `DownloadProgress` | `downloaded`、`total`、`speed`、`percent`（全 `number`） |
 | 26-30 | `MirrorSource` | `name`、`url`、`description`（全 `string`） |
 
@@ -64,77 +69,76 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 | 1 | `StatusState` | `'loading' \| 'online' \| 'offline' \| 'error'` |
 | 2 | `PanelName` | `'dashboard' \| 'account' \| 'selfservice' \| 'network' \| 'monitor' \| 'quality' \| 'settings' \| 'log' \| 'speedtest'`（9 个） |
 | 3 | `ThemeName` | `'default' \| 'vibrant' \| 'forest' \| 'midnight' \| 'ocean' \| 'cherry' \| 'custom'` |
-| 4 | `LogType` | `'info' \| 'success' \| 'error' \| 'warning'` |
-| 5 | `GpuTier` | `'low-igpu' \| 'mid-igpu' \| 'high-igpu' \| 'discrete' \| 'unknown'` |
-| 7-14 | `GpuInfo` | `vendor`、`model`、`vram_mb: number`、`is_integrated: boolean`、`tier: GpuTier`、`gpu_preference: number` |
-| 16-23 | `LogEntry` | `id: string`、`time: string`、`message: string`、`type: LogType`、`count?: number`（21 注释：连续重复折叠次数，`undefined` 表示只出现一次） |
-| 25-37 | `ToastMessage` | `id`、`title`、`description?`、`type: LogType`、`duration?: number`、`mascot?: 'portrait' \| 'celebrate' \| 'offline' \| 'alert' \| 'update'`（31 注释：缺省按 `type` 取默认变体）、`action?: { label: string; onClick: () => void }` |
-| 39-42 | `AdapterDisabledWarningData` | `name`、`message` |
-| 44-47 | `AutoExitCountdownData` | `delay: number`、`shortcut: string` |
-| 49-53 | `SaveConfigResult` | `success: boolean`、`message?: string`、`data?: Record<string, unknown>` |
+| 4-5 | `GlassLevel` | `'off' \| 'standard' \| 'ultra'`（玻璃质感档位，对齐 Apple Liquid Glass / FlClash 三档） |
+| 6 | `LogType` | `'info' \| 'success' \| 'error' \| 'warning'` |
+| 8-15 | `LogEntry` | `id: string`、`time: string`、`message: string`、`type: LogType`、`count?: number`（14 注释：连续重复折叠累计次数，`undefined` 表示只出现一次） |
+| 17-29 | `ToastMessage` | `id`、`title`、`description?`、`type: LogType`、`duration?: number`、`mascot?: 'portrait' \| 'celebrate' \| 'offline' \| 'alert' \| 'update'`（24 注释：缺省按 `type` 取默认变体）、`action?: { label: string; onClick: () => void }` |
+| 31-34 | `AdapterDisabledWarningData` | `name`、`message` |
+| 36-39 | `AutoExitCountdownData` | `delay: number`、`shortcut: string` |
+| 41-44 | `SaveConfigResult` | `success: boolean`、`message?: string`、`data?: Record<string, unknown>` |
 
 ### shared/ui-constants.ts（常量）
 
 | 行号 | 常量 | 值 / 用途 |
 |---|---|---|
-| 1 | `MAX_LOG_ENTRIES` | `300`（日志环形上限，`useLogToastStore` 与 `LogPanel` 共用） |
-| 2 | `APP_VERSION` | `'2.4.1'`（`TitleBar.tsx:112,119` 展示） |
+| 1 | `MAX_LOG_ENTRIES` | `300`（日志环形上限） |
+| 2 | `APP_VERSION` | `'2.4.3'`（`TitleBar.tsx:112,119` 展示） |
 | 3 | `APP_NAME` | `'校园网登录助手'` |
-| 4 | `PASSWORD_MASK` | `'***'`（配置回传掩码，`useConfigStore` 与 `useInitialDataLoad` 判定） |
-| 7-17 | `NAV_ITEMS` | 9 项导航定义（`as const`）：`dashboard`/`account`/`selfservice`(快捷键 9)/`network`/`monitor`/`quality`/`speedtest`/`settings`/`log`，每项含 `id`、`labelKey`、`icon`（lucide 组件名）、`shortcut` |
+| 4 | `PASSWORD_MASK` | `'***'`（配置回传掩码） |
+| 7-17 | `NAV_ITEMS` | 9 项导航定义（`as const`）：`dashboard`(快捷键1)/`account`(2)/`selfservice`(9)/`network`(3)/`monitor`(4)/`quality`(5)/`speedtest`(6)/`settings`(7)/`log`(8)，每项含 `id`、`labelKey`、`icon`（lucide 组件名字符串）、`shortcut` |
 
 ### shared 业务组件
 
 | 文件:行号 | 导出 | 用途 / 关键实现 |
 |---|---|---|
 | `AnimatedNumber.tsx:6-12` | `interface AnimatedNumberProps` | `value: number`、`unit?: string`（默认 `'ms'`）、`decimals?: number`、`className?`、`duration?` |
-| `AnimatedNumber.tsx:14-110` | `AnimatedNumber` | 数字滚动 + 轻微弹跳；`gsap.quickTo` 建两条快速通道（35-48）；`profile.tier === 'economy'` 时禁用弹跳（83-92）；cleanup 里 `gsap.killTweensOf`（54-55，修"quickTo 底层 tween 组件卸载后空转"的历史缺陷） |
+| `AnimatedNumber.tsx:14-110` | `AnimatedNumber` | 数字滚动 + 轻微弹跳；`gsap.quickTo` 建两条快速通道（35-48）；`profile.tier === 'economy'` 时禁用 scale 弹跳（83-92）；cleanup 里 `gsap.killTweensOf`（54-55，修“quickTo 底层 tween 组件卸载后空转”历史缺陷） |
 | `ConfirmDialog.tsx:12-18` | `interface ConfirmDialogProps` | `open`、`title`、`message`、`onConfirm`、`onCancel` |
-| `ConfirmDialog.tsx:20-48` | `ConfirmDialog` | `confirming` 本地态防双击（23）；`open` 变 false 时由 effect 复位（26-28）——历史实现是 `onConfirm` 后 400ms 定时复位，慢网络下会提前解禁按钮导致重复提交（防重复提交修复） |
+| `ConfirmDialog.tsx:20-48` | `ConfirmDialog` | `confirming` 本地态防双击（23）；`open` 变 false 时由 effect 复位（26-28）——历史实现是 400ms 定时复位，慢网络下提前解禁导致重复提交（已修复） |
 | `ErrorBoundary.tsx:6-8` / `10-13` | `Props` / `State` | `children: ReactNode` / `hasError: boolean`、`error: Error \| null` |
-| `ErrorBoundary.tsx:15-53` | `ErrorBoundary`（class 组件） | `getDerivedStateFromError`(21-23)、`componentDidCatch` 仅 DEV 打印(25-27)；渲染降级页 + "重新加载"按钮（40-43 先复位再 `window.location.reload()`） |
-| `FluidBackground.tsx:41-55` | `FluidBackground` | 绝对定位铺满的背景层，`background: var(--surface-main)`；内部按 `profile.willChangeOrbs` 渲染两枚 CSS-only 慢速光斑 `.fluid-orb-a/b`（`ORB_CSS` 内嵌 keyframes `:8-39`，仅 transform/opacity 走合成器路径；economy/reduced-motion 档不渲染）；`App.tsx:381` 唯一调用点 |
-| `LogPanel.tsx:28-40` | `interface LogPanelProps` | `api` 要求 7 个方法（`getLogs`/`clearLogs`/`getDebugMode`/`setDebugMode` 必选，`getLogRetentionDays`/`setLogRetentionDays`/`exportDiagnostics` 可选）、`addToast(message, type, description?)` |
-| `LogPanel.tsx:42` / `44-50` | `type LogLevel` / `interface ParsedLogLine` | `'DEBUG'\|'INFO'\|'WARN'\|'ERROR'`；解析后 `timestamp`/`level`/`module`/`message`/`raw` |
-| `LogPanel.tsx:52` / `54-59` | `DEFAULT_LEVEL_CONFIG` / `LEVEL_CONFIG` | 每级图标、文字色、底色、左边框、`labelKey` |
-| `LogPanel.tsx:61` | `LOG_LINE_REGEX` | `^\[(.+?)\]\s*\[(DEBUG\|INFO\|WARN\|ERROR)\]\s*\[(.+?)\]\s*(.+)$` |
-| `LogPanel.tsx:63-73` | `parseLogLine(line)` | 不匹配返回 `null` |
-| `LogPanel.tsx:75-80` | `LINE_OPTIONS` | 100 / 200 / 500 / 1000 四档（行数选择器已改用 Radix `Select` 渲染） |
-| `LogPanel.tsx:82` | `MAX_DISPLAY_LINES = 200` | 表格显示上限（超出只渲染最后 200 条，584-588 顶部提示） |
-| `LogPanel.tsx:84-691` | `LogPanel`（`memo`） | 系统日志面板：5s 轮询（166-177，叠加 `document.hidden` 与 `IntersectionObserver` 双门控）、`fetchSeqRef` 竞态防护（118-138）、内容未变化不 `setState`（124-129）、调试模式开关（179-191）、保留天数乐观更新 + 回滚（193-204）、诊断包导出（279-292）、逐条删除动画 + `setTimeout` 兜底（294-397） |
+| `ErrorBoundary.tsx:15-62` | `ErrorBoundary`（class 组件） | `getDerivedStateFromError`(21-23)、`componentDidCatch` 仅 DEV 打印(25-27)；渲染降级页 + “重新加载”按钮（47-55 先复位再 `window.location.reload()`） |
+| `FluidBackground.tsx:8-39` | `ORB_CSS` 内嵌 keyframes | 两枚光斑 `fluid-orb-drift-a/b` 仅 transform/opacity 合成器路径 |
+| `FluidBackground.tsx:41-59` | `FluidBackground` | 绝对定位铺满背景层，`background: var(--surface-main)`；按 `profile.willChangeOrbs` 渲染光斑（economy/reduced-motion 不渲染，50） |
+| `LogPanel.tsx:28-41` | `interface LogPanelProps` | `api` 要求 `getLogs`/`clearLogs`/`setDebugMode` 必选，`setLogRetentionDays?`/`exportDiagnostics?` 可选；`initialDebugMode?`、`initialLogRetentionDays?`、`addToast(message, type, description?)` |
+| `LogPanel.tsx:43` / `45-51` | `type LogLevel` / `interface ParsedLogLine` | `'DEBUG'\|'INFO'\|'WARN'\|'ERROR'`；解析后 `timestamp`/`level`/`module`/`message`/`raw` |
+| `LogPanel.tsx:53` / `55-60` | `DEFAULT_LEVEL_CONFIG` / `LEVEL_CONFIG` | 每级图标、文字色、底色、左边框、`labelKey` |
+| `LogPanel.tsx:62` | `LOG_LINE_REGEX` | `^\[(.+?)\]\s*\[(DEBUG\|INFO\|WARN\|ERROR)\]\s*\[(.+?)\]\s*(.+)$` |
+| `LogPanel.tsx:64-74` | `parseLogLine(line)` | 不匹配返回 `null` |
+| `LogPanel.tsx:76-81` | `LINE_OPTIONS` | 100 / 200 / 500 / 1000 四档 |
+| `LogPanel.tsx:83` | `MAX_DISPLAY_LINES = 200` | 表格显示上限（超出只渲染最后 200 条，575-579 顶部提示） |
+| `LogPanel.tsx:85-682` | `LogPanel`（`memo`） | 系统日志面板：5s 轮询（161-163，叠加 `document.hidden` 与 `IntersectionObserver` 双门控）、`fetchSeqRef` 竞态防护（120-138）、内容未变化不 `setState`（127-129）、调试模式开关（170-182）、保留天数乐观更新+回滚（184-195）、诊断包导出（270-283）、逐条删除动画 + `setTimeout` 兜底（285-388） |
 | `MascotFigure.tsx:3` | `SIZES` | `{ sm: 'w-20', md: 'w-28', lg: 'w-40' }` |
-| `MascotFigure.tsx:5` | `type MascotVariant` | `'portrait' \| 'welcome' \| 'empty' \| 'celebrate' \| 'sponsor' \| 'offline' \| 'alert'`（7 个，图源 `public/girl/mascot-*.webp`，见 1-2 注释） |
+| `MascotFigure.tsx:5` | `type MascotVariant` | `'portrait' \| 'welcome' \| 'empty' \| 'celebrate' \| 'sponsor' \| 'offline' \| 'alert'`（7 个，图源 `public/girl/mascot-*.webp`） |
 | `MascotFigure.tsx:7-26` | `MascotFigure` | `variant` + `size` + `className`，输出 `loading="lazy"`、`aria-hidden="true"` 的 `<img>` |
 | `RefreshButton.tsx:7-11` | `interface RefreshButtonProps` | 继承 `ButtonHTMLAttributes`，加 `isRefreshing`、`iconClassName?`、`showCheck?` |
-| `RefreshButton.tsx:13-72` | `RefreshButton`（`forwardRef`） | 刷新结束后触发 `refresh-shake`（18-25，`prevRefreshing` 在 effect 开头无条件归位（21-22），不再依赖分支）；旋转动画 class（47-48）；`showCheck` 时用 framer-motion 弹勾（52-65） |
-| `RefreshButton.tsx:74-81` | `getRefreshIconClass(isRefreshing, iconClassName?)` | 给"自带按钮外壳"的调用方复用旋转 class（调用点：`auth/DashboardPanel.tsx:360`、`monitor/QualityPanel.tsx:235`、`monitor/MonitorPanel.tsx:154`） |
+| `RefreshButton.tsx:13-72` | `RefreshButton`（`forwardRef`） | 刷新结束触发 `refresh-shake`（18-25，`prevRefreshing` 在 effect 开头无条件归位 21-22）；旋转动画 class（44-51）；`showCheck` 时 framer-motion 弹勾（52-65） |
+| `RefreshButton.tsx:74-81` | `getRefreshIconClass(isRefreshing, iconClassName?)` | 给自带按钮外壳的调用方复用旋转 class |
 | `SegmentTabs.tsx:5-11` | `interface TabItem` | `key`、`label`、`icon: React.ComponentType<{className?:string}>`、`color`、`bg` |
 | `SegmentTabs.tsx:13-17` | `interface SegmentTabsProps` | `tabs`、`activeKey`、`onTabChange` |
-| `SegmentTabs.tsx:19-54` | `SegmentTabs` | `useId()` 生成 `layoutId` 前缀（22，防多实例共享 `"activeTab"` 导致跨实例布局动画错乱） |
+| `SegmentTabs.tsx:19-54` | `SegmentTabs` | `useId()` 生成 `layoutId` 前缀（22，防多实例共享 `"activeTab"` 错乱） |
 | `SponsorCard.tsx:7-10` | `interface SponsorCardProps` | `open`、`onClose` |
-| `SponsorCard.tsx:24-128` | `SponsorCard` | 锚定标题栏下方的非模态浮层；位置由打开/resize 时实测赞助按钮 `getBoundingClientRect()` 得出（`SponsorAnchor` 14-18、`measure` 33-44，窗口 resize 重算），锚点契约为 TitleBar 赞助按钮上的 `data-sponsor-anchor` 数据属性（`TitleBar.tsx:206`），不依赖 aria-label 文案与 locale；捕获阶段 `pointerdown` 外部点击 + `Esc` 关闭（63-76）；收款码 `/sponsor-weixin.png`、`/sponsor-alipay.jpg`（109-116） |
+| `SponsorCard.tsx:14-18` | `interface SponsorAnchor` | `top`、`right`、`arrowRight` |
+| `SponsorCard.tsx:24-133` | `SponsorCard` | 锚定标题栏下方的非模态浮层；位置由打开/resize 时实测赞助按钮 `getBoundingClientRect()` 得出（33-47），锚点契约为 `data-sponsor-anchor="true"`（`TitleBar.tsx:206`）；捕获阶段 `pointerdown` 外部点击 + `Esc` 关闭（49-64）；收款码 `/sponsor-weixin.png`、`/sponsor-alipay.jpg`（113-127） |
 | `ToastContainer.tsx:10-13` | `interface ToastContainerProps` | `toasts: ToastMessage[]`、`onRemove: (id) => void` |
 | `ToastContainer.tsx:16-21` | `TOAST_MASCOTS` | type→variant 默认映射：`info→portrait`、`success→celebrate`、`error→offline`、`warning→alert` |
 | `ToastContainer.tsx:23-28` | `TOAST_STYLES` | 四类 toast 底色（含 dark 变体） |
-| `ToastContainer.tsx:30-97` | `ToastContainer`（`memo`） | `economy` 档用 duration 过渡、其余用弹簧（34-36）；celebrate 娘图首帧一次性 spring 弹入（44 `popIn`、57 `m.img`）；`aria-live="polite"` + `role="status"`（39）；读取 `/girl/mascot-${mascot}.webp`（57-63） |
+| `ToastContainer.tsx:30-97` | `ToastContainer`（`memo`） | `economy` 档用 duration 过渡、其余用弹簧（34-36）；celebrate 娘图首帧一次性 spring 弹入（44 `popIn`、57 `m.img`）；`aria-live="polite"` + `role="status"`（39）；读取 `/girl/mascot-${mascot}.webp`（57-65） |
 
-> 注意：`ToastContainer` 自己拼接 mascot 图片路径（57-63），**没有**复用 `MascotFigure`（命名空间后缀也不同：`mascot-bg-tea.webp` 之类的水印图由 `RightPanel` 直接写 `<img>`，见 `RightPanel.tsx:241-248`）。
+> 注意：`ToastContainer` 自行拼接 mascot 图片路径（57-65），**没有**复用 `MascotFigure`。
 
 ### components/layout 布局骨架
 
 | 文件:行号 | 导出 | 用途 / 关键实现 |
 |---|---|---|
-| `DockNav.tsx:34-44` | `ICON_MAP` | `NAV_ITEMS[].icon` 字符串 → lucide 组件的映射表（新增导航项必须同步此表） |
-| `DockNav.tsx:46-48` | `MAGNETIC_RANGE=80` / `MAX_SCALE=1.35` / `MAX_LIFT=-14` | 磁吸参数 |
-| `DockNav.tsx:50-152` | `DockItem`（内部组件） | 单图标项（FlClash 式页签）：`gsap.quickTo` 建 scale/y 两条通道（74-75），订阅 `mouseX` 做距离衰减（103-113，变化 <2px 跳过）；`visibleCount` 变化时重算磁吸中心（119-120）；图标+短标签竖排**常显**（非激活也带标签，`text-[11px]`，150），按钮等宽 `w-[52px]`（130）；激活药丸 `layoutId="dock-active-pill"` 为按钮级 `absolute inset-0 rounded-full bg-primary/10` 包整项（143-148，spring 250/28——等宽按钮间纯平移零变形）；`aria-current="page"` 标激活（138）；无 tooltip（原 aria-hidden 视觉 tooltip 已随标签常显删除） |
-| `DockNav.tsx:155-160` | `interface AdapterMenuProps` | `adapters`、`selectedAdapter?`、`onSelect`、`actionLabel` |
-| `DockNav.tsx:162-249` | `AdapterMenu`（内部组件） | 登录/注销的适配器选择浮层，仅列 `a.ip` 非空的适配器（175）；默认选中第一个（176） |
-| `DockNav.tsx:251-396` | `ActionButtonWithMenu`（内部组件） | 按钮 + hover 150ms 开、300ms 关（294-303）；仅一张在线卡时不弹选择浮层、点击直接以该卡执行（290-292、317-327），两张及以上才弹菜单；加载态：spinner `gsap` 旋转（336-344）+ `loadingPulse` 边框（288,376-382） |
-| `DockNav.tsx:398-401` | `interface DockNavProps` | `onPanelChange: (panel: PanelName) => void`、`outerRef?` |
-| `DockNav.tsx:403-500` | `DockNav`（`memo`） | 读 `activePanel`/`isLoggingIn`/`isLoggingOut`/`adapters`/`enableNetworkQuality`/`adapter1,adapter2,dualAdapter`（416-425，后三项用 `useShallow` 421-425）；`scopedAdapters` 用 `resolveAdapterNames` 限定作用域（432-436）；`visibleItems` 过滤 `quality`（437）；`economy` 档禁用磁吸（444-445）+ RAF 节流（447-450）；激活指示由 `DockItem` 内药丸 `layoutId` 跨项滑动承担（143-148），无独立指示条与 `mounted` 测量 |
+| `DockNav.tsx:37-47` | `ICON_MAP` | `NAV_ITEMS[].icon` 字符串 → lucide 组件的映射表（新增导航项必须同步此表） |
+| `DockNav.tsx:49-79` | `DockItem`（内部组件） | 单图标项：等宽 `w-[52px]`（67），图标+标签竖排常显（75-76），激活态 `text-primary`（70） |
+| `DockNav.tsx:81-175` | `AdapterMenu`（内部组件） | 登录/注销适配器选择浮层，仅列 `a.ip` 非空适配器（90），默认选中第一个（91） |
+| `DockNav.tsx:177-324` | `ActionButtonWithMenu`（内部组件） | 按钮 + hover 150ms 开、300ms 关（209-218）；仅一张在线卡时不弹菜单直接执行（237-239），两张及以上才弹（207）；加载态 spinner GSAP 旋转（251-259）+ `loadingPulse` 边框（203,295） |
+| `DockNav.tsx:326-329` | `interface DockNavProps` | `onPanelChange: (panel: PanelName) => void`、`outerRef?` |
+| `DockNav.tsx:331-477` | `DockNav`（`memo`） | 读 `activePanel`/`isLoggingIn`/`isLoggingOut`/`adapters`/`enableNetworkQuality`/`adapter1,adapter2,dualAdapter`（333-342）；`scopedAdapters` 用 `resolveAdapterNames` 限定作用域（349-353）；`visibleItems` 过滤 `quality`（354）；玻璃折射 `useGlassRefraction`（359-361）；镜头系统 `useDockLens`（374-379）；渲染 nav 含放大层（424-449） |
 | `TitleBar.tsx:11-22` | `interface TitleBarProps` | 10 个 props：通知开关、主题/关于/赞助回调、浅色切换、最小化/最大化/关闭、`isMaximized` |
-| `TitleBar.tsx:24-48` | `MinimizeIcon` / `MaximizeIcon` / `RestoreIcon` / `CloseIcon` | 4 个内联 SVG（10×10，`strokeWidth` 1.2/1.4） |
-| `TitleBar.tsx:50-270` | `TitleBar`（`memo`） | 无边框窗口拖拽区：`startDragging()` 带 300ms 双击防抖（70-82）；双击切换最大化（84-86）；图标按钮组（141-267），赞助按钮标 `data-sponsor-anchor="true"`（206，供 `SponsorCard` 稳定定位） |
+| `TitleBar.tsx:24-48` | `MinimizeIcon`/`MaximizeIcon`/`RestoreIcon`/`CloseIcon` | 4 个内联 SVG（10×10） |
+| `TitleBar.tsx:50-271` | `TitleBar`（`memo`） | 无边框窗口拖拽区：`startDragging()` 带 300ms 双击防抖（70-82）；双击切换最大化（84-86）；图标按钮组（140-267），赞助按钮标 `data-sponsor-anchor="true"`（206） |
 
 ### components/ui 原语
 
@@ -142,74 +146,8 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 |---|---|---|
 | `animated-card.tsx:6-12` | `interface AnimatedCardConfig` | `glowIntensity?`、`hoverScale?`、`stiffness?`、`damping?`、`mass?` |
 | `animated-card.tsx:14-21` | `interface AnimatedCardProps` | 继承 `HTMLAttributes<HTMLDivElement>`，加 `animationConfig?`、`noHover?`、`noAnimation?`、`noEnterAnimation?`、`enableTilt?`、`staggerIndex?` |
-| `animated-card.tsx:23` / `27-29` | `REST_SHADOW` / `reducedMotionQuery` | 静止阴影常量；模块级 `MediaQueryList` |
-| `animated-card.tsx:31-151` | `AnimatedCard`（`memo`+`forwardRef`） | 3D 倾斜：`rotateY/rotateX` 两条 `quickTo`（46-47），`ResizeObserver` 失效 rect 缓存（49-50），RAF 节流且回调内只用同步捕获的坐标（65-89）；cleanup 取消 RAF 与 delayedCall（51-62） |
-
-### lib 工具与常量
-
-| 文件:行号 | 导出 | 说明 |
-|---|---|---|
-| `utils.ts:4-6` | `cn(...inputs)` | `twMerge(clsx(inputs))` |
-| `utils.ts:8-18` | `extractErrorMessage(e)` | 字符串原样、`Error` 取 `message`、普通对象优先取 `.message`（11-16，注释：Tauri 插件 reject 的是普通对象，`String()` 会得到 `[object Object]`）、其余 `String(e)` |
-| `utils.ts:20` / `22-29` / `31` | `memoryFallback` / `safeStorage` / 导出 | `localStorage` 读写包裹 try/catch，失败降级到内存 Map |
-| `color.ts:1-33` | `hexToHsl(hex)` | 支持带/不带 `#` 的 6 位 hex；非法输入（长度 <4、`NaN`、正则不匹配）统一返回 `{h:230,s:70,l:55}` |
-| `easing-config.ts:3-9` | `interface EasingConfig` | `enter`/`exit`/`smooth`/`snappy`/`overshoot`，全部 `[number,number,number,number]` 贝塞尔 |
-| `easing-config.ts:11-17` | `EASING_60HZ`（**未导出**） | 60Hz 基线缓动 |
-| `easing-config.ts:19-25` | `EASING_120HZ` | 120Hz 缓动（更"紧"的曲线） |
-| `easing-config.ts:27-29` | `getEasingConfig(refreshRate)` | `refreshRate >= 120 ? EASING_120HZ : EASING_60HZ` |
-| `animations.ts:3-17` | `createLogEntryVariants(easing)` | 日志条目进出场 variants（进入 0.3s `snappy`、退出 0.15s `exit`） |
-| `animations.ts:19-36` | `createPanelAppleVariants(easing)` | 面板转场 variants（进入弹簧 `stiffness 320 / damping 24 / mass 0.7`；退出 0.04s，见 `:28-34`）——历史实现还导出过 `PANEL_ORDER` / `getPanelDirection`（按面板顺序决定滑动方向），已随 `slideDirection` 方向信号在死代码清理 `1dda320` 中删除，现在只剩这两个导出 |
-| `latency.ts:4` | `type LatencyLevel`（**未导出**） | `'excellent'\|'great'\|'good'\|'fair'\|'poor'\|'bad'` |
-| `latency.ts:5` | `type LatencyType` | `'gateway' \| 'external'` |
-| `latency.ts:7-15` | `getLatencyLevel(latency)` | 负数→bad；≤20 excellent；≤50 great；≤100 good；≤200 fair；≤400 poor；其余 bad |
-| `latency.ts:17-23` | `getLatencyColor(latency)` | 负数→rose 三件套；其余查 `QUALITY_CONFIG`（`network/constants.ts:1-11`）的 `color`/`bg`/`borderBg` |
-| `latency.ts:25-36` | `mergeNetworkQuality(old, incoming)` | `disabled` 保留旧值（26）；`busy`=后端增量推送：无旧值→`unknown` 兜底（30），旧值 busy→刷新 details 保持 busy（31），否则增量合并 `details` 但不采纳等级（32，慢网络下终态迟迟不到，采纳 busy 会让胶囊永远显示"检测中"，真机 2026-09-09）；旧值为空或 `unknown` 时直接用新值（34）；否则合并 `details`（新覆盖旧）并保留 `metrics`（35） |
-| `latency.ts:38-43` | `extractGatewayLatency(nq)` | `gatewayLatency >= 0` 优先，回退 `details['gateway'].latency`，否则 `-1` |
-| `latency.ts:45-59` | `extractExternalLatency(nq)` | `averageExternalLatency >= 0` → 次之 `externalLatency` → 次之 `details` 中非 gateway 的中位数（54-57）→ 否则 `-1` |
-| `latency.ts:66-76` | `resolveQualityDisplay(nq)` | 统一展示解析：`displayLatency`（外部优先，退化到网关）；`quality` 在 `unknown`/`busy` 且 `displayLatency >= 0` 时按延迟推断（72-73） |
-| `renderLiveness.ts:14-15` | `lastRafTime` + `probing` | 模块级状态：上次探测时间戳 + 探测进行中标志（**无常驻 rAF 循环**，2026-09-13 功耗改造） |
-| `renderLiveness.ts:18` / `20` / `21` | `PROBE_REFRESH_MS=4_000` / `PROBE_TIMEOUT_MS=500` / `RENDER_STALL_THRESHOLD_MS=10_000` | 重开探测窗口阈值（< 判定阈值一半）/ 开窗兜底复位 / 停滞判定阈值 |
-| `renderLiveness.ts:24-34` | `startProbe()` | 开一个 2 帧（≈33ms）rAF 窗口刷新 `lastRafTime`；`probing` 防重入 + `setTimeout(500ms)` 兜底复位（半死状态） |
-| `renderLiveness.ts:36-40` | `isRenderLoopAlive()` | `document.hidden` 直接返回 `true`（37）；距上次探测 > 4s 时 `startProbe()`（38）；返回 `performance.now() - lastRafTime <= 10s`；调用方仍须先做可见性短路（11-13 注释） |
-
-### i18n
-
-| 文件:行号 | 项 | 说明 |
-|---|---|---|
-| `i18n/index.ts:1-6` | imports | `i18next`、`initReactI18next`、`LanguageDetector`、`zh.json`、`en.json` |
-| `i18n/index.ts:8-26` | `i18n.init({...})` | `resources: { zh: { translation: zh }, en: { translation: en } }`（12-15）、`fallbackLng: 'zh'`（16）、初始 `lng` 直读 `localStorage.getItem('app-language')`（17，try/catch）、`detection.order = ['localStorage','navigator']` 且 `lookupLocalStorage: 'app-language'`、`caches: ['localStorage']`（18-22）、`escapeValue: false`（23-25） |
-| `i18n/index.ts:28` | `export default i18n` | 供 `main.tsx` 侧 `import './i18n'` 触发初始化 |
-| `i18n/locales/zh.json:1-856` | 中文词条 | 22 个顶层命名空间、800 条叶子键 |
-| `i18n/locales/en.json:1-856` | 英文词条 | 22 个顶层命名空间、800 条叶子键（与 zh 键集合完全一致，无缺失） |
-
-**顶层命名空间（zh.json 与 en.json 行号完全一致）**：
-
-| 行号 | 命名空间 | 叶子键数 | 主要消费方 |
-|---|---|---|---|
-| 2 | `notify` | 13 | `useEventListeners.ts`（自动登录/自动退出/校园网退出提示） |
-| 17 | `common` | 21 | `components/ui/*`、`RefreshButton`、`LogPanel` |
-| 40 | `nav` | 9 | `DockNav`（`NAV_ITEMS[].labelKey`） |
-| 51 | `titlebar` | 15 | `components/layout/TitleBar.tsx` |
-| 68 | `auth` | 29 | `useAuthStore`、`auth/useAuth.ts` |
-| 99 | `account` | — | `account/AccountPanel.tsx`、`SelfServicePanel` |
-| 218 | `network` | — | `network/NetworkPanel.tsx` |
-| 315 | `monitor` | 72 | `monitor/*`、`useEventListeners` 的质量告警文案 |
-| 389 | `quality` | — | 质量面板与 `network/constants.ts` 的 `labelKey` |
-| 461 | `speedtest` | — | `monitor/SpeedTestPanel.tsx` |
-| 487 | `settings` | — | `settings/SettingsPanel.tsx` |
-| 599 | `log` | 38 | `shared/LogPanel.tsx`、`useConfigStore` 的保存失败/脏字段回退文案 |
-| 641 | `onboarding` | — | `settings/OnboardingWizard.tsx` |
-| 704 | `about` | — | `auth/AboutDialog.tsx` |
-| 749 | `statusbar` | — | `monitor/StatusBar.tsx` |
-| 763 | `dashboard` | — | `auth/DashboardPanel.tsx` |
-| 800 | `confirmDialog` | 2 | `shared/ConfirmDialog.tsx` |
-| 804 | `panel` | — | 各面板标题 |
-| 824 | `themeDialog` | — | `settings/ThemeDialog.tsx` |
-| 832 | `rightPanel` | 13 | `components/layout/RightPanel.tsx` |
-| 847 | `dock` | 1 | `components/layout/DockNav.tsx`（`dock.selectAdapter`） |
-| 850 | `sponsor` | 4 | `shared/SponsorCard.tsx` |
-
-词条同时经两种方式消费：`react-i18next` 的 `useTranslation()`（组件内，如 `TitleBar.tsx:62`）与直接 `i18next.t(...)`（非组件上下文，如 `useAuthStore.ts:139`、`useEventListeners.ts:41`、`ErrorBoundary.tsx:34`）。
+| `animated-card.tsx:25-27` | `reducedMotionQuery` | 模块级 `MediaQueryList` |
+| `animated-card.tsx:29-151` | `AnimatedCard`（`memo`+`forwardRef`） | 3D 倾斜：`rotateY/rotateX` 两条 `quickTo`（44-45），`ResizeObserver` 失效 rect 缓存（47-48），RAF 节流且回调内只用同步捕获坐标（63-87）；cleanup 取消 RAF 与 delayedCall（49-61） |
 
 ## Architecture
 
@@ -220,28 +158,26 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 │  ┌──────────────┐   ┌──────────────┐   ┌────────────────┐  │
 │  │   TitleBar   │   │    DockNav   │   │     Shared     │  │
 │  │ TitleBar.tsx │   │ DockNav.tsx  │   │  LogPanel.tsx  │  │
-│  │              │   │              │   │  ConfirmDialog │  │
-│  │ 赞助按钮      │   │ 磁吸 Dock    │   │  FluidBG       │  │
-│  │ data-sponsor │   │ layoutId     │   │  MascotFig     │  │
-│  │ anchor="true"│   │ pill anim    │   │  ToastCont     │  │
-│  └──────┬───────┘   └──────┬───────┘   └───────┬────────┘  │
-│         │                  │                    │           │
+│  │ 赞助按钮      │   │ 玻璃镜头 Dock│   │  ConfirmDialog │  │
+│  │ data-sponsor │   │ ICON_MAP     │   │  FluidBG       │  │
+│  │ anchor="true"│   │              │   │  MascotFigure  │  │
+│  └──────┬───────┘   └──────┬───────┘   │  ToastContainer│  │
+│         │                  │           └───────┬────────┘  │
 │         ▼                  ▼                    ▼           │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │                 components/ui/                      │    │
-│  │  AnimatedCard (tilt) Badge Button Input Select...   │    │
+│  │  AnimatedCard (tilt) Button Dialog Select...        │    │
 │  └─────────────────────────────────────────────────────┘    │
 │         │                                                    │
 │         ▼                                                    │
 │  ┌─────────────────────────────────────────────────────┐    │
-│  │                     lib/                            │    │
-│  │  cn utils color latency renderLiveness animations   │    │
+│  │         lib/ (cn, extractErrorMessage, ...)          │    │
 │  └─────────────────────────────────────────────────────┘    │
 │         │                                                    │
 │         ▼                                                    │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │                   i18n/                             │    │
-│  │  zh.json en.json init(i18next)                      │    │
+│  │  zh/en.json + i18next.init                         │    │
 │  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -250,56 +186,48 @@ tags: [前端, 共享组件, UI 原语, Radix, Tailwind, framer-motion, GSAP, i1
 
 ### 组件 → store → IPC（通过 hooks 层）
 
-`shared` 与 `components` 自身不直接 `invoke`，而是订阅 [[desktop-frontend-hooks]] 的 store，例外是 `LogPanel`：它把 `api` 作为 props 收下（`LogPanel.tsx:28-40`），由调用方（日志面板所在页面）注入 `tauriApiWithRetry` 的方法，因此 `LogPanel` 是"组件持有 IPC 句柄"的唯一共享组件：
+`shared` 与 `components` 自身不直接 `invoke`，而是订阅 [[desktop-frontend-hooks]] 的 store，例外是 `LogPanel`：它把 `api` 作为 props 收下（`LogPanel.tsx:28-41`），由调用方注入方法，因此 `LogPanel` 是“组件持有 IPC 句柄”的唯一共享组件：
 
-1. `LogPanel` 挂载 → `fetchLogs(true)`（`LogPanel.tsx:140-142`）→ `api.getLogs(lineCount)`（122）→ `get_logs`。
-2. 5s 轮询（166-177）叠加 `IntersectionObserver` 可见性（146-152）与 `document.hidden`（167-169）双门控。
-3. 内容比对（126-129）→ 未变化则跳过 `setState`，避免 `parsedLines`(221)/`availableModules`(234-237)/`filteredLines`(239-263)/`displayedLines`(265-269)/`levelCounts`(399-403) 五层 `useMemo` 全量重算（注释 FE-B-10）。
-4. 清空：`handleClear` → `ConfirmDialog`（681-687）→ `handleClearConfirm`（294-397）→ GSAP 逐条动画 → `api.clearLogs()`（331 或 385）→ 重置 `rawLogs` 与 `logsKey`。
+1. `LogPanel` 挂载 → `fetchLogs(true)`（`LogPanel.tsx:85-87`）→ `api.getLogs(lineCount)`（123）→ 后端 `get_logs`。
+2. 5s 轮询（161-163）叠加 `IntersectionObserver` 可见性（144-153）与 `document.hidden`（158-160）双门控。
+3. 内容比对（127-129）→ 未变化则跳过 `setState`，避免 `parsedLines`(212-223)/`availableModules`(225-228)/`filteredLines`(230-254)/`displayedLines`(256-261)/`levelCounts`(390-396) 多层 `useMemo` 全量重算。
+4. 清空：`handleClear` → `ConfirmDialog`（672-678）→ `handleClearConfirm`（285-388）→ GSAP 逐条动画 → `api.clearLogs()`（322 或 376）→ 重置 `rawLogs` 与 `logsKey`。
 
 ### Rust emit → listen → store → UI
 
-事件链路本身在 [[desktop-frontend-hooks]]（`tauriApi.createEventListener` + `useEventListeners`）。本模块的一端是"渲染终点"：
+事件链路本身在 [[desktop-frontend-hooks]]。本模块的一端是“渲染终点”：
 
-- `useEventListeners.ts:275-293` 把 `auto-exit-countdown` 转成 `addToastWithAction`（带"取消退出"按钮）→ `ToastContainer`（`ToastContainer.tsx:71-80`）渲染按钮 → 点击回调 `api.cancelAutoExit()`。
-- `useEventListeners.ts:331-336` 把 `network-quality-result` 写进 `useQualityStore` → 质量胶囊/面板经 `resolveQualityDisplay`（`latency.ts:59-69`）与 `getLatencyColor`（17-23）渲染。
-- `useEventListeners.ts:339-349` 把 `update-available` 写进 `useQualityStore` → `TitleBar`（`TitleBar.tsx:64-65`）显示新版本浮标（106-137）。
+- `useQualityStore` 的 `updateAvailable`/`latestVersion` 被 `TitleBar` 读取（`TitleBar.tsx:64-65`）显示新版本浮标（106-137）。
+- `ToastContainer` 渲染 `ToastMessage[]`（`ToastContainer.tsx:30-82`），消息由 `addToast` 调用方（如 `LogPanel` 的 `addToast` prop）注入。
 
 ### 主题 → DOM
 
-`useThemeStore.subscribe`（`useThemeStore.ts:53-86`）是跨模块副作用：订阅 `isLightMode`/`themeName`/`customThemeColor`，切换 `<html>` 的 `dark` class、`data-light` 属性、`theme-*` class，并在 `custom` 主题下用 `hexToHsl`（`color.ts:1-33`）换算后 `setProperty` 写入 `--primary`/`--ring`/`--accent`/`--accent-foreground`（72-75）。所有 Tailwind 语义色（`bg-background`、`text-muted-foreground` 等）与 `var(--surface-main)`、`var(--surface-top)`、`var(--surface-side)`（`FluidBackground.tsx:46`、`TitleBar.tsx:94`、`RightPanel.tsx:214`）由此驱动。
+`useThemeStore` 驱动玻璃档位 `glassLevel`（`DockNav.tsx:359`），`FluidBackground` 使用 `var(--surface-main)`（`FluidBackground.tsx:47`），`TitleBar` 使用 `var(--surface-top)`（94）。`SponsorCard` 玻璃滤镜读 `var(--glass-blur)`/`var(--glass-sat)`（87-88）。
 
 ### i18n
 
-`main.tsx` 中 `import './i18n'` 触发初始化（`i18n/index.ts:8-26`）；语言切换入口是 `useConfigStore.setLanguage`（`useConfigStore.ts:176-180`），它同时写 `localStorage['app-language']` 并调 `i18next.changeLanguage`；`TitleBar.tsx:158` 只做 `zh ↔ en` 二值翻转。安卓端语言包为独立副本（见 [[android-frontend]]）。
+组件内用 `useTranslation()`（如 `TitleBar.tsx:62`、`LogPanel.tsx:87`），非组件上下文用 `i18next.t`（如 `ErrorBoundary.tsx:34`、`RefreshButton.tsx:33`）。语言切换入口 `TitleBar.tsx:158` 做 `zh ↔ en` 翻转。
 
 ## Connections
 
-- [[desktop-frontend-hooks]]：本模块的全部数据来源（store/hook），以及 `LogPanel` 注入的 `tauriApiWithRetry`。
-- [[desktop-monitor]]：`RightPanel` 的 `LogEntry` 列表、`NetworkQualityCapsule`、`StatusBar` 与质量色板 `QUALITY_CONFIG`（`network/constants.ts:1-11`）。
-- [[desktop-network-core]]：`DockNav` 用 `resolveAdapterNames`/`AUTO_DETECT_ADAPTER`（`network/adapters.ts:3,15`）限定登录作用域，`RightPanel` 用 `AUTO_DETECT_ADAPTER` 判定主适配器回退。
-- [[desktop-config]]：`shared/ui-constants.ts` 的 `PASSWORD_MASK` 与 `Config` 的掩码语义；`settings/constants.ts:6` 的 `DEFAULT_CONFIG`、`:94` 的 `VALID_THEMES` 被 store 消费。
-- [[desktop-helper-update]]：`shared/types.ts` 的 `UpdateInfo`/`DownloadProgress`/`MirrorSource` 是更新命令与进度事件的载荷类型。
-- [[desktop-app-lifecycle]]：`i18n/locales/*.json` 的 `notify.*`（自动退出/校园网退出倒计时）对应后端生命周期倒计时事件。
-- [[desktop-auth]] / [[desktop-account-selfservice]]：`auth/*`、`account/*` 面板消费 `lib/latency.ts`、`RefreshButton`、`MascotFigure`、`ConfirmDialog`。
-- [[desktop-platform]]：`FluidBackground`/`TitleBar` 使用的 `--surface-*` 变量与平台外观相关；`ErrorBoundary` 是平台无关兜底。
-- [[android-frontend]]：安卓端为独立复刻树，本模块的中文文案/组件改动需按 AGENTS.md 第 3 条双端同步。
+- [[desktop-frontend-hooks]]：本模块全部数据来源（store/hook），`LogPanel` 注入的 api 方法、`DockNav` 使用的 `useAdapterStore`/`useAuthStore`/`useConfigStore`/`useThemeStore` 等。
+- [[desktop-network-core]]：`DockNav` 用 `resolveAdapterNames`（`network/adapters.ts`）限定登录作用域（349-353）。
+- [[desktop-monitor]]：`QualityStore` 的 `updateAvailable` 等由监控模块写入，被 `TitleBar` 消费。
+- [[desktop-auth]]：`DockNav` 的 `ActionButtonWithMenu` 调用 `useAuthStore` 的 `doLogin`/`doLogout`（343-344,460-472）。
+- [[desktop-config]]：`shared/ui-constants.ts` 的 `PASSWORD_MASK` 与配置掩码语义相关；`DockNav` 读 `useConfigStore` 的 `enableNetworkQuality`/`adapter1` 等。
+- [[android-frontend]]：安卓端为独立复刻树，本模块改动需按双端同步要求处理。
 
 ## Known Issues
 
-1. **`MascotFigure` 未进桶文件**：`shared/index.ts:1-12` 不导出它，只能 `@/shared/MascotFigure` 深路径导入（`auth/AboutDialog.tsx:16`、`account/AccountPanel.tsx:23`、`settings/OnboardingWizard.tsx:26`、`shared/SponsorCard.tsx:5`、`shared/LogPanel.tsx:20`）。新增消费方若从 `@/shared` 导入会编译失败。`SponsorCard` 同样不在桶文件里。
-2. **`DialogOverlay` / `DialogPortal` 声明但未导出**（`dialog.tsx:9`、`11`，导出清单 `97-103` 不含两者）；`TooltipPortal` 同理（`tooltip.tsx:11`，导出清单 `31` 不含）。`DialogContent` 内部自建 Portal + Overlay（`32-33`），所以 `DialogContent` 无法脱离内建 Overlay 使用（自定义遮罩只能用外层容器）。
-3. **`AnimatedCardConfig` 全部字段无消费方**（`animated-card.tsx:6-12`）：`animationConfig`/`glowIntensity`/`hoverScale`/`stiffness`/`damping`/`mass` 在仓库内仅出现在定义处，属规格化预留；实际倾斜由 `profile.enableTilt` 与硬编码的 `x*8`（86-87）决定。
-4. **`RefreshButton` 的 `prevRefreshing` 曾依赖分支归位（已修复）**：历史实现只在「不触发 shake」的分支里写 `prevRefreshing.current = isRefreshing`，一旦置 `true` 就永不回到 `false`，条件退化为"仅看 `!isRefreshing`"，且以 `isRefreshing=true` 首次挂载时语义错位。现改为 effect 开头无条件归位（`RefreshButton.tsx:21-22`，先取 `wasRefreshing` 再同步最新值），正确性不再依赖调用方的刷新循环形态。
-5. **`LogPanel.handleClearConfirm` 对 `ctx` 存在 TDZ 依赖**（`LogPanel.tsx:325-345` 的 `finishClear` 与 `360-366` 的 `onInterrupt` 都引用 346 行才声明的 `const ctx`）：当前两者只由 `onComplete`(355)、`failsafe`(373)、`onInterrupt`(360) 触发，都在 `gsap.context` 返回之后，因此安全；但任何新增的同步调用路径（例如提前在 346 行之前调用 `finishClear`）会抛 `ReferenceError: Cannot access 'ctx' before initialization`。清空失败时 `ctx.revert()`（341）也会 kill 冻结的 tween 并同步触发 `onInterrupt`，靠 `settled`（323、326）互斥。
-6. **`LogPanel` 的 `logsKey` 用 `AnimatePresence key` 强制重挂载**（`LogPanel.tsx:589`，`setLogsKey` 在 335、389）：清空后会重建整棵日志列表，长列表下会有一次明显重排；同时 `lineKey` 追加 `idx`（596）意味着同内容行在刷新后 key 变化。
-7. **`LogPanel` 的轮询没有退避**（`LogPanel.tsx:170-172`）：固定 5000ms 调 `get_logs`，后端日志很多时（1000 行档）会持续拉取大文本；只靠"内容未变化不 setState"（126-129）控制渲染成本，不控制 IPC 与 IO 成本。
-8. **`RightPanel` 的空态呼吸动画在"空 → 非空 → 空"后会失效**：`useBreatheAnimation` 的 tween 在挂载时按 `ref.current` 建立（`useBreatheAnimation.ts:30-45`，effect deps 是 7 个原始值，52 行），而 `RightPanel.tsx:258-264` 的空态容器随 `logs.length` 挂载/卸载。日志从空变非空时容器卸载，但 tween 仍指向已脱离 DOM 的旧节点（GSAP 不会因节点脱离而自动 kill），一直空跑到 `RightPanel` 卸载才在 `useBreatheAnimation.ts:48-51` 被 kill；再回到空态时 effect 因 deps 未变**不会重跑**，新节点拿不到呼吸动画。同理 `useGlowAnimation`/`usePulseAnimation` 也有"tween 只在挂载时建立"的约束（`useGlowAnimation.ts:17-39`、`usePulseAnimation.ts:21-60`）。
-9. **`RightPanel` 的日志分片**（`RightPanel.tsx:199-208`）：`logs.length > 50` 时前段用普通 `div`（267-290），只有最后 30 条是 `m.div`（291-323）；因此 `AnimatePresence` 的 `exit` 动画在长日志下不覆盖旧条目，"清空动画"（103-164）与"React 卸载"之间靠 `onClearLogs()` 清空数组（123）衔接。
-10. **`DockNav` 的 `ICON_MAP` 是字符串到组件的硬编码表**（`DockNav.tsx:34-44`）：`NAV_ITEMS` 新增导航项时**必须**同时改这里与 `shared/ui-constants.ts:7-17`，否则 `Icon` 为 `undefined` 导致渲染崩溃（59 行直接当作组件使用）。
-11. **`MascotVariant` 与 `ToastMessage['mascot']` 是两套枚举**（`MascotFigure.tsx:5` vs `ui-types.ts:32`）：`MascotVariant` 已补 `alert`（7 个），但仍有 `welcome`/`empty`/`sponsor` 而 `ToastMessage['mascot']` 没有，且后者独有 `update`；`ToastContainer` 自行拼 `/girl/mascot-${mascot}.webp`（`ToastContainer.tsx:58`），若 `toast.mascot` 传入 `'update'`，需要存在 `public/girl/mascot-update.webp` 资源，否则静默裂图（无 `onError` 兜底）。
-12. **`latency.ts` 的 `LatencyLevel` 未导出**（`latency.ts:4`）：`resolveQualityDisplay` 的返回类型里裸用该类型（64），外部若要对返回值做类型标注只能重复定义。
-13. **`easing-config.ts` 的 `EASING_60HZ` 未导出**（`easing-config.ts:11`）：只能经 `getEasingConfig` 获取，测试无法直接断言两套基线的具体曲线。
-14. **`lib/renderLiveness.ts` 曾在模块导入时启动常驻 rAF 循环（2026-09-13 已修复）**：原实现是模块级 `rafLoop` 无限递归（导入即启动、永不停止），任何 import 该模块的页面都会留下 pending `requestAnimationFrame`，Chromium 据此按刷新率持续派发 BeginFrame、合成器永不休眠（安卓省电改造 `266624b` 双端同改）。现改为按需短探测：`isRenderLoopAlive()`（`renderLiveness.ts:36-40`）距上次探测超过 `PROBE_REFRESH_MS=4_000`（`:18`）才经 `startProbe()`（`:24-34`）开一个 2 帧窗口，10s 停滞判定语义不变。**残留约束两条**：① 隐藏态直接返回 `true`（`:37`），调用方**仍必须先做可见性短路**（当前仅 `main.tsx:11` 与 `hooks/useHeartbeat.ts:3` 两个导入点，分别有 `isVisible` 分支 `main.tsx:91` 与 `paused` 分支 `useHeartbeat.ts:13`）；② 无 rAF 环境（SSR/部分测试环境）仍会因 `startProbe` 内的 `requestAnimationFrame` 抛错，但触发点从"导入即抛"推迟到"首次需要探测时"。
-15. **`i18n` 初始化读 `localStorage` 未走 `safeStorage`**（`i18n/index.ts:17`）：用裸 `try { localStorage.getItem } catch`，与 `lib/utils.ts:22-29` 的 `safeStorage` 双写内存兜底不一致；`setLanguage`（`hooks/useConfigStore.ts:178`）走 `safeStorage`，两者键名相同（`app-language`）但降级行为不同。
-16. **`i18n` 键数量完全对齐但无自动化校验**：实测 `zh.json` 与 `en.json` 各 800 条叶子键、键集合零缺失；仓库内没有测试或脚本守护这一点，新增词条若只加一端不会被拦住（安卓端另有独立副本，见 AGENTS.md 第 3 条双端同步要求）。
+1. **`MascotFigure` 与 `SponsorCard` 未进桶文件**：`shared/index.ts:1-12` 不导出两者，只能 `@/shared/MascotFigure` 深路径导入（`LogPanel.tsx:20`、`SponsorCard.tsx:5` 等）。新增消费方从 `@/shared` 导入会编译失败。
+2. **`ToastContainer` 未复用 `MascotFigure`**：`ToastContainer.tsx:30-97` 自行拼 `/girl/mascot-${mascot}.webp`（57-65），若 `toast.mascot` 传入 `'update'` 需存在对应资源，否则静默裂图（无 `onError` 兜底）。`MascotVariant` 含 `welcome`/`empty`/`sponsor` 而 `ToastMessage['mascot']` 无，但后者独有 `update`（`ui-types.ts:24` vs `MascotFigure.tsx:5`）。
+3. **`DockNav` 的 `ICON_MAP` 硬编码同步风险**：`DockNav.tsx:37-47` 映射表须与 `shared/ui-constants.ts:7-17` 的 `NAV_ITEMS[].icon` 字符串一致，新增导航项须同时改两处，否则 `Icon` 为 `undefined` 渲染崩溃。
+4. **`LogPanel.handleClearConfirm` 中 `ctx` 的 TDZ 依赖**：`finishClear`（`LogPanel.tsx:316-336`）与 `onInterrupt`（351-357）引用 `337` 行才声明的 `const ctx = gsap.context(...)`。当前仅在 `onComplete`/`failsafe`/`onInterrupt` 触发（均晚于声明）故安全；若新增同步调用路径在 337 前行会抛 `ReferenceError`。
+5. **`LogPanel` 轮询无退避**：固定 5000ms（`LogPanel.tsx:85-87`）调 `getLogs`，仅靠内容比对跳过重渲染（127-129），不控制 IPC/IO 成本。
+6. **`LogPanel` 的 `logsKey` 强制重挂载**：清空后 `setLogsKey`（`326,380`）使 `AnimatePresence` 整树重建（580），长列表有明显重排；`lineKey` 追加 `idx`（587）使同内容行刷新后 key 变化。
+7. **`RefreshButton` 的 `prevRefreshing` 归位修复已落地**：现 effect 开头无条件归位（`RefreshButton.tsx:21-22`），不再依赖分支。
+8. **`AnimatedCardConfig` 字段无消费方**：`animated-card.tsx:6-12` 的 `glowIntensity`/`hoverScale`/`stiffness`/`damping`/`mass` 仅定义，实际倾斜由 `profile.enableTilt` 与 `handleMouseMove` 中硬编码 `x*8`（`animated-card.tsx:7-8` 的 `xQuick.current?.(x * 8)` / `yQuick.current?.(-y * 8)`）决定；本文件未导出具体乘数，仅保留接口预留。
+9. **`ConfirmDialog` 关闭逻辑**：`onOpenChange` 在 `confirming` 时拦截（`ConfirmDialog.tsx:30-33`），避免确认中误触取消；但 `onCancel` 仍可能在动画期间被外部状态调用，依赖调用方保证。
+10. **`SponsorCard` 定位依赖 DOM 实测**：`SponsorCard.tsx:24-38` 查询 `button[data-sponsor-anchor="true"]`，若 `TitleBar` 未渲染该属性则浮层不显示（锚点为 `null` 时不渲染，`AnimatePresence` 内 `anchor &&` 条件 68）。
+11. **`FluidBackground` 光斑仅 CSS 动画**：`FluidBackground.tsx:41` 条件渲染，economy 档或 `prefers-reduced-motion` 归为 economy 时不挂载节点（注释 6-7），此时背景仅纯色 `var(--surface-main)`。
+12. **`ErrorBoundary` 报错信息对用户折叠**：原始错误进 `<details>`（`ErrorBoundary.tsx:15-22`），仅 DEV 打印完整栈（25-27），生产环境用户需展开查看。

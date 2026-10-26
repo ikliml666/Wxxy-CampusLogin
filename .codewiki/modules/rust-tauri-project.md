@@ -52,11 +52,10 @@ source_files:
   - android/src-tauri/icons/android/values/ic_launcher_background.xml
   - android/src-tauri/tauri.conf.json
 tags: [Tauri, Android, Rust, Build System, Metadata]
----
 
 ## Overview
 
-本模块 `rust-tauri-project` 定义了基于 Tauri v2 的 Android 客户端项目元数据与构建配置。涵盖 Rust 核心依赖（`android/src-tauri/Cargo.toml`）、构建脚本（`android/src-tauri/build.rs`）、Tauri 配置（`android/src-tauri/tauri.conf.json` 与 `capabilities/default.json`），以及由 Tauri CLI 生成的 Android 原生工程（`android/src-tauri/gen/android/...`）。主要功能：定义应用标识 `com.campuslogin.client`、版本 `2.4.1`；配置 WebView CSP；管理插件依赖（手写网络绑定/密钥库/前台服务 + 官方 biometric/opener/notification）；生成 Gradle 构建文件与 Kotlin 胶水代码（Activity、WebView、JNI 桥接）。该模块复用桌面端 `campus-login` crate（路径依赖 `../../tauri-app/src-tauri`，见 Cargo.toml 第31行）。
+本模块 `rust-tauri-project` 定义了基于 Tauri v2 的 Android 客户端项目元数据与构建配置。涵盖 Rust 核心依赖（`android/src-tauri/Cargo.toml`）、构建脚本（`android/src-tauri/build.rs`）、Tauri 配置（`android/src-tauri/tauri.conf.json` 与 `capabilities/default.json`），以及由 Tauri CLI 生成的 Android 原生工程（`android/src-tauri/gen/android/...`）。主要功能：定义应用标识 `com.campuslogin.client`、根配置版本 `2.4.2`（`tauri.conf.json` 第4行），而生成的 `assets/tauri.conf.json` 第1行与 `tauri.properties` 第2行仍为 `2.4.1`；配置 WebView CSP；管理插件依赖（手写网络绑定/密钥库/前台服务 + 官方 biometric/opener/notification）；生成 Gradle 构建文件与 Kotlin 胶水代码（Activity、WebView、JNI 桥接）。该模块复用桌面端 `campus-login` crate（路径依赖 `../../tauri-app/src-tauri`，见 `Cargo.toml` 第31行）。
 
 ## Key Components
 
@@ -66,7 +65,7 @@ tags: [Tauri, Android, Rust, Build System, Metadata]
 - `fn main()`（第1-3行）：调用 `tauri_build::build()` 触发 Tauri 构建流程。
 
 **`android/src-tauri/Cargo.toml`**
-- `[package]`（第1-5行）：`name = "campus-login-android"`（第2行），`version = "2.4.1"`（第3行），`edition = "2021"`（第5行）。
+- `[package]`（第1-5行）：`name = "campus-login-android"`（第2行），`version = "2.4.2"`（第3行），`edition = "2021"`（第5行）。
 - `[lib]`（第7-9行）：`name = "campus_login_android_lib"`（第8行），`crate-type = ["cdylib", "rlib"]`（第9行）。
 - `[build-dependencies]`（第11-12行）：`tauri-build = { version = "2", features = [] }`（第12行）。
 - `[dependencies]`（第14-48行）：
@@ -83,16 +82,18 @@ tags: [Tauri, Android, Rust, Build System, Metadata]
 ### 2. Tauri 配置与权限
 
 **`android/src-tauri/tauri.conf.json`**
-- 根字段：`productName`（第3行），`version`（第4行），`identifier`（第5行 `com.campuslogin.client`）。
-- `build`（第6-9行）：`frontendDist`（第7行），`devUrl`（第8行）。
-- `app.windows`（第11-17行）：单窗口 `title`（第13行）、`width=400`（第14行）、`height=800`（第15行）。
+- 根字段：`productName`（第3行 `CampusLogin`），`version`（第4行 `2.4.2`），`identifier`（第5行 `com.campuslogin.client`）。
+- `build`（第6-9行）：`frontendDist`（第7行 `../frontend/dist`），`devUrl`（第8行 `http://localhost:5174`）。
+- `app.windows`（第11-17行）：单窗口 `title`（第13行 `CampusLogin`）、`width=400`（第14行）、`height=800`（第15行）。
 - `app.security`（第18-25行）：`csp`（第19行），`assetProtocol`（第20-23行，启用且 scope `$APPDATA/files/face-models/**`），`dangerousDisableAssetCspModification`（第24行 `["style-src"]`）。
 - `bundle.android.minSdkVersion`（第31行）：29。
 
 **`android/src-tauri/capabilities/default.json`**
-- `$schema`（第2行），`identifier`（第3行 `default`），`description`（第4行），`windows`（第5-7行 `["main"]`），`permissions`（第8-13行：`core:default`, `biometric:default`, `opener:default`, `notification:default`）。
+- `$schema`（第2行指向 `../gen/schemas/desktop-schema.json`），`identifier`（第3行 `default`），`description`（第4行），`windows`（第6行 `["main"]`），`permissions`（第9-12行：`core:default`, `biometric:default`, `opener:default`, `notification:default`）。
 
-**`android/src-tauri/gen/schemas/capabilities.json`**（第1行）：编译后 JSON，内容与 default.json 对应。
+**`android/src-tauri/gen/schemas/capabilities.json`**（第1行）：编译后 JSON，内容与 default.json 对应，附加 `"local":true`。
+
+**`android/src-tauri/gen/android/app/src/main/assets/tauri.conf.json`**（第1行）：生成的运行期配置，`version` 为 `2.4.1`，`minSdkVersion` 29（与根配置版本号不一致，以代码现状为准）。
 
 ### 3. Android 原生工程
 
@@ -102,24 +103,24 @@ tags: [Tauri, Android, Rust, Build System, Metadata]
 
 **`android/src-tauri/gen/android/app/build.gradle.kts`**
 - `android.compileSdk = 36`（第17行），`namespace = "com.campuslogin.client"`（第18行）。
-- `defaultConfig`：`minSdk = 29`（第22行），`targetSdk = 36`（第23行），`applicationId`（第21行）。
-- `signingConfigs.release`（第29-36行）：使用 `System.getProperty("user.home") + "/.android/debug.keystore"`（第31行），密码 `android`。
+- `defaultConfig`（第19-26行）：`minSdk = 29`（第22行），`targetSdk = 36`（第23行），`applicationId`（第21行），`versionCode/versionName` 取自 tauri.properties（第24-25行）。
+- `signingConfigs.release`（第29-36行）：使用 `System.getProperty("user.home") + "/.android/debug.keystore"`（第31行），密码 `android`（第32-34行）。
 - `applicationVariants.all`（第38-44行）：输出文件名 `Wxxy-CampusLogin_${variantVersionName}.apk`（第42行）。
-- `buildTypes.debug`（第46-56行）：`isMinifyEnabled = false`，保留 so 调试符号。
-- `buildTypes.release`（第57-65行）：`isMinifyEnabled = true`，应用 proguard。
+- `buildTypes.debug`（第46-56行）：`isMinifyEnabled = false`（第50行），保留 so 调试符号（第51-54行）。
+- `buildTypes.release`（第57-65行）：`isMinifyEnabled = true`（第58行），应用 proguard（第60-64行）。
 - `rust { rootDirRel = "../../../" }`（第75-77行）。
-- `dependencies`（第79-95行）：`implementation(project(":tauri-plugin-campus-network-bind"))` 等手写插件（第87-89行），官方插件（第90-91行），androidx 依赖（第80-84行）。
+- `dependencies`（第79-95行）：`implementation(project(":tauri-plugin-campus-network-bind"))` 等手写插件（第86-88行），官方插件（第89-90行），androidx 依赖（第80-83行），并在第96行 `apply(from = "tauri.build.gradle.kts")`。
 
 **`android/src-tauri/gen/android/settings.gradle`**（第1-21行）：`include ':app'`（第1行）；持久声明手写插件（第9-14行）与官方插件（第15-19行，路径硬编码 cargo registry 如第16行）；`apply from: 'tauri.settings.gradle'`（第21行）。
 
-**`android/src-tauri/gen/android/tauri.settings.gradle`**（第1-15行）：自动生成 include，绝对路径指向 cargo registry 或本地（如第3行 tauri-android，第5行 biometric）。
+**`android/src-tauri/gen/android/tauri.settings.gradle`**（第1-15行）：自动生成 include，绝对路径指向 cargo registry 或本地（如第3行 tauri-android，第5行 biometric，第13行 notification）。
 
 **`android/src-tauri/gen/android/buildSrc/src/main/java/com/campuslogin/app/kotlin/RustPlugin.kt`**
 - `open class Config`（第10-12行）：`lateinit var rootDirRel: String`。
 - `open class RustPlugin : Plugin<Project>`（第14-85行）：`apply` 中定义 flavorDimensions "abi"（第30行），productFlavors `universal`/`arm64`/`arm`/`x86`/`x86_64`（第31-46行）；`afterEvaluate` 创建 `rustBuildUniversal{Debug,Release}` 等 Task（第49-83行），依赖 `BuildTask`。
 
 **`android/src-tauri/gen/android/buildSrc/src/main/java/com/campuslogin/app/kotlin/BuildTask.kt`**
-- `open class BuildTask : DefaultTask()`（第9-45行）：`@Input` 属性 `rootDirRel`（第10行）、`target`（第12行）、`release`（第14行）；`@TaskAction fun assemble()`（第17-45行）。
+- `open class BuildTask : DefaultTask()`（第9-45行）：`@Input` 属性 `rootDirRel`（第11行）、`target`（第13行）、`release`（第15行）；`@TaskAction fun assemble()`（第17-45行）。
 - `fun runTauriCli(executable: String)`（第47-69行）：硬编码 `val executable = """C:\Program Files\nodejs\node.exe"""`（第19行），`val tauriJs = """E:\ik\Documents\trae_projects\1\Wxxy-CampusLogin\tauri-app\node_modules\@tauri-apps\cli\tauri.js"""`（第52行）；执行 `node tauri.js android android-studio-script`（第53行）。
 
 #### 3.2 Kotlin 胶水代码（Generated/手写）
@@ -127,14 +128,15 @@ tags: [Tauri, Android, Rust, Build System, Metadata]
 **`WryActivity.kt`**（生成）
 - `object WryLifecycleObserver : DefaultLifecycleObserver`（第23-49行）：`onCreate` 调 `Rust.create()`/`Rust.wryCreate()`（第26-27行），`onStart`→`Rust.start()`（第32行）等。
 - `abstract class WryActivity : AppCompatActivity()`（第51-175行）：
-  - 字段 `private lateinit var mWebView`（第52行），`var id: Int = 0`（第53行），`open val handleBackNavigation: Boolean = true`（第54行）。
+  - 字段 `private lateinit var mWebView: RustWebView`（第52行），`var id: Int = 0`（第53行），`open val handleBackNavigation: Boolean = true`（第54行）。
+  - `open fun onWebViewCreate(webView: WebView)`（第56行）。
   - `fun setWebView(webView: RustWebView)`（第58-79行）：注册返回键回调。
   - `val version: String`（第81-112行）：获取 WebView 版本。
-  - `onCreate`（第114-119行）：注册 `WryLifecycleObserver`，调 `Rust.onActivityCreate(this)`。
-  - `onWindowFocusChanged`（第121-124行），`onSaveInstanceState`（第126-130行），`onPause/onResume`（第132-144行），`onDestroy`（第146-150行）调 `Rust.onActivityDestroy` 与 `Rust.onWebviewDestroy`，`onLowMemory`（第152-155行），`onNewIntent`（第157-160行），`getAppClass`（第162-164行），`startActivity`（第166-172行）。
+  - `onCreate`（第114-119行）：注册 `WryLifecycleObserver`，调 `Rust.onActivityCreate(this)`（第118行）。
+  - `onWindowFocusChanged`（第121-124行），`onSaveInstanceState`（第126-130行），`onPause/onResume`（第132-144行，`mWebView.onPause/onResume`），`onDestroy`（第146-150行）调 `Rust.onActivityDestroy` 与 `Rust.onWebviewDestroy`，`onLowMemory`（第152-155行），`onNewIntent`（第157-160行），`getAppClass`（第162-164行），`startActivity`（第166-172行）。
 
 **`TauriActivity.kt`**（生成）
-- `object TauriLifecycleObserver : DefaultLifecycleObserver`（第17-32行）：`onResume/onPause/onStop` 转发 PluginManager。
+- `object TauriLifecycleObserver : DefaultLifecycleObserver`（第17-32行）：`onResume/onPause/onStop` 转发 PluginManager（第20、25、30行）。
 - `abstract class TauriActivity : WryActivity()`（第34-65行）：`override val handleBackNavigation: Boolean = false`（第35行）；`onCreate` 调 `PluginManager.onActivityCreate`（第39行）；`fun getPluginManager()`（第42-44行）；`onNewIntent`（第46-49行），`onRestart`（第51-54行），`onDestroy`（第56-59行），`onConfigurationChanged`（第61-64行）。
 
 **`MainActivity.kt`**（手写）
@@ -153,61 +155,63 @@ tags: [Tauri, Android, Rust, Build System, Metadata]
 **`RustWebView.kt`**（生成）
 - `class RustWebView(context: Context, val initScripts: Array<String>, val id: String): WebView(context)`（第19-98行）：
   - `val isDocumentStartScriptEnabled`（第20行）。
-  - `init`（第22-40行）：启用 JS、DOM、Geolocation、Database；若支持 DOCUMENT_START_SCRIPT 则注入。
+  - `init`（第22-40行）：启用 JS、DOM、Geolocation、Database；若支持 DOCUMENT_START_SCRIPT 则注入（第30-34行）。
   - `fun loadUrlMainThread(url: String)`（第42-46行）及重载（第48-52行）。
   - 重写 `loadUrl`（第54-64行）调 `Rust.shouldOverride`。
-  - `fun loadHTMLMainThread(html: String)`（第66-70行），`fun evalScript(id: Int, script: String)`（第72-78行），`fun clearAllBrowsingData()`（第80-90行），`fun getCookies(url: String)`（第92-95行）。
+  - `fun loadHTMLMainThread(html: String)`（第66-70行），`fun evalScript(id: Int, script: String)`（第72-78行，回调 `Rust.onEval`），`fun clearAllBrowsingData()`（第80-90行），`fun getCookies(url: String)`（第92-95行）。
 
 **`RustWebViewClient.kt`**（生成）
-- `class RustWebViewClient(webView: RustWebView, context: Context): WebViewClient()`（第17-100行）：
-  - 字段 `currentUrl`（第19行），`lastInterceptedUrl`（第20行），`pendingUrlRedirect`（第21行），`assetLoader`（第23-26行）。
+- `class RustWebViewClient(webView: RustWebView, context: Context): WebViewClient()`（第17-94行）：
+  - 字段 `interceptedState`（第18行），`currentUrl`（第19行），`lastInterceptedUrl`（第20行），`pendingUrlRedirect`（第21行），`assetLoader`（第23-26行）。
   - `shouldInterceptRequest`（第28-55行）：用 `WebViewAssetLoader` 或 `Rust.handleRequest`，加 `Cache-Control: no-store`（第47-49行）。
-  - `shouldOverrideUrlLoading`（第57-62行），`onPageStarted`（第64-73行），`onPageFinished`（第75-77行），`onReceivedError`（第79-97行）处理 `ERROR_CONNECT` 重试。
+  - `shouldOverrideUrlLoading`（第57-62行），`onPageStarted`（第64-73行），`onPageFinished`（第75-77行），`onReceivedError`（第79-91行）处理 `ERROR_CONNECT` 重试（第84-87行）。
 
 **`RustWebChromeClient.kt`**（生成）
 - `class RustWebChromeClient(appActivity: WryActivity) : WebChromeClient()`（第36-493行）：
   - 内部 `PermissionListener`（第37-39行）、`ActivityResultListener`（第41-43行）。
   - `init` 注册 `permissionLauncher`/`activityLauncher`（第51-72行）。
-  - 重写 `onShowCustomView`(82-85), `onHideCustomView`(92-94), `onPermissionRequest`(96-121), `onJsAlert`(131-151), `onJsConfirm`(161-187), `onJsPrompt`(198-233), `onGeolocationPermissionsShowPrompt`(240-272), `onShowFileChooser`(274-304), 私有媒体捕获方法(306-376), `onConsoleMessage`(438-459), `onReceivedTitle`(487-492)。
+  - 重写 `onShowCustomView`(82-85), `onHideCustomView`(92-94), `onPermissionRequest`(96-121), `onJsAlert`(131-151), `onJsConfirm`(161-187), `onJsPrompt`(198-233), `onGeolocationPermissionsShowPrompt`(240-272), `onShowFileChooser`(274-304), 私有媒体捕获方法(306-376), `onConsoleMessage`(438-459), `onReceivedTitle`(487-492 调 `Rust.handleReceivedTitle`)。
 
 **`Ipc.kt`**（生成）
-- `class Ipc(val webView: RustWebView, val webViewClient: RustWebViewClient)`（第13-25行）：`@JavascriptInterface fun postMessage(message: String?)`（第15-22行）调 `Rust.ipc`。
+- `class Ipc(val webView: RustWebView, val webViewClient: RustWebViewClient)`（第13-22行）：`@JavascriptInterface fun postMessage(message: String?)`（第15-19行）调 `Rust.ipc`（第17行）。
 
 **`Logger.kt`**（生成）
 - `class Logger`（第16-89行）：companion object 提供 `tags`(20-24), `verbose`(26-35), `debug`(37-46), `info`(48-57), `warn`(59-68), `error`(70-83)；`shouldLog()` 仅 `BuildConfig.DEBUG`（第85-87行）。
 
 **`PermissionHelper.kt`**（生成）
-- `object PermissionHelper`（第17-117行）：`hasPermissions`(24-35), `hasDefinedPermission`(43-54), `hasDefinedPermissions`(62-69), `getManifestPermissions`(76-92), `getUndefinedPermissions`(100-116)。
+- `object PermissionHelper`（第17-117行）：`hasPermissions`(18-35), `hasDefinedPermission`(37-54), `hasDefinedPermissions`(56-69), `getManifestPermissions`(71-92), `getUndefinedPermissions`(94-116)。
 
 #### 3.3 AndroidManifest 与资源
 
 **`AndroidManifest.xml`**（第1-76行）
-- 权限：`INTERNET`(3), `POST_NOTIFICATIONS`(4), `FOREGROUND_SERVICE`(5), `FOREGROUND_SERVICE_SPECIAL_USE`(6), `RECEIVE_BOOT_COMPLETED`(7), `WAKE_LOCK`(8), `REQUEST_INSTALL_PACKAGES`(10), `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`(14), `CAMERA`(16), `WRITE_SECURE_SETTINGS`(20-22, protected)。
-- `application`（第27-75行）：`MainActivity`(32-44) `launchMode="singleTask"`；`ForegroundService`(47-54) `foregroundServiceType="specialUse"`；`BootReceiver`(57-64) `android:enabled="false"`；`FileProvider`(66-74) `authorities="${applicationId}.fileprovider"`。
+- 权限：`INTERNET`(3), `POST_NOTIFICATIONS`(4), `FOREGROUND_SERVICE`(5), `FOREGROUND_SERVICE_SPECIAL_USE`(6), `RECEIVE_BOOT_COMPLETED`(7), `WAKE_LOCK`(8), `REQUEST_INSTALL_PACKAGES`(10), `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`(14), `CAMERA`(16), `WRITE_SECURE_SETTINGS`(20-22, protected，注释说明普通安装不授予仅 adb pm grant 生效)。
+- `application`（第27-75行）：`MainActivity`(32-44) `launchMode="singleTask"`；`ForegroundService`(47-54) `foregroundServiceType="specialUse"` 子类型 `campus-network-monitor-keepalive`；`BootReceiver`(57-64) `android:enabled="false"`；`FileProvider`(66-74) `authorities="${applicationId}.fileprovider"`。
 
 **`file_paths.xml`**（第1-17行）：`external-files-path name="my_images" path="Pictures/"`（第11-13行），`files-path name="update" path="update/"`（第14-16行）。
 
-**`proguard-tauri.pro`**（第1-4行）：keep `com.campuslogin.client.TauriActivity.getPluginManager()`。
+**`proguard-tauri.pro`**（第1-5行）：keep `com.campuslogin.client.TauriActivity.getPluginManager()`（第3-4行）。
 
-**`proguard-wry.pro`**（第1-36行）：keep `RustWebView`, `RustWebChromeClient`, `Ipc`, `WryActivity` 的 native 方法及关键方法。
+**`proguard-wry.pro`**（第1-36行）：keep `com.campuslogin.client.*` native 方法（第7-9行），`WryActivity`(11-19), `Ipc`(21-25), `RustWebView`(27-33), `RustWebChromeClient,RustWebViewClient`(35-36) 关键方法。
 
-**其他资源**：`strings.xml`（第2-3行 app_name/main_activity_title）、`themes.xml`（Theme.MaterialComponents.DayNight.NoActionBar）、`colors.xml`、`ic_launcher_*` 等（略）。
+**其他资源**：`strings.xml`（第2-3行 app_name/main_activity_title 为 `CampusLogin`）、`themes.xml`（Theme.MaterialComponents.DayNight.NoActionBar）、`colors.xml`、`ic_launcher_*` 等（略）。
 
 ### 4. 其他生成/配置
 
-- `tauri.properties`（第1-3行）：`tauri.android.versionName=2.4.1`, `versionCode=2004001`。
+- `tauri.properties`（第1-3行）：`tauri.android.versionName=2.4.1`（第2行）, `versionCode=2004001`（第3行）。
 - `gradle-wrapper.properties`（第3行）：`distributionUrl=https\://services.gradle.org/distributions/gradle-8.14.3-bin.zip`。
 - `local.properties`（第1行）：`sdk.dir=C:/Users/ik/AppData/Local/Android/Sdk`（硬编码）。
 - `gradlew`/`gradlew.bat`：标准 Gradle 包装脚本。
+- `tauri.build.gradle.kts`（第1-12行）：自动生成依赖声明，包含 tauri-android 与各插件 project 依赖（第4-11行）。
 
 ## Architecture
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
-│ Tauri Android Project (com.campuslogin.client v2.4.1)     │
+│ Tauri Android Project (com.campuslogin.client)           │
+│  root tauri.conf.json v2.4.2 (Cargo v2.4.2)              │
 ├──────────────────────────────────────────────────────────┤
-│ Rust Layer: Cargo.toml (line2) ── campus-login (path)    │
-│   build.rs (line1) ── tauri_build::build()               │
+│ Rust Layer: Cargo.toml (line2) ── campus-login (line31)  │
+│   build.rs (line1) ── tauri_build::build()              │
 ├──────────────────────────────────────────────────────────┤
 │ Config: tauri.conf.json (line5) capabilities (line3)     │
 ├──────────────────────────────────────────────────────────┤
@@ -240,8 +244,10 @@ tags: [Tauri, Android, Rust, Build System, Metadata]
 
 ## Known Issues
 
+- **版本号不一致**：根 `tauri.conf.json` 第4行与 `Cargo.toml` 第3行为 `2.4.2`，但生成配置 `gen/android/app/src/main/assets/tauri.conf.json` 第1行与 `tauri.properties` 第2行仍为 `2.4.1`，`tauri.properties` 第3行 `versionCode=2004001`。
 - **硬编码绝对路径**：`BuildTask.kt` 第19行 Node 路径、第52行 tauri.js 路径；`settings.gradle` 第16、19行 cargo registry 插件路径；`local.properties` 第1行 sdk.dir；`tauri.settings.gradle` 第3-14行绝对路径。切换机器需修改。
 - **Renderer 优先级规避**：`MainActivity.kt` 第8-10行注释明确不设置 renderer 优先级，避免 wry 0.55.1 无 `onRenderProcessGone` 导致白屏冻结。
 - **WRITE_SECURE_SETTINGS 权限**：`AndroidManifest.xml` 第20-22行声明但普通安装不授予，仅 adb `pm grant` 后生效（注释说明）。
 - **未设 panic=abort**：Cargo.toml 第53-54行注释解释保留 unwind 以保活前台服务。
 - **release 签名用 debug.keystore**：`build.gradle.kts` 第29-36行，证书一经发布不可更换。
+- **BootReceiver 默认禁用**：`AndroidManifest.xml` 第57-60行 `android:enabled="false"`，由设置页动态启停。

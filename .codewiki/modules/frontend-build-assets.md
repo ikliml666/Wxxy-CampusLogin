@@ -15,7 +15,7 @@ tags: [frontend, build-config, mock, tauri, dependency-management]
 ---
 
 ## Overview
-本模块负责 Android Tauri 应用前端构建环境的配置、依赖锁定及开发阶段的原生 API Mock 模拟。核心职责包括定义构建常量（`.env`）、管理项目元数据与依赖版本（`package.json`, `pnpm-lock.yaml`）、配置 CSS 预处理管线（`postcss.config.js`），以及在开发环境中通过多层 Mock 脚本模拟 Tauri 原生能力（`mock-tauri*.js`, `tauri-mock.js`）。该模块确保了前端代码在无真实原生后端或需要特定测试场景（如夜切态、离线状态）时能够独立运行和调试。
+本模块负责 Android Tauri 应用前端构建环境的配置、依赖锁定及开发阶段的原生 API Mock 模拟。核心职责包括定义构建常量（`.env`）、管理项目元数据与依赖版本（`package.json` 第1-51行、`pnpm-lock.yaml` 第1行起）、配置 CSS 预处理管线（`postcss.config.js` 第1-6行），以及在开发环境中通过多层 Mock 脚本模拟 Tauri 原生能力（`mock-tauri.js` 第1-197行、`mock-tauri-addon.js` 第1-86行、`tauri-mock.js` 第1-278行）。该模块确保前端代码在无真实原生后端或需要特定测试场景（如夜切态、离线状态、双网卡）时能够独立运行和调试。入口 HTML（`index.html` 第1-118行）还负责首屏主题/语言预加载与骨架屏样式。
 
 ## Key Components
 
@@ -24,228 +24,154 @@ tags: [frontend, build-config, mock, tauri, dependency-management]
 #### `android/frontend/.env`
 - **职责**：定义构建环境常量，供 Vite 注入全局变量。
 - **关键实现**：
-    - 第 1 行：`VITE_PLATFORM=android`，标识当前运行平台为 Android，对应全局变量 `import.meta.env.VITE_PLATFORM`。
+  - 第 1 行：`VITE_PLATFORM=android`，标识当前运行平台为 Android，对应全局变量 `import.meta.env.VITE_PLATFORM`。
 
 #### `android/frontend/package.json`
 - **职责**：项目元数据、依赖管理与构建脚本配置。
 - **关键实现**：
-    - 元数据：
-        - 第 2 行：`name`: "campus-login-android-frontend"。
-        - 第 4 行：`version`: "2.4.1"。
-        - 第 5 行：`type`: "module" (启用 ES Modules)。
-    - Scripts：
-        - 第 7 行：`dev`: `"vite --host"`，启动开发服务器并允许外部访问。
-        - 第 8 行：`build`: `"tsc --noEmit && vite build"`，先进行 TypeScript 类型检查（不输出文件），再执行 Vite 生产构建。
-        - 第 9 行：`typecheck`: `"tsc --noEmit"`，仅执行类型检查。
-    - Dependencies：
-        - Tauri 生态：`@tauri-apps/api` (^2), `@tauri-apps/plugin-biometric` (~2), `@tauri-apps/plugin-notification` (^2.4.0), `@tauri-apps/plugin-opener` (^2)。
-        - UI/状态：`react` (^19.0.0), `react-dom` (^19.0.0), `zustand` (^5.0.13), `@radix-ui/*` 系列。
-        - 动画/交互：`framer-motion` (^12.38.0), `gsap` (^3.15.0)。
-        - 国际化：`i18next` (^26.3.1), `react-i18next` (^17.0.8), `i18next-browser-languagedetector` (^8.2.1)。
-        - AI/视觉：`@vladmandic/human` (^3.3.6)。
-    - DevDependencies：
-        - `typescript` (^5.5.0), `vite` (^6.0.0), `@vitejs/plugin-react` (^4.3.0), `tailwindcss` (^3.4.10) 及其插件。
-    - 安全配置：
-        - 第 48-50 行：`allowScripts.esbuild@0.25.12: true`，允许 esbuild 在构建过程中执行脚本。
+  - 第 2 行：`name`: `"campus-login-android-frontend"`。
+  - 第 4 行：`version`: `"2.4.3"`（当前前端版本）。
+  - 第 5 行：`type`: `"module"`（启用 ES Modules）。
+  - Scripts（第 6-10 行）：
+    - 第 7 行：`dev`: `"vite --host"`，启动开发服务器并允许外部访问。
+    - 第 8 行：`build`: `"tsc --noEmit && vite build"`，先 TypeScript 类型检查再生产构建。
+    - 第 9 行：`typecheck`: `"tsc --noEmit"`。
+  - Dependencies（第 11-36 行）关键项：`@tauri-apps/api` (^2, 锁定见 lock 第34行 2.12.3)、`@tauri-apps/plugin-biometric` (~2, 锁定 2.4.2)、`@tauri-apps/plugin-notification` (^2.4.0, 锁定 2.6.0)、`@tauri-apps/plugin-opener` (^2, 锁定 2.7.1)、`@vladmandic/human` (^3.3.6)、`class-variance-authority` (^0.7.0)、`clsx` (^2.1.1)、`framer-motion` (^12.38.0, 锁定 12.43.0)、`gsap` (^3.15.0)、`i18next` (^26.3.1, 锁定 26.4.2)、`i18next-browser-languagedetector` (^8.2.1)、`lucide-react` (^0.446.0)、`react` (^19.0.0, 锁定 19.3.0)、`react-dom` (^19.0.0, 锁定 19.3.0)、`react-i18next` (^17.0.8, 锁定 17.0.15)、`tailwind-merge` (^2.5.0)、`zustand` (^5.0.13, 锁定 5.0.15)、多个 `@radix-ui/react-*` 组件（dialog/label/select/separator/slot/switch/tooltip）。
+  - DevDependencies（第 37-47 行）：`@types/node` (^22)、`@types/react` (^19.0.0, 锁定 19.3.0)、`@types/react-dom` (^19.0.0, 锁定 19.3.0)、`@vitejs/plugin-react` (^4.3.0, 锁定 4.7.0)、`autoprefixer` (^10.4.20)、`postcss` (^8.4.40)、`tailwindcss` (^3.4.10, 锁定 3.4.19)、`typescript` (^5.5.0, 锁定 5.9.3)、`vite` (^6.0.0, 锁定 6.4.4)。
+  - 第 48-50 行：`allowScripts` 字段声明 `"esbuild@0.25.12": true`，允许 esbuild 构建脚本执行。
 
 #### `android/frontend/pnpm-lock.yaml`
-- **职责**：pnpm 依赖锁定文件，确立前端构建环境的确定性快照。
+- **职责**：pnpm 依赖锁定文件（lockfileVersion 9.0），确立确定性依赖快照。
 - **关键实现**：
-    - 锁定 `react@19.3.0` 和 `react-dom@19.3.0`。
-    - 引入 `zustand@5.0.15`，配合 `use-sync-external-store@1.7.0`。
-    - UI 组件库：`@radix-ui/*` (v1.x), `tailwindcss@3.4.19`, `lucide-react@0.446.0`。
-    - 动画：`framer-motion@12.43.0`, `gsap@3.15.0`。
-    - 国际化：`i18next@26.4.2`, `react-i18next@17.0.15`。
-    - Tauri 集成：`@tauri-apps/api@2.12.3` 及插件 (`plugin-biometric@2.4.2`, `plugin-notification@2.6.0`, `plugin-opener@2.7.1`)。
-    - AI/ML：`@vladmandic/human@3.3.6`。
-    - 构建工具链：`vite@6.4.4`, `esbuild@0.25.12`, `@vitejs/plugin-react@4.7.0`, `typescript@5.9.3`。
+  - 第 1 行：`lockfileVersion: '9.0'`。
+  - 第 3-5 行：`settings` 中 `autoInstallPeers: true`、`excludeLinksFromLockfile: false`。
+  - `importers` 段（第 7-110 行）列出直接依赖精确版本，如第 34 行 `@tauri-apps/api` 版本 `2.12.3`，第 110 行 `vite` 版本 `6.4.4(@types/node@22.20.5)(jiti@1.21.7)`。
+  - `packages` 段（第 112 行起）记录所有传递依赖，含 `@esbuild/*` 多平台原生二进制（第 205-359 行可选包，如第 205 行 `@esbuild/aix-ppc64@0.25.12`）、`@rollup/rollup-*` 原生包（第 735-871 行可选包，如第 735 行 `@rollup/rollup-android-arm-eabi@4.64.5`）。
+  - `snapshots` 段（第 1505 行起）描述依赖安装图谱，如第 1507 行 `'@alloc/quick-lru@5.3.0': {}`。
 
 #### `android/frontend/pnpm-workspace.yaml`
-- **职责**：定义 pnpm workspace 级别的全局设置。
+- **职责**：pnpm workspace 级别全局设置（允许/禁止原生构建）。
 - **关键实现**：
-    - 第 1-2 行：`allowBuilds.esbuild`，控制是否允许 esbuild 的原生构建步骤，防止 CI/CD 因缺少系统依赖失败。
+  - 第 1-2 行：`allowBuilds:` 下 `esbuild: set this to true or false`——此为占位提示文本，未生效为确定布尔值，需手动改为 `true` 或 `false` 才能控制 esbuild 构建。
 
 #### `android/frontend/postcss.config.js`
 - **职责**：配置 PostCSS 插件链，服务于 Tailwind CSS。
 - **关键实现**：
-    - 导出 ES Module 格式配置对象。
-    - 插件顺序：`tailwindcss` (核心引擎) -> `autoprefixer` (浏览器前缀处理)。
+  - 第 1-6 行：默认导出 ES Module 对象，插件按顺序为 `tailwindcss: {}`（第 3 行核心引擎）与 `autoprefixer: {}`（第 4 行浏览器前缀）。
 
 ### HTML Entry Point
 
 #### `android/frontend/index.html`
 - **职责**：应用入口 HTML，初始化 CSS 变量、骨架屏、主题/语言预加载及 React 挂载点。
 - **关键实现**：
-    - **CSS 变量系统** (`<style>` 块)：
-        - 深色模式默认值 (`:root`)：`--bg-primary: #0f172a`。
-        - 浅色模式覆盖值 (`html[data-light]`)：`--bg-primary: #ffffff` (第 49 行)。
-        - 重置样式：`* { margin: 0; padding: 0; box-sizing: border-box; }` (第 70 行)。
-        - 布局约束：`html, body, #root` 高度宽度 100%，`overflow: hidden` (第 71 行)。
-        - 骨架屏类名：`.sk-tb`, `.sk-sb`, `.sk-main`, `.sk-side`, `.sk-content`, `.sk-card`, `.sk-log` 等 (第 72-82 行)。
-    - **主题初始化脚本** (第 10-22 行)：
-        - 读取 `localStorage.getItem('campus-light-mode')`，若为 `'1'` 则设置 `data-light='1'`，否则添加 `dark` class (第 16-18 行)。
-        - 读取 `localStorage.getItem('campus-theme')`，若非 `'default'` 则添加 `theme-{th}` class (第 21 行)。
-        - 包含 `try...catch` 防御性编程。
-    - **骨架屏文案国际化兜底** (第 103-110 行)：
-        - 检查 `localStorage.getItem('app-language')`，若为 `'en'` 则将 ID 为 `sk-init-text` 的元素文本改为 `'Initializing...'` (第 107 行)。
-    - **React 挂载** (第 112 行)：
-        - `<script type="module" src="/src/main.tsx"></script>`。
+  - **头部与图标**（第 1-9 行）：`<meta>` 视口、`/32x32.png` 与 `/128x128.png` 图标、标题“校园网登录助手”（第 8 行）。
+  - **主题初始化脚本**（第 10-26 行）：IIFE 读取 `localStorage`：
+    - 第 12 行：`campus-light-mode` 为 `'1'` 则设 `data-light='1'`（第 13-14 行），否则加 `dark` class（第 16 行）。
+    - 第 18-19 行：`campus-theme` 非 `'default'` 则加 `theme-{th}` class。
+    - 第 21-23 行：`campus-glass-level` 设 `data-glass` 属性（值 `off`/`ultra`/默认 `standard`），首帧前定档防跳变。
+  - **CSS 变量系统**（第 27-87 行）：
+    - `:root`（第 28-51 行）深色默认值，如 `--bg-primary: #0f172a`、`--sk-accent: #3b82f6`。
+    - `html[data-light]`（第 52-73 行）浅色覆盖，如 `--bg-primary: #ffffff`。
+    - 第 74-86 行：重置样式、布局约束（`overflow: hidden`）、骨架屏类（`.sk-tb`、`.sk-sb`、`.sk-main`、`.sk-side`、`.sk-content`、`.sk-card`、`.sk-log`）。
+  - **骨架屏 DOM**（第 90-103 行）：`#root` 内 `.sk` 结构，状态栏含 `id="sk-init-text"` 文本“正在初始化...”（第 93 行）。
+  - **骨架屏文案国际化兜底**（第 104-115 行）：若 `localStorage.app-language === 'en'`（第 109 行），将 `sk-init-text` 改为 `"Initializing..."`。
+  - **React 挂载**（第 116 行）：`<script type="module" src="/src/main.tsx"></script>`。
 
 ### Mock Scripts
 
 #### `android/frontend/public/mock-tauri.js`
-- **职责**：基础 Tauri API Shim，提供 `__TAURI_INTERNALS__` 的全局模拟环境。
+- **职责**：基础 Tauri API Shim（仅供浏览器实测，绝不入库），提供 `__TAURI_INTERNALS__` 模拟。
 - **关键实现**：
-    - **环境初始化 (L13-22)**：跳过新手引导 (`campus-onboarding-done`)，处理主题 (`theme=dark`) 和通知弹窗状态。
-    - **回调转换 (L26-38)**：`transformCallback` 为 JS 回调分配唯一 ID (`_cb{id}`)，支持一次性 (`once`) 或持久监听。
-    - **Mock 数据定义 (L40-98)**：
-        - `mockConfig` (L40)：默认配置，含 `operator: 'cmcc'`, `themeMode: 'dark'`, `requiredNetworkName: 'i-wxxy'` 等。
-        - `campusStatus` / `backgroundStatus`：静态状态对象。
-        - `mockAccounts` (L61)：预设三个账号 (`mock-001` ~ `mock-003`)。
-        - `initData` (L69)：组合上述数据作为 `get_init_data` 返回值。
-    - **命令处理器 (handlers) (L76-130)**：
-        - **账号 CRUD**：`create_account` (L86), `save_current_as_account` (L97), `rename_account` (L105), `delete_account` (L111)。注意 `create_account` 不切换激活账号。
-        - **网络/系统**：`get_adapters`, `check_campus_status`, `get_soc_info`, `get_logs` 等返回静态或空数据。
-        - **通用兜底 (L126)**：未匹配命令打印警告并返回 `null`。
-    - **全局挂载 (L132-148)**：
-        - `window.__TAURI_INTERNALS__.invoke`：分发命令，处理 `plugin:event|listen/unlisten`。
-        - `window.__TAURI_EVENT_PLUGIN_INTERNALS__`：模拟 `_unlisten` 行为。
-        - `window.__mockEmitEvent`：手动触发事件广播。
+  - 第 4-19 行：IIFE，若已有 `__TAURI_INTERNALS__` 则退让；设 `localStorage` 跳过引导（`campus-onboarding-done`、`campus-notification-prompt`），`?theme=dark` 控深色。
+  - 第 24-36 行：`transformCallback(callback, once)` 分配 `_cb{id}` 全局函数。
+  - 第 38-57 行：`mockConfig` 对象字段：`user:'23331150'`、`password:''`、`selfPassword:''`、`selfHelloEnabled:false`、`selfReverifyEachAction:false`、`allow2dFaceVerify:false`、`operator:'cmcc'`、`enableNightOperatorSwitch:false`、`nightOperatorRestore:''`、`enableNightOutboundSwitch:false`、`outboundPriority:[]`、`outboundMetricRestore:''`、`outboundDisabledAdapters:''`、`outboundStandbyRoute:''`、`nightOutboundRestore:''`、`dnsOptimizeAdapters:[]`、`autoLoginOnStart:false`、`enableBackgroundCheck:true`、`backgroundCheckInterval:30000`、`backgroundCheckIdleInterval:300000`、`autoLoginOnPreparation:false`、`themeMode:'dark'`、`enableNotification:true`、`activeAccount:'mock-001'`、`enableLatencyTest:false`、`latencyTestInterval:30000`、`customThemeColor:''`、`defaultPanel:'account'`、`enableNetworkQuality:true`、`skipTtfbInLatency:true`、`skipContentInLatency:true`、`portalUrl:''`、`fixedGateway:''`、`requiredNetworkName:'i-wxxy'`、`enableNetworkNameCheck:true`、`campusGateway:''`、`updateSource:'mirror'`、`campusCheckStartMinutes:460`、`campusCheckEndMinutes:1380`、`scheduledLoginMinutes:0`、`scheduledLogoutMinutes:0`、`maxDisconnectReconnect:3`、`autoLoginCooldownSecs:60`、`logRetentionDays:7`、`configSchemaVersion:7`、`displayName:'演示账号'`。
+  - 第 59-64 行：`campusStatus` 对象：`onCampusNetwork:true`、`currentSsid:'i-wxxy'`、`campusMessage:''`、`enableNetworkNameCheck:true`、`requiredNetworkName:'i-wxxy'`、`campusWifi:{onCampus:true,name:'i-wxxy',message:''}`、`campusWired:null`。
+  - 第 66-72 行：`backgroundStatus` 对象：`isRunning:false`、`checkCount:0`、`serverAvailable:true`、`online:false`、`message:'演示模式:未运行检测'`、`currentSsid:'i-wxxy'`、`onCampusNetwork:true`、`enableNetworkNameCheck:true`、`requiredNetworkName:'i-wxxy'`、`campusWifi:campusStatus.campusWifi`、`campusWired:null`、`interval:30000`、`enabled:true`。
+  - 第 76-80 行：`mockAccounts` 数组（3 项，含 `id/displayName/user/operator/passwordSaved`）：`mock-001` 演示账号、`mock-002` 室友的号、`mock-003` 备用账号。
+  - 第 82-88 行：`initData` 组合对象（`version:'2.3.9-mock'`，第 83 行）。
+  - 第 90-153 行：`handlers` 命令表：
+    - `get_config`（第 91 行）、`save_config`（第 92 行）、`get_init_data`（第 93 行）、`get_active_account`（第 94 行）、`list_accounts`（第 95 行）。
+    - `create_account`（第 98-109 行）：不切换激活账号；`save_current_as_account`（第 110-119 行）；`rename_account`（第 120-125 行）；`delete_account`（第 126-130 行）。
+    - `get_adapters`（第 131 行）等网络/系统命令、`check_campus_status`（第 134 行）、`get_background_status`（第 135 行）、`do_login`（第 149 行）返回演示消息。
+  - 第 155-197 行：挂载 `window.__TAURI_INTERNALS__`（含 `invoke` 分发，第 161-176 行处理 `plugin:event|listen` 等）、`__TAURI_EVENT_PLUGIN_INTERNALS__`（第 180-184 行）、`__TAURI_PATTERN__`（第 186 行）、`__mockEmitEvent`（第 189-195 行）按事件名派发。
 
 #### `android/frontend/public/mock-tauri-addon.js`
-- **职责**：基于 `mock-tauri.js` 的增强层，通过 URL 参数注入特定场景。
+- **职责**：叠加在 `mock-tauri.js` 之上的场景注入层（绝不入库），通过 URL 参数驱动。
 - **关键实现**：
-    - **前置检查 (L4)**：检测 `window.__TAURI_INTERNALS__` 是否存在，若不存在则警告并退出。
-    - **URL 解析 (L5-9)**：解析 `op` (运营商后缀, 默认 `'@telecom'`), `dual` (双网卡模式), `night` (夜切态), `online` (在线状态), `tab` (Dock页签)。
-    - **invoke 劫持 (L12-38)**：
-        - 保存原始 `origInvoke`。
-        - `check_campus_status` (L13)：硬编码返回校园网连接状态 (`onCampusNetwork: true`, `currentSsid: 'i-wxxy'`)。
-        - `get_adapters` (L18)：返回 WLAN 适配器；若 `dual=1` 追加以太网适配器。
-        - `check_portal_status` (L26)：根据 `online` 变量返回在线/离线状态。
-        - `do_login` (L30)：返回成功但提示“演示模式不执行登录”。
-        - `get_background_status` (L31)：调用内部 `bgStatus()`。
-        - `get_init_data` (L32)：**关键逻辑**。调用 `origInvoke` 获取真实初始化数据后，修改 `data.config.operator`（夜切态置空）及 `data.config.nightOperatorRestore`（设置恢复目标）。
-    - **后台状态生成 (L36-47)**：`bgStatus()` 函数构建后台检查状态对象，包含 `interval: 30000` 等字段。
-    - **定时事件发射 (L49-54)**：
-        - 600ms 后首次发射 `background-check-result`。
-        - 3s 间隔循环发射，递增 `checkCount`。
-    - **UI 辅助功能 (L55-70)**：
-        - `tab` 辅助 (L56-62)：查找对应 `aria-label` 的按钮并触发点击。
-        - `emuw` 辅助 (L64-67)：注入 CSS 强制 `body` 宽度，模拟窄屏布局。
-        - `probe` 诊断 (L68-74)：查找超出视口元素，将信息写入 `<title>` 供无头浏览器读取。
+  - 第 1 行注释：声明 `?op=@telecom&dual=1&night=1&offline=1&theme=dark` 参数协议。
+  - 第 4 行：若无 `__TAURI_INTERNALS__` 则警告退出。
+  - 第 5-10 行：解析 `op`(默认 `'@telecom'`)、`dual`、`night`、`online`(由 `offline` 反推)、`tab`。
+  - 第 12-44 行：劫持 `invoke`，存 `origInvoke`；覆写 `check_campus_status`（第 14-20 行）、`get_adapters`（第 21-27 行，双网卡追加）、`check_portal_status`（第 28-30 行）、`do_login`（第 31 行）、`get_background_status`（第 32 行）、`get_init_data`（第 33-42 行，改 `operator` 与 `nightOperatorRestore`）。
+  - 第 46-56 行：`bgStatus()` 构造后台状态（`interval:30000`）。
+  - 第 58-69 行：定时发射 `background-check-result` 事件（600ms 首发射，3s 周期）。
+  - 第 60-65 行：`tab` 辅助点击 Dock 按钮（`aria-label` 末匹配）。
+  - 第 71-76 行：`emuw` 参数注入 CSS 钉宽；第 77-84 行：`probe=1` 诊断写 `<title>`。
 
 #### `android/frontend/tauri-mock.js`
-- **职责**：更贴近生产环境的 Tauri Mock，包含动态业务数据及 Vite 开发服务器专用配置。
+- **职责**：更贴近生产的 Tauri Mock（vite.mock.config.ts 注入，不进构建产物），含动态业务数据。
 - **关键实现**：
-    - **环境控制 (L13-26)**：
-        - `?nomotion=1`：注入 CSS 禁用所有动画/过渡，用于 headless 截图一致性。
-        - `?panel=`：覆盖启动面板，跳过引导。
-    - **动态状态管理 (L30-66)**：
-        - `config`：含 `deviceAliases` (MAC 到别名映射)。
-        - `mockAccounts`：预设主/宿舍/实验室账号。
-        - `activeAccountName`：可变的当前激活账号 ID，支持 `?active=<id>` URL 覆盖。
-        - `onlineList` / `loginHistory` / `billRows`：动态业务数据，支持注销操作移除条目。
-    - **命令分发 (handlers) (L78-165)**：
-        - **异步模拟**：`self_offline_session` (L90), `change_self_password` (L97) 使用 `sleep(800)` 模拟网络延迟。
-        - **账号交互**：
-            - `switch_account` (L130)：更新 `activeAccountName` 和 `config`，并广播 `config-changed` 事件。
-            - `save_current_as_account` (L120)：同步更新账户档案并广播 `config-changed`。
-        - **特殊结构返回**：
-            - `check_campus_status` (L108) & `check_portal_status` (L112)：**严禁使用 `ok()` 包裹**，直接返回平铺结构体，避免前端判读 `undefined`。
-            - `query_self_dashboard` / `query_self_online_log`：使用 `ok(data)` 包裹返回标准响应格式。
-    - **事件系统 (L170-188)**：
-        - `eventListeners` 字典存储事件名到回调 ID 列表的映射。
-        - `emitEvent` 按名路由派发 payload。
-        - `invoke` 中处理 `plugin:event|listen` 注册回调。
-    - **截图辅助 (L195-207)**：`?dialog=create|edit|bind` 延时自动点击对应 UI 按钮。
+  - 第 8-15 行：`?nomotion=1` 注入 CSS 禁用动画/过渡。
+  - 第 19-26 行：`?panel=` 覆盖启动面板并设 `localStorage`（`campus-mobile-tab`、`campus-active-panel`）。
+  - 第 32-42 行：`config` 对象（`user:'24385214'`、`password:'***'`、`operator:'@cmcc'`、`selfHelloEnabled:true`、`defaultPanel` 由 `?panel=` 控、`themeMode` 由 `?theme=` 控、`deviceAliases:{B025AA6CA580:'实验室台式机'}`）。
+  - 第 45-49 行：`mockAccounts`（主/宿舍/实验室三账号）；第 51-56 行：`activeAccountName` 可变，支持 `?active=` 覆盖。
+  - 第 59-65 行：`onlineList`（5 会话，含 `loginTime/ip/mac/useTime/downFlow/upFlow/hostName/terminalType/sessionId`）；第 67-70 行 `loginHistory`；第 72-76 行 `billRows`/`billSummary`。
+  - 第 78 行：`ok(data, message)` 标准响应构造；第 80 行 `sleep(ms)`。
+  - 第 82-84 行：`mockAdapters` 数组（1 项以太网 Mock）。
+  - 第 87-214 行：`handlers`：
+    - `get_init_data`（第 88-97 行）含 `version:'2.4.2-mock'`（第 90 行）。
+    - `save_config`（第 99-110 行）：`'***'` 掩码保留，发 `config-changed` 事件。
+    - `query_self_dashboard`（第 111 行）、`self_offline_session`（第 112-118 行，延时移除）、`query_self_online_log`（第 119 行）、`change_self_password`（第 121 行）。
+    - `query_bind_status`（第 126-136 行，`?bound=` 场景）、`bind_operator`（第 138-141 行，`?bindfail=1` 失败）。
+    - `check_campus_status`（第 144 行）与 `check_portal_status`（第 145 行）**直接返回平铺结构**，禁 `ok()` 包裹。
+    - 账号：`create_account`（第 150-163 行）、`save_current_as_account`（第 165-175 行）、`rename_account`（第 176-181 行）、`switch_account`（第 182-190 行，广播 `config-changed`）、`delete_account`（第 191-196 行）。
+  - 第 216-235 行：`invoke` 分发；第 238-247 行：`eventListeners` 与 `emitEvent` 按名路由。
+  - 第 249-257 行：挂载 `__TAURI_INTERNALS__`（`transformCallback` 用 `__cb_{id}`）。
+  - 第 263-277 行：`?dialog=create|edit|bind` 延时点击入口按钮。
 
 ## Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                   Frontend Build Assets                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌──────────────┐   ┌──────────────┐   ┌────────────────┐  │
-│  │ Config Layer │   │ Dependency   │   │ CSS Pipeline   │  │
-│  │              │   │ Management   │   │                │  │
-│  │ .env         │   │              │   │ postcss.config │  │
-│  │ index.html   │   │ package.json │   │ + tailwindcss  │  │
-│  │              │   │ pnpm-lock    │   │ + autoprefixer │  │
-│  └──────┬───────┘   │ pnpm-work    │   └───────┬────────┘  │
-│         │           └──────┬───────┘           │          │
-│         ▼                  ▼                    ▼          │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │                 Application Startup                  │  │
-│  │                                                      │  │
-│  │  index.html loads scripts                          │  │
-│  │       │                                              │  │
-│  │       ▼                                              │  │
-│  │  ┌──────────────────────────────────────────────┐    │  │
-│  │  │           Mock Environment Layer             │    │  │
-│  │  │                                              │    │  │
-│  │  │  1. tauri-mock.js / mock-tauri.js            │    │  │
-│  │  │     ├── Defines __TAURI_INTERNALS__          │    │  │
-│  │  │     ├── Sets up base handlers (accounts,     │    │  │
-│  │  │     │          adapters, status)             │    │  │
-│  │  │     └── Manages event listeners              │    │  │
-│  │  │                                              │    │  │
-│  │  │  2. mock-tauri-addon.js (Optional Overlay)   │    │  │
-│  │  │     ├── Wraps origInvoke                     │    │  │
-│  │  │     ├── Overrides specific cmds (login,      │    │  │
-│  │  │     │          campus status)                │    │  │
-│  │  │     └── Injects URL-based scenarios          │    │  │
-│  │  └──────────────────────────────────────────────┘    │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │                 React App (main.tsx)                 │  │
-│  │  Uses Zustand for state, i18next for lang,           │  │
-│  │  Radix UI for components, Tailwind for styles.       │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│              Frontend Build Assets                    │
+├──────────────────────────────────────────────────────┤
+│ Config: .env, package.json, pnpm-*, postcss.config   │
+│ Entry: index.html (theme/lang preload + skeleton)    │
+└───────────────┬──────────────────────────────────────┘
+                ▼
+┌──────────────────────────────────────────────────────┐
+│ Mock Layer (public/*.js, injected pre-React)         │
+│ ┌──────────────┐   ┌──────────────────────────────┐  │
+│ │ mock-tauri.js│   │ tauri-mock.js                │  │
+│ │ base shim    │   │ dynamic data + Vite mock     │  │
+│ └──────┬───────┘   └──────────────┬───────────────┘  │
+│        └───────────┬───────────────┘                 │
+│            ┌───────▼──────────┐                      │
+│            │ mock-tauri-addon │ (URL scenario wrap) │
+│            └──────────────────┘                      │
+└───────────────┬──────────────────────────────────────┘
+                ▼
+┌──────────────────────────────────────────────────────┐
+│ React App (main.tsx): Zustand + i18next + Radix UI   │
+└──────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow
 
-1.  **Dependency Resolution**:
-    - `pnpm install` reads `pnpm-lock.yaml` and `pnpm-workspace.yaml` to install dependencies into `node_modules`.
-    - `package.json` defines the versions and scripts used for building (`vite build`) and development (`vite`).
-
-2.  **CSS Processing**:
-    - Vite processes CSS files in the source code.
-    - `postcss.config.js` applies `tailwindcss` to generate utility classes, followed by `autoprefixer` to add browser-specific prefixes.
-
-3.  **Application Initialization**:
-    - `index.html` is loaded.
-    - Inline scripts read from `localStorage` to set initial theme and language states.
-    - Skeleton screen classes are applied via CSS.
-    - `main.tsx` is loaded as an ES module.
-
-4.  **Mock API Invocation**:
-    - The application calls `window.__TAURI_INTERNALS__.invoke(cmd, args)`.
-    - If `mock-tauri-addon.js` is present, it intercepts the call:
-        - Parses URL parameters (`op`, `dual`, `night`, etc.).
-        - Checks if the command matches overridden ones (`check_campus_status`, `get_init_data`, etc.).
-        - If matched, returns modified Mock data or calls `origInvoke` with modifications.
-        - If not matched, delegates to the underlying shim.
-    - If `mock-tauri-addon.js` is not present, the call goes directly to `tauri-mock.js` or `mock-tauri.js`:
-        - Looks up the command in the `handlers` object.
-        - Executes the handler logic (e.g., updating `mockAccounts`, returning static data).
-        - For commands like `switch_account`, emits events via `emitEvent`.
-    - Events are dispatched to registered listeners stored in `eventListeners`.
+1. **Dependency Resolution**：`pnpm install` 读 `pnpm-lock.yaml`（第 1 行起）与 `pnpm-workspace.yaml`（第 1-2 行），按 `package.json`（第 11-36 行）装包；`build` 脚本（第 8 行）先 `tsc --noEmit` 后 `vite build`。
+2. **CSS Processing**：Vite 经 `postcss.config.js`（第 1-6 行）链：`tailwindcss` → `autoprefixer`。
+3. **App Init**：`index.html` 加载（第 90 行 `#root`），内联脚本（第 10-26 行、第 104-115 行）从 `localStorage` 设主题/语言；第 116 行载 `main.tsx`。
+4. **Mock Invocation**：应用调 `window.__TAURI_INTERNALS__.invoke(cmd,args)`；若存在 `mock-tauri-addon.js` 则劫持（第 12-44 行）改写 `op/dual/night` 场景；否则落 `tauri-mock.js` 或 `mock-tauri.js` 的 `handlers`（如 `switch_account` 第 182-190 行发 `config-changed`）；事件由 `emitEvent`（tauri-mock.js 第 239-247 行）或 `__mockEmitEvent`（mock-tauri.js 第 189-195 行）派发。
 
 ## Connections
-
-- [[frontend-core]]: React application logic, state management (Zustand), and UI components.
-- [[tauri-backend]]: Native Android backend implemented in Rust/Kotlin, which the Mock scripts simulate.
-- [[i18n-config]]: Internationalization setup using `i18next`.
+- [[frontend-core]]：React 应用逻辑、Zustand 状态、Radix UI 组件。
+- [[tauri-backend]]：Rust/Kotlin 原生后端，Mock 脚本模拟其 `invoke` 契约。
+- [[i18n-config]]：i18next 国际化，index.html 第 104-115 行做首屏文案兜底。
 
 ## Known Issues
-
-- **Peer Dependencies**: Radix UI components require `@types/react` and `@types/react-dom` to strictly match version `19.3.0`; otherwise, TypeScript type inference may fail.
-- **Esbuild Multi-platform**: The lock file includes many `@esbuild/*` native binaries for different platforms. Ensure CI/CD environments have correct architecture support to avoid build failures.
-- **Zustand Version**: Zustand v5 is used for React 19 compatibility. Older versions may cause warnings or performance issues.
-- **Mock Data Structure Trap**: In `tauri-mock.js`, `check_campus_status` and `check_portal_status` must return flat objects directly. Wrapping them with `ok()` will cause the frontend to read `res.data.onCampusNetwork` as `undefined`, leading to incorrect offline detection.
-- **Password Masking**: `tauri-mock.js` recognizes `'***'` in password fields during `save_config` to preserve existing passwords, preventing accidental clearing.
-- **Animation Disabling**: The `nomotion` parameter in `tauri-mock.js` disables animations for consistent headless screenshots but may affect visual debugging.
+- **pnpm-workspace 占位**：`android/frontend/pnpm-workspace.yaml` 第 2 行 `esbuild: set this to true or false` 为提示文本，未置确定布尔，需手动改。
+- **Peer Dep 严格**：Radix UI 要求 `@types/react`/`@types/react-dom` 锁 19.3.0（见 pnpm-lock.yaml 第 87-92 行），否则 TS 推断失败。
+- **Esbuild 多平台**：lock 含大量 `@esbuild/*`（第 205-359 行）原生二进制，CI 需对应架构。
+- **Mock 平铺结构陷阱**：`tauri-mock.js` 第 144、145 行 `check_campus_status`/`check_portal_status` 必须直返平铺对象，用 `ok()` 裹会导致前端读 `undefined` 判离线。
+- **密码掩码**：`tauri-mock.js` 第 99-110 行 `save_config` 识别 `'***'` 保留后端旧密码。
+- **动画禁用**：`tauri-mock.js` 第 8-15 行 `?nomotion=1` 禁动画供 headless 截图，但影响视觉调试。
+- **Mock 入库风险**：`mock-tauri.js` 第 2 行、`mock-tauri-addon.js` 第 1 行注明“绝不入库”，`tauri-mock.js` 第 1 行注明“不进入构建产物”，提交时需排除。

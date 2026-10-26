@@ -35,12 +35,12 @@ tags:
   - `useOrientation()`（行43-45）：导出 Hook，返回 `Orientation`。
 
 - **android/frontend/src/App.tsx**
-  - `AppInner` 组件（行52-359）：手机外壳，含绝对定位轻 header（行202-260）、`main` 滚动区（行270-297）、`BottomNav`（行299）、各类弹窗及 `MobileQuickActions` 挂载（行263-267）。
-  - `tab` state（行57-62）：`MobileTab` 类型，白名单 `['dashboard','account','selfservice','quality','monitor','more']` 持久化于 `safeStorage`。
-  - `tabOrder`（行70-76）：依 `configEnableNetworkQuality` 决定第4位为 `quality` 或 `monitor`。
-  - `handleTabChange(next)`（行119-127）：计算方向 `navDir` 并写入存储。
-  - `App` 默认导出（行363-375）：`useFormFactor()` 分支渲染 `TabletShell` 或 `AppInner`，共用 `FaceCaptureDialog` 与 `NotificationPermissionGate`。
-  - `NotificationPermissionGate`（行381-405）：首启请求通知权限。
+  - `AppInner` 组件（行59-366）：手机外壳，含绝对定位轻 header（行209-267）、`main` 滚动区（行277-304）、`BottomNav`（行306）、各类弹窗及 `MobileQuickActions` 挂载（行269-274）。
+  - `tab` state（行64-69）：`MobileTab` 类型，白名单 `['dashboard','account','selfservice','quality','monitor','more']` 持久化于 `safeStorage`。
+  - `tabOrder`（行77-83）：依 `configEnableNetworkQuality` 决定第4位为 `quality` 或 `monitor`。
+  - `handleTabChange(next)`（行126-134）：计算方向 `navDir` 并写入存储。
+  - `App` 默认导出（行374-400）：`useFormFactor()` 分支渲染 `TabletShell` 或 `AppInner`，共用 `FaceCaptureDialog` 与 `NotificationPermissionGate`。
+  - `NotificationPermissionGate`（行406-430）：首启请求通知权限。
 
 - **android/frontend/src/components/tablet/TabletShell.tsx**
   - `PANEL_TITLES`（行54-63）：面板标题/描述 i18n key 映射（不含 network）。
@@ -102,11 +102,11 @@ tags:
 
 ## Data Flow
 
-1. **形态检测**：`App.tsx` 行364 调用 `useFormFactor()`（useFormFactor.ts 行38），返回 `phone`/`tablet`。
-2. **外壳分支**：行368 三元渲染 `TabletShell` 或 `AppInner`。
-3. **手机导航流**：`BottomNav` 点击 → `handleTabChange`（App.tsx 行119）设 `tab` state → `deferredTab` 驱动 `panelContent` switch（行149-192）与 `AnimatePresence` 方向转场（行281）。
+1. **形态检测**：`App.tsx` 行375 调用 `useFormFactor()`（useFormFactor.ts 行38），返回 `phone`/`tablet`。
+2. **外壳分支**：行385 三元渲染 `TabletShell` 或 `AppInner`。
+3. **手机导航流**：`BottomNav` 点击 → `handleTabChange`（App.tsx 行126）设 `tab` state → `deferredTab` 驱动 `panelContent` switch（行155-199）与 `AnimatePresence` 方向转场（行288）。
 4. **平板导航流**：`DockNav` 点击 → `handlePanelChange`（TabletShell.tsx 行133）设 `useAdapterStore.activePanel` → `deferredPanel` 驱动面板 switch（行160-222）与淡入淡出。
-5. **配置依赖**：`useConfigStore.config.enableNetworkQuality` 控制手机底栏第4位（App.tsx 行74）与平板 `NAV_ITEMS` 过滤（DockNav.tsx 行185），并在配置晚到时降级错误页签（App.tsx 行131-136，MobileMore.tsx 行40）。
+5. **配置依赖**：`useConfigStore.config.enableNetworkQuality` 控制手机底栏第4位（App.tsx 行74）与平板 `NAV_ITEMS` 过滤（DockNav.tsx 行185），并在配置晚到时降级错误页签（App.tsx 行138-143，MobileMore.tsx 行40）。
 6. **横竖屏适配**：平板 `useOrientation()`（TabletShell.tsx 行125）切换右栏显隐与看板娘偏移。
 
 ## Connections
@@ -115,8 +115,8 @@ tags:
 
 ## Known Issues
 
-- **KI#14 白名单遗漏**：手机 `tab` 初始白名单必须覆盖 `handleTabChange` 可写全部页签（含 `monitor`），否则后台杀进程重开回落 `dashboard`（App.tsx 行59-61）。质量开启后跨会话恢复的 `monitor` 需在配置就绪后归位 `quality`（行131-136）。
+- **KI#14 白名单遗漏**：手机 `tab` 初始白名单必须覆盖 `handleTabChange` 可写全部页签（含 `monitor`），否则后台杀进程重开回落 `dashboard`（App.tsx 行64-69）。质量开启后跨会话恢复的 `monitor` 需在配置就绪后归位 `quality`（行138-143）。
 - **平板竖屏右栏隐藏**：`isLandscape` 为假时 `--right-panel-width` 置 0，右栏不渲染（TabletShell.tsx 行125-129, 295-300），日志仅能经 Dock 面板访问。
 - **CSS zoom 副作用**：平板通过 `TOPBAR_ZOOM=1.3`/`CONTENT_ZOOM=0.9` 触屏适配（行71-72, 232, 249, 256），仅 WebView 支持，不影响手机外壳。
-- **质量默认关闭**：手机顶栏质量胶囊隐藏（App.tsx 行237），底栏第4位由 `monitor` 补位（行74）；`MobileMore` 中 `monitor` 子页因 `qualityOnly` 被过滤（MobileMore.tsx 行25,37）。
-- **首启引导时序**：无账号时手机（App.tsx 行138-146）与平板（TabletShell.tsx 行146-151）均弹 `OnboardingWizard`，标记由向导写 `campus-onboarding-done`，未完继续引导。
+- **质量默认关闭**：手机顶栏质量胶囊隐藏（App.tsx 行244），底栏第4位由 `monitor` 补位（行77-83）；`MobileMore` 中 `monitor` 子页因 `qualityOnly` 被过滤（MobileMore.tsx 行25,37）。
+- **首启引导时序**：无账号时手机（App.tsx 行145-153）与平板（TabletShell.tsx 行146-151）均弹 `OnboardingWizard`，标记由向导写 `campus-onboarding-done`，未完继续引导。

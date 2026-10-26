@@ -23,7 +23,7 @@ tags: [ui, shared, react, animation, android]
 ---
 
 ## Overview
-`android-frontend-shared-ui` 模块是 Android 前端应用的核心 UI 资产库，封装了跨面板复用的原子组件、布局容器、数据展示逻辑以及全局常量与类型定义。该模块深度集成了 `gsap` 和 `framer-motion` 动画库，针对 Android WebView 环境（如 rAF 挂起、内存泄漏）进行了特定的性能优化和缺陷修复。同时，模块引入了二次元吉祥物（Mascot）系统以增强用户交互体验，并提供了完整的日志面板、错误边界和更新提示机制。
+`android-frontend-shared-ui` 模块是 Android 前端应用的核心 UI 资产库，封装了跨面板复用的原子组件、布局容器、数据展示逻辑以及全局常量与类型定义。该模块深度集成了 `gsap` 和 `framer-motion` 动画库，针对 Android WebView 环境（如 rAF 挂起、内存泄漏、MIUI 大字体布局）进行了特定的性能优化和缺陷修复。同时，模块引入了二次元吉祥物（Mascot）系统以增强用户交互体验，并提供了完整的日志面板（含清空动画）、错误边界和更新提示机制。所有公开导出集中在 `index.ts`（1-12）中统一对外暴露。
 
 ## Key Components
 
@@ -31,289 +31,283 @@ tags: [ui, shared, react, animation, android]
 **文件**: `android/frontend/src/shared/AnimatedNumber.tsx`
 用于展示带有平滑过渡效果的数值，常用于延迟、速度等动态指标。
 
-*   **Props 接口**:
-    *   `value`: number (当前数值)
-    *   `unit`: string (单位后缀，默认 'ms')
-    *   `decimals`: number (小数位数，默认 0)
-    *   `className`: string (CSS 类名)
-    *   `duration`: number (动画时长，可选，默认取自 profile)
-*   **核心逻辑**:
-    *   使用 `gsap.quickTo` 对内部对象 `objRef.current.value` 进行插值动画 (35|)。
-    *   同步对 DOM 元素执行 `scale` 缩放动画以产生视觉反馈 (44|)。
-    *   通过 `useAnimationProfile` 和 `useAnimationActive` 控制动画档位和页面空闲状态下的降级策略 (21-22|)。
-    *   **清理逻辑**: 在 useEffect 返回的 cleanup 函数中，显式调用 `gsap.killTweensOf` 销毁底层 Tween 实例，防止组件卸载后继续占用 CPU 或操作已卸载 DOM (54-55|)。
-    *   **状态重置**: 使用 `gsap.delayedCall` 在动画结束后将 scale 恢复为 1，并在触发新变化前 kill 旧 timer 以避免跳变 (87-91|)。
+- **接口** `AnimatedNumberProps` (6-12):
+  - `value: number` (当前数值)
+  - `unit?: string` (单位后缀，默认 `'ms'`, 16)
+  - `decimals?: number` (小数位数，默认 0, 17)
+  - `className?: string` (CSS 类名, 18)
+  - `duration?: number` (动画时长 ms，可选，默认取自 profile, 19, 23)
+- **函数** `AnimatedNumber` (14-110):
+  - 使用 `useAnimationProfile` (21) 与 `useAnimationActive` (22) 控制动画档位与页面空闲降级。
+  - `resolvedDuration` = `duration ?? profile.numberDuration` (23)。
+  - Refs: `ref` (24), `prevRef` (25), `isFirstRender` (26), `objRef` (27), `valueQuickToRef` (28), `scaleQuickToRef` (29), `resetTimerRef` (30)。
+  - **初始化 effect** (32-59): 创建 `gsap.quickTo` 对 `objRef.current.value` 插值 (35-43)，并对 DOM `scale` 缩放 (44-48)。cleanup 中 kill 底层 tween (54-55) 防内存泄漏（历史缺陷注释见 51-53）。
+  - **数值更新 effect** (61-96): 首次渲染直接写文本 (62-69)；后续变化若 `animActive` 且 quickTo 存在则播动画 (72-94)，否则直写 (73-77)。`economy` 档禁用 scale 弹跳 (83-84)。`gsap.delayedCall` 重置 scale (88-91) 前先 kill 旧 timer (87，历史缺陷注释 85-86)。
+  - 渲染 `<span>` 带 `tabular-nums` (98-109)，初始子节点 `{value.toFixed(decimals)}{unit}` (107)。
 
 ### 2. ConfirmDialog (确认框)
 **文件**: `android/frontend/src/shared/ConfirmDialog.tsx`
 通用的破坏性或引导性操作确认弹窗。
 
-*   **Props 接口**:
-    *   `open`: boolean (是否显示)
-    *   `title`: string (标题)
-    *   `message`: string (内容)
-    *   `onConfirm`: () => void (确认回调)
-    *   `onCancel`: () => void (取消回调)
-    *   `confirmLabel`: string (自定义确认按钮文案，可选)
-    *   `confirmVariant`: 'default' | 'destructive' (按钮样式，默认 destructive)
-*   **关键特性**:
-    *   **防重复提交**: 引入 `confirming` 状态，在 `onConfirm` 执行期间禁用按钮 (26|, 44-47|)。
-    *   **状态复位**: 监听 `open` prop，当弹窗关闭时强制将 `confirming` 置为 false，防止因网络延迟导致按钮永久锁定 (29-31|)。
+- **接口** `ConfirmDialogProps` (12-21):
+  - `open: boolean`
+  - `title: string`
+  - `message: string`
+  - `onConfirm: () => void`
+  - `onCancel: () => void`
+  - `confirmLabel?: string` (自定义文案, 19)
+  - `confirmVariant?: 'default' | 'destructive'` (默认 `'destructive'`, 20-23)
+- **函数** `ConfirmDialog` (23-51):
+  - `confirming` state (26) 防重复提交（历史缺陷注释 25）。
+  - `useEffect` 监听 `open`，关闭时复位 `confirming` (29-31，历史缺陷注释 27-28)。
+  - `Dialog` `onOpenChange` 在 confirming 时阻止取消 (33-36)。
+  - 取消/确认按钮均 `disabled={confirming}` (43,44)，确认按钮 `onClick` 置 confirming 并调用 `onConfirm` (44-47)。
 
 ### 3. dailyMascot (每日吉祥物)
 **文件**: `android/frontend/src/shared/dailyMascot.ts`
 根据 UTC 日期轮换展示不同的二次元娘立绘，用于装饰目的。
 
-*   **常量**:
-    *   `SIDE_MASCOT_POOL`: const string[] (14 张竖版立绘名称列表，5-9|)
-*   **函数**:
-    *   `pickDailyMascot(offset?: number): string`: 根据当前天数和偏移量从池中选取一张图片名 (11-15|)。
-    *   `useDailyMascots(offsets: number[]): string[]`: React Hook，返回一组每日吉祥物。每分钟检查一次日期切换，支持多个独立的 offset (18-35|)。
+- **常量** `SIDE_MASCOT_POOL` (5-9): 14 张竖版立绘名称只读元组。
+- **函数** `pickDailyMascot(offset = 0): string` (11-15): 按 `Math.floor(Date.now()/86_400_000)` 加 offset 取模选图。
+- **Hook** `useDailyMascots(offsets: number[]): string[]` (18-34): 用 `key` 记忆 offsets (20)，`useState(compute)` 初始 (22)，`useEffect` 中立即计算一次并 `setInterval` 每分钟比对日期跨天切换 (23-33)。
 
 ### 4. ErrorBoundary (错误边界)
 **文件**: `android/frontend/src/shared/ErrorBoundary.tsx`
 基于 Class Component 实现的渲染错误捕获器。
 
-*   **Class Methods**:
-    *   `constructor(props)`: 初始化 state (16-19|)。
-    *   `static getDerivedStateFromError(error)`: 捕获渲染错误并更新 state 为 hasError=true (21-23|)。
-    *   `componentDidCatch(error, errorInfo)`: 在 DEV 模式下打印错误日志 (25-27|)。
-    *   `render()`: 若发生错误，展示 MascotFigure(alert) 和重载按钮；否则渲染 children (29-52|)。
+- **接口** `Props` (6-8): `children: ReactNode`。
+- **接口** `State` (10-13): `hasError: boolean`, `error: Error | null`。
+- **类** `ErrorBoundary` (15-52):
+  - `constructor(props)` (16-19) 初始化 state。
+  - `static getDerivedStateFromError(error)` (21-23) 返回 `{hasError:true, error}`。
+  - `componentDidCatch(error, errorInfo)` (25-27) DEV 下 `console.error`。
+  - `render()` (29-52) 出错时显示 `MascotFigure variant="alert"` (33) 和重载按钮 (38-46) 调用 `window.location.reload()` (42)，否则渲染 `children` (51)。
 
 ### 5. FluidBackground (流体背景)
 **文件**: `android/frontend/src/shared/FluidBackground.tsx`
-简单的占位背景组件，使用 CSS 变量 `--surface-main`。
+简单的占位背景组件，使用 CSS 变量 `--surface-main` (6)。
 
-*   **Component**:
-    *   `FluidBackground()`: 绝对定位覆盖全屏，z-index 0，pointer-events none (1-10|)。
+- **函数** `FluidBackground()` (1-10): 绝对定位 `inset-0 z-0 pointer-events-none` 的 div (3-8)。
 
-### 6. IspMark (ISP 标记)
+### 6. index.ts (桶导出)
+**文件**: `android/frontend/src/shared/index.ts`
+导出 `LogPanel` (1), `ConfirmDialog` (2), `AnimatedNumber` (3), `RefreshButton`+`getRefreshIconClass` (4), `SegmentTabs` (5), `ToastContainer` (6), `FluidBackground` (7), `ErrorBoundary` (8)；以及 `types` (10), `ui-types` (11), `ui-constants` (12) 通配。
+
+### 7. IspMark (ISP 标记)
 **文件**: `android/frontend/src/shared/IspMark.tsx`
 显示运营商或学校标识的小图标。
 
-*   **函数**:
-    *   `ispMarkSrc(suffix)`: 映射 ISP 后缀到 WebP 图片路径 (12-15|)。
-*   **Component**:
-    *   `IspMark`: memo 包裹的组件。
-        *   若 suffix 为空或 `__default__` (无锡学院)，渲染带白色圆底和黑色环的 `<span>` 包裹图片 (27-38|)。
-        *   其他运营商直接渲染 `<img>` (39-42|)。
+- **常量** `ISP_MARK_SRC` (5-10): 映射 suffix 到 `/isp/*.webp`，`__default__` 为校徽。
+- **函数** `ispMarkSrc(suffix)` (12-15): null/undefined 返回 undefined，否则取映射或默认。
+- **组件** `IspMark` (memo, 18-42):
+  - `suffix` 为空或 `__default__` 时渲染白圆底 `<span>` 包裹 img (27-38)。
+  - 其他运营商直接渲染 `<img>` (39-42)。
 
-### 7. LogPanel (日志面板)
+### 8. LogPanel (日志面板)
 **文件**: `android/frontend/src/shared/LogPanel.tsx`
 功能最复杂的组件，包含日志获取、过滤、搜索、清空动画及调试模式控制。
 
-*   **Props 接口**:
-    *   `api`: 包含 `getLogs`, `clearLogs`, `getDebugMode`, `setDebugMode`, `getLogRetentionDays`, `setLogRetentionDays` 的方法对象 (28-35|)。
-    *   `addToast`: 消息通知回调 (36|)。
-*   **内部状态**:
-    *   `rawLogs`, `isLoading`, `isClearing`, `lineCount`, `filterLevel`, `searchText`, `filterModule`, `debugMode`, `retentionDays`, `showClearConfirm` (89-98|)。
-    *   `scrollRef`, `isAutoScrollRef`, `isVisibleRef`, `fetchSeqRef`, `mountedRef`, `rawLogsRef` (99-105|)。
-*   **核心方法**:
-    *   `fetchLogs(manual?)`: 异步获取日志。处理 StrictMode 双重挂载 (107-114|)。使用 `fetchSeqRef` 竞态保护 (119-137|)。若内容未变则跳过 setState 优化 (126-129|)。
-    *   `toggleDebugMode()`: 切换调试模式，乐观更新 UI，失败回滚 (179-191|)。
-    *   `handleRetentionChange(days)`: 修改日志保留天数，支持乐观更新与回滚 (193-204|)。
-    *   `handleClearConfirm()`: 执行清空操作。
-        *   筛选可视区域内的 DOM 元素 (287-294|)。
-        *   不可见元素直接隐藏 (298-300|)。
-        *   可见元素使用 GSAP stagger 动画逐条删除 (330-350|)。
-        *   **缺陷修复**: 增加 `onInterrupt` 处理动画中断导致的 `isClearing` 卡死 (343-349|)。
-        *   **缺陷修复**: 增加 `setTimeout` failsafe 兜底，防止 Android WebView 后台 rAF 停摆导致动画永不完成 (356-361|)。
-*   **Memoized Selectors**:
-    *   `parsedLines`: 正则解析日志行 (221-232|)。
-    *   `availableModules`: 提取所有模块名 (234-237|)。
-    *   `filteredLines`: 应用级别、模块、搜索过滤 (239-263|)。
-    *   `displayedLines`: 限制最大显示行数 MAX_DISPLAY_LINES (20|, 265-270|)。
-    *   `levelCounts`: 统计各级别日志数量 (382-388|)。
+- **接口** `LogPanelProps` (27-37):
+  - `api`: `{ getLogs: (lines?: number) => Promise<string>; clearLogs: () => Promise<boolean>; getDebugMode: () => Promise<boolean>; setDebugMode: (enabled: boolean) => Promise<boolean>; getLogRetentionDays?: () => Promise<number>; setLogRetentionDays?: (days: number) => Promise<void> }`
+  - `addToast: (message: string, type: 'info' | 'success' | 'error' | 'warning', description?: string) => void`
+- **类型** `LogLevel` (39) = `'DEBUG'|'INFO'|'WARN'|'ERROR'`
+- **接口** `ParsedLogLine` (41-47): `timestamp: string`, `level: LogLevel`, `module: string`, `message: string`, `raw: string`
+- **常量**:
+  - `DEFAULT_LEVEL_CONFIG` (49)
+  - `LEVEL_CONFIG` (51-56) 各级样式/图标
+  - `LOG_LINE_REGEX` (58) 解析正则
+  - `isAndroidBuild` (62) 由 `import.meta.env.VITE_PLATFORM === 'android'` 决定两行布局
+  - `LINE_OPTIONS` (76-81)
+  - `MAX_DISPLAY_LINES = 200` (83)
+- **函数** `parseLogLine(line)` (64-74)
+- **组件** `LogPanel` (memo, 85-678):
+  - **状态**: `rawLogs`(89), `isLoading`(90), `isClearing`(91), `lineCount`(92), `filterLevel`(93), `searchText`(94), `filterModule`(95), `debugMode`(96), `retentionDays`(97), `showClearConfirm`(98), `logsKey`(213)
+  - **Refs**: `scrollRef`(99), `isAutoScrollRef`(100), `isVisibleRef`(101), `fetchSeqRef`(102), `mountedRef`(103), `rawLogsRef`(105)
+  - **核心函数**:
+    - `fetchLogs(manual?)` (118-137): `fetchSeqRef` 竞态保护 (119)，手动才 loading (120)，内容变才 setState (126-129，关联 FE-B-10 注释 104)。
+    - `toggleDebugMode` (179-191): 乐观更新调试模式。
+    - `handleRetentionChange` (193-204): 乐观更新保留天数，失败回滚。
+    - `handleClear` (272-275) 打开确认。
+    - `handleClearConfirm` (277-380): GSAP 可视区逐条删除动画 (329-351)，`onInterrupt` 复位 (343-349，历史缺陷注释 339-342)，`setTimeout` failsafe (356-361，历史缺陷注释 352-355)。
+    - `handleScroll` (215-219) 自动滚动判断。
+  - **Memo 选择器**:
+    - `parsedLines` 单遍解析 (221-232)
+    - `availableModules` (234-237)
+    - `filteredLines` 级别/模块/搜索过滤 (239-263)
+    - `displayedLines` 截断至 MAX (265-270)
+    - `levelCounts` (382-388)
+  - **渲染**: 工具栏 (392-463)，搜索/模块选择 (465-495)，级别筛选 (496-533)，日志滚动区 (535-655)，清空确认 `ConfirmDialog` (659-665)，背景看板娘 img (668-675)。
 
-### 8. MascotFigure (吉祥物图)
+### 9. MascotFigure (吉祥物图)
 **文件**: `android/frontend/src/shared/MascotFigure.tsx`
 统一出口的图片组件，加载 `public/girl/mascot-*.webp`。
 
-*   **Types**:
-    *   `MascotVariant`: 'portrait' | 'welcome' | 'empty' | 'celebrate' | 'sponsor' | 'offline' | 'alert' (5|)。
-*   **Component**:
-    *   `MascotFigure`: 根据 variant 和 size 渲染 img，lazy loading，draggable false (7-26|)。
+- **常量** `SIZES` (3): `sm: 'w-20', md: 'w-28', lg: 'w-40'`
+- **类型** `MascotVariant` (5): `'portrait' | 'welcome' | 'empty' | 'celebrate' | 'sponsor' | 'offline' | 'alert'`
+- **函数** `MascotFigure` (7-26): 按 `variant`+`size` 渲染 lazy `<img>` (17-24)。
 
-### 9. RefreshButton (刷新按钮)
+### 10. RefreshButton (刷新按钮)
 **文件**: `android/frontend/src/shared/RefreshButton.tsx`
 带旋转动画和完成反馈的刷新按钮。
 
-*   **Props 接口**:
-    *   `isRefreshing`: boolean
-    *   `iconClassName`: string
-    *   `showCheck`: boolean (完成后显示对勾)
-*   **Component**:
-    *   `RefreshButton`: forwardRef 组件。
-        *   监听 `isRefreshing` 变化，结束时添加 `refresh-shake` 类并清除 (18-28|)。
-        *   使用 `AnimatePresence` 和 `m.span` 展示 Check 动画 (52-65|)。
-*   **Helper**:
-    *   `getRefreshIconClass`: 纯函数，生成图标 CSS 类 (74-81|)。
+- **接口** `RefreshButtonProps` (7-11): 扩展 `React.ButtonHTMLAttributes<HTMLButtonElement>`，加 `isRefreshing: boolean`, `iconClassName?: string`, `showCheck?: boolean`
+- **组件** `RefreshButton` (forwardRef, 13-72):
+  - `prevRefreshing` ref (15) 与 `shakeClass` state (16)。
+  - effect 在刷新结束时加 `refresh-shake` (18-28)。
+  - `AnimatePresence` 展示 Check (52-65)。
+- **函数** `getRefreshIconClass(isRefreshing, iconClassName?)` (74-81): 返回图标动画 class。
 
-### 10. SegmentTabs (分段标签)
+### 11. SegmentTabs (分段标签)
 **文件**: `android/frontend/src/shared/SegmentTabs.tsx`
 带动画滑块的分段选择器。
 
-*   **Props 接口**:
-    *   `tabs`: TabItem[] (key, label, icon, color, bg)
-    *   `activeKey`: string
-    *   `onTabChange`: (key: string) => void
-*   **Component**:
-    *   `SegmentTabs`: 使用 `useId` 生成唯一 layoutId 前缀，防止 framer-motion 跨实例动画冲突 (22-23|)。活跃 Tab 使用 `m.div` layoutId 动画跟随 (41-46|)。
+- **接口** `TabItem` (5-11): `key: string`, `label: string`, `icon: React.ComponentType<{ className?: string }>`, `color: string`, `bg: string`
+- **接口** `SegmentTabsProps` (13-17): `tabs: TabItem[]`, `activeKey: string`, `onTabChange: (key: string) => void`
+- **组件** `SegmentTabs` (19-53): 用 `useId()` 生成 `layoutIdPrefix` (22-23)，活跃 tab 用 `m.div` 共享 `layoutId={`${layoutIdPrefix}-activeTab`}` (42) 实现滑块（历史缺陷注释 20-21）。
 
-### 11. SponsorCard (赞助卡)
+### 12. SponsorCard (赞助卡)
 **文件**: `android/frontend/src/shared/SponsorCard.tsx`
 移动端适配的赞助弹窗，使用 Radix Dialog。
 
-*   **Props 接口**:
-    *   `open`: boolean
-    *   `onClose`: () => void
-*   **Component**:
-    *   `SponsorCard`: 展示赞助商二维码（微信/支付宝），居中显示 (13-52|)。
+- **接口** `SponsorCardProps` (6-9): `open: boolean`, `onClose: () => void`
+- **组件** `SponsorCard` (13-51): 居中 Dialog 展示微信/支付宝二维码 (34-48) 与 `MascotFigure variant="sponsor"` (24)。
 
-### 12. ToastContainer (Toast 容器)
+### 13. ToastContainer (Toast 容器)
 **文件**: `android/frontend/src/shared/ToastContainer.tsx`
 管理全局 Toast 消息的容器。
 
-*   **Props 接口**:
-    *   `toasts`: ToastMessage[]
-    *   `onRemove`: (id: string) => void
-*   **常量**:
-    *   `TOAST_MASCOTS`: 映射 Toast 类型到吉祥物变体 (16-21|)。
-    *   `TOAST_STYLES`: 映射 Toast 类型到背景色样式 (23-28|)。
-*   **Component**:
-    *   `ToastContainer`: 使用 `AnimatePresence mode="popLayout"` 管理入场/出场动画 (40-95|)。
-    *   根据 `profile.tier` (economy) 调整动画复杂度 (34-36|)。
-    *   Celebrate 类型的 mascot 有额外的 spring 弹入效果 (44|, 62-63|)。
+- **接口** `ToastContainerProps` (10-13): `toasts: ToastMessage[]`, `onRemove: (id: string) => void`
+- **常量** `TOAST_MASCOTS` (16-21) 类型→变体映射；`TOAST_STYLES` (23-28) 类型→背景。
+- **组件** `ToastContainer` (memo, 30-96):
+  - `enterTransition` 根据 `profile.tier==='economy'` 简化 (34-36)。
+  - `AnimatePresence mode="popLayout"` 渲染 toast (40-94)。
+  - `popIn` 仅 celebrate 非 economy 有 spring 弹入 (44,62-63)。
 
-### 13. UpdateAvailableDialog (更新提示对话框)
+### 14. UpdateAvailableDialog (更新提示对话框)
 **文件**: `android/frontend/src/shared/UpdateAvailableDialog.tsx`
 新版本发现时的提示弹窗。
 
-*   **Props 接口**:
-    *   `onGoUpdate`: () => void
-*   **逻辑**:
-    *   从 `useQualityStore` 读取 `updatePromptOpen`, `latestVersion`, `releaseNotes` (20-23|)。
-    *   提供“稍后”和“立即前往”按钮 (33-35|)。
+- **接口** `UpdateAvailableDialogProps` (14-16): `onGoUpdate: () => void`
+- **组件** `UpdateAvailableDialog` (18-38):
+  - 从 `useQualityStore` 读 `updatePromptOpen`(20), `latestVersion`(21), `releaseNotes`(22), `setUpdatePromptOpen`(23)。
+  - Dialog 提供“稍后”/“立即前往” (33-34)。
 
-### 14. Types & Constants (共享类型/常量)
-**文件**: `android/frontend/src/shared/types.ts`
-*   `UpdateAvailableData`: hasUpdate, latestVersion, releaseNotes (1-5|)。
-*   `UpdateInfo`: 包含 assets, sha256Checksum, lastCheckError, lastCheckTime (7-17|)。
-*   `DownloadProgress`: downloaded, total, speed, percent (19-24|)。
-*   `MirrorSource`: name, url, description (26-30|)。
+### 15. Types & Constants (共享类型/常量)
 
-**文件**: `android/frontend/src/shared/ui-types.ts`
-*   `StatusState`: 'loading' | 'online' | 'offline' | 'error' (1|)。
-*   `PanelName`: 各面板名称枚举 (2|)。
-*   `ThemeName`: 主题名称枚举 (3|)。
-*   `GlassLevel`: 'off' | 'standard' | 'ultra' (5|)。
-*   `LogType`: 'info' | 'success' | 'error' | 'warning' (6|)。
-*   `LogEntry`: id, time, message, type, count (8-15|)。
-*   `ToastMessage`: id, title, description, type, duration, mascot, action (17-29|)。
-*   `AdapterDisabledWarningData`: name, message (31-34|)。
-*   `AutoExitCountdownData`: delay, shortcut (36-39|)。
-*   `SaveConfigResult`: success, message, data (41-45|)。
+**文件** `android/frontend/src/shared/types.ts`
+- `UpdateAvailableData` (1-5): `hasUpdate: boolean`, `latestVersion: string`, `releaseNotes?: string`
+- `UpdateInfo` (7-17): `hasUpdate: boolean`, `latestVersion: string`, `releaseNotes: string`, `assets: { name: string; url: string; size: number }[]`, `sha256Checksum?: string`, `lastCheckError: string | null`, `lastCheckTime: number | null`
+- `DownloadProgress` (19-24): `downloaded: number`, `total: number`, `speed: number`, `percent: number`
+- `MirrorSource` (26-30): `name: string`, `url: string`, `description: string`
 
-**文件**: `android/frontend/src/shared/ui-constants.ts`
-*   `MAX_LOG_ENTRIES`: 300 (1|)。
-*   `APP_VERSION`: '2.4.1' (2|)。
-*   `APP_NAME`: '校园网登录助手' (3|)。
-*   `PASSWORD_MASK`: '***' (4|)。
-*   `NAV_ITEMS`: 导航项数组，包含 id, labelKey, icon, shortcut (7-16|)。
+**文件** `android/frontend/src/shared/ui-types.ts`
+- `StatusState` (1): `'loading' | 'online' | 'offline' | 'error'`
+- `PanelName` (2): `'dashboard' | 'account' | 'selfservice' | 'network' | 'monitor' | 'quality' | 'settings' | 'log' | 'speedtest'`
+- `ThemeName` (3): `'default' | 'vibrant' | 'forest' | 'midnight' | 'ocean' | 'cherry' | 'custom'`
+- `GlassLevel` (5): `'off' | 'standard' | 'ultra'`
+- `LogType` (6): `'info' | 'success' | 'error' | 'warning'`
+- `LogEntry` (8-15): `id: string`, `time: string`, `message: string`, `type: LogType`, `count?: number`
+- `ToastMessage` (17-29): `id: string`, `title: string`, `description?: string`, `type: LogType`, `duration?: number`, `mascot?: 'portrait' | 'celebrate' | 'offline' | 'alert' | 'update'`, `action?: { label: string; onClick: () => void }`
+- `AdapterDisabledWarningData` (31-34): `name: string`, `message: string`
+- `AutoExitCountdownData` (36-39): `delay: number`, `shortcut: string`
+- `SaveConfigResult` (41-45): `success: boolean`, `message?: string`, `data?: Record<string, unknown>`
+
+**文件** `android/frontend/src/shared/ui-constants.ts`
+- `MAX_LOG_ENTRIES = 300` (1)
+- `APP_VERSION = '2.4.3'` (2)
+- `APP_NAME = '校园网登录助手'` (3)
+- `PASSWORD_MASK = '***'` (4)
+- `NAV_ITEMS` (7-16): 数组含 `id, labelKey, icon, shortcut` (dashboard/account/selfservice/monitor/quality/speedtest/settings/log)
 
 ## Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                   android-frontend-shared-ui                │
-│                                                             │
-│  ┌──────────────┐   ┌──────────────────┐   ┌─────────────┐ │
-│  │   Constants  │   │     Types        │   │  Assets     │ │
-│  │ ui-constants │   │  ui-types.ts     │   │ girl/*.webp │ │
-│  │              │   │  types.ts        │   │ isp/*.webp  │ │
-│  └──────┬───────┘   └────────┬─────────┘   └─────────────┘ │
-│         │                    │                              │
-│  ┌──────▼────────────────────▼──────────────────────────┐  │
-│  │                  Shared Components                   │  │
-│  │  ┌─────────────┐ ┌──────────────┐ ┌───────────────┐ │  │
-│  │  │  Layout/UI  │ │  Feedback    │ │  Data Display │ │  │
-│  │  │             │ │             │ │               │ │  │
-│  │  │ ErrorBound. │ │ ConfirmDlog │ │ AnimatedNum.  │ │  │
-│  │  │ FluidBackgr │ │ SponsorCard │ │ LogPanel      │ │  │
-│  │  │ SegmentTabs │ │ ToastCont.  │ │ IspMark       │ │  │
-│  │  │ RefreshBtn  │ │ UpdateAvail │ │ MascotFigure  │ │  │
-│  │  └─────────────┘ └──────────────┘ └───────────────┘ │  │
-│  │                                                     │  │
-│  │  ┌─────────────────────────────────────────────┐    │  │
-│  │  │           Animation Engines                 │    │  │
-│  │  │  GSAP (quickTo, killTweensOf, delayedCall)  │    │  │
-│  │  │  Framer Motion (AnimatePresence, m.div)     │    │  │
-│  │  └─────────────────────────────────────────────┘    │  │
-│  └─────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│        android-frontend-shared-ui           │
+│  Constants(ui-constants.ts) Types(ui-types│
+│   types.ts) Assets(webp)                   │
+│       │             │           │           │
+│  ┌────▼─────────────▼───────────▼────────┐  │
+│  │           Shared Components          │  │
+│  │ Layout: ErrorBoundary(15-52),        │  │
+│  │   FluidBackground(1-10), SegmentTabs  │  │
+│  │   (19-53), RefreshButton(13-72),      │  │
+│  │   IspMark(18-42)                      │  │
+│  │ Feedback: ConfirmDialog(23-51),       │  │
+│  │   SponsorCard(13-51), ToastContainer  │  │
+│  │   (30-96), UpdateAvailableDialog      │  │
+│  │   (18-38)                             │  │
+│  │ Data: AnimatedNumber(14-110),         │  │
+│  │   LogPanel(85-678), MascotFigure      │  │
+│  │   (7-26), dailyMascot(11-34)          │  │
+│  └───────────────┬──────────────────────┘  │
+│                  │ uses                     │
+│                  ▼                          │
+│   Animation: GSAP + Framer Motion engines  │
+└──────────────────────────────────────────────┘
 ```
 
 ## Data Flow
 
-1.  **日志流 (LogPanel)**:
-    *   `api.getLogs()` -> `rawLogs` state -> `parsedLines` (memo) -> `filteredLines` (memo) -> `displayedLines` (memo).
-    *   轮询定时器每 5s 调用 `fetchLogs`，受 `isVisibleRef` (IntersectionObserver) 和 `document.hidden` 门控 (170-172|)。
-    *   用户操作 (过滤/搜索) 触发 `filteredLines` 重算，进而触发 `displayedLines` 重算和自动滚动 (211|)。
+1. **日志流 (LogPanel)**:
+   - `api.getLogs()` (122) → `rawLogs` state (128) / `rawLogsRef` (127) → `parsedLines` (memo, 221-232) → `filteredLines` (memo, 239-263) → `displayedLines` (memo, 265-270)。
+   - 轮询定时器每 5s 调用 `fetchLogs()` (170-172)，受 `isVisibleRef` (IntersectionObserver, 147) 和 `document.hidden` (167-169) 门控。
+   - 用户操作 (过滤/搜索/清空) 触发对应 state 变更，重算 memo 并自动滚动 (206-211)。
+   - 清空流程：`handleClearConfirm` (277) 用 GSAP 对视口内 `.log-line` 做 stagger 删除 (330-350)，成功后 `api.clearLogs()` 并置空 `rawLogs` (314-318)。
 
-2.  **更新提示流 (UpdateAvailableDialog)**:
-    *   后端/Store 设置 `updatePromptOpen = true` -> `UpdateAvailableDialog` 弹出。
-    *   用户点击 "Go" -> `onGoUpdate()` 跳转 -> Store 设置 `open = false`。
+2. **更新提示流 (UpdateAvailableDialog)**:
+   - `useQualityStore` 设置 `updatePromptOpen=true` (20) → Dialog 弹出 (26)。
+   - 用户点击 "Go" → `onGoUpdate()` 并 `setOpen(false)` (34)。
 
-3.  **每日吉祥物流 (dailyMascot)**:
-    *   `useDailyMascots` Hook 启动 `setInterval` (60s)。
-    *   计算当前 UTC 天数 -> `pickDailyMascot` -> 更新 `mascots` state。
-    *   子组件通过 `MascotFigure` 渲染对应图片。
+3. **每日吉祥物流 (dailyMascot)**:
+   - `useDailyMascots` Hook 启动 `setInterval` 60s (25-30)。
+   - 计算 UTC 天数 → `pickDailyMascot(offset)` (11-15) → 更新 `mascots` state (26-29)。
+   - 消费者（如背景装饰）通过 `MascotFigure` 渲染对应 webp (18)。
 
 ## Connections
-
-*   [[android-frontend-hooks]]: 依赖 `useAnimationProfile`, `usePageIdle`, `useQualityStore`。
-*   [[android-frontend-components-ui]]: 依赖基础 UI 组件 `Button`, `Dialog`, `Card`, `Badge`, `Select`。
-*   [[android-frontend-lib-utils]]: 依赖 `cn`, `extractErrorMessage`。
-*   [[android-frontend-assets]]: 引用 `public/girl/mascot-*.webp` 和 `public/isp/*.webp`。
+- [[android-frontend-hooks]]: 依赖 `useAnimationProfile` (AnimatedNumber 21, LogPanel 86, ToastContainer 32), `useAnimationActive` (AnimatedNumber 22), `useQualityStore` (UpdateAvailableDialog 20-23)。
+- [[android-frontend-components-ui]]: 依赖基础 UI 组件 `Button` (ConfirmDialog 2, LogPanel 3, etc.), `Dialog` (ConfirmDialog 3-9, SponsorCard 3, UpdateAvailableDialog 4-10), `Card` (LogPanel 1-2), `Badge` (LogPanel 4), `Select` (LogPanel 5)。
+- [[android-frontend-lib-utils]]: 依赖 `cn` (IspMark 2, LogPanel 17, etc.), `extractErrorMessage` (LogPanel 17, 132, 202, 325)。
+- [[android-frontend-assets]]: 引用 `public/girl/mascot-*.webp` (MascotFigure 18, ToastContainer 58, LogPanel 669), `public/isp/*.webp` (IspMark 5-10)。
 
 ## Known Issues
 
-1.  **GSAP Tween 内存泄漏 (AnimatedNumber)**:
-    *   **位置**: `android/frontend/src/shared/AnimatedNumber.tsx` 第 51-53 行注释。
-    *   **描述**: 历史缺陷，`quickTo` 底层 tween 在组件卸载后仍存活，持续占用 CPU 并尝试写入 null ref。
-    *   **修复**: 已在 cleanup 函数中调用 `gsap.killTweensOf` (54-55|)。
+1. **GSAP Tween 内存泄漏 (AnimatedNumber)**:
+   - **位置**: `android/frontend/src/shared/AnimatedNumber.tsx` 第 51-53 行注释。
+   - **描述**: 历史缺陷，`quickTo` 底层 tween 在组件卸载后仍存活，持续占用 CPU 并尝试写入 null ref。
+   - **修复**: cleanup 中调用 `gsap.killTweensOf(objRef.current, 'value')` 与 `gsap.killTweensOf(el, 'scale')` (54-55)。
 
-2.  **ConfirmDialog 重复提交**:
-    *   **位置**: `android/frontend/src/shared/ConfirmDialog.tsx` 第 25 行注释。
-    *   **描述**: 快速双击可能导致两次破坏性操作。
-    *   **修复**: 引入 `confirming` 状态并禁用按钮 (26|, 44-47|)。
+2. **ConfirmDialog 重复提交**:
+   - **位置**: `android/frontend/src/shared/ConfirmDialog.tsx` 第 25 行注释。
+   - **描述**: 快速双击可能导致两次破坏性操作。
+   - **修复**: 引入 `confirming` state 并禁用按钮 (26, 44-47)。
 
-3.  **ConfirmDialog 按钮锁定**:
-    *   **位置**: `android/frontend/src/shared/ConfirmDialog.tsx` 第 27-28 行注释。
-    *   **描述**: `onConfirm` 为 async 时，固定定时器可能在慢网络下提前解禁按钮。
-    *   **修复**: 改为由 `open` prop 驱动复位 `confirming` (29-31|)。
+3. **ConfirmDialog 按钮锁定**:
+   - **位置**: `android/frontend/src/shared/ConfirmDialog.tsx` 第 27-28 行注释。
+   - **描述**: `onConfirm` 为 async 时，固定定时器可能在慢网络下提前解禁按钮。
+   - **修复**: 改为由 `open` prop 驱动 `useEffect` 复位 `confirming` (29-31)。
 
-4.  **Scale 动画跳变 (AnimatedNumber)**:
-    *   **位置**: `android/frontend/src/shared/AnimatedNumber.tsx` 第 85-86 行注释。
-    *   **描述**: `delayedCall` 覆盖前不 kill 旧 call，导致快速连续变化时回调堆积，中途弹回 1 造成跳变。
-    *   **修复**: 在注册新 call 前 kill 旧 timer (87|)。
+4. **Scale 动画跳变 (AnimatedNumber)**:
+   - **位置**: `android/frontend/src/shared/AnimatedNumber.tsx` 第 85-86 行注释。
+   - **描述**: `delayedCall` 覆盖前不 kill 旧 call，导致快速连续变化时回调堆积，中途弹回 1 造成跳变。
+   - **修复**: 注册新 call 前 `resetTimerRef.current.kill()` (87)。
 
-5.  **LogPanel 清空动画卡死**:
-    *   **位置**: `android/frontend/src/shared/LogPanel.tsx` 第 339-342 行注释。
-    *   **描述**: Tween 被中断时 `onComplete` 不执行，`isClearing` 残留。
-    *   **修复**: 增加 `onInterrupt` 回调复位状态 (343-349|)。
+5. **LogPanel 清空动画卡死**:
+   - **位置**: `android/frontend/src/shared/LogPanel.tsx` 第 339-342 行注释。
+   - **描述**: Tween 被中断时 `onComplete` 不执行，`isClearing` 残留导致清空按钮永久禁用。
+   - **修复**: 增加 `onInterrupt` 回调复位状态并 `ctx.revert()` (343-349)。
 
-6.  **Android WebView rAF 停摆**:
-    *   **位置**: `android/frontend/src/shared/LogPanel.tsx` 第 352-355 行注释。
-    *   **描述**: 后台/遮挡时 rAF 停止，tween 冻结，`onComplete/onInterrupt` 均不触发，且 framer-motion 重渲染可能拉回隐藏条目。
-    *   **修复**: 增加 `setTimeout` failsafe 兜底，确保最终结算 (356-361|)。
+6. **Android WebView rAF 停摆**:
+   - **位置**: `android/frontend/src/shared/LogPanel.tsx` 第 352-355 行注释。
+   - **描述**: 后台/遮挡时 rAF 停止，tween 冻结，`onComplete/onInterrupt` 均不触发，且 framer-motion 重渲染可能拉回隐藏条目。
+   - **修复**: 增加 `setTimeout` failsafe 兜底 (356-361)，先 `finishClear()` 再 `ctx.revert()`。
 
-7.  **SegmentTabs 布局动画冲突**:
-    *   **位置**: `android/frontend/src/shared/SegmentTabs.tsx` 第 20-21 行注释。
-    *   **描述**: 多处并存时共享相同 layoutId 会导致 framer-motion 跨实例错误共享动画。
-    *   **修复**: 使用 `useId` 生成实例前缀 (22|)。
+7. **SegmentTabs 布局动画冲突**:
+   - **位置**: `android/frontend/src/shared/SegmentTabs.tsx` 第 20-21 行注释。
+   - **描述**: 多处并存时共享相同 `layoutId` 会导致 framer-motion 跨实例错误共享动画。
+   - **修复**: 使用 `useId()` 生成实例前缀 `layoutIdPrefix` (22-23)，拼接至 layoutId (42)。
 
-8.  **LogPanel 渲染性能**:
-    *   **位置**: `android/frontend/src/shared/LogPanel.tsx` 第 104 行注释 (FE-B-10)。
-    *   **描述**: 5s 轮询若每次都触发 setState，会导致 parsedLines/filteredLines/displayedLines/levelCounts 四层 useMemo 串行全量重算。
-    *   **修复**: 使用 `rawLogsRef` 比较内容，未变化时跳过 setState (126-129|)。
+8. **LogPanel 渲染性能 (FE-B-10)**:
+   - **位置**: `android/frontend/src/shared/LogPanel.tsx` 第 104 行注释。
+   - **描述**: 5s 轮询若每次都触发 setState，会导致 `parsedLines`/`filteredLines`/`displayedLines`/`levelCounts` 四层 useMemo 串行全量重算。
+   - **修复**: 使用 `rawLogsRef` 比较内容，未变化时跳过 setState (126-129)；另将解析合并为单遍遍历 (221-232) 减少中间数组。

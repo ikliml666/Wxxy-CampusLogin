@@ -15,208 +15,148 @@ tags: [layout, navigation, responsive, mobile, tablet, framer-motion, gsap]
 
 ## Overview
 
-`frontend-layout-navigation` 模块负责处理应用在不同设备形态（手机、平板、桌面）下的核心布局与导航结构。它通过条件渲染和响应式 CSS 变量，为移动端提供底部胶囊导航栏 (`BottomNav`) 和悬浮快捷操作 (`MobileQuickActions`)，为桌面/平板端提供磁性吸附 Dock 导航 (`DockNav`)、系统标题栏 (`TitleBar`) 以及右侧日志面板 (`RightPanel`)。
-
-该模块还包含了针对平板设备的外壳组件 `TabletShell`，它协调了上述所有子组件，并处理横竖屏切换时的布局调整（如隐藏右侧日志栏）。移动端的核心页面内容则由 `MobileDashboard` 和 `MobileMore` 承载。
+`frontend-layout-navigation` 模块负责应用在不同设备形态（手机、平板）下的核心布局与导航结构。移动端使用底部磨砂胶囊导航栏 `BottomNav`（行 37-151）与悬浮于其上的快捷操作 `MobileQuickActions`（行 14-78，目的地与动作分离，M3 规范）；平板/桌面形态复用 `DockNav`（行 176-295，镜头弹簧系统导航栏）、`TitleBar` 系统标题栏（行 52-278）与 `RightPanel` 运行时日志面板（行 54-279），并由 `TabletShell` 外壳（`TabletShellInner` 行 74-380，`TabletShell` 行 382-388）协调，处理横竖屏布局调整（如竖屏通过 CSS 变量 `--right-panel-width: 0px` 隐藏右侧日志栏，行 126-129）。移动端页面内容由 `MobileDashboard`（行 141-168，注入移动专属卡）与 `MobileMore`（行 33-84，聚合子页）承载。
 
 ## Key Components
 
 ### BottomNav.tsx (Mobile Bottom Navigation)
 **文件**: `android/frontend/src/components/layout/BottomNav.tsx`
 
-用于移动端的底部导航栏，采用磨砂玻璃效果的圆角胶囊设计。
+*   **Type `MobileTab`** (行 18): 页签联合类型 `'dashboard' | 'account' | 'selfservice' | 'quality' | 'monitor' | 'more'`。
+*   **Constant `TABS`** (行 20-25): 基础页签数组，含 `dashboard`, `account`, `selfservice`, `more` 及对应 Lucide 图标（LayoutDashboard, UserCircle, Globe, Ellipsis）。
+*   **Constant `QUALITY_TAB`** (行 27): 质量检测页签配置（Signal 图标）。
+*   **Constant `MONITOR_TAB`** (行 28): 监控页签配置（Activity 图标）。
+*   **Function `useNavTabs`** (行 30-35): Hook，读取 `useConfigStore` 中 `enableNetworkQuality !== false`（行 31），在基础数组索引 3 处插入 `QUALITY_TAB` 或 `MONITOR_TAB`（行 33）。
+*   **Component `BottomNav`** (行 37-151): Props 接口（行 37-40）含 `tab: MobileTab`, `onChange`。内部使用 `useGlassRefraction`（行 46）挂折射玻璃，使用 `useDockLens`（行 60-65）实现镜头弹簧系统（启用条件行 51：`glassLevel !== 'off' && !reducedMotion`）。渲染绝对定位 `nav`（行 67-71，避让 `safe-area-inset-bottom`），玻璃容器 `.glass-nav`（行 76-84，径向渐变通过 CSS 变量驱动，行 81-82），镜头底 `data-dock-lens`（行 86-94），页签条 `data-dock-strip`（行 99-126）按钮等宽 `w-16 h-14` 图标 26px（行 112-123），放大层 `data-dock-magnify` 与内层 `data-dock-magnify-inner`（行 130-148，渲染 `aria-hidden` 副本）。
 
-*   **Type `MobileTab`** (Line 14): 定义页签类型 `'dashboard' | 'account' | 'selfservice' | 'quality' | 'monitor' | 'more'`。
-*   **Constant `TABS`** (Line 16-21): 基础页签配置数组，包含 dashboard, account, selfservice, more。
-*   **Constant `QUALITY_TAB`** (Line 23): 质量检测页签配置。
-*   **Constant `MONITOR_TAB`** (Line 24): 监控页签配置。
-*   **Function `useNavTabs()`** (Line 26-31): Hook，根据 `enableNetworkQuality` 配置动态决定在第三个位置插入 `QUALITY_TAB` 还是 `MONITOR_TAB`。
-*   **Component `BottomNav`** (Line 33-91):
-    *   Props: `tab: MobileTab`, `onChange: (t: MobileTab) => void`。
-    *   Line 40-45: 根容器，使用 `absolute inset-x-0` 定位，底部留出安全区域间距。
-    *   Line 47-51: 磨砂玻璃容器，使用 `.glass-nav` CSS 类实现样式。
-    *   Line 54-86: 页签列表循环。每个按钮宽 `w-16`，高 `h-14`。
-    *   Line 70-76: 激活指示器，使用 `m.span` 配合 `layoutId="nav-active-pill"` 实现平滑滑动效果。
-    *   Line 77-80: 图标尺寸固定为 `26px`。
-
-### DockNav.tsx (Desktop/Tablet Dock)
+### DockNav.tsx (Tablet/Desktop Dock)
 **文件**: `android/frontend/src/components/layout/DockNav.tsx`
 
-用于桌面和平板底部的 Dock 导航栏，支持鼠标磁吸放大效果。
-
-*   **Constant `ICON_MAP`** (Line 27-36): 将图标名称映射到对应的 Lucide React 组件。
-*   **Constants `MAGNETIC_RANGE`** (Line 38), `MAX_SCALE` (Line 39), `MAX_LIFT` (Line 40): 磁吸效果参数。
-*   **Component `DockItem`** (Line 42-153):
-    *   Props: `id`, `label`, `icon`, `isActive`, `visibleCount`, `onPanelChange`, `mouseX`。
-    *   Line 62-74: `useEffect` 初始化 GSAP `quickTo` tween 用于缩放和平移。
-    *   Line 76-112: `useEffect` 监听 `mouseX` motion value，计算距离中心点的距离，应用磁吸动画。如果距离小于 `MAGNETIC_RANGE`，则按比例缩放和平移。
-    *   Line 132-138: 激活状态药丸，使用 `m.div` 配合 `layoutId="dock-active-pill"`。
-    *   Line 145-150: 视觉 Tooltip，仅在 hover/focus 时显示。
-*   **Component `ActionButton`** (Line 156-235):
-    *   Props: `label`, `loadingLabel`, `icon`, `isLoading`, `isDisabled`, `onAction`, `variant`。
-    *   Line 182-190: 加载状态旋转动画，使用 GSAP context。
-    *   Line 194-234: 按钮样式，主色或描边变体，支持 hover/tap 动画。
-*   **Component `DockNav`** (Line 242-323):
-    *   Props: `onPanelChange`, `outerRef`。
-    *   Line 244-249: 获取当前激活面板、登录状态和网络质量配置。
-    *   Line 251: 过滤可见项，如果网络质量关闭则排除 quality 面板。
-    *   Line 257-265: `handleMouseMove` 使用 RAF 节流更新 `mouseX`，仅在 `animActive` 且非 `economy` 模式时启用磁吸。
-    *   Line 276-280: 根容器定位，宽度计算基于 `--right-panel-width` CSS 变量，确保 Dock 居中。
-    *   Line 286-319: 渲染 `DockItem` 列表，分隔线，以及登录/注销 `ActionButton`。
+*   **Constant `ICON_MAP`** (行 30-39): 字符串图标名到 Lucide 组件的映射。
+*   **Component `DockItem`** (行 41-85): Props 接口（行 41-49）含 `id: PanelName`, `label: string`, `icon: string`, `isActive: boolean`, `ghost?: boolean`, `onPanelChange?: (id: PanelName) => void`。渲染按钮，激活时显示文字标签（行 72-74），hover/focus Tooltip（行 75-82），`data-dock-item` 供镜头挖洞（行 54）。非激活仅显图标（行 70，大小 `h-[18px] w-[18px]`）。
+*   **Component `ActionButton`** (行 88-169): Props 接口（行 96-104）含 `label`, `loadingLabel`, `icon`, `isLoading`, `isDisabled`, `onAction`, `variant: 'primary' | 'outline'`。登录/注销按钮，GSAP 旋转 spinner（行 114-122），loadingPulse 边框（行 150-156），`m.button` 点击缩放 `whileTap`（行 134），主色/描边变体（行 140-147，主色使用 `linear-gradient` 行 145）。
+*   **Interface `DockNavProps`** (行 171-174): 字段 `onPanelChange: (panel: PanelName) => void`, `outerRef?: (el: HTMLDivElement | null) => void`。
+*   **Component `DockNav`** (行 176-295): memo 组件。行 185 过滤 `NAV_ITEMS` 排除 quality（当 `enableNetworkQuality` 关闭）。行 189-191 玻璃折射（economy 档强制 off）。行 194-209 镜头系统 `useDockLens`（启用条件行 195：`glassLevel !== 'off' && profile.tier !== 'economy' && !reducedMotion`）。JSX：外层 fixed 定位宽度 `calc(100vw - var(--right-panel-width, 288px))`（行 215，避让 `safe-area-inset-bottom`），`nav.glass-dock`（行 217-225），镜头底（行 227-235），项容器（行 239-250），放大层（行 254-269），分隔线（行 271），两个 `ActionButton` 注销与登录（行 273-291）。
 
 ### RightPanel.tsx (Runtime Log Panel)
 **文件**: `android/frontend/src/components/layout/RightPanel.tsx`
 
-桌面/平板右侧的运行时日志面板。
-
-*   **Constants `LOG_ICONS`**, `LOG_COLORS` (Line 20-32), `LOG_BG_COLORS` (Line 34-39), `LOG_BAR_COLORS` (Line 41-46): 日志类型的视觉映射。
-*   **Constants `RIGHT_PANEL_ANIM_THRESHOLD`** (Line 51, value 50), `RIGHT_PANEL_ANIM_KEEP_COUNT` (Line 52, value 30): 性能优化阈值。
-*   **Component `RightPanel`** (Line 54-279):
-    *   Props: `logs`, `onClearLogs`, `outerRef`。
-    *   Line 64-125: `handleClearWithAnimation`。使用 GSAP stagger 动画逐条隐藏日志条目。包含 `failsafe` setTimeout 防止 rAF 挂起导致的状态卡死。
-    *   Line 127-138: 自动滚动逻辑，当用户未手动滚动超过 40px 时自动到底。
-    *   Line 148-157: `useMemo` 分片日志。如果 `logs.length > 50`，前段日志使用普通 `div` 渲染，最近 30 条使用 `m.div` + `AnimatePresence` 以保留进出场动画。这是为了降低 Framer Motion 在大量数据下的 Reconciliation 成本。
-    *   Line 166-187: 标题栏，显示日志数量和清除按钮。
-    *   Line 190-213: 空状态展示，带有呼吸动画的看板娘背景。
-    *   Line 216-273: 日志列表渲染。`staticLogs` 无动画，`animLogs` 有动画。
+*   **Interface `RightPanelProps`** (行 14-18): 字段 `logs: LogEntry[]`, `onClearLogs?: () => void`, `outerRef?: (el: HTMLDivElement | null) => void`。
+*   **Constants `LOG_ICONS`/`LOG_COLORS`/`LOG_BG_COLORS`/`LOG_BAR_COLORS`** (行 20-46): 日志类型（`info`, `success`, `error`, `warning`）到图标与颜色的映射。
+*   **Constants `RIGHT_PANEL_ANIM_THRESHOLD`** (行 51, 值 50), **`RIGHT_PANEL_ANIM_KEEP_COUNT`** (行 52, 值 30): 性能分片阈值（FP-4 策略）。
+*   **Component `RightPanel`** (行 54-279): memo 组件。
+    *   `handleClearWithAnimation` (行 64-125): GSAP stagger 隐藏条目，动态间隔（行 75），`failsafe` setTimeout 防 rAF 挂起（行 112-117），`onInterrupt` 复位（行 99-105）。
+    *   `handleScroll` (行 127-131): 自动滚动检测（距底 <40px 视为自动，行 130）。
+    *   Auto-scroll effect (行 134-138): 依赖 `logs` 变化时若 `isAutoScrollRef` 为真则滚动到底。
+    *   New log detection (行 140-144): `isNewLog` state 用于标记最新条目动画。
+    *   Log splitting `useMemo` (行 148-157): `logs.length > 50` 时前段 `staticLogs` 普通 div，最近 30 条 `animLogs` 用 `m.div`+`AnimatePresence`。
+    *   JSX (行 159-278): 宽度 `w-72` 侧边栏（行 162），标题栏计数与清除按钮（行 166-187），看板娘背景（行 190-197），日志列表渲染（行 216-273）。
 
 ### TitleBar.tsx (Window Title Bar)
 **文件**: `android/frontend/src/components/layout/TitleBar.tsx`
 
-窗口标题栏，包含应用信息、控制按钮和系统控件。
-
-*   **Icon Components** (Line 26-50): `MinimizeIcon`, `MaximizeIcon`, `RestoreIcon`, `CloseIcon` 的内联 SVG 组件。
-*   **Component `TitleBar`** (Line 52-278):
-    *   Props: `notificationEnabled`, `onToggleNotification`, `onShowTheme`, `onShowAbout`, `onShowSponsor`, `onToggleLightMode`, `onMinimize`, `onToggleMaximize`, `onClose`, `isMaximized`, `showWindowControls`。
-    *   Line 73-85: `handleTitleBarMouseDown`。实现拖动功能，排除点击按钮等交互元素，双击检测防抖。调用 `getCurrentWindow().startDragging()`。
-    *   Line 87-90: `handleTitleBarDoubleClick`。最大化/还原切换。
-    *   Line 100-142: 左侧 Logo 和版本号。如果有更新，显示带红点的版本按钮和新版本提示。
-    *   Line 144-231: 右侧工具栏。包括深色模式切换、语言切换、通知开关、主题设置、赞助、关于。
-    *   Line 232-273: 窗口控制按钮（最小化、最大化、关闭），仅当 `showWindowControls` 为 true 时渲染。
+*   **Interface `TitleBarProps`** (行 11-24): 字段含 `notificationEnabled: boolean`, `onToggleNotification: () => void`, `onShowTheme: () => void`, `onShowAbout: () => void`, `onShowSponsor: () => void`, `onToggleLightMode: () => void`, `onMinimize: () => void`, `onToggleMaximize: () => void`, `onClose: () => void`, `isMaximized: boolean`, `showWindowControls?: boolean`（默认 true，行 23）。
+*   **Inline SVG Icons** (行 26-50): `MinimizeIcon`, `MaximizeIcon`, `RestoreIcon`, `CloseIcon`。
+*   **Component `TitleBar`** (行 52-278): memo 组件。
+    *   `handleTitleBarMouseDown` (行 73-85): 拖动窗口（调用 `getCurrentWindow().startDragging()`，行 84），排除按钮与 `showWindowControls=false` 情况（行 74, 82）。
+    *   `handleTitleBarDoubleClick` (行 87-90): 最大化切换（仅 `showWindowControls` 为真时生效，行 88）。
+    *   JSX: 左侧 Logo/版本/更新提示（行 100-142），右侧工具栏（光暗行 145-157、语言 159-172、通知 174-190、主题 192-204、赞助 206-217、关于 219-230），窗口控制按钮仅当 `showWindowControls` 渲染（行 232-273）。
 
 ### MobileDashboard.tsx (Mobile Dashboard Page)
 **文件**: `android/frontend/src/components/mobile/MobileDashboard.tsx`
 
-移动端的首页仪表盘，复用桌面 `DashboardPanel` 但注入移动专属卡片。
-
-*   **Constant `EXCLUDED_CARDS`** (Line 35): `['quickActions']`，移动端不渲染 DHCP 续租等桌面专属动作。
-*   **Component `MobileStatusCard`** (Line 38-96):
-    *   替代原 Hero 卡。展示网络状态指示灯（呼吸灯效果）、Portal 可达性、检查次数。
-    *   Line 81-91: 仅在 `formFactor === 'phone'` 时显示运营商徽标。
-*   **Component `MobileMonitorCard`** (Line 99-139):
-    *   监控摘要卡。包含 Radix Switch 开关和手动刷新按钮。
-*   **Component `MobileDashboard`** (Line 141-168):
-    *   Line 149-152: 定义 `extraCards`，包含 `mobileHero` 和 `mobileMonitor`。
-    *   Line 154-167: 渲染 `DashboardPanel`，传入账号管理 props 和排除/额外卡片配置。
+*   **Type `LampState`** (行 22): `'online' | 'offline' | 'loading' | 'error'`。
+*   **Constant `LAMP_COLOR`** (行 24-29): 状态灯颜色类映射。
+*   **Constant `noopAsync`** (行 32): 异步空函数，供排除卡片 handler 使用。
+*   **Constant `EXCLUDED_CARDS`** (行 35): `['quickActions']`，移动端排除 DHCP 续租（Windows 专属）。
+*   **Component `MobileStatusCard`** (行 38-96): 呼吸灯状态卡，仅 `formFactor === 'phone'` 显示运营商徽标（行 81-91），避免与平板 StatusBar 重复。
+*   **Component `MobileMonitorCard`** (行 99-139): 监控摘要卡，Radix Switch 开关（行 120-124）与刷新按钮（行 128-135）。
+*   **Component `MobileDashboard`** (行 141-168): 注入 `extraCards`（`mobileHero`, `mobileMonitor`，行 149-152）到 `DashboardPanel`，传 `excludeCards={EXCLUDED_CARDS}`（行 163），`onDhcpRenew` 等传 `noopAsync`（行 160-161），`mergeSelfServiceEmpty` 开启（行 165）。
 
 ### MobileMore.tsx (Mobile "More" Page)
 **文件**: `android/frontend/src/components/mobile/MobileMore.tsx`
 
-移动端“更多”聚合页，包含设置、测速、日志、后台检测等子页面。
-
-*   **Constant `TABS`** (Line 21-26): 定义子页签，其中 `monitor` 标记为 `qualityOnly`。
-*   **Component `MobileMore`** (Line 33-84):
-    *   Line 37: 根据 `enableNetworkQuality` 过滤 tabs。如果质量功能关闭，`monitor` tab 被移除，且如果当前处于 monitor 状态则降级回 settings。
-    *   Line 48-81: 渲染 Chips 切换器和对应的面板组件 (`MonitorPanel`, `SpeedTestPanel`, `LogPanel`, `SettingsPanel`)。
+*   **Type `MoreTab`** (行 19): `'monitor' | 'speedtest' | 'log' | 'settings'`。
+*   **Constant `TABS`** (行 21-26): 子页签，其中 `monitor` 标 `qualityOnly: true`（行 25）。
+*   **Interface `MobileMoreProps`** (行 28-31): 字段 `onShowOnboarding?: () => void`。
+*   **Component `MobileMore`** (行 33-84): 根据 `qualityEnabled`（行 36，读取 `enableNetworkQuality !== false`）过滤 tabs（行 37）；若 `subRaw === 'monitor'` 且质量关闭则降级到 `'settings'`（行 40）；chips 切换渲染 `MonitorPanel`/`SpeedTestPanel`/`LogPanel`/`SettingsPanel`（行 66-81）。
 
 ### MobileQuickActions.tsx (Mobile Quick Actions)
 **文件**: `android/frontend/src/components/mobile/MobileQuickActions.tsx`
 
-悬浮于底部导航栏上方的快捷登录/注销胶囊。
-
-*   **Component `MobileQuickActions`** (Line 14-78):
-    *   Line 24-32: `handleQuickLogin`。先执行 `api.bindToWifi()` 绑定 WLAN，再执行 `doLogin()`。
-    *   Line 35-39: 绝对定位，底部间距计算为 `safe-area-inset-bottom + 100px`。
-    *   Line 41-57: 注销按钮，磨砂 tonal 风格 (`btn-tonal-glass`)。
-    *   Line 58-74: 登录按钮，实心主色风格。
+*   **Component `MobileQuickActions`** (行 14-78):
+    *   `handleQuickLogin` (行 24-32): 先 `api.bindToWifi()` 再 `doLogin()`。
+    *   绝对定位悬浮于底栏上方（行 35-39，bottom `safe-area + 100px`）。
+    *   注销按钮 `btn-tonal-glass` 磨砂（行 41-57），登录按钮实心主色（行 58-74），视觉等重阴影（行 49, 66）。
 
 ### TabletShell.tsx (Tablet Shell Component)
 **文件**: `android/frontend/src/components/tablet/TabletShell.tsx`
 
-平板设备的主外壳组件，协调 TitleBar, StatusBar, DockNav, RightPanel 和主内容区。
-
-*   **Constants `PANEL_TITLES`** (Line 54-63): 各面板的标题和描述 key。
-*   **Constants `TOPBAR_ZOOM`** (Line 71, 1.3), `CONTENT_ZOOM` (Line 72, 0.9): 平板触屏适配系数。
-*   **Component `TabletShellInner`** (Line 74-380):
-    *   Line 79-95: Store hooks 获取状态。
-    *   Line 125-129: `useOrientation` 检测横竖屏。`shellStyle` 中，竖屏时将 `--right-panel-width` 置为 0 以隐藏右栏并使 Dock 居中。
-    *   Line 133-141: `handlePanelChange`。带锁机制防止动画冲突。
-    *   Line 146-151: 首次启动无账号时触发 Onboarding。
-    *   Line 153-155: `handleClearLogs`。
-    *   Line 160-222: 根据 `deferredPanel` switch-case 渲染对应面板内容 (`MobileDashboard`, `AccountPanel`, `SelfServicePanel`, `MonitorPanel`, `QualityPanel`, `SpeedTestPanel`, `SettingsPanel`, `LogPanel`)。
-    *   Line 232-246: TitleBar 包裹在 zoom 容器中以提升可点性。
-    *   Line 249-254: StatusBar 包裹在 zoom 容器中。
-    *   Line 256-301: 主内容区。使用 `AnimatePresence` 和 `m.div` 实现面板切换动画。
-    *   Line 295-300: 横屏时渲染 `RightPanel`。
-    *   Line 304-322: 侧边看板娘图片，根据屏幕宽度断点 (`min-[1008px]`, `min-[1330px]`) 显示。
-    *   Line 324-326: 渲染 `DockNav`。
-    *   Line 328-377: 渲染全局对话框 (`ToastContainer`, `SponsorCard`, `AboutDialog`, `UpdateAvailableDialog`, `ConfirmDialog`, `OnboardingWizard`)。
-*   **Component `TabletShell`** (Line 382-388): 错误边界包装。
+*   **Constant `PANEL_TITLES`** (行 54-63): 面板标题/描述 key 映射（无 `network`）。
+*   **Constant `PANEL_CONTAINER_STYLE`** (行 66): `{ contain: 'layout style' }`。
+*   **Constant `TOPBAR_ZOOM`** (行 71, 值 1.3): 顶部栏缩放提升触屏点性；**Constant `CONTENT_ZOOM`** (行 72, 值 0.9): 主区缩放平衡屏占比（与桌面不同，非 1:1）。
+*   **Component `TabletShellInner`** (行 74-380):
+    *   Store hooks (行 79-109)，`useOrientation` 横竖屏（行 125），竖屏设 `--right-panel-width: 0px` 隐藏右栏（行 126-129）。
+    *   `handlePanelChange` (行 133-141) 带锁防止动画冲突，写入 `safeStorage`。
+    *   首次无账号弹 Onboarding（行 146-151）。
+    *   `handleClearLogs` (行 153-155)。
+    *   Switch `deferredPanel` 渲染面板（行 160-222）：dashboard→MobileDashboard（行 161-163），account→AccountPanel（行 164-176），selfservice→SelfServicePanel（行 177-179），monitor→MonitorPanel（行 180-188），quality→QualityPanel（行 189-197），speedtest→SpeedTestPanel（行 198-204），settings→SettingsPanel（行 205-213），log→LogPanel（行 214-221）。
+    *   JSX: TitleBar/StatusBar 包 zoom（行 231-254，TitleBar 的 `showWindowControls={false}` 行 234），主区 `<main>` 带 `pb-28` 类（行 257），AnimatePresence（行 276-291），横屏 RightPanel（行 295-300），侧边看板娘断点（行 304-322），DockNav（行 324-326），全局对话框（行 332-377）。
+*   **Component `TabletShell`** (行 382-388): ErrorBoundary 包装。
 
 ## Architecture
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│                      TabletShell / App Root                  │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │ TitleBar (zoom:1.3)                                     │ │
-│  ├─────────────────────────────────────────────────────────┤ │
-│  │ StatusBar (zoom:1.3)                                    │ │
-│  ├─────────────────────────────────────────────────────────┤ │
-│  │                                                         │
-│  │  ┌──────────────────────┐  ┌────────────────────────┐   │
-│  │  │ Main Content Area    │  │ RightPanel (Logs)      │   │
-│  │  │ (zoom:0.9)           │  │                        │   │
-│  │  │                      │  │ Visible in Landscape   │   │
-│  │  │ AnimatePresence:     │  │ Hidden in Portrait     │   │
-│  │  │ m.div (panelVariants)│  │                        │   │
-│  │  │                      │  │                        │   │
-│  │  │ Case:                 │  │                        │   │
-│  │  │ - MobileDashboard    │  │                        │   │
-│  │  │ - AccountPanel       │  │                        │   │
-│  │  │ - SettingsPanel etc. │  │                        │   │
-│  │  └──────────────────────┘  └────────────────────────┘   │
-│  │                                                         │
-│  │  ┌─────────────────────────────────────────────────────┐│
-│  │  │ DockNav (Fixed Bottom)                              ││
-│  │  │ - Magnetic Items (GSAP quickTo)                     ││
-│  │  │ - Active Pill (Framer Motion layoutId)              ││
-│  │  └─────────────────────────────────────────────────────┘│
-│  └─────────────────────────────────────────────────────────┘ │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │ MobileQuickActions (Absolute, above Dock on Phone only) │ │
-│  └─────────────────────────────────────────────────────────┘ │
+│ TabletShell (TabletShell.tsx)                                │
+│ ┌────────────┐ ┌────────────┐ ┌────────────────────────────┐ │
+│ │ TitleBar   │ │ StatusBar  │ │ Main Content (zoom 1.0)    │ │
+│ │ zoom 1.3   │ │ zoom 1.3   │ │ AnimatePresence m.div      │ │
+│ └────────────┘ └────────────┘ │ - MobileDashboard etc.     │ │
+│                               └────────────────────────────┘ │
+│ ┌──────────────────────┐  ┌───────────────────────────────┐ │
+│ │ RightPanel (landscape│  │ DockNav (DockNav.tsx)          │ │
+│ │ only, logs split)    │  │ glass-dock + useDockLens       │ │
+│ └──────────────────────┘  │ ActionButton login/logout     │ │
+│                           └───────────────────────────────┘ │
+│ Phone shell uses BottomNav + MobileQuickActions (separate)  │
 └──────────────────────────────────────────────────────────────┘
+   DockNav onPanelChange ► TabletShell.handlePanelChange ► activePanel
 ```
 
 ## Data Flow
 
-1.  **State Initialization**: `TabletShellInner` 通过 Zustand stores (`useAdapterStore`, `useConfigStore`, `useAuthStore` 等) 获取全局状态，如 `activePanel`, `logs`, `accounts`, `isLoggingIn`。
-2.  **Navigation Trigger**:
-    *   User clicks an item in `DockNav`.
-    *   `DockNav` calls `onPanelChange(panelName)` prop.
-    *   `TabletShell.handlePanelChange` updates `activePanel` in `useAdapterStore`.
-    *   `useDeferredValue(activePanel)` creates a deferred version to allow UI updates without blocking input.
-3.  **Content Rendering**:
-    *   `TabletShell` switches on `deferredPanel` to render the specific panel component (e.g., `MobileDashboard`).
-    *   For `MobileDashboard`, it passes props to `DashboardPanel` and injects `extraCards` (`MobileStatusCard`, `MobileMonitorCard`).
-4.  **Log Updates**:
-    *   Backend events update `useLogToastStore` logs.
-    *   `RightPanel` receives `logs`.
-    *   If `logs.length > 50`, `RightPanel` splits logs into `staticLogs` (no animation) and `animLogs` (framer-motion animations).
-    *   Auto-scroll logic keeps view at bottom if user hasn't scrolled up.
-5.  **Authentication Flow**:
-    *   `MobileQuickActions` or `DockNav` ActionButton triggers `doLogin` or `doLogout`.
-    *   `MobileQuickActions` may pre-bind WiFi via Tauri API before login.
-    *   Auth state changes reflect in UI (buttons disable during loading, show spinners).
+1. **State Initialization**: `TabletShellInner` 通过 Zustand stores（`useAdapterStore`, `useConfigStore`, `useAuthStore`, `useLogToastStore` 等，行 79-109）获取 `activePanel`, `logs`, `accounts`, `isLoggingIn`。
+2. **Navigation Trigger**:
+   * 用户点击 `DockNav` 项 → `onLensSelect` (DockNav 行 197-203) → `onPanelChange(panelName)` prop。
+   * `TabletShell.handlePanelChange` (行 133-141) 更新 `useAdapterStore.activePanel` 并写 `safeStorage`。
+   * `useDeferredValue(activePanel)` (行 80) 生成 `deferredPanel` 避免阻塞。
+   * 手机端 `BottomNav` 类似通过 `onChange` 回调（BottomNav 行 37-40, 107）。
+3. **Content Rendering**: `TabletShell` switch `deferredPanel` (行 160-222) 渲染对应面板；`MobileDashboard` 注入 `extraCards` 至 `DashboardPanel` (MobileDashboard 行 154-167)。
+4. **Log Updates**: 后端事件更新 `useLogToastStore.logs` → `RightPanel` 收 `logs` props → 超过阈值分片 (RightPanel 行 148-157) → 自动滚动 (行 134-138)。
+5. **Authentication**: `MobileQuickActions` 或 `DockNav ActionButton` 触发 `doLogin`/`doLogout`；`MobileQuickActions.handleQuickLogin` 先绑 WLAN (行 24-32)；认证状态反映按钮 loading。
 
 ## Connections
 
-*   [[android/frontend/src/hooks/useAdapterStore]]: Manages `activePanel` state, central to navigation.
-*   [[android/frontend/src/hooks/useConfigStore]]: Provides configuration for network quality, accounts, language, etc.
-*   [[android/frontend/src/hooks/useAuthStore]]: Handles login/logout state and actions.
-*   [[android/frontend/src/shared/ui-constants]]: Defines `NAV_ITEMS` used by `DockNav`.
-*   [[android/frontend/src/auth/DashboardPanel]]: Reused by `MobileDashboard` for desktop-like card structure.
-*   [[android/frontend/src/monitor/MonitorPanel]]: Used in `TabletShell` and `MobileMore`.
-*   [[android/frontend/src/settings/SettingsPanel]]: Used in `TabletShell` and `MobileMore`.
-*   [[android/frontend/src/shared/LogPanel]]: Used in `MobileMore` and `TabletShell`.
+* [[android/frontend/src/hooks/useAdapterStore]]: 管理 `activePanel` 导航核心状态（DockNav 行 178, TabletShell 行 79）。
+* [[android/frontend/src/hooks/useConfigStore]]: 提供 `enableNetworkQuality`, `accounts`, `language` 等（BottomNav 行 31, DockNav 行 181）。
+* [[android/frontend/src/hooks/useAuthStore]]: 处理登录/注销状态与动作（DockNav 行 179-183, MobileQuickActions 行 17-20）。
+* [[android/frontend/src/shared/ui-constants]]: 导出 `NAV_ITEMS` 供 DockNav 过滤（DockNav 行 15, 185）。
+* [[android/frontend/src/auth/DashboardPanel]]: 被 MobileDashboard 复用注入卡片（MobileDashboard 行 17, 155）。
+* [[android/frontend/src/monitor/MonitorPanel]]: 用于 TabletShell 与 MobileMore（TabletShell 行 41, MobileMore 行 8）。
+* [[android/frontend/src/settings/SettingsPanel]]: 用于 TabletShell 与 MobileMore（TabletShell 行 44, MobileMore 行 10）。
+* [[android/frontend/src/shared/LogPanel]]: 用于 MobileMore 与 TabletShell（MobileMore 行 11, TabletShell 行 29）。
+* [[android/frontend/src/monitor/StatusBar]]: 平板外壳引入（TabletShell 行 35, 250）。
+* [[android/frontend/src/lib/dock-lens]]: `useDockLens` 镜头系统被 BottomNav/DockNav 共用（BottomNav 行 15, DockNav 行 28）。
+* [[android/frontend/src/lib/glass-dock]]: `useGlassRefraction` 玻璃折射同源（BottomNav 行 14, DockNav 行 27）。
+
+## Known Issues
+
+* **RightPanel 清空动画在 WebView 后台卡死**: GSAP 回调依赖 rAF ticker，安卓 WebView 后台/遮挡时 rAF 停摆，tween 冻结导致 `onComplete`/`onInterrupt` 不触发，`isClearing` 永久 true（RightPanel.tsx 行 108-111）。已用 `setTimeout` failsafe 兜底（行 112-117），且 `onInterrupt` 复位避免永久禁用（行 99-105）。
+* **BottomNav 玻璃样式优先级冲突**: 注释明确禁止在 JSX 写 inline 背景样式覆盖 `.glass-nav` CSS，否则切档时死代码（BottomNav.tsx 行 73-75）。
+* **DockNav 按钮自缩放与镜片冲突**: 已移除 hover 上浮放大（原 `whileHover` scale），避免 scale 撑高 nav 导致镜片尺寸抖动（DockNav.tsx 行 131-133 注释说明）。
+* **TabletShell 主区缩放**: 主区使用 `CONTENT_ZOOM=0.9` 缩放（`TabletShell.tsx` 行 72 定义、行 256 使用），与桌面 1:1 不同，旨在平衡平板触屏屏占比。
+* **MobileDashboard 运营商徽标重复**: 仅 `formFactor === 'phone'` 渲染运营商徽标，避免与平板 StatusBar 重复（MobileDashboard.tsx 行 49-50, 81-91）。
+* **MobileMore 质量关闭派生降级**: `config` 晚到导致 `qualityEnabled` 翻转时，已存的 `monitor` sub 需降级到 `settings` 保持 chips 一致（MobileMore.tsx 行 39-40）。
+* **动画降级条件**: DockNav 镜头系统在非玻璃档或 economy 档或 reducedMotion 时禁用（DockNav.tsx 行 195：`glassLevel !== 'off' && profile.tier !== 'economy' && !reducedMotion`）；BottomNav 同理（BottomNav.tsx 行 51：`glassLevel !== 'off' && !reducedMotion`）。
+* **TitleBar 窗口控制在平板上禁用**: 安卓平板无窗口管理 API，TabletShell 向 TitleBar 传入 `showWindowControls={false}`（TabletShell.tsx 行 234），此时标题栏拖动、双击最大化及最小化/关闭按钮均被隐藏或禁用（TitleBar.tsx 行 74, 82, 88, 232）。

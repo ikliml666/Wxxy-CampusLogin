@@ -9,7 +9,7 @@ tags: [前端, React, CSS, 双端, 组件]
 
 ## Overview
 
-本文档记录 `SelfOnlineCards`（桌面/Tauri）与 `SelfOnlineStack`（Android/WebView）中在线设备卡片及其堆叠轮播组件的实现细节。两个平台共享相同的视觉规格（方案 A），但在交互模式上存在差异：桌面端采用水平封面流（Coverflow）或窄屏变体（narrow），移动端竖排采用垂直封面流，平板采用水平封面流（`OnlineDeviceStackH`）。核心设计原则是“整副牌连续滚动”，即所有槽位常挂载并通过 `transform` 过渡切换，无离场淡出动画。
+本文档记录 `SelfOnlineCards`（桌面/Tauri）与 `SelfOnlineStack`（Android/WebView）中在线设备卡片及其堆叠轮播组件的实现细节。两个平台共享相同的视觉规格（方案 A），但在交互模式上存在差异：桌面端采用水平封面流（Coverflow）或窄屏变体（narrow），移动端竖排采用垂直封面流（`OnlineDeviceStack`），平板采用水平封面流（`OnlineDeviceStackH`）。核心设计原则是“整副牌连续滚动”，即所有槽位常挂载并通过 `transform` 过渡切换，无离场淡出动画。
 
 ## Key Components
 
@@ -30,7 +30,7 @@ tags: [前端, React, CSS, 双端, 组件]
 - `onOffline?: () => void` (行 22): 注销回调；缺省不渲染注销按钮（总览卡掩码态：验证通过前不提供注销入口）。
 
 #### OnlineDeviceCard (行 25-108)
-纯展示组件，负责渲染单个设备卡片。格式化由面板完成后传入，避免与 `SelfServicePanel` 循环依赖。
+纯展示组件，负责渲染单个设备卡片。格式化由面板完成后传入，避免与 `SelfServicePanel` 循环依赖（行 6-7 注释）。
 - **布局结构**：
     - 顶部 (行 42-67)：左侧显示上线时间（带绿色在线指示点，行 44），右侧显示别名标签（行 48-52，仅 `alias` 存在时渲染）、终端类型徽章（行 53-55）及可选的重命名按钮（行 56-65，仅 `onRename` 存在时渲染）。
     - 中部 (行 69-78)：IP/MAC 垂直芯片组，IP 在上（行 70-73），MAC 在下（行 74-77），芯片与卡面互为反色（`bg-muted` / `dark:bg-card`）保持层次。
@@ -92,8 +92,8 @@ tags: [前端, React, CSS, 双端, 组件]
     - 水平复用常量 `CF_X` (行 32), `CF_INSET` (行 33), `SIDE_SCALE` (行 34), `SIDE_SCALE_2` (行 35), `DRAG_CLAMP` (行 36), `NARROW_MIN_W` (行 41)。
 - **状态** (行 51-58): `index`, `dragY`, `dragging`, `cardH`, `stageRef`, `drag` ref, `suppressClick` ref。
 - **效果**: 列表变短夹页码 (行 61-63)；外部焦点 (行 66-69)；量高 `ResizeObserver` (行 74-89)。
-- **布局逻辑** (行 91-185):
-    - 单卡返回 null (行 91)。
+- **布局逻辑** (行 91-186):
+    - 列表为空（0 卡）返回 null (行 91)。
     - 两张卡时 `peekBottom = 0` (行 93) 避免底部空留。
     - 容器高度 = `cardH + PEEK_TOP + peekBottom` (行 162)。
     - 姿势表 `pose` 基于 `r = (i-index+count)%count` (行 94, 173-186)：中央 `r=0` 位于 `top: PEEK_TOP` 全亮；下一张 `r=1` 顶部露出 `top:0` 缩 0.75 压暗；上一张 `r=count-1` 底部露出 `top: bottomTop` 缩 0.75；更深透明常挂载。
@@ -163,3 +163,9 @@ tags: [前端, React, CSS, 双端, 组件]
 
 - [[learnings/translatex-sum-requires-calc]]: 记录了 `translateX` 多值求和必须包裹 `calc()` 的历史教训，直接影响了 `OnlineDeviceCardStack`（行 268-269, 273, 280）和 `OnlineDeviceStackH`（行 473-474, 478, 485）的定位逻辑实现。
 - [[learnings/browser-smoke-test-tauri-mock]]: 提供了验证此类静默 CSS 错误的探针方法。
+
+## Known Issues
+
+- **CSS `calc()` 拼接陷阱**：在 `OnlineDeviceCardStack`（行 268-269）与 `OnlineDeviceStackH`（行 473-474）中，水平偏移合并若裸写 `translateX(-50% + x%)` 会被浏览器整条丢弃，必须使用 `calc()` 包装（如行 273、280、478、485）。这是双端堆叠定位的核心已知坑。
+- **单卡交互禁用**：当设备列表仅剩 1 张时，桌面端 `OnlineDeviceCardStack`（行 181、216）与安卓端 `OnlineDeviceStack`/`OnlineDeviceStackH`（行 105、140、386、421）均禁用拖拽与点击换页，卡片居中定格。
+- **安卓竖排宽度**：`V_CARD_INSET` 曾误用 `inset-x-[18%]`（卡宽仅 64%）导致真机窄屏排版挤压，现改为 `inset-x-[6%]`（行 27）修复。
