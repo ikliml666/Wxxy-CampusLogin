@@ -445,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "campus-login"
-version = "2.4.1"
+version = "2.4.3"
 dependencies = [
  "aes",
  "arc-swap",
@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "campus-login-android"
-version = "2.4.1"
+version = "2.4.3"
 dependencies = [
  "campus-login",
  "chrono",
