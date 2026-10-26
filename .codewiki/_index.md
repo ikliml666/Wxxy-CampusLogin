@@ -37,7 +37,6 @@
 - [[decisions/credential-single-source|凭据单一来源（登录信息为自助服务与运营商绑定唯一凭据源）]]
 - [[decisions/remove-auth-layer-traits|删除 auth 层 trait 抽象（AdapterResolver/PortalChecker/ProtocolClient）]]
 - [[decisions/protocol-core-single-source|协议核心单点共享（双端铁律）]]
-- [[decisions/deliberate-background-check-skips|后台巡检中被主动跳过的逻辑清单（易被误认为缺陷，实为设计）]]
 - [[decisions/wifi-ssid-permission-route|安卓 SSID 获取走 NEARBY_WIFI_DEVICES 免定位路线]]
 - [[decisions/android-webview-background-timers|安卓 WebView 后台停表与内存压力钩子]]
 - [[decisions/android-exit-guard-renderer-policy|安卓后台留存：退出护栏、质量循环稳态退避与 renderer 优先级放行]]

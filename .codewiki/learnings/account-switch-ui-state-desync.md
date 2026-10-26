@@ -15,9 +15,9 @@ tags: [教训, 账号, 前端状态, IPC, zustand]
 
 当前同步保障如下：
 
-1. **后端返回值契约**：`switch_account` 命令（`tauri-app/src-tauri/src/commands/account.rs:26-45`）成功时调用 `AccountResult::ok_with_account(safe_name, display_config)`（`account.rs:403`），该函数定义于 `tauri-app/src-tauri/src/infra/state/mod.rs:347-349`，明确将 `active_account` 设为 `Some(account)`；因 `#[serde(skip_serializing_if = "Option::is_none")]`（`mod.rs:335-336`）仅对 `None` 跳过，成功时 JSON 必含 `activeAccount` 键。失败路径 `AccountResult::err`（`mod.rs:350-351`）则为 `None`，键缺失，前端按 `success` 字段分支处理。
+1. **后端返回值契约**：`switch_account` 命令（`tauri-app/src-tauri/src/commands/account.rs:26-45`）成功时调用 `AccountResult::ok_with_account(safe_name, display_config)`（`account.rs:403`），该函数定义于 `tauri-app/src-tauri/src/infra/state/mod.rs:347-349`，明确将 `active_account` 设为 `Some(account)`；因 `#[serde(skip_serializing_if = "Option::is_none")]`（`mod.rs:335`）仅对 `None` 跳过，成功时 JSON 必含 `activeAccount` 键。失败路径 `AccountResult::err`（`mod.rs:350-352`）则为 `None`，键缺失，前端按 `success` 字段分支处理。
 2. **前端守卫使用严格不等判断**：`useAccount.ts` 的 `handleSwitchAccount`（`tauri-app/frontend/src/account/useAccount.ts:77-106`）使用 `if (result?.activeAccount !== undefined) store.setActiveAccount(result.activeAccount)`（行91），与 `handleDeleteAccount`（行72）一致，避免真值判断将空串或缺失误吞。
-3. **事件路径独立同步**：托盘菜单切换账号走 `perform_switch_account_sync`（`account.rs:52-79`）→ `save_config_to_disk_encrypted` → 广播 `config-changed`，前端 `useEventListeners.ts` 的 `onConfigChanged`（行332-353）在 `mergeConfigFromBackend` 后，从 `data.config.activeAccount` 比对调 `setActiveAccount`（行342-346），并拉取 `listAccounts` 刷新列表（行347-350）。
+3. **事件路径独立同步**：托盘菜单切换账号走 `perform_switch_account_sync`（`account.rs:52-79`）→ `save_config_to_disk_encrypted`（行71）→ 广播 `config-changed`，前端 `useEventListeners.ts` 的 `onConfigChanged`（行336-357）在 `mergeConfigFromBackend` 后，从 `data.config.activeAccount` 比对调 `setActiveAccount`（行347-350），并拉取 `listAccounts` 刷新列表（行351-354）。
 
 ## 根因
 
@@ -34,7 +34,7 @@ tags: [教训, 账号, 前端状态, IPC, zustand]
 
 1. 后端 `perform_switch_account_sync` 返回 `Ok(safe_name)`（`account.rs:52-79`，尤行78），命令层 `switch_account` 用 `AccountResult::ok_with_account`（`account.rs:39`）保证成功时 `activeAccount` 出现在 JSON。
 2. 前端 `handleSwitchAccount` 守卫改 `!== undefined`（`useAccount.ts:77`）；`handleDeleteAccount` 同样（行72）；`handleRenameAccount` 亦对齐（行123）。
-3. `useEventListeners.ts` 的 `config-changed` 分支补两步：比对 `data.config.activeAccount` 调 `setActiveAccount`（行342-346），并 `api.listAccounts?.()` 刷新账号列表（行347-350）。
+3. `useEventListeners.ts` 的 `config-changed` 分支补两步：比对 `data.config.activeAccount` 调 `setActiveAccount`（行347-350），并 `api.listAccounts?.()` 刷新账号列表（行351-354）。
 
 附加并发防护：账号操作单飞锁 `ACCOUNT_OP_LOCK`（`account.rs:10`）与 `try_account_op_lock`（`account.rs:13-15`）确保 switch/rename/delete 互斥，避免竞态导致状态回滚。前端 `switchInFlight` 去重（`useAccount.ts:11,79,99-105`）防止重复命令交错。
 
