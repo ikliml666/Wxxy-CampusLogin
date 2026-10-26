@@ -98,6 +98,9 @@ pub async fn check_campus_status(app_handle: AppHandle) -> Result<serde_json::Va
         "requiredNetworkName": required_network_name,
         "campusWifi": result.wifi,
         "campusWired": result.wired,
+        // 逐卡判定明细：前端按适配器名取各自的 onCampus/message，
+        // 不再靠 wifi/wired 整类聚合推断（那会把有 IP 卡的结论套到无 IP 卡上）
+        "adapters": result.adapters,
     }))
 }
 

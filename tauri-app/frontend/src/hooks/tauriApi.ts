@@ -14,6 +14,16 @@ interface ConnectionCampusStatus {
   message: string
 }
 
+/** 逐卡校园网判定结果（每张网卡独立走 名称→网段→网关→Portal 短路判定） */
+export interface AdapterCampusStatus {
+  name: string
+  wireless: boolean
+  onCampus: boolean
+  /** 命中的判定腿：name / subnet / gateway / portal；全未命中为 null */
+  matchedBy: string | null
+  message: string
+}
+
 interface CampusStatusResult {
   onCampusNetwork: boolean
   currentSsid: string | null
@@ -22,6 +32,8 @@ interface CampusStatusResult {
   requiredNetworkName: string
   campusWifi: ConnectionCampusStatus | null
   campusWired: ConnectionCampusStatus | null
+  /** 逐卡判定明细；旧版后端可能不返回，故可选 */
+  adapters?: AdapterCampusStatus[]
 }
 
 interface TauriApi {

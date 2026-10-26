@@ -47,10 +47,20 @@ function buildCampusBgStatusPatch(
 ): Partial<BackgroundStatus> {
   const a1Info = adapters.find(a => a.name === adapter1)
   const a2Info = adapters.find(a => a.name === adapter2)
-  const a1OnCampus = a1Info ? (a1Info.wireless ? campusStatus.campusWifi?.onCampus : campusStatus.campusWired?.onCampus) : undefined
-  const a2OnCampus = a2Info ? (a2Info.wireless ? campusStatus.campusWifi?.onCampus : campusStatus.campusWired?.onCampus) : undefined
-  const a1CampusMessage = a1Info ? (a1Info.wireless ? campusStatus.campusWifi?.message : campusStatus.campusWired?.message) : undefined
-  const a2CampusMessage = a2Info ? (a2Info.wireless ? campusStatus.campusWifi?.message : campusStatus.campusWired?.message) : undefined
+  // 优先取逐卡判定结果（每张卡独立短路判定）；旧版后端无 adapters 字段时
+  // 才回退到按 wifi/wired 整类聚合推断
+  const findCard = (name: string) => campusStatus.adapters?.find(a => a.name === name)
+  const classFallback = (info?: Adapter) => info
+    ? (info.wireless ? campusStatus.campusWifi : campusStatus.campusWired)
+    : undefined
+  const a1Card = findCard(adapter1)
+  const a2Card = findCard(adapter2)
+  const a1Class = classFallback(a1Info)
+  const a2Class = classFallback(a2Info)
+  const a1OnCampus = a1Card?.onCampus ?? a1Class?.onCampus
+  const a2OnCampus = a2Card?.onCampus ?? a2Class?.onCampus
+  const a1CampusMessage = a1Card?.message ?? a1Class?.message
+  const a2CampusMessage = a2Card?.message ?? a2Class?.message
   return {
     onCampusNetwork: campusStatus.onCampusNetwork,
     campusWifi: campusStatus.campusWifi,

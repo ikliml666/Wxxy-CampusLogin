@@ -12,6 +12,16 @@ interface ConnectionCampusStatus {
   message: string
 }
 
+/** 逐卡校园网判定结果（每张网卡独立走 名称→网段→网关→Portal 短路判定） */
+export interface AdapterCampusStatus {
+  name: string
+  wireless: boolean
+  onCampus: boolean
+  /** 命中的判定腿：name / subnet / gateway / portal；全未命中为 null */
+  matchedBy: string | null
+  message: string
+}
+
 export interface BackgroundStatus {
   isRunning: boolean
   checkCount: number
@@ -28,6 +38,8 @@ export interface BackgroundStatus {
   requiredNetworkName?: string
   campusWifi?: ConnectionCampusStatus | null
   campusWired?: ConnectionCampusStatus | null
+  /** 逐卡判定明细（后台巡检事件与 checkCampusStatus 同构）；旧版后端可能不返回 */
+  campusAdapters?: AdapterCampusStatus[] | null
   a1CampusMessage?: string | null
   a2CampusMessage?: string | null
   a1OnCampus?: boolean | null

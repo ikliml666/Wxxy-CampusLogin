@@ -121,13 +121,16 @@ export function useEventListeners() {
           const adapterMap = new Map(currentAdapters.map(a => [a.name, a]))
           const campusWifi = data.campusWifi !== undefined ? data.campusWifi : prev.campusWifi
           const campusWired = data.campusWired !== undefined ? data.campusWired : prev.campusWired
+          const campusAdapters = data.campusAdapters !== undefined ? data.campusAdapters : prev.campusAdapters
           const a1CampusMsg = data.a1CampusMessage !== undefined ? data.a1CampusMessage : prev.a1CampusMessage
           const a2CampusMsg = data.a2CampusMessage !== undefined ? data.a2CampusMessage : prev.a2CampusMessage
           const buildStatus = (name: string, online: boolean | null | undefined, msg: string | null | undefined, perAdapterCampusMsg?: string | null): AdapterOnlineStatus => {
             const existing = prevMap.get(name)
             const adapterInfo = adapterMap.get(name)
             const isWireless = adapterInfo?.wireless ?? existing?.wireless ?? false
-            const matchedCampusMsg = isWireless ? campusWifi?.message : campusWired?.message
+            // 逐卡判定优先：该卡自己的结论/文案；无逐卡数据时才退回整类聚合文案
+            const cardCampusMsg = campusAdapters?.find(c => c.name === name)?.message
+            const matchedCampusMsg = cardCampusMsg ?? (isWireless ? campusWifi?.message : campusWired?.message)
             return {
               name,
               // 优先使用实时 adapterInfo（来自 store.adapters 的最新数据）
@@ -157,6 +160,7 @@ export function useEventListeners() {
             requiredNetworkName: data.requiredNetworkName ?? prev.requiredNetworkName,
             campusWifi: data.campusWifi !== undefined ? data.campusWifi : prev.campusWifi,
             campusWired: data.campusWired !== undefined ? data.campusWired : prev.campusWired,
+            campusAdapters: data.campusAdapters !== undefined ? data.campusAdapters : prev.campusAdapters,
             a1CampusMessage: data.a1CampusMessage !== undefined ? data.a1CampusMessage : prev.a1CampusMessage,
             a2CampusMessage: data.a2CampusMessage !== undefined ? data.a2CampusMessage : prev.a2CampusMessage,
             a1OnCampus: data.a1OnCampus !== undefined ? data.a1OnCampus : prev.a1OnCampus,

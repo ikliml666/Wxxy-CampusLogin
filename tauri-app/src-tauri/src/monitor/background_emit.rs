@@ -154,6 +154,9 @@ pub(super) fn emit_background_check_result(
         "requiredNetworkName": result.config.required_network_name,
         "campusWifi": result.campus_result.wifi,
         "campusWired": result.campus_result.wired,
+        // 逐卡判定明细：前端按适配器名取各自的 onCampus/message，
+        // 不再靠 wifi/wired 整类聚合推断（那会把有 IP 卡的结论套到无 IP 卡上）
+        "campusAdapters": result.campus_result.adapters,
         "a1CampusMessage": result.a1_campus_msg,
         "a2CampusMessage": result.a2_campus_msg,
         "a1OnCampus": result.a1_on_campus,
