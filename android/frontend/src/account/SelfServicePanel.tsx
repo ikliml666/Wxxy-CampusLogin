@@ -324,7 +324,10 @@ export function SelfServicePanel() {
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
+            {/* 窄屏（手机 <640px）纵向堆叠：图标+标题占一行、两个操作按钮另起一行右对齐。
+                原横排一行时「刷新」+「VPN 连接」约 228px 的固定宽度把描述文字压成三行
+                （用户真机截图反馈「两个按钮导致文字挤压」）。sm 及以上（桌面/平板）维持原横排。 */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                   <Globe className="h-5 w-5 text-primary" />
@@ -334,14 +337,14 @@ export function SelfServicePanel() {
                   <CardDescription>{t('account.selfDashboardDesc')}</CardDescription>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 shrink-0 max-sm:basis-full max-sm:justify-end">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => void fetchDashboard()}
                   disabled={!hasCred || querying}
                   className="gap-1.5 h-8"
-                  title={hasCred ? undefined : t('account.selfDashboardNeedCred')}
+                  title={hasCred ? undefined : t('account.needLoginPassword')}
                 >
                   {querying ? (
                     <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('account.selfDashboardQuerying')}</>
@@ -379,7 +382,7 @@ export function SelfServicePanel() {
                   cards={onlineList.map((item) => (
                     <OnlineDeviceStackCard
                       key={item.sessionId}
-                      loginTime={item.loginTime?.split(' ')[1] || item.loginTime || '-'}
+                      loginTime={item.loginTime || '-'}
                       ip={item.ip || '-'}
                       mac={item.mac ? formatMac(item.mac) : '-'}
                       flowMb={formatFlowMb(item.downFlow, item.upFlow)}
@@ -398,7 +401,7 @@ export function SelfServicePanel() {
                   cards={onlineList.map((item) => (
                     <OnlineDeviceStackCard
                       key={item.sessionId}
-                      loginTime={item.loginTime?.split(' ')[1] || item.loginTime || '-'}
+                      loginTime={item.loginTime || '-'}
                       ip={item.ip || '-'}
                       mac={item.mac ? formatMac(item.mac) : '-'}
                       flowMb={formatFlowMb(item.downFlow, item.upFlow)}
@@ -423,22 +426,22 @@ export function SelfServicePanel() {
         </AnimatedCard>
       </div>
 
-      {/* 凭据未配置时隐藏融合查询卡:指引集中在上方凭据卡,避免同文案多卡重复 */}
-      {hasCred && (
-        <SelfOnlineRecords
-          configLoaded={configLoaded}
-          hasCred={hasCred}
-          history={history}
-          logStart={logStart}
-          logEnd={logEnd}
-          logQuerying={logQuerying}
-          logRows={logRows}
-          logSummary={logSummary}
-          onLogStartChange={setLogStart}
-          onLogEndChange={setLogEnd}
-          onQuery={fetchOnlineLog}
-        />
-      )}
+      {/* 上网记录卡无条件渲染（与桌面同款）：未配凭据时由卡内 hasCred 分支给出
+          「去账号管理填登录信息」的指引，比整卡隐藏更能说明功能存在 */}
+      <SelfOnlineRecords
+        configLoaded={configLoaded}
+        hasCred={hasCred}
+        history={history}
+        logStart={logStart}
+        logEnd={logEnd}
+        logQuerying={logQuerying}
+        logRows={logRows}
+        logSummary={logSummary}
+        onLogStartChange={setLogStart}
+        onLogEndChange={setLogEnd}
+        onQuery={fetchOnlineLog}
+      />
+
       <ConfirmDialog
         open={confirmTarget !== null}
         title={t('account.selfOfflineConfirmTitle')}

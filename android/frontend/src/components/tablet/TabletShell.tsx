@@ -66,10 +66,25 @@ const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
 const PANEL_CONTAINER_STYLE: React.CSSProperties = { contain: 'layout style' }
 
 // 平板触屏适配系数:桌面布局件按鼠标设计(标题栏按钮 28px 触屏难点中),
-// 顶部两栏(TitleBar/StatusBar)整体放大提升可点性,内容区适度缩小平衡屏占比。
+// 顶部两栏(TitleBar/StatusBar)整体放大提升可点性。
+// 内容区不再缩放(CONTENT_ZOOM 已移除):0.9 的缩小让卡片与桌面观感不一致,
+// 且 zoom 会连带缩小内边距与字体,平板用户反馈比桌面"憋屈";现与桌面 1:1。
 // CSS zoom 由 WebView(Chromium)原生支持,只作用于本外壳,不碰手机外壳与桌面端。
 const TOPBAR_ZOOM = 1.3
-const CONTENT_ZOOM = 0.9
+
+// 懒加载面板 chunk 加载期间的轻量骨架,与桌面 App.tsx 的 PanelSkeleton 同款:
+// 切换面板时不再整块空白(原 fallback={null})。
+function PanelSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true">
+      <div className="rounded-2xl border border-border/60 bg-background/60 p-6 animate-pulse space-y-3">
+        <div className="h-5 w-1/3 rounded bg-muted" />
+        <div className="h-4 w-1/2 rounded bg-muted/70" />
+        <div className="h-3 w-2/3 rounded bg-muted/50" />
+      </div>
+    </div>
+  )
+}
 
 function TabletShellInner() {
   useAppInit()
@@ -253,9 +268,22 @@ function TabletShellInner() {
         />
       </div>
 
-      <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize" style={{ zoom: CONTENT_ZOOM }}>
-        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 pb-28 min-w-0 z-[1] surface-main-square" style={{ background: 'var(--surface-main)', contain: 'layout style paint' }}>
-          <div className="mx-auto max-w-[720px]">
+      <div className="flex flex-1 min-h-0 overflow-hidden layout-smooth-resize">
+        {/* 主区下内边距对准「悬浮栏顶边到视口底」的距离，与桌面 App.tsx 同款口径
+            （dock 高 55 + bottom 20 = 75px），再叠加安卓导航栏的 safe-area 让位：
+            滚到底时最后一条内容刚好贴玻璃上缘，滚动中每条内容都从玻璃背后穿过。 */}
+        <main
+          className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 min-w-0 z-[1] surface-main-square"
+          style={{
+            background: 'var(--surface-main)',
+            contain: 'layout style paint',
+            paddingBottom: 'calc(75px + env(safe-area-inset-bottom, 0px))',
+          }}
+        >
+          {/* 宽度随视口自适应：与桌面 isMaximized 的 720/880 双档同口径。
+              平板无「最大化」状态，用视口宽度代替——横屏 ≥1024px 给 880，
+              竖屏维持 720（桌面主区同款读数）。 */}
+          <div className="mx-auto max-w-[720px] min-[1024px]:max-w-[880px]">
             <div className="mb-6 relative z-[1]">
               {/* 标题/描述与内容同向滑入：复用 panelVariants（y:8→0 进入），时序与内容区一致 */}
               <AnimatePresence mode="wait" initial={false}>
@@ -285,7 +313,7 @@ function TabletShellInner() {
                 style={PANEL_CONTAINER_STYLE}
               >
                 <ErrorBoundary>
-                  <Suspense fallback={null}>{panelContent}</Suspense>
+                  <Suspense fallback={<PanelSkeleton />}>{panelContent}</Suspense>
                 </ErrorBoundary>
               </m.div>
             </AnimatePresence>
