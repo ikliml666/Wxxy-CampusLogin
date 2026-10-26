@@ -19,14 +19,14 @@ tags: [account, ui, self-service, validation, biometric]
 
 ## Overview
 
-本模块是安卓前端（`android/frontend/src/account/`）的账号域代码，主要涵盖 8 个文件，并引用同目录 `LoginInfoDialog.tsx`、`BindOperatorDialog.tsx`、`useOperatorBind.ts` 与后端 `android/src-tauri/src/account_cmds.rs` 对齐，覆盖四块职责：
+本模块是安卓前端（`android/frontend/src/account/`）的账号域代码，涵盖 12 个源文件（含后端 Rust 命令），覆盖四块职责：
 
 1. **账号页主面板**（`AccountPanel.tsx`，509 行）：账号管理卡（账号卡堆叠 + 三个弹窗）与自动化设置卡（三开关），2026-10-17 重排为单列纵排布局（见 `AccountPanel.tsx:50-56` 的布局注释）。
 2. **账号命令类型与校验**（`types.ts`、`validators.ts`）：账号命令统一返回类型，以及与后端单点对齐的显示名校验。
-3. **在线设备堆叠卡**（`SelfOnlineStack.tsx`，519 行）：竖排（手机）/水平（平板）两套“封面流”堆叠组件 + 单张设备卡，被账号页、仪表盘与测速面板等处消费。
-4. **自助服务支撑**（`SelfOnlineRecords.tsx`、`selfServiceState.ts`）：上网记录融合卡（近期流水 + 账单查询双源）与 Windows Hello 验证门（绑定门 / 会话门）。
+3. **在线设备堆叠卡**（`SelfOnlineStack.tsx`，521 行）：竖排（手机）/水平（平板）两套“封面流”堆叠组件 + 单张设备卡，被账号页、仪表盘与测速面板等处消费。
+4. **自助服务支撑**（`SelfOnlineRecords.tsx`、`selfServiceState.ts`、`LoginInfoDialog.tsx`、`BindOperatorDialog.tsx`、`useOperatorBind.ts`、`ChangePasswordDialog.tsx`、`DeviceAliasDialog.tsx`）：上网记录融合卡（近期流水 + 账单查询双源）、Windows Hello 验证门（绑定门 / 会话门）、绑定运营商与改密弹窗。
 
-与桌面端 `tauri-app/frontend/src/account/` 为同构复刻关系；校验口径、命令语义与后端 `android/src-tauri` 单点对齐——例如显示名校验对齐 `android/src-tauri/src/account_cmds.rs:375` 的 `validate_display_name`（`validators.ts:1-6` 注释）。
+与桌面端 `tauri-app/frontend/src/account/` 为同构复刻关系；校验口径、命令语义与后端 `android/src-tauri/src/account_cmds.rs` 单点对齐——例如显示名校验对齐 `validate_display_name`（`android/src-tauri/src/account_cmds.rs:434-447`），前端 `validators.ts:1-18` 注释与实现与之同构。
 
 ## Key Components
 
@@ -44,7 +44,7 @@ tags: [account, ui, self-service, validation, biometric]
 | `onSwitchAccount` | `(name: string) => Promise<void>` | 切换激活账号 |
 | `onRenameAccount` | `(accountId: string, displayName: string) => Promise<boolean>` | 改名（第二参为已校验新名） |
 
-组件为 `memo` 导出（`AccountPanel.tsx:50`），解构时**跳过 `onAddAccount`**（`AccountPanel.tsx:36-42`）。
+组件为 `memo` 导出（`AccountPanel.tsx:50`），解构时**跳过 `onAddAccount`**（51-57）。
 
 状态与订阅：
 
@@ -73,19 +73,19 @@ JSX 结构（242-508 行）：
 - **自动化设置卡**（下卡，424-478 行）：三开关 `autoLoginOnStart`（443-448）、`autoLoginOnPreparation`（456-461，i18n 用 `monitor.autoLoginWhenReady*`）、`enableNightOperatorSwitch`（469-474），经 `onUpdateConfig` 写入。
 - **三个弹窗**（481-505 行）：`LoginInfoDialog`（481-490）、`BindOperatorDialog`（493-498）、`ChangePasswordDialog`（501-505）。
 
-### ChangePasswordDialog.tsx —— 修改校园网密码弹窗（166 行）
+### ChangePasswordDialog.tsx —— 修改校园网密码弹窗（167 行）
 
 - Props 接口 `ChangePasswordDialogProps`（21-25 行）：`open` / `onSave(newPassword, oldPassword): Promise<boolean>` / `onCancel`。
 - `NEW_PASSWORD_RE = /^[0-9A-Za-z]{6,11}$/`（28 行）：6–11 位、仅数字与英文。
-- 组件 `ChangePasswordDialog`（30-165 行）：状态 `oldPassword`(32) / `showOld`(33) / `newPassword`(34) / `confirmPassword`(35) / `showPassword`(36) / `error`(37) / `saving`(38)。
+- 组件 `ChangePasswordDialog`（30-167 行）：状态 `oldPassword`(32) / `showOld`(33) / `newPassword`(34) / `confirmPassword`(35) / `showPassword`(36) / `error`(37) / `saving`(38)。
 - `open` 驱动复位 effect（41-52 行）。
 - `submit`（54-72 行）：防双击→格式校验→确认匹配→`onSave`；失败保留草稿。
-- UI：旧密码折叠展开（84-108），新/确认密码带眼睛切换（109-152），`maxLength={11}`。
+- UI：旧密码折叠展开（84-108），新/确认密码带眼睛切换（109-152），`maxLength={11}`（120、147）。
 
 ### DeviceAliasDialog.tsx —— 在线设备改名弹窗（75 行）
 
 - Props 接口 `DeviceAliasDialogProps`（15-23 行）：`open` / `mac`(12位hex) / `initialName` / `onSave(name): Promise<void>` / `onCancel`。
-- 组件 `DeviceAliasDialog`（25-74 行）：状态 `name`(27) / `saving`(28)；effect 复位（31-34）；`submit`（36-47）catch 吞错保打开；输入 `maxLength={30}`（60）。
+- 组件 `DeviceAliasDialog`（25-75 行）：状态 `name`(27) / `saving`(28)；effect 复位（31-34）；`submit`（36-47）catch 吞错保打开；输入 `maxLength={30}`（60）。
 
 ### SelfOnlineRecords.tsx —— 上网记录融合卡（360 行）
 
@@ -99,9 +99,9 @@ JSX 结构（242-508 行）：
 - 接口 `SelfOnlineRecordsProps`（122-134 行）：`configLoaded`/`hasCred`/`history`/`logStart`/`logEnd`/`logQuerying`/`logRows`/`logSummary`/回调。
 - `payStyleText`（136-141 行）：1计时/2流量/3包月。
 - `dayHeading`（144 行）。
-- 组件 `SelfOnlineRecords`（146-359 行）：`queried = logRows !== null`（155）；memo 化 sessions/groups/stats（156-161）；日期条常驻（181-217）；查询态 8 芯片（228-248）+ 账单特有行（272-283）+ ≥500 溢出提示（292）；近期态 4 芯片（299-311）+ MAC/终端行（319-345）。
+- 组件 `SelfOnlineRecords`（146-360 行）：`queried = logRows !== null`（155）；memo 化 sessions/groups/stats（156-161）；日期条常驻（181-217）；查询态 8 芯片（228-248）+ 账单特有行（272-283）+ ≥500 溢出提示（292）；近期态 4 芯片（299-311）+ MAC/终端行（319-345）。
 
-### SelfOnlineStack.tsx —— 在线设备堆叠卡（519 行）
+### SelfOnlineStack.tsx —— 在线设备堆叠卡（521 行）
 
 常量表（14-41 行）：
 
@@ -122,7 +122,7 @@ JSX 结构（242-508 行）：
 - `OnlineDeviceStack`（竖排，50-230 行）：解构 `{ cards, focusIndex }`（50），忽略 `variant`；状态（52-57）；count 夹页（61-63）；focus 同步（66-69）；量高 effect（74-89）；`go`（98-102）；指针事件（104-150）；舞台渲染（154-212）；页点（213-227）。
 - 接口 `OnlineDeviceStackCardProps`（233-248 行）：`loginTime`/`ip`/`mac`/`flowMb`/`durationMin`/`terminalType`/`alias?`/`onRename?`/`offlineDisabled?`/`offlineLoading?`/`onOffline?`。
 - `OnlineDeviceStackCard`（250-336 行）：卡面 p-3；行1时间+别名+终端+铅笔（268-293）；IP/MAC 垂直芯片（295-304）；流量/时长+注销（305-333）。
-- `OnlineDeviceStackH`（水平，342-519 行）：`variant` 生效（343）；结构同竖排但横向；narrow 定位用 `left 50%` + `minWidth:213`（469-489）；calc 陷阱注释（472-473）；六张以上隐藏槽（462-463）。
+- `OnlineDeviceStackH`（水平，342-521 行）：`variant` 生效（343）；结构同竖排但横向；narrow 定位用 `left 50%` + `minWidth:213`（469-489）；calc 陷阱注释（472-473）；六张以上隐藏槽（462-463）。
 
 ### selfServiceState.ts —— Windows Hello 验证门（127 行）
 
@@ -148,6 +148,74 @@ JSX 结构（242-508 行）：
 - `DISPLAY_NAME_MAX_LEN = 32`（9 行，Unicode 码点）。
 - `CONTROL_CHARS_RE = /[\u0000-\u001f\u007f\u0080-\u009f]/`（13 行）。
 - `isValidDisplayName(trimmed)`（16-18 行）：非空 + 长度≤32 + 无控制字符；与后端 `validate_display_name` 对齐。
+
+### LoginInfoDialog.tsx —— 添加/编辑登录信息弹窗（239 行）
+
+- 接口 `LoginInfoFormValues`（29-34 行）：`accountName`/`user`/`password`/`operator`。
+- 接口 `LoginInfoDialogProps`（36-49 行）：`open`/`onOpenChange`/`mode`/`initial`/`passwordSaved`/`onSave`/`onChangePassword?`/`onClearPassword?`。
+- 组件 `LoginInfoDialog`（51-239 行）：状态 `accountName`(62)/`user`(63)/`password`(64)/`operator`(65)/`showPassword`(66)/`error`(67)/`saving`(68)；effect 复位（71-82）；`submit`（84-110）校验账号名/学号/密码；UI 含账号名输入(create)（124-140）、学号（141-155）、密码含修改/清除入口（156-211）、运营商下拉（212-224）。
+
+### BindOperatorDialog.tsx —— 绑定运营商弹窗（278 行）
+
+- 类型 `BindFlow = ReturnType<typeof useOperatorBind>`（30 行）。
+- 接口 `BindOperatorDialogProps`（32-39 行）：`open`/`onOpenChange`/`bind`/`onCredChange`。
+- 组件 `BindOperatorDialog`（41-278 行）：解构 bind 流字段（43-48）；内部 `credMode` 分段状态（51-54）；打开复位 effect（57-64）；凭据变化上报 effect（68-72）；绑定凭据分段 UI（84-140）；绑定表单（142-179）；底部查询/绑定按钮（181-201）；绑定状态弹窗（206-277）展示掩码账号与 reveal 明文交互。
+
+### useOperatorBind.ts —— 运营商绑定流 hook（221 行）
+
+- `BIND_OPERATOR_NONE = '__none__'`（9 行）。
+- 接口 `OperatorBindingInfo`（12 行）：`account: string; passwordSet: boolean`。
+- 类型 `BindStatuses`（13 行）：`Record<'cmcc' | 'telecom' | 'unicom', OperatorBindingInfo | null>`。
+- 函数 `useOperatorBind(user, operator, passwordSaved, credOverride?)`（25-221 行）：
+  - 状态：`bindOp`(34)/`bindPhone`(35)/`bindSms`(36)/`binding`(37)/`bindStatuses`(39)/`statusOpen`(41)/`queryingStatus`(42)/`revealedOp`(43)/`revealedPassword`(44)。
+  - effect：StrictMode 保护(46-51)；明文 30s 清除(55-62)；运营商初始化(65-70)。
+  - `credReady`/`credAccount`/`credPassword`（75-80）。
+  - `canBind`/`canQueryStatus`（82-87）。
+  - `ensureHelloVerified = useHelloGate()`（91）。
+  - `fetchBindStatus`（93-119）：查询绑定状态，成功 setStatusOpen(true)。
+  - `ensureRevealVerified = useHelloGate({ ignoreToggle: true })`（124）。
+  - `handleReveal`（125-149）：查看明文密码，受忽略开关门控。
+  - `handleBindOperator`（151-181）：绑定命令。
+  - `handleChangePassword`（188-213）：改密并同步本地密码。
+  - 返回对象（215-220）包含所有上述字段与回调。
+
+### account_cmds.rs —— 后端多账号命令（838 行）
+
+- `lazy_static ACCOUNT_NAME_RE`（12-15）：账号名白名单正则。
+- `config_io_lock()`（20-22）：转发全局 IO 锁。
+- `struct AccountItem`（27-40）：
+  - `id: String`
+  - `display_name: String` (serde rename "displayName")
+  - `user: String` (default)
+  - `operator: String` (default)
+  - `password_saved: bool` (serde rename "passwordSaved", default)
+- `struct AccountResult`（42-55）：
+  - `success: bool`
+  - `message: Option<String>` (skip)
+  - `active_account: Option<String>` (skip)
+  - `display_name: Option<String>` (skip)
+  - `config: Option<serde_json::Value>` (skip)
+- `impl AccountResult`（57-67）：`ok(config)`(58-60)、`ok_with_account(account, config)`(61-63)、`err(msg)`(64-66)。
+- `sanitize_account_id(user)`（72-83）：id 消毒，字符白名单+截断32。
+- `validate_account_name(name)`（86-94）：1-32字符，正则匹配，返回 `Result<String, String>`。
+- `accounts_dir(app)`（96-102）：返回 `app_data_dir/accounts`。
+- `read_account_card_info(path)`（111-121）：读展示字段，密码状态走 `password_saved_at`。
+- `list_account_items_sync(dir)`（126-155）：同步列举，排序、过滤隐藏、兜底 id。
+- `#[tauri::command] list_accounts(app)`（157-163）：异步列举。
+- `load_account_file(path, bridge)`（165-170）：加载账号文件。
+- `persist_current(app, merged)`（172-183）：保存主配置并刷缓存，返回脱敏 JSON。
+- `#[tauri::command] switch_account(app, account_name)`（185-227）：合并登录字段、清夜切标记、落盘。
+- `#[tauri::command] save_current_as_account(app, account_name)`（229-257）：另存/覆盖档案，保留自定义显示名。
+- `#[tauri::command] create_account(app, account_name, user, password, operator)`（259-294）：新建档案不切换。
+- `merge_save_as_target(current, existing, safe_name)`（302-331）：纯函数合并规则。
+- `#[tauri::command] delete_account(app, account_name)`（333-362）：删除文件，清激活态。
+- `#[tauri::command] get_active_account(app)`（364-367）。
+- `#[tauri::command] rename_account(app, account_id, display_name)`（369-401）：校验后改名，同步主配置。
+- `rename_account_core(dir, bridge, account_id, display_name)`（405-429）：核心改名，重名检查。
+- `validate_display_name(name)`（434-447）：trim 后 1..=32 字符，无控制字符。
+- `auto_create_account_for_current(app, current)`（451-460）：保存后自动建号入口。
+- `auto_create_account_in(dir, bridge, config)`（473-510）：自动建号/同步逻辑。
+- `#[cfg(test)] mod tests`（512-838）：单元/集成测试，覆盖消毒、校验、列举、自动建号、改名、JSON形状等。
 
 ## Architecture
 
@@ -183,11 +251,11 @@ DashboardPanel / SpeedTestPanel ──► OnlineDeviceStack(H) / StackCard
 2. 编辑：弹窗 A edit 态 → `saveConfigDirect(partial)`（211，密码留空=后端保留）→ `saveCurrentAsAccount(activeAccount)`（219）→ `refreshAccounts()`（231）。
 3. 清除密码：`saveConfigDirect({ password: '' }, true)`（103）→ `syncPasswordSaved(false)` + 激活卡就地修补 + `clearDirtyFields()`。
 4. 三开关：`onUpdateConfig({ autoLoginOnStart | autoLoginOnPreparation | enableNightOperatorSwitch })` → 外壳落配置。
-5. 改名：`onRenameAccount(renamingId, trimmed)`（158，前端先过 `isValidDisplayName`）→ 后端终审。
+5. 改名：`onRenameAccount(renamingId, trimmed)`（158，前端先过 `isValidDisplayName`）→ 后端终审（`account_cmds.rs:369` rename_account）。
 
 **密码状态窗口修补**：`applyActiveCardPasswordSaved`（92-96）就地改 store 激活卡 → 档案回写后 `list_accounts` 对齐。
 
-**绑定流**：登录信息或弹窗 B 手动分段 → `useOperatorBind` 四元组（239）→ 绑定/查询/揭示/改密；揭示受 `useHelloGate` 门控。
+**绑定流**：登录信息或弹窗 B 手动分段 → `useOperatorBind` 四元组（239）→ 绑定/查询/揭示/改密；揭示受 `useHelloGate` 门控（`selfServiceState.ts:65`）。
 
 **上网记录流**：宿主面板持状态 → `SelfOnlineRecords` 纯展示 → `recentToSessionRows`/`billToSessionRows` 归一 `SessionRow` → `groupByDay` + `aggregateStats` → 近期4/查询8芯片两态。
 
@@ -206,7 +274,7 @@ DashboardPanel / SpeedTestPanel ──► OnlineDeviceStack(H) / StackCard
 - [[decisions/windows-hello-only-identity]]：Hello 验证唯一通道决策。
 - [[decisions/strictmode-dev-only]]：StrictMode 双挂载与 `mountedRef` 保护。
 - [[concepts/dual-platform-sharing]]：双端同构边界。
-- [[learnings/binding-operator-select-excludes-campus]]：绑定运营商下拉排除校园网。
+- [[learnings/binding-operator-select-excludes-campus]]：绑定运营商下拉排除校园网（`BindOperatorDialog.tsx:149`）。
 - [[learnings/android-frontend-no-unit-tests]]：无单测现状→jsdom 退化分支。
 - [[decisions/android-selfservice-empty-merge]]：自助服务空态合并决策。
 

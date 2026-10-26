@@ -23,7 +23,7 @@ tags: [Tauri, IPC, Plugin, Android, Architecture]
 
 ## Overview
 
-`tauri-plugin-architecture` 定义了 Campus Login Assistant Android 应用的核心交互架构。该架构基于 Tauri v2 插件系统，采用“Rust 桥接 + Kotlin 原生实现”的双轨模式，通过 IPC 命令面暴露功能。其核心职责是将复杂的 Android 系统级操作（如 Wi-Fi 绑定、前台保活、生物识别密钥存储）封装为标准化的异步 API，并通过前端的 `tauriApi` 统一入口进行调用，同时处理网络不稳定下的重试逻辑与安全门控。安卓端对桌面专属功能（适配器/DHCP/DNS/窗口/托盘等）通过 `desktopOnly` 显式拒绝（tauriApi.ts:14-15, 205-207, 208-210, 268-269, 287-289, 314, 333-337），对桌面专属事件通过 `noopListener` 返回空清理函数（tauriApi.ts:18, 272-274, 315-318）。密码落盘经 AndroidKeyStore AES-GCM 加密（替代桌面 DPAPI，config_state.rs:214-251, KeystorePlugin.kt:39-89），校园网探测改用 TCP 可达替代 ICMP（campus_detect.rs:1-3, 44-53），网络绑定解决 captive portal 场景（NetworkBindPlugin.kt:24-47）。
+`tauri-plugin-architecture` 定义了 Campus Login Assistant Android 应用的核心交互架构。该架构基于 Tauri v2 插件系统，采用“Rust 桥接 + Kotlin 原生实现”的双轨模式，通过 IPC 命令面暴露功能。其核心职责是将复杂的 Android 系统级操作（如 Wi-Fi 绑定、前台保活、生物识别密钥存储）封装为标准化的异步 API，并通过前端的 `tauriApi` 统一入口进行调用，同时处理网络不稳定下的重试逻辑与安全门控。安卓端对桌面专属功能（适配器/DHCP/DNS/窗口/托盘等）通过 `desktopOnly` 显式拒绝（tauriApi.ts:14-15, 205-207, 208-210, 268-269, 287-289, 314, 333-337），对桌面专属事件通过 `noopListener` 返回空清理函数（tauriApi.ts:18, 272-274, 315-318）。密码落盘经 AndroidKeyStore AES-GCM 加密（替代桌面 DPAPI，config_state.rs:220-257, KeystorePlugin.kt:39-89），校园网探测改用 TCP 可达替代 ICMP（campus_detect.rs:1-3, 44-53），网络绑定解决 captive portal 场景（NetworkBindPlugin.kt:24-47）。
 
 ## Key Components
 
@@ -65,14 +65,15 @@ DNS DoH 检测与优化的一键操作 Hook。纯逻辑层（UI 由 NetworkPanel
   - 类型：`BuiltinCardId`(43), `CardId`(45), `CardDef`(47-51), `ExtraCardDef`(54-61), `DashboardPanelProps`(102-117，含 `accounts`, `activeAccount`, `onDhcpRenew`, `onDhcpReleaseRenew`, `excludeCards`, `mergeSelfServiceEmpty`, `extraCards` 等)。
   - `ALL_CARDS`(63-69), `DEFAULT_LAYOUT`(71), `EXTRA_REMOVED_KEY`='campus-dashboard-extra-removed'(91)。
   - `loadLayout(valid, defaults)`(73-82) 从 `safeStorage` 读 `campus-dashboard-layout` 校验返回；`saveLayout(cards)`(84-86)；`loadRemovedExtras()`(93-100) 读删除黑名单。
+  - 接口 `SelfOnlineItem`(406-416)、`SelfLogRow`(596)。
 - **关键子组件与 Hooks** (均 memo)：
   - `QuickActionsCard`(119-191)：`useAsyncLock` 包装 `onDhcpRenew`(136,5000ms) 和 `onDhcpReleaseRenew`(140,0ms)；网络差光晕(134,146)。
   - `AccountManageCard`(193-297)：`handleSwitchAccount`(210-217) 用 `switchTimerRef`(215) 和 `mountedRef`(203)；渲染 `OnlineDeviceStack`(235)。
   - `NetworkQualityCard`(299-339)：`resolveQualityDisplay`(303) + `QUALITY_CONFIG`(305)；`LatencyPair`(332)。
   - `useSelfCardReveal()`(344-356)：调 `useHelloGate()`(347)；`hasCred = config.user && passwordSaved`(348)。
   - `useSelfCardFetch<T>(fetcher, account)`(360-401)：`fetchLockRef`(367) 防重入，`fetchedForRef`(368) 按 account 查一次；错误 toast(386)。
-  - `SelfOnlineCard`(418-592)：`fetchOnline` 调 `querySelfDashboard`(448) 返回 `onlineList: SelfOnlineItem[]`；60s 轮询 `refetch`(457-461)；`handleOffline` 调 `selfOfflineSession`(468)；`handleSaveAlias` 调 `saveConfigDirect`(439) 失败 throw(442)；掩码渲染(509-511)。`ConfirmDialog`(578), `DeviceAliasDialog`(583)。接口 `SelfOnlineItem`(406-416)。
-  - `SelfLogCard`(599-677)：`SELF_LOG_LIMIT=5`(597)；`fetchLog` 调 `querySelfOnlineLog`(606) 取今日日志截断(610)。接口 `SelfLogRow`(596)。
+  - `SelfOnlineCard`(418-592)：`fetchOnline` 调 `querySelfDashboard`(448) 返回 `onlineList: SelfOnlineItem[]`；60s 轮询 `refetch`(457-461)；`handleOffline` 调 `selfOfflineSession`(468)；`handleSaveAlias` 调 `saveConfigDirect`(439) 失败 throw(442)；掩码渲染(509-511)。`ConfirmDialog`(578), `DeviceAliasDialog`(583)。
+  - `SelfLogCard`(599-677)：`SELF_LOG_LIMIT=5`(597)；`fetchLog` 调 `querySelfOnlineLog`(606) 取今日日志截断(610)。
   - `SelfServiceMergedEmptyCard`(681-701)：合并空态。
   - `renderCard(id, props, ...)`(703-726)：按 id 分发。
   - `EditableCardItem`(737-831)：编辑拖拽。`LONG_PRESS_MS=350`(735)；长按激活(770-777)；`handlePointerMove` 越过半高阈值 `onSwap`(794-798)；`navigator.vibrate`(773,798)；卡内 `pointer-events-none`(822)。
@@ -188,19 +189,19 @@ Android 原生网络绑定插件，核心解决校园网 Captive Portal 下的�
 
 - **常量与锁**：
   - `PASSWORD_MASK="***"`(10)、`CONFIG_FILE="config.json"`(11)、`CONFIG_IO_LOCK: tokio::sync::Mutex<()>`(17-19)、`config_io_lock()`(22-24)。
-- **`struct Settings`** (26-136, `#[serde(rename_all = "camelCase", default)]`) 字段：
-  - `user`(30), `password`(31), `self_hello_enabled`(32), `self_reverify_each_action`(33), `allow_2d_face_verify`(36), `operator`(37), `enable_night_operator_switch`(41), `night_operator_restore`(43), `enable_night_outbound_switch`(47), `outbound_priority`(50), `outbound_metric_restore`(53), `outbound_disabled_adapters`(56), `outbound_standby_route`(59), `night_outbound_restore`(64), `dns_optimize_adapters`(67), `device_aliases`(71-72), `auto_login_on_start`(74), `enable_background_check`(75), `background_check_interval`(76), `background_check_idle_interval`(81), `auto_login_on_preparation`(82), `max_disconnect_reconnect`(83), `auto_login_cooldown_secs`(84), `theme_mode`(86), `enable_notification`(87), `custom_theme_color`(88), `default_panel`(89), `display_name`(93), `active_account`(94), `enable_boot_autostart`(95), `enable_latency_test`(97), `latency_test_interval`(98), `enable_network_quality`(99), `skip_ttfb_in_latency`(100), `skip_content_in_latency`(101), `portal_url`(103), `fixed_gateway`(104), `required_network_name`(105), `enable_network_name_check`(106), `campus_gateway`(107), `campus_check_start_minutes`(109), `campus_check_end_minutes`(110), `scheduled_login_minutes`(113), `scheduled_logout_minutes`(115), `update_source`(118), `log_retention_days`(120), `vpn_account`(124), `vpn_password_enc`(125), `self_service_via_vpn`(128), `config_schema_version`(135)。
-- **`impl Default for Settings`** (138-211)：`self_hello_enabled=true`(143)、`enable_night_operator_switch=false`(149)、`background_check_interval=60_000`(163)、`background_check_idle_interval=300_000`(165)、`max_disconnect_reconnect=3`(167)、`portal_url="http://10.1.99.100"`(185)、`fixed_gateway`/`campus_gateway="10.2.127.254"`(186-191)、`required_network_name="i-wxxy、iwxxy-2、iwxxy-3"`(189)、`campus_check_start_minutes=460`(193)、`campus_check_end_minutes=1380`(196)、`scheduled_login_minutes`/`scheduled_logout_minutes=1440`(200-201)、`update_source="mirror"`(202)、`log_retention_days=7`(203)、`config_schema_version=7`(208)、`enable_network_quality=false`(182)、`latency_test_interval=600_000`(178)。
-- **`struct CryptoBridge`** (214-251, Clone)：含 `encrypt`/`decrypt` 的 `Arc<dyn Fn>`；`from_app`(221-250) mobile 走 `tauri_plugin_campus_keystore`(224)，非 mobile 返回 Err(242-249)。
-- **`struct EncodedSettings`** (254-259, 私有)：`settings: Settings` + `password_cipher: String`(258)。
+- **`struct Settings`** (26-140, `#[serde(rename_all = "camelCase", default)]`) 字段：
+  - `user`(30), `password`(31), `self_hello_enabled`(32), `self_reverify_each_action`(33), `allow_2d_face_verify`(36), `operator`(37), `enable_night_operator_switch`(41), `night_operator_restore`(43), `enable_night_outbound_switch`(47), `night_restore_minutes`(51), `outbound_priority`(54), `outbound_metric_restore`(57), `outbound_disabled_adapters`(60), `outbound_standby_route`(63), `night_outbound_restore`(68), `dns_optimize_adapters`(71), `device_aliases`(76), `auto_login_on_start`(78), `enable_background_check`(79), `background_check_interval`(80), `background_check_idle_interval`(85), `auto_login_on_preparation`(86), `max_disconnect_reconnect`(87), `auto_login_cooldown_secs`(88), `theme_mode`(90), `enable_notification`(91), `custom_theme_color`(92), `default_panel`(93), `display_name`(97), `active_account`(98), `enable_boot_autostart`(99), `enable_latency_test`(101), `latency_test_interval`(102), `enable_network_quality`(103), `skip_ttfb_in_latency`(104), `skip_content_in_latency`(105), `portal_url`(107), `fixed_gateway`(108), `required_network_name`(109), `enable_network_name_check`(110), `campus_gateway`(111), `campus_check_start_minutes`(113), `campus_check_end_minutes`(115), `scheduled_login_minutes`(117), `scheduled_logout_minutes`(119), `update_source`(122), `log_retention_days`(124), `vpn_account`(128), `vpn_password_enc`(129), `self_service_via_vpn`(132), `config_schema_version`(139)。
+- **`impl Default for Settings`** (142-217)：`self_hello_enabled=true`(147)、`enable_night_operator_switch=false`(153)、`background_check_interval=60_000`(169)、`background_check_idle_interval=300_000`(171)、`max_disconnect_reconnect=3`(173)、`portal_url="http://10.1.99.100"`(191)、`fixed_gateway`/`campus_gateway="10.2.127.254"`(192-197)、`required_network_name="i-wxxy、iwxxy-2、iwxxy-3"`(195)、`campus_check_start_minutes=460`(199)、`campus_check_end_minutes=1380`(202)、`scheduled_login_minutes`/`scheduled_logout_minutes=1440`(206-207)、`update_source="mirror"`(208)、`log_retention_days=7`(209)、`config_schema_version=7`(214)、`enable_network_quality=false`(188)、`latency_test_interval=600_000`(184)。
+- **`struct CryptoBridge`** (220-257, Clone)：含 `encrypt`/`decrypt` 的 `Arc<dyn Fn>`；`from_app`(227-256) mobile 走 `tauri_plugin_campus_keystore`(230)，非 mobile 返回 Err(252-254)。
+- **`struct EncodedSettings`** (260-265, 私有)：`settings: Settings` + `password_cipher: String`(264)。
 - **核心 IO 函数**：
-  - `load_file`(261-274)：无文件返回默认(264)，json 损坏报错(266)，密文非空才解密失败置空不报错(270-272)。
-  - `password_saved_at`(281-287)：查 `EncodedSettings.password_cipher` 非空判据(285)。
-  - `save_file`(289-319)：空密码不写密文(297-302)，加密失败返回 Err 绝不落明文(298-301)；带 pid 唯一 tmp 文件写再 rename(311-317)。
-  - `cleanup_stale_config_tmp`(324-335)；`load_from`(337-347) 调 `load_file` + `migrate_legacy_defaults` + 旧单值 "i-wxxy" 扩三值(343-345)；`migrate_legacy_defaults`(366-428) v0→v1(368-370), v<3(371-385), v<4(386-394), v<5(395-403), v<6(404-412), v<7(413-427)；`save_to`(430-432)；`masked_for_display`(437-446)；`emit_config_changed`(452-455)；`resolve_password_field`(458-467)。
+  - `load_file`(267-280)：无文件返回默认(270)，json 损坏报错(273)，密文非空才解密失败置空不报错(277-278)。
+  - `password_saved_at`(287-293)：查 `EncodedSettings.password_cipher` 非空判据(291)。
+  - `save_file`(295-325)：空密码不写密文(303-308)，加密失败返回 Err 绝不落明文(304-307)；带 pid 唯一 tmp 文件写再 rename(317-323)。
+  - `cleanup_stale_config_tmp`(330-341)；`load_from`(343-353) 调 `load_file` + `migrate_legacy_defaults` + 旧单值 "i-wxxy" 扩三值(349-351)；`migrate_legacy_defaults`(372-434) v0→v1(374-376), v<3(377-391), v<4(392-400), v<5(401-409), v<6(410-418), v<7(419-433)；`save_to`(436-438)；`masked_for_display`(443-452)；`emit_config_changed`(458-461)；`resolve_password_field`(464-473)。
 - **Tauri 命令与缓存**：
-  - `#[tauri::command] get_config`(469-482)；`save_config`(484-520) 持 `CONFIG_IO_LOCK`(493)，调 `auto_create_account_for_current`(515)，`emit_config_changed`(518)；`current_settings`(524-541, `#[allow(dead_code)]`)。
-  - 测试模块(543-897)：覆盖加密落盘无明文、解密失败置空、SSID 迁移、默认值语义、版本迁移幂等等。
+  - `#[tauri::command] get_config`(475-488)；`save_config`(490-526) 持 `CONFIG_IO_LOCK`(499)，调 `auto_create_account_for_current`(521)，`emit_config_changed`(524)；`current_settings`(530-547, `#[allow(dead_code)]`)。
+  - 测试模块(549-903)：覆盖加密落盘无明文、解密失败置空、SSID 迁移、默认值语义、版本迁移幂等等。
 
 ### Campus Detect (`android/src-tauri/src/campus_detect.rs`)
 
@@ -237,7 +238,7 @@ Android 原生网络绑定插件，核心解决校园网 Captive Portal 下的�
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ │
 │  │ config_state │ │ campus_detect│ │ Keystore     │ │ Monitor/Net  │ │
 │  │ (CryptoBridge│ │ (TCP Probe)  │ │ (AES-GCM)    │ │ Bind Plugins │ │
-│  │  IO Lock)    │ │              │ │              │ │              │ │
+│  │  IO Lock)    │ │              │ │              │ │              │
 │  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ │
 └───────────────────────────────┼──────────────────────────────────────┘
                                 │ JNI
@@ -256,18 +257,18 @@ Android 原生网络绑定插件，核心解决校园网 Captive Portal 下的�
 1. **初始化与桥接建立**：
    - 应用启动时，前端 Store 加载初始配置。
    - Rust 后端注册 Commands，Kotlin 插件通过 JNI 暴露原生方法。
-   - 前端通过 `tauriApi` 建立与后端的 IPC 通道，其中 `KeystorePlugin.kt` 与 `lib.rs` 配套：Rust `init` 注册 Kotlin 侧 `KeystorePlugin`，前端经 Tauri bridge 调 `encrypt`/`decrypt`（config_state.rs:221-250）。
+   - 前端通过 `tauriApi` 建立与后端的 IPC 通道，其中 `KeystorePlugin.kt` 与 `lib.rs` 配套：Rust `init` 注册 Kotlin 侧 `KeystorePlugin`，前端经 Tauri bridge 调 `encrypt`/`decrypt`（config_state.rs:227-256）。
 
 2. **UI 触发与指令转发**：
    - 用户在 `DashboardPanel` 或 `SettingsPanel` 执行操作，控制流进入 `useAuth()` 或相关 Hooks，调用 `tauriApi.invoke()`。
-   - `save_config` 入参 `config: Settings` + `clear_password: Option<bool>` (config_state.rs:484) → 合并后 `save_to` 落盘 `EncodedSettings`（`password_cipher` 密文）(config_state.rs:430) → 广播 `config-changed` 事件 payload `{config: masked Value}` (config_state.rs:452)。
+   - `save_config` 入参 `config: Settings` + `clear_password: Option<bool>` (config_state.rs:490-495) → 合并后 `save_to` 落盘 `EncodedSettings`（`password_cipher` 密文）(config_state.rs:436-438) → 广播 `config-changed` 事件 payload `{config: masked Value}` (config_state.rs:458-461)。
    - 网络质量/DNS 配置由 `useDnsSetup()` 介入，强制使用 `tauriApiWithRetry` 封装调用（useDnsSetup.ts:24）。
 
 3. **原生执行与安全门控**：
    - **普通操作**：IPC 消息直达 Rust Wrapper。例如 Wi-Fi 绑定由 `CampusNetworkBind` 接收，转发至 Kotlin `NetworkBindPlugin.kt`；保活服务由 `CampusMonitorService` 处理。
    - **敏感操作**：涉及密码读写时，流程指向 `CampusKeystore`，Rust 层调用 Kotlin `KeystorePlugin.kt` 利用 `AndroidKeyStore` 进行 AES-GCM 加解密，明文不落地（KeystorePlugin.kt:36-86）。
    - **生物识别门控**：在 `selfServiceState.ts` 中，`useHelloGate` 用于绑定/明文门；若未通过验证则拦截 IPC 请求（selfServiceState.ts:65-87）。
-   - **校园网探测**：`check_campus_status` (campus_detect.rs:187) 先调用 `ensure_wifi_bound` 绑 WiFi，取 `config_state::current_settings` 获取 `Settings` 以读 `campus_gateway`/`portal_url` 等，调 `probe_campus_with_ssid` 后 cache_source_ip，返回 `serde_json::Value` 含探测结果与 SSID。
+   - **校园网探测**：`check_campus_status` (campus_detect.rs:187-210) 先调用 `ensure_wifi_bound` 绑 WiFi，取 `config_state::current_settings` 获取 `Settings` 以读 `campus_gateway`/`portal_url` 等，调 `probe_campus_with_ssid` 后 cache_source_ip，返回 `serde_json::Value` 含探测结果与 SSID。
 
 4. **事件反向流与状态同步**：
    - `NetworkBindPlugin` 的 WiFi 变化经 `trigger("wifiChanged")` 发事件，Rust 侧 `start_wifi_watcher` 先 `registerListener` 建 Channel 接收 `{"event":...}` 负载，形成反向事件流；`stop_wifi_watcher` 经 `removeListener`+`stopWifiWatcher` 注销（network-bind/src/lib.rs:32-54）。
@@ -279,7 +280,7 @@ Android 原生网络绑定插件，核心解决校园网 Captive Portal 下的�
 
 ## Known Issues
 
-- **配置与加密边界** (config_state.rs)：无配置文件不报错返默认(264)；密文损坏/密钥变更密码置空而非配置不可用(270-272)；加密失败返回 Err 且绝不落明文(298-301)；`password_saved_at` 必须查密文位，外露 `settings.password` 落盘恒空(281-287)；迁移幂等：仅旧默认值被刷，用户显式改过的值保留(368-370)；新装 `config_schema_version=7` 不触发迁移(208)；非 mobile 构建 `CryptoBridge` 加解密均返 Err(242-249)，保证 host 测试需注入假桥；`enable_night_operator_switch` 默认 false(149) 但 v7 迁移刷存量 true(413-416)。
+- **配置与加密边界** (config_state.rs)：无配置文件不报错返默认(270)；密文损坏/密钥变更密码置空而非配置不可用(277-278)；加密失败返回 Err 且绝不落明文(304-307)；`password_saved_at` 必须查密文位，外露 `settings.password` 落盘恒空(287-293)；迁移幂等：仅旧默认值被刷，用户显式改过的值保留(372-433)；新装 `config_schema_version=7` 不触发迁移(214)；非 mobile 构建 `CryptoBridge` 加解密均返 Err(252-254)，保证 host 测试需注入假桥；`enable_night_operator_switch` 默认 false(153) 但 v7 迁移刷存量 true(419-422)。
 - **校园网探测边界** (campus_detect.rs)：ICMP 被 SELinux 禁，以 Portal TCP 可达替代 ping(1-3)；蜂窝接口绝不入选 source IP(17)；WiFi 未连接（无非蜂窝 IPv4）短路返回 "WiFi 未连接" 不再空转 2×3s 探测(85-93)；`portal_host_of` 解析失败回退原串(140-149)；`current_wifi_ssid` 未授权/API<33/未连 WiFi 返 None(163-178)。
 - **前台服务与权限边界** (MonitorServicePlugin.kt)：`@InvokeArg` 字段全可空，命令内显式判空 `reject` 避免炸插件线程(31-44)；catch `IllegalStateException` 兼容低版本(68)；`stopMonitor` 用 `startService(ACTION_STOP)` 让服务自身退出避免竞态(82)；`installApk` 仅取文件名拼 `filesDir/update/` 拒绝目录穿越(120)；厂商页跳转故意不用 `resolveActivity` 预探测，直接 `startActivity` catch `ActivityNotFoundException`(185-187)；`BootReceiver` 开机瞬间启 FGS 失败只记日志不炸广播接收器(431)。
 - **网络绑定陷阱** (NetworkBindPlugin.kt)：`bindToWifi` 不能仅用 `NET_CAPABILITY_INTERNET` 筛 WiFi（captive portal 会被漏掉，27-33）；`requestNetwork` 不能带 INTERNET 能力否则被 WifiNetworkFactory 拒绝(34-37)；`AtomicBoolean done` 防 `onAvailable`/`onUnavailable` 多次触发重复 resolve(71-81)；`lastBoundNetwork` 同网络重绑返 `already_bound` 使 Rust 侧跳过清空连接池(62-63)；`applyNetworkSettingsCompat` 直接试写 Global 不再预检 `canWrite`（此前误判，273-298）；普通签名无 `WRITE_SECURE_SETTINGS` 恒失败(368)；`startWifiWatcher` 的 `onCapabilitiesChanged` 只在 `VALIDATED` 翻转时上报(524-531)；SSID 读取 API33+ 用 `NEARBY_WIFI_DEVICES`（免定位），低版本因不引入定位权限恒 `granted=false`(571-573)；`getWifiSsid` 绝不弹框(560-561)，权限请求须前端显式触发(627-636)。
