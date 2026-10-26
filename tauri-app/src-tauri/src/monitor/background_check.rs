@@ -26,21 +26,25 @@ pub(crate) fn should_reset_logged_online(reachable: bool, any_online: bool, has_
     reachable && !any_online && has_logged_online
 }
 
-/// 「夜间出站还原后」一次性放行标记（见 `request_check_after_outbound_restore`）。
+/// 「夜间出站还原后」静默期持续放行标记（见 `request_check_after_outbound_restore`）。
 ///
 /// 背景：还原窗口起点自 2026-10-26 起可配置（`nightRestoreMinutes`，默认 07:30），
 /// 而校园网检测静默期起点是另一项设置（`campusCheckStartMinutes`，默认 07:40）。
-/// 用户把还原时刻调到 07:40 之前（例如 07:10）时，还原完成后的补检仍落在静默期内
-/// 会被整体跳过，于是校园网卡虽已启用、IP 已就绪，Portal 登录却要等到 07:40 才判、
-/// 才登——用户 07:10 打开电脑就是断网态（2026-10-26 用户点名「还原后登录判定要生效」）。
-/// 还原是本应用主动制造的状态迁移，其后续检应当无条件跑一轮；用一次性标记实现，
-/// 消费即清，不影响静默期的其余语义（不刷退避、不改状态节奏）。
-static FORCE_CHECK_AFTER_RESTORE: std::sync::atomic::AtomicBool =
+/// 默认配置下还原时刻（07:30）本身就落在静默期内，还原完成后的补检会被整体跳过，
+/// 于是校园网卡虽已启用、IP 已就绪，Portal 登录却要等到静默期结束才判、才登——
+/// 用户 07:30 打开电脑就是断网态（2026-10-26 用户点名「还原后登录判定要生效」）。
+///
+/// 语义（2026-10-26 用户定，替代原「一次性放行」）：还原后**在本轮静默期的剩余时段内
+/// 持续放行**，直到检测时段开始（静默期结束）才恢复常规门控。理由：只放一轮的话，
+/// 若那一轮因校园网尚未恢复而登录失败，后续轮次又被静默期挡回去，用户会看到
+/// 「已还原但整段静默期都不再重试」。放行期由「离开静默期」自动终结，不跨日残留
+/// （进入检测时段即清除，当日 23:00 起的新静默期不会再被误放行）。
+static RESTORE_SILENT_PASS: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-/// 请求下一轮巡检无视校园网静默期（由出站还原收尾调用，一次性生效）。
+/// 请求「还原后在静默期内持续放行」（由出站还原收尾调用）。
 pub(crate) fn request_check_after_outbound_restore() {
-    FORCE_CHECK_AFTER_RESTORE.store(true, Ordering::Release);
+    RESTORE_SILENT_PASS.store(true, Ordering::Release);
 }
 
 pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &tokio_util::sync::CancellationToken) -> CheckOutcome {
@@ -90,8 +94,12 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         config.campus_check_start_minutes,
         config.campus_check_end_minutes,
     );
-    // 还原后补检放行（一次性）：标记消费即清，只对紧接着的这一轮生效
-    let forced = FORCE_CHECK_AFTER_RESTORE.swap(false, Ordering::AcqRel);
+    // 还原后静默期放行（持续到本轮静默期结束）：离开静默期即清除标记，放行期到此为止
+    let mut forced = RESTORE_SILENT_PASS.load(Ordering::Acquire);
+    if forced && !campus_silent {
+        RESTORE_SILENT_PASS.store(false, Ordering::Release);
+        forced = false;
+    }
     // 校园网检测静默期（检测时段外）：整体跳过本轮巡检。
     //
     // 历史缺陷（2026-10-25 修复）：静默期原本只跳过「校园网环境验证」，Portal 登录
@@ -104,9 +112,10 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     // （静默期本就不判定、不退出），然后按 Skipped 交还节奏控制——不累计退避、
     // 不更新 online 状态，避免静默期把「已登录」刷成离线并触发状态变更通知。
     //
-    // 例外（2026-10-26）：夜间出站还原刚结束的一轮无条件放行（forced）。还原把校园网
-    // 卡从设备级禁用里启用、DHCP 已就绪，此刻不判定就等于让用户等静默期结束才恢复
-    // 登录——恢复时刻可配置后这条路径更容易被踩到（还原 07:10 / 静默期 07:40）。
+    // 例外（2026-10-26）：夜间出站还原后，本轮静默期的剩余时段全部放行（forced）。还原
+    // 把校园网卡从设备级禁用里启用、DHCP 已就绪，此刻不判定就等于让用户等静默期结束才
+    // 恢复登录——默认还原时刻 07:30 就在静默期内（检测时段 07:40 起），这条路径必被踩到。
+    // 放行持续到静默期结束，让还原后的每一拍都能判定/自动登录，直到常规节奏接管。
     if campus_silent && !forced {
         cancel_campus_exit(app_handle, state);
         state.network.update(|s| {
@@ -117,9 +126,9 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         return CheckOutcome::Skipped;
     }
     if campus_silent && forced {
-        crate::log_info!(
+        crate::log_debug!(
             "background",
-            "夜间出站还原后补检：本轮无视校园网检测静默期（还原时刻早于静默期起点）"
+            "夜间出站还原后静默期放行：照常执行本轮巡检（放行持续到静默期结束）"
         );
     }
     // 校园网检测只看解析后的主/副适配器：其他适配器的连接不属本应用管理范围
