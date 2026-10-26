@@ -1,4 +1,4 @@
 {
-  "version": "v2.4.1",
-  "notes": "📥 下载提醒：下载安装包请前往 GitHub Releases 或夸克网盘；应用内下载缓慢或失败时务必改用这两条渠道！\n· GitHub：https://github.com/ikliml666/Wxxy-CampusLogin/releases\n· 夸克网盘：https://pan.quark.cn/s/c46f67bc2658\n\n### 本版本最重要的变化\n- **双端悬浮导航栏形态**：页签改为「图标+短标签」竖排常显，选中药丸纯平移零变形，桌面新增毛玻璃质感\n- **修复适配器下拉三类异常（桌面）**：未翻译状态码「network.status.已禁用」、同名卡双分组双勾选、选择框文字拼接，已彻底根治\n- **修复最小化恢复后出站面板陈旧（桌面）**：最小化期间发生夜间自动切换后，恢复窗口即刻强制刷新当前出站与适配器列表\n\n完整变更见 Release Notes（GitHub Releases 页面）。"
+  "version": "v2.4.2",
+  "notes": "📥 下载提醒：下载安装包请前往 GitHub Releases 或夸克网盘；应用内下载缓慢或失败时务必改用这两条渠道！\n· GitHub：https://github.com/ikliml666/Wxxy-CampusLogin/releases\n· 夸克网盘：https://pan.quark.cn/s/c46f67bc2658\n\n### 本版本最重要的变化\n- **WebVPN 校外访问（双端，全新功能）**：自助服务在校外自动经深澜 WebVPN 网关访问，校内直连无需配置；VPN 凭据弹窗改为「先验证连通性、通过才保存」，并补回 CAS 验证码自动解题\n- **夜间出站切换整轮重做（双端）**：移除方向相反的「目标网卡必须已登录校园网」闸门，还原时刻改为可配置（默认 07:30），还原后立即判定并持续到静默期结束\n- **悬浮栏玻璃质感定型（双端）**：真实折射（Hyalite）+ 三档玻璃体系 + 按 FlClash 重做的边缘光与边框，玻璃就绪延迟 1123ms → 64ms\n- **桌面系统级自动登录（默认关闭）**：SYSTEM 计划任务 + 无头核心，锁屏/登录界面也能完成校园网登录\n- **安卓前台内存优化**：立绘与二维码按显示尺寸降采样、平板外壳按需加载，真机实测主进程 PSS 降约 15MB、掉帧 0.77%\n\n完整变更见 Release Notes（GitHub Releases 页面）。"
 }

@@ -1,6 +1,6 @@
 [package]
 name = "campus-login"
-version = "2.4.1"
+version = "2.4.2"
 # tauri CLI 需要知道默认主二进制（新增 campus-login-core 后必须显式指定）
 default-run = "campus-login"
 description = "校园网登录助手"
