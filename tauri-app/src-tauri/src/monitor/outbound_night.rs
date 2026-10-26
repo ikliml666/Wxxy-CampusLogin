@@ -544,7 +544,7 @@ pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::conf
             &OUTBOUND_PROBE_WARN_DAY,
             "夜间出站切换",
             &format!(
-                "目标网卡 {} 的外网探测未响应（可能拦截了 ICMP），切换已照常执行；若实际上网异常请检查该出口",
+                "已切换到 {}，但该网络无法访问互联网（外网探测未响应）。切换已照常执行；若该出口实际可上网，可能是它拦截了 ICMP 探测，可忽略本提醒",
                 target.name
             ),
         );
