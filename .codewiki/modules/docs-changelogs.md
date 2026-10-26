@@ -18,7 +18,7 @@ tags: [changelog, audit, outbound-switch, monitor, account, android, desktop, ar
 - `tauri-app/src-tauri/src/monitor/mod.rs`：声明监控子系统模块树（第 1-14 行），含 `watcher`、`auto_auth`、`latency`、`adapter_watch`、`campus_check`、`outbound_switch`、`portal_check`、`quality_scheduler`、`background_emit`、`background_check`、`background_task`、`outbound_night`、`scheduled`、`dynamic_interval` 等子模块。
 - `tauri-app/src-tauri/src/monitor/scheduled.rs`：独立轻量循环（30s 一拍，第 44 行常量），复用跨平台纯函数判定定时动作，编排登录/注销、夜间出站切换与运营商夜切验证（第 54-198 行主循环函数）。
 - `tauri-app/src-tauri/src/monitor/outbound_switch.rs`：夜间出站切换的桌面侧动作纯判定与快照序列化层（目标卡选择、逐卡校园网判定、快照 JSON，第 1-691 行）。
-- `tauri-app/src-tauri/src/monitor/outbound_night.rs`：夜间出站切换的动作执行层（从 scheduled.rs 原样外移，第 1 行注释），含提权 helper 调用、退避、还原、看门狗等（第 1-1490 行）。
+- `tauri-app/src-tauri/src/monitor/outbound_night.rs`：夜间出站切换的动作执行层（从 scheduled.rs 原样外移，第 1 行注释），含提权 helper 调用、退避、还原、看门狗等（第 1-1491 行）。
 - `tauri-app/src-tauri/src/app/startup.rs`：构建 Tokio runtime、运行 Tauri 应用、在 `setup_app` 中拉起适配器监听与 `run_startup_tasks`（第 6-272 行）。
 - `tauri-app/src-tauri/src/monitor/watcher.rs`：启动任务编排，拉起后台检测、质量测试、自动登录及定时动作循环（第 16-72 行）。
 
@@ -43,7 +43,7 @@ tags: [changelog, audit, outbound-switch, monitor, account, android, desktop, ar
 *   **关键函数**:
     *   `run_scheduled_action_loop` (54-198): 30s 主循环入口。由 `watcher::run_startup_tasks` 经 `task_manager.spawn` 拉起（watcher.rs 第 66-71 行）。包含启动对账（第 60-63 行）、定时登录/注销判定（第 90-100 行）、夜间出站切换（spec §2 出站动作先行，第 102-171 行）、运营商夜切门控逻辑（第 172-196 行）。
     *   `is_quitting` (202-204): App 是否正在退出。抽成独立函数只为让循环体不跨 await 持有 State 守卫。
-    *   `reconcile_scheduled_logout_on_startup` (214-229): 启动对账（定时注销防冷启动误触发）：应用启动时若当日注销时刻已过，消耗当日额度不执行动作；已知边界第 211-213 行注释启动后改时刻不治理。
+    *   `reconcile_scheduled_logout_on_startup` (214-229): 启动对账（定时注销防冷启动误触发）：应用启动时若当日注销时刻已过，消耗当日额度不执行动作；已知边界第 212-213 行注释启动后改时刻不治理。
     *   `evaluate_scheduled` (238-249): 单拍判定：命中返回 `(应登录, 应注销)`，不置任何标记。门控用**拍前**切换态（第 90 行 `outbound_switch_active` 调用后传入）。
     *   `mark_scheduled_day_fired` (255-263): 审计 A7：当日额度标记，在动作抢锁成功后置位（供单测模拟同一置位语义，`#[cfg_attr(not(test), allow(dead_code))]` 在第 255 行）。
     *   `format_minutes` (265-267): 格式化分钟数为 `HH:MM` 字符串。
@@ -96,55 +96,57 @@ tags: [changelog, audit, outbound-switch, monitor, account, android, desktop, ar
     *   `OUTBOUND_RESTORE_ALERT_FAILS` (30): 3 次失败发告警。
     *   `OUTBOUND_RESTORE_ALERT_REMIND_EVERY` (32): 20 次重复提醒间隔。
     *   `OUTBOUND_RESTORE_GIVE_UP_FAILS` (36): 40 次放弃阀。
-    *   `OUTBOUND_PROBE_HOST` (399): `"223.5.5.5"` 外网探测目标。
+    *   `OUTBOUND_PROBE_HOST` (399): `"223.5.5.5"` 外网探测目标（pub(super) const）。
 *   **静态变量**:
-    *   `OUTBOUND_SWITCH_LAST_FAIL_MS` (55): 切换失败时刻。
-    *   `OUTBOUND_SWITCH_FAIL_COUNT` (56): 切换失败计数 pub(super)。
-    *   `OUTBOUND_RESTORE_LAST_FAIL_MS` (58): 还原失败时刻。
-    *   `OUTBOUND_RESTORE_FAIL_COUNT` (59): 还原失败计数。
-    *   `OUTBOUND_CHANNEL_FAIL_COUNT` (63): 提权通道失败计数。
+    *   `OUTBOUND_SWITCH_LAST_FAIL_MS` (55): 切换失败时刻（AtomicU64）。
+    *   `OUTBOUND_SWITCH_FAIL_COUNT` (56): 切换失败计数（pub(super) AtomicU32）。
+    *   `OUTBOUND_RESTORE_LAST_FAIL_MS` (58): 还原失败时刻（AtomicU64）。
+    *   `OUTBOUND_RESTORE_FAIL_COUNT` (59): 还原失败计数（AtomicU32）。
+    *   `OUTBOUND_CHANNEL_FAIL_COUNT` (63): 提权通道失败计数（AtomicU32）。
     *   `OUTBOUND_NO_CANDIDATE_WARN_DAY` (67) 等每日提醒去重原子变量 (67-72)。
-    *   `OUTBOUND_ACTION_BUSY` (78): 出站动作单飞闸。
+    *   `OUTBOUND_ACTION_BUSY` (78): 出站动作单飞闸（AtomicBool）。
 *   **Struct**:
-    *   `OutboundActionGuard` (81-96): RAII 单飞锁，`try_acquire` (84-89), `Drop` (92-96)。
-    *   `OutboundSnapshotRow` (213-219): 切换态快照解析结构，字段 `guid: String`, `family: u16`, `automatic: bool`, `metric: u32`。
-    *   `HelperFailure` (230-237): helper 失败分类，字段 `reason: String`, `channel: bool`。
+    *   `OutboundActionGuard` (81-96): RAII 单飞锁，无字段，方法 `try_acquire` (84-89) 返回 `Option<Self>`，`Drop` 实现 (92-96) 释放闸门。
+    *   `OutboundSnapshotRow` (213-219): 切换态快照解析结构（派生 Debug, Clone, Deserialize）。字段：`guid: String`, `family: u16`, `automatic: bool`, `metric: u32`。
+    *   `HelperFailure` (230-237): helper 失败分类。字段：`reason: String`, `channel: bool`。
 *   **关键函数**:
+    *   `outbound_restore_alert_due` (39-42): 还原失败告警是否应发出（首次达阈值，此后每 REMIND_EVERY 次重复）。
+    *   `notify_outbound_issue_once_per_day` (46-52): 每天至多一次的提醒通知（swap 当日去重，跨天自动重置）。
     *   `run_outbound_blocking` (100-112): 把出站动作送进阻塞线程池执行。
     *   `outbound_switch_active` (116-123): 是否处于出站切换态（三份快照任一非空）。
     *   `in_outbound_restore_window` (128-131): 恢复窗口判定 [恢复起点, 23:00)。
     *   `now_epoch_ms` (133-138): 当前 epoch 毫秒。
-    *   `outbound_backoff_ms` (141-148): 退避窗纯函数。
-    *   `backoff_gate` (152-157): 退避闸纯函数。
+    *   `outbound_backoff_ms` (141-148): 退避窗纯函数（无失败历史为 0；否则 60s 起步、每失败翻倍、封顶 300s）。
+    *   `backoff_gate` (152-157): 退避闸纯函数（true=允许本拍发起动作）。
     *   `switch_gate_open` (159-165): 切换退避闸。
     *   `restore_gate_open` (167-173): 还原退避闸。
-    *   `mark_outbound_failure` (176-179): 记一次失败。
+    *   `mark_outbound_failure` (176-179): 记一次失败（失败时刻置当前、计数自增）。
     *   `clear_outbound_failure` (182-185): 清零退避状态。
-    *   `outbound_allow_uac` (188-190): 是否允许降级弹 UAC。
+    *   `outbound_allow_uac` (188-190): 是否允许降级弹 UAC（仅提权通道失败过才放行）。
     *   `note_channel_failure` (193-197): 提权通道失败才抬高 UAC 放行计数。
-    *   `clear_outbound_channel_failure` (200-202): 通道成功清零。
-    *   `needs_replay` (207-209): 是否需要走"未生效补齐"重放纯函数。
-    *   `parse_outbound_snapshot` (222-227): 解析切换态快照。
-    *   `run_helper_op` (243-269): 调提权 helper 执行单个操作。
-    *   `enable_campus_adapter` (desktop) (279-291): 重新启用校园网卡（走 adapter_cache::enable_adapter）。
+    *   `clear_outbound_channel_failure` (200-202): 通道可用（helper 成功）清零 UAC 放行计数。
+    *   `needs_replay` (207-209): 是否需要走"未生效补齐"重放纯函数（切换态且有失败历史）。
+    *   `parse_outbound_snapshot` (222-227): 解析切换态快照（空串→空表，非法→Err）。
+    *   `run_helper_op` (243-269): 调提权 helper 执行单个操作（op 名与参数编码见 helper/mod.rs）。
+    *   `enable_campus_adapter` (desktop) (279-291): 重新启用校园网卡（走 adapter_cache::enable_adapter，problem 22 分流）。
     *   `enable_campus_adapter` (non-desktop) (294-300): 非桌面 stub 返回错误。
-    *   `write_outbound_metric` (308-369): 把目标卡跃点写为 Metric=1，处理退避与通知。
-    *   `probe_target_internet` (414-419): 外网可达探测，不阻断切换。
-    *   `persist_config_update` (425-431): 写/清本机状态配置并落盘广播。
-    *   `set_pending_switch` (436-444): 写待切换状态（仅变化才落盘）。
-    *   `drive_pending_switch` (453-467): 清理历史遗留待切换状态（本版本不再挂起）。
+    *   `write_outbound_metric` (308-369): 把目标卡指定协议栈跃点写为 Metric=1，处理退避与通知。
+    *   `probe_target_internet` (414-419): 外网可达探测（绑源 ICMP 直打公网地址），不阻断切换。
+    *   `persist_config_update` (425-431): 写/清本机状态配置并落盘+广播+store。
+    *   `set_pending_switch` (436-444): 写待切换状态（仅内容变化时才落盘）。
+    *   `drive_pending_switch` (453-467): 清理历史遗留待切换状态（本版本夜间切换不再挂起）。
     *   `apply_outbound_switch` (469-691): 夜间出站切换动作（候选选择、快照落盘、写跃点、禁用网卡、路由验证）。
     *   `replay_outbound_switch` (708-796): 补齐/重放切换动作（跃点补写、禁用补做）。
     *   `watchdog_re_disable_campus` (805-872): 夜间看门狗，重新禁用被外部启用的校园网卡。
     *   `apply_outbound_restore` (886-1199): 夜间出站还原动作（清理兜底路由、跃点写回、启用网卡、收尾）。
     *   `finish_outbound_restore` (1206-1227): 还原收尾：清快照、清 hold、触发补检。
-    *   `clear_outbound_snapshot` (1231-1251): 清空切换态快照（三份）。
+    *   `clear_outbound_snapshot` (1231-1251): 清空切换态快照（三份+待切换）。
     *   `set_outbound_manual_hold` (1257-1265): 「立即切换」当日保持标记落盘。
     *   `clear_outbound_manual_hold` (1268-1270): 清 hold 标记。
     *   `manual_outbound_switch` (1276-1297): 「立即切换」命令入口（桌面）。
     *   `manual_outbound_restore` (1301-1314): 「立即还原」命令入口（桌面）。
     *   `reconcile_outbound_on_startup` (1321-1379): 启动对账（残留切换态还原或重放）。
-*   **测试模块** (1381-1490): 包含 `还原失败告警_首达阈值触发_此后周期重复` (1385-1398)、`重放闸_仅切换态且留有失败历史时才补齐` (1400-1411)、`退避窗_起步六十秒_每失败翻倍封顶三百秒` (1413-1421)、`退避闸_无失败历史恒放行` (1423-1429)、`退避闸_首败六十秒内压制_六十秒后放行` (1431-1436)、`退避闸_第二败退避翻倍` (1438-1443)、`退避闸_封顶后三百秒内压制_三百秒后放行` (1445-1452)、`退避闸_时钟回拨按压制处理` (1454-1457)、`快照解析_空串为空表_非法json报错` (1459-1470)、`单飞闸_同一时刻只放一个出站动作_释放后可再取` (1474-1487) 等。
+*   **测试模块** (1381-1491): 包含 `还原失败告警_首达阈值触发_此后周期重复` (1385-1398)、`重放闸_仅切换态且留有失败历史时才补齐` (1400-1411)、`退避窗_起步六十秒_每失败翻倍封顶三百秒` (1413-1421)、`退避闸_无失败历史恒放行` (1423-1429)、`退避闸_首败六十秒内压制_六十秒后放行` (1431-1436)、`退避闸_第二败退避翻倍` (1438-1443)、`退避闸_封顶后三百秒内压制_三百秒后放行` (1445-1452)、`退避闸_时钟回拨按压制处理` (1454-1457)、`快照解析_空串为空表_非法json报错` (1459-1470)、`单飞闸_同一时刻只放一个出站动作_释放后可再取` (1474-1487) 等。
 
 ### 启动入口 (Startup)
 
@@ -218,7 +220,7 @@ tags: [changelog, audit, outbound-switch, monitor, account, android, desktop, ar
 ## Known Issues
 
 1. **异步线程偏差（非阻塞）**：`scheduled.rs` (73-76) 注释明示——`apply_night_switch_action` 内含同步落盘与托盘刷新，仍直接跑在 async worker 线程上（既有实现），本任务新增出站动作进阻塞线程池，但该偏差本轮不治理。
-2. **启动后改注销时刻边界**：`scheduled.rs` (211-213) 已知边界不治理——启动后当天再把注销时刻改成另一个已过时刻，下一拍仍会立即触发，与「改完就想立刻注销」无法区分意图。
+2. **启动后改注销时刻边界**：`scheduled.rs` (212-213) 已知边界不治理——启动后当天再把注销时刻改成另一个已过时刻，下一拍仍会立即触发，与「改完就想立刻注销」无法区分意图。
 3. **禁用名单快照损坏处理**：`outbound_switch.rs` (156-161) 注释——`parse_disabled_adapters` 空串→空名单（无禁用动作），非法 JSON→Err（快照损坏，调用方须告警并保留状态重试），按空处理会在快照损坏时静默放走仍被 netsh 持久禁用的校园卡。
 4. **USB 网卡禁用历史顾虑已解**：`outbound_switch.rs` (277-280) 注释——`unsafe_to_disable` 仅跳过实例 ID 读不到的卡（总线无法判定），USB 总线网卡不再排除（2026-10 用户确认其 USB 副卡应参与禁用，运行期 disable/enable 对称性已实证）。
 5. **历史兜底路由不再创建**：`outbound_switch.rs` (163-176, 178-185) 说明 2026-10-18 事故后 `StandbyRoute` 机制仅留解析清理能力（`standby_route_cleanup` 等），不再新创建，避免误删用户默认路由。
