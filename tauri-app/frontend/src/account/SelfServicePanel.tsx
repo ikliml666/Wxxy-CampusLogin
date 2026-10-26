@@ -294,7 +294,9 @@ export function SelfServicePanel() {
       <div className="card-enter" style={{ '--stagger-i': 0 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
+            {/* 窄屏（<640px）纵向堆叠：图标+标题占一行、两个操作按钮另起一行右对齐。
+                原横排一行时两个按钮约 228px 固定宽度把描述文字压成多行；sm 及以上维持原横排。 */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <CardIcon>
                   <Globe className="h-5 w-5 text-primary" />
@@ -304,7 +306,7 @@ export function SelfServicePanel() {
                   <CardDescription>{t('account.selfDashboardDesc')}</CardDescription>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 shrink-0 max-sm:basis-full max-sm:justify-end">
                 <Button
                   variant="outline"
                   size="sm"

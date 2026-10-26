@@ -490,7 +490,9 @@ export function OnlineDeviceStackH({ cards, variant = 'coverflow' }: OnlineDevic
           return (
             <div
               key={i}
-              className="absolute top-0 rounded-xl shadow-[0_0_10px_rgba(0,0,0,0.06),0_5px_12px_-2px_rgba(0,0,0,0.11)] ring-1 ring-black/5 dark:ring-white/10"
+              // 与桌面 SelfOnlineCards 同款：舞台量高取所有卡的最大自然高度，
+              // 单卡高度小于舞台时用 inset-y-0 my-auto h-fit 垂直居中，避免高卡把矮卡压到顶端
+              className="absolute inset-x-0 top-0 bottom-0 my-auto h-fit rounded-xl shadow-[0_0_10px_rgba(0,0,0,0.06),0_5px_12px_-2px_rgba(0,0,0,0.11)] ring-1 ring-black/5 dark:ring-white/10"
               style={style}
               aria-hidden={side}
             >
