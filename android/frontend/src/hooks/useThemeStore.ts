@@ -24,7 +24,9 @@ export const useThemeStore = create<ThemeStore>((set) => ({
   customThemeColor: '#6366f1',
   glassLevel: (() => {
     const gl = safeStorage.get('campus-glass-level') as GlassLevel | null
-    return gl && VALID_GLASS_LEVELS.includes(gl) ? gl : 'standard'
+    // 默认档位取极致：完整玻璃（深模糊 + 提饱和 + 边缘光）是产品想要的观感，
+    // 未设置过或存了非法值的用户直接落在 ultra，避免默认看起来「没材质」。
+    return gl && VALID_GLASS_LEVELS.includes(gl) ? gl : 'ultra'
   })(),
 
   setThemeName: (name) => set({ themeName: name }),

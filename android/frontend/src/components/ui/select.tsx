@@ -14,7 +14,10 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'relative flex h-10 w-full items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-[background-color,color,box-shadow,transform] duration-200',
+      // 底色与输入框统一：早期用 bg-muted/40（半透明灰），浅色下与弹窗底（--background）
+      // 几乎同明度，同卡片里的 Input 是纯白（bg-card）而下拉是灰块，读作两套控件。
+      // 现改为 bg-card + border-input，与 input.tsx 保持完全一致的「白底细边」语汇。
+      'relative flex h-10 w-full items-center justify-between rounded-lg border border-input bg-card px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground hover:border-input/70 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-[background-color,color,box-shadow,transform] duration-200',
       icon && 'pl-10',
       className
     )}

@@ -440,10 +440,15 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       <DialogPrimitive.Portal>
         {/* 遮罩：灰调压暗背后界面，把注意力收到卡堆上（卡本身不用描边线） */}
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-slate-950/25 backdrop-blur-[2px] dark:bg-black/60" />
-        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none px-4">
           <DialogPrimitive.Content
             aria-describedby={undefined}
-            className="pointer-events-auto relative flex w-[760px] max-w-[calc(100vw-32px)] flex-col outline-none"
+            // 宽度不能用 `w-[760px] max-w-[calc(100vw-32px)]`：`100vw` 按初始包含块计算，
+            // 在 WebView2 高 DPI/缩放下会与真实布局宽不一致，max-w 因此失效，760px 的
+            // 固定宽超出容器后居中即向左溢出、被 html{overflow:hidden} 裁掉——正是
+            // 「引导卡左边框被略微截断」。改为 w-full + max-w：宽度上限取自 flex 父
+            // 容器（fixed inset-0 的真实布局宽），任何 DPI/缩放下都不会溢出。
+            className="pointer-events-auto relative flex w-full max-w-[760px] flex-col outline-none"
             onPointerDownOutside={(e) => e.preventDefault()}
           >
             <DialogPrimitive.Title className="sr-only">{t('onboarding.welcomeTitle', { appName: APP_NAME })}</DialogPrimitive.Title>

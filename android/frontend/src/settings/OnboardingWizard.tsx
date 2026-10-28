@@ -217,7 +217,10 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
         <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none px-4">
           <DialogPrimitive.Content
             aria-describedby={undefined}
-            className="pointer-events-auto relative flex w-[min(760px,94vw)] flex-col outline-none"
+            // 宽度用弹性约束而非 `w-[min(760px,94vw)]`：vw 在部分 WebView/高 DPI 下按
+            // 未缩放宽度计算，与真实布局宽不一致时会溢出并被裁掉（卡片左缘被截断）。
+            // w-full + max-w 由 flex 父容器（fixed inset-0）的真实布局宽定上限。
+            className="pointer-events-auto relative flex w-full max-w-[760px] flex-col outline-none"
             onPointerDownOutside={(e) => e.preventDefault()}
           >
             <DialogPrimitive.Title className="sr-only">{t(STEP_TITLE_KEYS[step])}</DialogPrimitive.Title>

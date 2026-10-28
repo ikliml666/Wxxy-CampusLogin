@@ -339,6 +339,8 @@ function AppInner() {
             updateConfig({ themeMode: next ? 'light' : 'dark' })
             safeStorage.set('campus-light-mode', next ? '1' : '0')
           }}
+          // 自定义主色调：store 由 ThemeDialog 内部即时写入（预览），这里负责持久化到 config
+          onSetCustomColor={(hex) => updateConfig({ customThemeColor: hex })}
         />
       </Suspense>
 

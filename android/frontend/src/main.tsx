@@ -40,7 +40,7 @@ function initTheme() {
   }
   // 玻璃档位：首帧前就定下，避免启动闪烁一次默认档
   const glass = safeStorage.get('campus-glass-level') as GlassLevel | null
-  root.setAttribute('data-glass', glass && VALID_GLASS_LEVELS.includes(glass) ? glass : 'standard')
+  root.setAttribute('data-glass', glass && VALID_GLASS_LEVELS.includes(glass) ? glass : 'ultra')
 }
 
 initTheme()
