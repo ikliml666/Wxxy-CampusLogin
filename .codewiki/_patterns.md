@@ -1,103 +1,113 @@
 ---
-title: 模式与约定总结 (Patterns)
+title: _patterns
 type: pattern
 source_files:
-  - android/frontend/src/auth/DashboardPanel.tsx
-  - android/frontend/src/auth/useAuth.ts
-  - android/frontend/src/monitor/LatencyTimeline.tsx
-  - android/frontend/src/monitor/useMonitor.ts
-  - android/frontend/src/settings/useOnboardingFlow.ts
-  - android/frontend/index.html
-tags:
-  - architecture
-  - coding-standards
-  - error-handling
-  - performance
-  - security
+  - android/src-tauri/src/lib.rs
+  - android/src-tauri/src/android_state.rs
+  - android/src-tauri/src/config_state.rs
+  - android/src-tauri/src/campus_detect.rs
+  - android/src-tauri/src/protocol_cmds.rs
+  - android/src-tauri/src/monitor_loop.rs
+  - android/src-tauri/src/account_cmds.rs
+  - android/src-tauri/src/system_cmds.rs
+  - android/src-tauri/src/battery_cmds.rs
+  - android/src-tauri/src/cpu_affinity.rs
+  - android/src-tauri/src/quality_cmds.rs
+  - android/src-tauri/src/quality_history.rs
+  - android/src-tauri/src/update_cmds.rs
+  - android/src-tauri/src/login_history.rs
+  - android/src-tauri/src/identity_gate.rs
+  - android/src-tauri/src/vpn_cmds.rs
+  - android/src-tauri/src/self_service_cmds.rs
+  - android/src-tauri/src/face_model_cmds.rs
+  - android/plugins/network-bind/src/lib.rs
+  - android/plugins/keystore/src/lib.rs
+  - android/plugins/foreground-service/src/lib.rs
+  - android/src-tauri/tauri.conf.json
+  - android/src-tauri/src/config_state.rs (tests)
+  - android/src-tauri/src/campus_detect.rs (tests)
+  - android/src-tauri/src/monitor_loop.rs (tests)
+  - android/src-tauri/src/account_cmds.rs (tests)
+  - android/src-tauri/src/quality_cmds.rs (tests)
+  - android/src-tauri/src/quality_history.rs (tests)
+  - android/src-tauri/src/update_cmds.rs (tests)
+  - android/src-tauri/src/login_history.rs (tests)
+  - android/src-tauri/src/identity_gate.rs (tests)
+  - android/src-tauri/src/vpn_cmds.rs (tests)
+  - android/src-tauri/src/self_service_cmds.rs (tests)
+  - android/src-tauri/src/face_model_cmds.rs (tests)
+  - android/src-tauri/src/cpu_affinity.rs (tests)
+  - tauri-app/src-tauri/Cargo.toml
+  - tauri-app/src-tauri/src/main.rs
+  - tauri-app/src-tauri/src/lib.rs
+  - tauri-app/src-tauri/src/build.rs
+  - tauri-app/src-tauri/tauri.conf.json
+  - tauri-app/src-tauri/src/app/mod.rs
+  - tauri-app/src-tauri/src/app/startup.rs
+  - tauri-app/src-tauri/src/infra/mod.rs
+  - tauri-app/src-tauri/src/infra/state/mod.rs
+  - tauri-app/src-tauri/src/infra/state/store.rs
+  - tauri-app/src-tauri/src/infra/command_context.rs
+  - tauri-app/src-tauri/src/infra/events.rs
+  - tauri-app/src-tauri/src/infra/lifecycle.rs
+  - tauri-app/src-tauri/src/commands/mod.rs
+  - tauri-app/src-tauri/src/commands/login.rs
+  - tauri-app/src-tauri/src/commands/account.rs
+  - tauri-app/src-tauri/src/commands/config_cmd.rs
+  - tauri-app/src-tauri/src/config/mod.rs
+  - tauri-app/src-tauri/src/config/model.rs
+  - tauri-app/src-tauri/src/config/validate.rs
+  - tauri-app/src-tauri/src/config/persist.rs
+  - tauri-app/src-tauri/src/auth/mod.rs
+  - tauri-app/src-tauri/src/auth/service.rs
+  - tauri-app/src-tauri/src/monitor/mod.rs
+  - tauri-app/src-tauri/src/monitor/watcher.rs
+  - tauri-app/src-tauri/src/network/mod.rs
+  - tauri-app/src-tauri/src/network/client.rs
+  - tauri-app/src-tauri/src/account/crypto.rs
+  - tauri-app/src-tauri/src/update/updater.rs
+  - tauri-app/src-tauri/src/vpn/mod.rs
+tags: [pattern, cross-cutting, tauri, rust, android, desktop, campus-login]
 ---
 
 ## Overview
 
-本仓库遵循“双端独立复刻但逻辑同构”的架构哲学。Android 前端与桌面 Tauri 前端在代码库中完全分离，但通过共享的 Rust 后端 crate (`campus-login`) 和高度一致的 React 组件命名/结构保持业务逻辑的一致性。整体风格强调移动端性能优化（防泄漏、动画降级）、严格的状态管理（Zustand + 脏数据检测）以及基于 Tauri ACL 的安全门控。开发流程受 `AGENTS.md` 约束，要求 AI 辅助下的高纪律性提交与文档同步。
+本仓库包含 Android 端（`android/`）与桌面端（`tauri-app/`）两套 Tauri 应用，二者通过 Cargo 依赖共享跨平台核心库 `campus_login_lib`，在命令面、配置模型、加密落盘、后台监控等方面呈现出高度一致的实现模式。以下总结反复出现的横切模式。
 
 ## Patterns
 
-### 1. 响应式双壳与平台差异化适配 (Responsive Shell & Platform Abstraction)
+### 跨平台协议共享与命令面同构
+两端均禁止在各自平台代码中复制协议逻辑，而是复用 `campus_login_lib` 中的纯函数；Tauri 命令名与 IPC 契约刻意对齐，使前端近乎零适配。
+证据：`android/src-tauri/src/lib.rs` 的 `invoke_handler!` 注册命令（如 `get_config`、`save_config`、`check_campus_status`、`start_background_check`）与 `tauri-app/src-tauri/src/lib.rs` 及 `tauri-app/src-tauri/src/commands/mod.rs` 同名；`android/src-tauri/src/protocol_cmds.rs` 的 `do_login` 复用 `campus_login_lib::auth::protocol::do_login_with_retry`；`android/src-tauri/src/account_cmds.rs` 与 `tauri-app/src-tauri/src/commands/account.rs` 均包含 `auto_create_account_for_current`、`sanitize_account_id`、`merge_save_as_target` 等同构函数。
 
-**描述**：应用根据设备形态（手机 vs 平板/桌面）动态切换外壳布局。Android 端通过 `useFormFactor()` 区分 `AppInner` (Mobile) 和 `TabletShell`，桌面端则直接运行于标准窗口。UI 层通过条件渲染处理平台差异（如 Android 无原生导航栏需自定义 Dock/BottomNav），而逻辑层通过抽象层屏蔽底层 API 差异。
+### 敏感信息掩码与平台加密落盘
+密码等凭据在内存与磁盘均受保护：出站一律经掩码函数替换为 `***`；落盘时通过平台专属加密器（AndroidKeyStore / Windows DPAPI）加密，且明文密码永不出站。
+证据：`android/src-tauri/src/config_state.rs` 定义 `PASSWORD_MASK = "***"` 与 `masked_for_display`（第443–452行），`CryptoBridge` 经 `CampusKeystoreExt` 调用 `android/plugins/keystore/src/lib.rs` 的 AES-GCM；`tauri-app/src-tauri/src/config/model.rs` 同样定义 `PASSWORD_MASK` 与 `masked_for_display`（第350行），`tauri-app/src-tauri/src/account/crypto.rs` 使用 DPAPI 加解密；两端 `vpn_password_enc` 字段均为平台密文互不可解。
 
-**证据**：
-*   **Android 双壳路由**：`android/frontend/src/App.tsx` 实现 `AppInner` 与 `TabletShell` 的动态切换，支持底部 Tab 导航与侧边栏多栏布局。
-*   **平台常量隔离**：`android/frontend/src/settings/useOnboardingFlow.ts` 使用 `isAndroid` 常量区分字段名（如 `enableBootAutostart` vs `autoLaunch`）。
-*   **桌面端入口一致性**：`tauri-app/frontend/index.html` 作为桌面端唯一入口，结构与 Android `index.html` 保持高度同构。
+### 配置与历史数据的原子写与损坏恢复
+所有持久化文件采用临时文件+重命名（或 pid 标记）的原子写；历史记录（登录、质量）采用头插法上限 100，解析损坏时备份原文件并重置，避免半截文件或崩溃导致数据丢失。
+证据：`android/src-tauri/src/config_state.rs` 的 `save_file`（临时文件名带 pid）、`login_history.rs` 与 `quality_history.rs` 的 `append`（头插法上限 100、损坏备份重置）；`tauri-app/src-tauri/src/config/persist.rs` 的 `atomic_write`（临时文件+sync_all+重命名）、`append_login_history`（第174行，头插上限100）、`append_quality_history`（第237行），以及 `config_cmd.rs` 加载失败时 `.corrupt-<ts>.bak` 备份。
 
-### 2. 状态管理的脏数据冲突解决 (Dirty Data Conflict Resolution)
+### 并发互斥与代际令牌防竞速
+跨命令的共享资源（配置 IO、账号操作、历史写、后台循环）均通过显式锁或原子标志串行化；长期循环使用代际 token 防止 stop/start 竞速误清状态。
+证据：`android/src-tauri/src/config_state.rs` 的 `config_io_lock`（跨命令串行锁）、`monitor_loop.rs` 的 `MONITOR_GENERATION`、`quality_cmds.rs` 的 `LATENCY_GENERATION`；`tauri-app/src-tauri/src/infra/state/mod.rs` 的 `TaskLock`/`TaskFlags`、`commands/account.rs` 的 `ACCOUNT_OP_LOCK`、`config/persist.rs` 的 `LOGIN_HISTORY_LOCK`/`QUALITY_HISTORY_LOCK`。
 
-**描述**：在配置持久化场景中，采用 `dirtyFields` 标记本地修改，并结合 `dirtyFailureCounts` 失败计数器。当后端旧快照可能覆盖本地未落盘的新值时，优先保留本地最新状态；若连续同步失败，则放弃自动同步以避免永久脱节。这种模式防止了竞态条件下的数据丢失。
+### 平台条件编译隔离
+移动端与桌面端专属代码通过 `#[cfg(mobile)]` / `#[cfg(desktop)]` 在编译期隔离，非目标平台编译为空实现或剔除模块，保证单一代码库多端构建。
+证据：`android/src-tauri/src/lib.rs` 在 `#[cfg(mobile)]` 下挂载三个插件（`tauri_plugin_campus_network_bind` 等），`android/plugins/*/src/lib.rs` 均 `#![cfg(mobile)]`；`tauri-app/src-tauri/src/lib.rs` 以 `#[cfg(desktop)]` 门控 `app`/`commands`/`monitor` 等模块，`auth/mod.rs` 中 `dual_adapter_executor` 等仅 `#[cfg(desktop)]`。
 
-**证据**：
-*   **脏字段追踪**：`android/frontend/src/hooks/useConfigStore.ts` 实现 `dirtyFields` 机制，仅在字段变更时参与合并。
-*   **失败熔断**：同一文件中的 `mergeConfigFromBackend` 逻辑包含失败计数重置与同步放弃策略。
+### 统一命令返回结构与事件总线
+命令返回统一为 `{success, message?, data?}` 形状；状态变更经事件总线向前端 emit 固定事件名（如 `config-changed`、`login-log`、`background-check-result`），前后端契约稳定。
+证据：`tauri-app/src-tauri/src/infra/state/mod.rs` 的 `CommandResult`/`AccountResult`，`infra/events.rs` 的 `EventBus` 方法 `emit_login_log`/`emit_background_check_result`/`emit_config_changed`；`android/src-tauri/src/account_cmds.rs` 的 `AccountResult`（`ok`/`ok_with_account`/`err` 构造器）、`config_state.rs` 的 `emit_config_changed`、`monitor_loop.rs` 的 `emit_login_log` 与 `emit_auto_login_result`。
 
-### 3. 串行化 IO 与代际锁保护 (Serialized IO & Generation Locks)
+### 后台监控循环与退避重试
+两端均实现后台检测/更新循环，采用分档间隔、稳态退避、失败上限熔断，且启动恢复任务将核心逻辑抽为纯函数便于测试。
+证据：`android/src-tauri/src/monitor_loop.rs` 的 `effective_interval_ms`（分档）、`run_check_once`（连续失败熔断>=5）、`quality_cmds.rs` 的 `next_backoff_interval_ms`（翻倍上限1800s）；`tauri-app/src-tauri/src/monitor/watcher.rs` 的 `run_startup_tasks`（注册5类任务）、`update/updater.rs` 的 `BACKOFF_RETRY_SECS = [300, 900, 3600]`、`start_update_check_loop` 退避。
 
-**描述**：后端 Rust 核心通过全局异步锁强制配置读写串行化，防止并发写入导致的数据损坏。同时，监控循环与网络测试使用 `AtomicU64` 代际标记（Generation ID）而非简单的布尔标志，确保旧任务不会意外清除新任务的运行状态，解决了高并发下的生命周期竞态问题。
+### 更新检查与下载安全校验
+更新流程均使用版本文件多源降级、白名单域名防 SSRF、流式下载配合 SHA256 校验、残留文件清理。
+证据：`android/src-tauri/src/update_cmds.rs` 的 `DOWNLOAD_ALLOWED_HOSTS`、`verify_file_sha256`、`cleanup_stale_apks`、`VERSION_MIRRORS`；`tauri-app/src-tauri/src/update/updater.rs` 的 `VERSION_MIRRORS`、`sha256_checksum`、`GITHUB_REPO` 与 `BACKOFF_RETRY_SECS`。
 
-**证据**：
-*   **配置串行锁**：`android/src-tauri/src/config_state.rs` 定义 `CONFIG_IO_LOCK`，所有 `get_config`/`save_config` 均受其保护。
-*   **代际标记**：`android/src-tauri/src/monitor_loop.rs` 使用 `MONITOR_GENERATION` 原子变量管理后台监控循环的生命周期。
-*   **原子文件落盘**：`lib.rs` 及相关模块采用 "Write to `.tmp` -> Rename" 模式保证配置文件原子性。
-
-### 4. 生物识别门控与安全隐私掩码 (Biometric Gate & Privacy Masking)
-
-**描述**：敏感操作（如运营商凭据揭示、自助服务）强制通过双层 TTL 验证门控。第一层为全局会话级验证 (`useHelloGate`)，第二层为操作级即时验证 (`useSelfServiceVerify`)。UI 层对敏感信息默认展示掩码，且存在时钟回拨防护机制以防验证永真。
-
-**证据**：
-*   **双层门控**：`android/frontend/src/account/selfServiceState.ts` 定义 `useHelloGate` 和 `useSelfServiceVerify`。
-*   **时钟回拨防护**：`selfServiceState.ts` 行 58-62 显式检查系统时间倒退，防止死锁。
-*   **明文揭示强制验证**：`android/frontend/src/account/useOperatorBind.ts` 即使总开关关闭，揭示密码也需二次生物验证。
-*   **后端掩码出口**：`config_state.rs` 提供 `masked_for_display` 统一处理敏感字段序列化。
-
-### 5. 移动端高性能动画与手势隔离 (High-Performance Animation & Gesture Isolation)
-
-**描述**：针对 WebView 环境限制，采用直接 DOM Style 操作替代 React State 驱动高频交互（如 Dock 镜头效果），结合 `ResizeObserver` 和 `rAF` 循环维持 60fps+。通过 CSS `touch-action: none` 隔离滚动冲突，并实施 GSAP 实例清理与超时 Failsafe 机制，防止后台挂起导致的内存泄漏或卡死。
-
-**证据**：
-*   **DOM 直操优化**：`android/frontend/src/lib/dock-lens.ts` 绕过 React 渲染瓶颈，直接操作 DOM 样式实现果冻形变。
-*   **手势隔离**：`android/frontend/src/account/SelfOnlineStack.tsx` 设置 `touch-action: none` 配合 `ResizeObserver` 实现堆叠视图。
-*   **GSAP 超时保护**：`android/frontend/src/components/layout/RightPanel.tsx` 实施 GSAP 超时重置与 `kill()` 清理，应对 WebView 后台休眠。
-
-### 6. 错误处理的静默降级与非阻断式请求 (Silent Degradation & Non-blocking Requests)
-
-**描述**：前端在网络波动或权限缺失时采取“静默降级”策略。关键路径失败不中断主流程，非关键路径（如 WiFi SSID 获取、Dashboard 自动刷新）失败仅记录日志或忽略，避免弹出干扰性 Toast。弹窗组件吞没提交错误以保持 UI 上下文连续性，允许用户重试。
-
-**证据**：
-*   **静默刷新失败**：`android/frontend/src/account/useAccount.ts` 中 `fetchDashboard` 自动刷新失败不报 Toast。
-*   **非阻断权限**：`android/frontend/src/monitor/useMonitor.ts` 将 WiFi SSID 权限请求包裹在 try-catch 中，失败仅降级显示。
-*   **错误吞没重试**：`android/frontend/src/account/DeviceAliasDialog.tsx` 捕获提交错误并保持弹窗打开，由父组件统一提示。
-
-### 7. 首帧主题一致性与防闪烁保障 (First-Frame Theme Consistency)
-
-**描述**：为防止 React 挂载前的样式跳变（FOUC），在 HTML 入口文件中通过内联同步 IIFE 脚本，在 CSS 解析前立即写入 `data-light`、`theme` 和 `glass-level` 属性。此逻辑在 Android 和桌面端 `index.html` 中严格保持一致，确保首屏视觉瞬间稳定。
-
-**证据**：
-*   **Android 首帧脚本**：`android/frontend/index.html` 行 9-26 执行同步 IIFE 设置 CSS 变量。
-*   **桌面端首帧脚本**：`tauri-app/frontend/index.html` 行 9-26 执行相同逻辑，确保跨端视觉一致。
-*   **CSS 变量驱动**：`android/frontend/src/index.css` 依赖上述属性切换 `--glass-blur` 等变量。
-
-### 8. 数据归一化与多源融合 (Data Normalization & Multi-source Fusion)
-
-**描述**：面对异构数据源（如 Dashboard 历史数组与账单对象数组），组件层采用“多源转一态”策略，将其统一转换为标准化的内部结构（如 `SessionRow`），从而简化视图层渲染逻辑，降低维护成本。
-
-**证据**：
-*   **记录融合**：`tauri-app/frontend/src/account/SelfOnlineRecords.tsx` 将 `SelfHistoryRow` 和 `SelfLogRow` 统一映射为标准化的 `SessionRow`。
-*   **延迟归一化**：`android/frontend/src/monitor/LatencyTimeline.tsx` 实现严格的宽度归一化算法，确保百分比总和不超过 100%。
-
-### 9. Tauri ACL 与命令通道解耦 (ACL Decoupling from Command Channels)
-
-**描述**：自研插件定义了独立的权限集，但在实际调用中，前端通过应用命令通道 (`protocol_cmds.rs`) 而非插件 invoke 进行通信。这导致能力文件 (`capabilities/default.json`) 中未显式授权这些插件命令，而是依赖通配符或底层 IPC 机制。这种模式降低了耦合，但增加了 ACL 审查的认知负担，需警惕 `deny-<command>` 优先原则带来的潜在拦截风险。
-
-**证据**：
-*   **命令通道复用**：`android/src-tauri/src/protocol_cmds.rs` 集中处理登录、监控等核心业务命令。
-*   **ACL 隐式耦合**：`desktop-tauri-shell-config` 模块指出 `capabilities/default.json` 硬编码匹配 `"main"` 窗口，且自研插件权限未在 capability 中授予，依赖运行时 ACL 的宽泛配置或通配符。
-*   **生成物不可手动修改**：`tauri-gen-schemas` 模块强调 `gen/schemas/capabilities.json` 为自动生成，权限变更需修正源码或声明文件。
+### 账号档案管理与自动建号
+多账号系统采用一账号一 JSON、密码密文落盘、切换合并登录字段；R2 自动建号具备撞库防护与幂等短路，id 消毒白名单。
+证据：`android/src-tauri/src/account_cmds.rs` 的 `sanitize_account_id`、`validate_account_name`、`auto_create_account_in`（撞库防护）、`merge_save_as_target`；`tauri-app/src-tauri/src/commands/account.rs` 的同名 `sanitize_account_id`、`validate_display_name`、`auto_create_account_in`（第496行）、`merge_account_into_config`。

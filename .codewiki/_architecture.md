@@ -1,191 +1,235 @@
 ---
-title: System Architecture Overview
+title: 校园网登录助手系统总览
 type: architecture
-source_files: []
-tags: [architecture, system-overview, tauri, android, frontend, backend]
+source_files:
+  - android/src-tauri/src/lib.rs
+  - android/src-tauri/src/android_state.rs
+  - android/src-tauri/src/config_state.rs
+  - android/src-tauri/src/campus_detect.rs
+  - android/src-tauri/src/protocol_cmds.rs
+  - android/src-tauri/src/monitor_loop.rs
+  - android/src-tauri/src/account_cmds.rs
+  - android/src-tauri/src/system_cmds.rs
+  - android/src-tauri/src/battery_cmds.rs
+  - android/src-tauri/src/cpu_affinity.rs
+  - android/src-tauri/src/quality_cmds.rs
+  - android/src-tauri/src/quality_history.rs
+  - android/src-tauri/src/update_cmds.rs
+  - android/src-tauri/src/login_history.rs
+  - android/src-tauri/src/identity_gate.rs
+  - android/src-tauri/src/vpn_cmds.rs
+  - android/src-tauri/src/self_service_cmds.rs
+  - android/src-tauri/src/face_model_cmds.rs
+  - android/plugins/network-bind/src/lib.rs
+  - android/plugins/keystore/src/lib.rs
+  - android/plugins/foreground-service/src/lib.rs
+  - android/src-tauri/tauri.conf.json
+  - android/src-tauri/src/config_state.rs (tests)
+  - android/src-tauri/src/campus_detect.rs (tests)
+  - android/src-tauri/src/monitor_loop.rs (tests)
+  - android/src-tauri/src/account_cmds.rs (tests)
+  - android/src-tauri/src/quality_cmds.rs (tests)
+  - android/src-tauri/src/quality_history.rs (tests)
+  - android/src-tauri/src/update_cmds.rs (tests)
+  - android/src-tauri/src/login_history.rs (tests)
+  - android/src-tauri/src/identity_gate.rs (tests)
+  - android/src-tauri/src/vpn_cmds.rs (tests)
+  - android/src-tauri/src/self_service_cmds.rs (tests)
+  - android/src-tauri/src/face_model_cmds.rs (tests)
+  - android/src-tauri/src/cpu_affinity.rs (tests)
+  - tauri-app/src-tauri/Cargo.toml
+  - tauri-app/src-tauri/src/main.rs
+  - tauri-app/src-tauri/src/lib.rs
+  - tauri-app/src-tauri/src/build.rs
+  - tauri-app/src-tauri/tauri.conf.json
+  - tauri-app/src-tauri/src/app/mod.rs
+  - tauri-app/src-tauri/src/app/startup.rs
+  - tauri-app/src-tauri/src/infra/mod.rs
+  - tauri-app/src-tauri/src/infra/state/mod.rs
+  - tauri-app/src-tauri/src/infra/state/store.rs
+  - tauri-app/src-tauri/src/infra/command_context.rs
+  - tauri-app/src-tauri/src/infra/events.rs
+  - tauri-app/src-tauri/src/infra/lifecycle.rs
+  - tauri-app/src-tauri/src/commands/mod.rs
+  - tauri-app/src-tauri/src/commands/login.rs
+  - tauri-app/src-tauri/src/commands/account.rs
+  - tauri-app/src-tauri/src/commands/config_cmd.rs
+  - tauri-app/src-tauri/src/config/mod.rs
+  - tauri-app/src-tauri/src/config/model.rs
+  - tauri-app/src-tauri/src/config/validate.rs
+  - tauri-app/src-tauri/src/config/persist.rs
+  - tauri-app/src-tauri/src/auth/mod.rs
+  - tauri-app/src-tauri/src/auth/service.rs
+  - tauri-app/src-tauri/src/monitor/mod.rs
+  - tauri-app/src-tauri/src/monitor/watcher.rs
+  - tauri-app/src-tauri/src/network/mod.rs
+  - tauri-app/src-tauri/src/network/client.rs
+  - tauri-app/src-tauri/src/account/crypto.rs
+  - tauri-app/src-tauri/src/update/updater.rs
+  - tauri-app/src-tauri/src/vpn/mod.rs
+tags:
+  - architecture
+  - system-overview
+  - campus-login
+  - tauri
+  - android
+  - desktop
+  - rust
+  - cross-platform
 ---
 
 ## Overview
 
-本系统是一个基于 **Tauri 2** 构建的跨平台校园网登录与网络管理应用，主要运行于 Android 移动端（APK）及 Windows 桌面端。系统采用经典的“前端 UI + 后端 Rust”架构，通过 IPC (Inter-Process Communication) 进行通信。
-
-核心设计原则包括：
-1.  **双端同构与差异适配**：Android 端与桌面端共享协议核心 (`campus_login_lib`)，但 UI 层完全独立复刻，针对各自平台的交互范式（Bottom Nav vs Dock/Tab）和硬件能力（生物识别、后台服务）进行差异化实现。
-2.  **安全优先**：敏感操作（如运营商凭据揭示、自助服务）强制集成生物识别门控（Windows Hello / Android Biometric），配置数据采用原子文件落盘与加密存储。
-3.  **高性能与稳定性**：UI 层广泛使用 Zustand 细粒度状态管理、CSS 变量驱动的主题系统以及针对 WebView 环境优化的动画策略；后端采用串行化 IO 和代际标记防止竞态条件。
+校园网登录助手（CampusLogin）是一个跨平台（Android 移动端 + Windows 桌面端）的校园网认证与网络质量监控工具。系统由两套独立的 Tauri v2 应用工程构成：`android/`（安卓端）与 `tauri-app/`（桌面端），二者通过 Cargo path 依赖同一个主仓库的跨平台核心 crate `campus_login_lib`（内含 `auth::protocol`、`auth::portal`、`self_service`、`vpn`、`network::quality`、`config::schedule` 等纯函数），严禁在端侧复制协议逻辑。本文面向零上下文的未来 agent，汇总两工程模块文章（见 `source_files`）中的职责、连接与数据流，并给出三张架构框图。
 
 ## System Overview
 
-系统由三大层级组成：**前端展示层**、**后端逻辑层** 和 **基础设施层**。
+以下总框图展示两个端工程与共享核心的分层结构：
 
 ```text
-┌──────────────────────────────────────────────────────────────────────┐
-│                       Frontend Layer (React/Vite)                    │
-├──────────────────────┬───────────────────────────────────────────────┤
-│   Entry & Shell      │   Feature Modules                             │
-│                      │                                               │
-│ • Entry Config       │ • Auth (Dashboard, About)                     │
-│   (index.html,       │ • Account (CRUD, Bind Operator)               │
-│    main.tsx)         │ • Monitor (Quality, Latency, Status Bar)      │
-│                      │ • Settings (Onboarding, Theme, KeepAlive)     │
-│                      │                                               │
-│ • App Shell          │ ───────────────────────────────────────────── │
-│   (App.tsx,          │   Shared Infrastructure                       │
-│    Tablet/Mobile     │ • Hooks & Stores (Zustand, Tauri API Wrap)    │
-│    Layouts)          │ • Lib & i18n (Animations, Utils, Translations)│
-└──────────┼───────────┴───────────────────────────────────────────────┘
-           │ IPC Invoke / Tauri Commands
-           ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                       Backend Layer (Rust/Tauri)                     │
-├──────────────────────┬───────────────────────────────────────────────┤
-│   Core Logic         │   Protocol & Network                          │
-│                      │                                               │
-│ • Rust Core          │ • Campus Detect (Probe Logic)                 │
-│   (lib.rs)           │ • Login History                               │
-│   - Config State     │ • Quality History                             │
-│   - Account Cmds     │ • Campus Login Lib (Shared Crate)             │
-│   - Protocol Cmds    │   (Auth, Portal, Night Switch)                │
-│   - Monitor Loop     │                                               │
-│   - Quality Cmds     │ ───────────────────────────────────────────── │
-│   - Update Cmds      │   Platform Specific                           │
-│                      │ • Android Plugins (Keystore, Foreground Svc)  │
-│ • Desktop Shell      │ • Desktop APIs (IP Helper, Windows Hello)     │
-│   (build.rs,         │                                               │
-│    tauri.conf.json)  │ ───────────────────────────────────────────── │
-│                      │   Security & Schema                           │
-│                      │ • Tauri Gen Schemas (ACL, Capabilities)       │
-└──────────────────────┴───────────────────────────────────────────────┘
+┌──────────────────────────── Android 端 (android/) ────────────────────────────┐
+│ ┌────────────── Rust 后端 (android/src-tauri/src/*.rs) ──────────┐            │
+│ │ lib.rs:33 run() 装配 invoke_handler! 命令面                     │            │
+│ │ android_state.rs / config_state.rs (Settings)                  │            │
+│ │ campus_detect.rs / protocol_cmds.rs (登录注销)                 │            │
+│ │ monitor_loop.rs (后台保活检测) / account_cmds.rs               │            │
+│ │ system_cmds.rs / battery_cmds.rs / quality_cmds.rs            │            │
+│ │ update_cmds.rs / login_history.rs / identity_gate.rs          │            │
+│ │ vpn_cmds.rs / self_service_cmds.rs / face_model_cmds.rs       │            │
+│ │ cpu_affinity.rs (小核绑核)                                     │            │
+│ └───────────────────────────┬───────────────────────────────────┘            │
+│                             │ 调用                                            │
+│ ┌────────────── 移动插件 (#[cfg(mobile)]) ──────────────┐                    │
+│ │ network-bind (绑 WiFi) / keystore (AES-GCM)           │                    │
+│ │ foreground-service (FGS 保活/开机自启/APK安装)        │                    │
+│ └──────────────────────────────────────────────────────┘                    │
+│                             │ 经 hooks/tauriApi.ts IPC                       │
+│ ┌────────────── React 前端壳 (android/frontend) ─────────┐                    │
+│ │ 手机双外壳 + 平板 Dock，复用桌面件                      │                    │
+│ └──────────────────────────────────────────────────────┘                    │
+└──────────────────────────────────────┬───────────────────────────────────────┘
+                                       │ 依赖跨平台纯函数 (cargo path)
+                                       ▼
+┌───────────────── 共享核心 crate: campus_login_lib ───────────────────────────┐
+│ auth::protocol / auth::portal / self_service / vpn / network::quality        │
+│ config::schedule 等 (无平台 API 依赖)                                        │
+└──────────────────────────────────────┬───────────────────────────────────────┘
+                                       │ 同样依赖
+                                       ▼
+┌──────────────────────────── Desktop 端 (tauri-app/) ─────────────────────────┐
+│ ┌────────────── Rust 后端 (tauri-app/src-tauri/src/*) ──────┐                │
+│ │ main.rs:17 → app/startup.rs:23 run() 装配 generate_handler!│                │
+│ │ infra/state (AppState, ConfigStore) / commands/*          │                │
+│ │ config/* / auth/service.rs / monitor/watcher.rs           │                │
+│ │ network/* / account/crypto.rs (DPAPI) / update/updater.rs│                │
+│ │ vpn/mod.rs (WebVPN 核心)                                  │                │
+│ └───────────────────────────┬───────────────────────────────┘                │
+│                             │ 提权子进程 / 无头核心                           │
+│ ┌────────────── 辅助二进制 ──────────────┐ ┌──────────────────────────────┐  │
+│ │ helper (elevated subproc, netsh/MAC)  │ │ campus-login-core (SYSTEM任务)│  │
+│ └───────────────────────────────────────┘ └──────────────────────────────┘  │
+│                             │ WebView2 IPC                                   │
+│ ┌────────────── React+TS 前端 (tauri-app/frontend) ─────────┐                │
+│ │ SPA 通过 Tauri v2 IPC 调用 commands/*                     │                │
+│ └──────────────────────────────────────────────────────────┘                │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+系统由两个独立的 Tauri 应用组成，命令名/参数刻意对齐使前端近乎零适配；Android 端强制流量走 WLAN、密码用 AndroidKeyStore，桌面端用 DPAPI 与 Windows 计划任务/提权子进程。
 
 ## Data Flow
 
-数据流向遵循单向依赖模式：前端发起请求 -> 后端处理业务/系统调用 -> 返回结果 -> 前端更新 Store -> UI 重渲染。
+下图描述一次典型登录请求与后台事件的数据流（以 Android 与 Desktop 对应命令为例）：
 
 ```text
-[User Action]
-      │
-      ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                        Frontend (React)                              │
-│                                                                      │
-│  ┌─────────────┐     ┌──────────────────┐     ┌──────────────────┐  │
-│  │ UI Component │────▶│  Hook/Store      │────▶│  Tauri API Wrap  │  │
-│  │ (e.g.,       │     │ (useAccount,     │     │ (tauriApiWith    │  │
-│  │  AccountPanel)│     │   useMonitor)    │     │   Retry)         │  │
-│  └─────────────┘     └──────────────────┘     └────────┬─────────┘  │
-│                                                       │              │
-│  ┌──────────────────┐                                │              │
-│  │  Zustand Store   │◀───────────────────────────────┘              │
-│  │ (Auth, Config,   │  (Update State on Response)                   │
-│  │  Quality)        │                                               │
-│  └──────────────────┘                                               │
-└──────────────────────────────────────────────────────────────────────┘
-      │ IPC Invoke (JSON Payload)
-      ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                        Backend (Rust)                                │
-│                                                                      │
-│  ┌──────────────────┐     ┌──────────────────┐     ┌──────────────┐ │
-│  │ Tauri Command    │────▶│  Business Logic  │────▶│  System/API  │ │
-│  │ Handler          │     │  (Config State,  │     │  Calls       │ │
-│  │ (account_cmds.rs)│     │   Monitor Loop)  │     │ (Network,    │ │
-│  └──────────────────┘     └──────────────────┘     │  File IO,    │ │
-│                                                    │  Biometrics) │ │
-│  ┌──────────────────┐                             └──────────────┘ │
-│  │  ACL/Permission  │◀─────────────────────────────────────────────┘
-│  │  Check (Gen S.)  │
-│  └──────────────────┘
-└──────────────────────────────────────────────────────────────────────┘
+前端 (Android/frontend 或 Desktop/frontend)
+   │ invoke("doLogin" / "do_login")
+   ▼
+┌─────────────────── Tauri 后端命令层 ────────────────────────┐
+│ Android: protocol_cmds::do_login (android/src-tauri/src/protocol_cmds.rs:10)  │
+│   → ensure_wifi_bound (protocol_cmds.rs:269) 绑进程到 WiFi                   │
+│ Desktop: commands/login::do_login (tauri-app/src-tauri/src/commands/login.rs:63)│
+│   → spawn_blocking → auth::service::full_login (auth/service.rs:81)          │
+└───────────────────────────┬───────────────────────────────────┘
+                            │ 调用跨平台纯函数
+                            ▼
+┌─────────────────── campus_login_lib ───────────────────────┐
+│ auth::protocol::do_login_with_retry / portal 探测          │
+│ (Android 经 campus_detect 复用 is_subnet_18 等)            │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ HTTP/TCP 请求 (SO_BINDTODEVICE / 适配器)
+                            ▼
+                  校园网 Portal / WebVPN 网关
+                            │
+                            │ emit 事件回流
+                            ▼
+┌─────────────────── EventBus / invoke_handler ─────────────┐
+│ Android: monitor_loop emit background-check-result / login-log│
+│ Desktop: infra/events.rs emit_login_log / emit_background_check_result │
+└───────────────────────────┬─────────────────────────────────┘
+                            ▼
+                  前端监听更新 UI (toast / 状态卡)
 ```
+
+配置写路径：前端 `saveConfig` → 后端 `save_config` (`android/src-tauri/src/config_state.rs:491` 或 `tauri-app/src-tauri/src/commands/config_cmd.rs:8`) → 加密落盘（Keystore / DPAPI）→ 广播 `config-changed` → 前端刷新。账号、质量历史、登录历史均类似经原子写与头插法持久化。
 
 ## Dependency Graph
 
-模块间的依赖方向严格分层，禁止循环依赖。
+下图展示模块间依赖方向（箭头表示“依赖于/调用”）：
 
 ```text
-┌──────────────────────────────────────────────────────────────────────┐
-│                         Dependency Direction                         │
-│                                                                      │
-│  (High Level)                                                        │
-│  ◄── Workspace Meta & Docs (Rules, Specs)                           │
-│  ◄── Release & Changelog Archive (Audit Trail)                      │
-│                                                                      │
-│  (Backend Core)                                                      │
-│  ◄── Desktop Rust Core (Commands, State)                            │
-│  ◄── Campus Login Lib (Protocol, Network)                           │
-│  ◄── Tauri Gen Schemas (ACL, Permissions)                           │
-│  ◄── Desktop Tauri Shell Config (Build, Assets)                     │
-│                                                                      │
-│  (Frontend Infra)                                                    │
-│  ◄── Android Frontend Hooks & Stores (Zustand, API Wrap)            │
-│  ◄── Android Frontend Lib & I18n (Utils, Animations)                │
-│  ◄── Android Frontend Entry Config (HTML, CSS, Vite)                │
-│                                                                      │
-│  (Frontend Features)                                                 │
-│  ◄── Android Frontend App Shell (Layouts, Navigation)               │
-│  ◄── Android Frontend Auth (Dashboard, About)                       │
-│  ◄── Android Frontend Account (CRUD, Self Service)                  │
-│  ◄── Android Frontend Monitor (Quality, Latency)                    │
-│  ◄── Android Frontend Settings (Onboarding, Theme)                  │
-│                                                                      │
-│  (Desktop Specific)                                                  │
-│  ◄── Desktop Frontend Account (Similar to Android Account)          │
-│  ◄── Desktop Frontend Entry Config                                  │
-│                                                                      │
-│  ▲                                                                   │
-│  │ Dependencies Point Upwards                                         │
-│  │ Consumers Depend on Providers                                      │
-└──────────────────────────────────────────────────────────────────────┘
+┌────────────────┐    ┌────────────────────┐    ┌────────────────────────┐
+│ Android 前端   │───►│ Android 后端命令   │───►│                        │
+└────────────────┘    │ (lib.rs 注册)      │    │                        │
+       │              └─────────┬──────────┘    │  campus_login_lib      │
+       │                        │               │  (跨平台纯函数核心)    │
+┌────────────────┐    ┌────────▼──────────┐    │                        │
+│ Desktop 前端   │───►│ Desktop 后端命令  │───►│                        │
+└────────────────┘    │ (generate_handler)│    └───────────┬────────────┘
+                      └─────────┬──────────┘                │
+                                │                           │
+                                ▼                           ▼
+                      ┌──────────────────┐          ┌────────────────────┐
+                      │ 平台专属能力      │          │ 外部网络实体       │
+                      │ Android plugins  │          │ Portal / WebVPN /  │
+                      │ Windows helper    │          │ Radius / ICMP      │
+                      │ campus-login-core │          └────────────────────┘
+                      └──────────────────┘
+
+依赖规则：
+  ► 前端依赖后端命令契约 (invoke_handler!/generate_handler! 注册的同名命令)
+  ► 后端命令依赖 campus_login_lib 纯函数 (禁止复制协议)
+  ► Android 后端额外依赖 #![cfg(mobile)] 插件封装的 Android Java/Kotlin 能力
+  ► Desktop 后端依赖 Windows API (DPAPI/计划任务/helper 提权)
+  ◄ 核心库不反向依赖任何端侧模块 (零平台耦合)
 ```
 
 ## Module Roles
 
-### 1. 基础设施与配置层 (Infrastructure & Config)
+### Android 端模块角色（依据 `modules/android.md`）
 
-*   **`workspace-meta-and-docs`**: 定义项目宪法、AI 助手纪律、构建规范及核心设计文档。不直接参与运行时，但约束所有其他模块的开发行为。
-*   **`android-frontend-entry-config`**: Android 前端的工程入口。负责 `index.html` 首帧主题初始化、Vite 构建配置及全局样式。确保启动视觉一致性。
-*   **`desktop-frontend-entry-config`**: 桌面端前端的工程入口。类似 Android 端，负责 HTML 骨架屏、首帧脚本及构建流程。
-*   **`desktop-tauri-shell-config`**: Android 端 Tauri 应用的构建壳。负责 `Cargo.toml`、`tauri.conf.json`、ACL 权限声明及构建钩子 (`build.rs`)。将前端产物接入 Tauri 运行时。
-*   **`tauri-gen-schemas`**: Tauri 2 ACL/能力生成物快照。提供运行时权限校验依据及开发时 JSON Schema 支持。不可手动修改，由构建流程自动生成。
-*   **`release-and-changelog-archive`**: 纯文档归档层。记录版本变更、审计回执及发布资产校验和，服务于追溯与合规。
+- **入口与生命周期** (`android/src-tauri/src/lib.rs:33`)：`run()` 挂载移动插件、`manage(AndroidState)`、`setup` 初始化日志与启动恢复，`ExitRequested` 中 `prevent_exit()` 保活。
+- **全局状态** (`android_state.rs:16` `AndroidState` 存源 IP/配置；`config_state.rs:26` `Settings` 全量配置，含 `CryptoBridge` 接 Keystore 加解密)。
+- **校园网探针** (`campus_detect.rs:65` `probe_campus` 枚举 IPv4、TCP 探 Portal、SSID 判定)。
+- **协议命令** (`protocol_cmds.rs:10` `do_login`/`do_logout` 复用 `campus_login_lib::auth::protocol`，强制 `ensure_wifi_bound` 绑 WiFi)。
+- **后台监控** (`monitor_loop.rs:16` `MONITOR` 状态机，`run_check_once` 掉线重登、夜间出站/运营商切换、定时动作，前台服务保活由插件负责)。
+- **账号/系统/电池** (`account_cmds.rs` 多账号 CRUD；`system_cmds.rs` 聚合 `get_init_data`；`battery_cmds.rs` 跳电池优化页)。
+- **质量/历史/更新** (`quality_cmds.rs` + `quality_history.rs` 网络质量；`update_cmds.rs` 版本检查/APK 安装；`login_history.rs` 登录历史)。
+- **身份/WebVPN/自助** (`identity_gate.rs` 生物识别 TTL 门；`vpn_cmds.rs` + `self_service_cmds.rs` 自助服务与 WebVPN 自动共存路由，依赖 `campus_login_lib::self_service`/`vpn`)。
+- **人脸模型/CPU亲和** (`face_model_cmds.rs` 按需下模型；`cpu_affinity.rs` 绑小核)。
+- **移动插件** (`plugins/network-bind` 绑进程到 WLAN；`plugins/keystore` AndroidKeyStore AES-GCM；`plugins/foreground-service` FGS 保活/开机自启/APK 安装)，均 `#![cfg(mobile)]` host 编译剔除。
+- **前端壳** (`android/frontend` 子模块)：`tauriApi.ts` 命令契约层，桌面专属命令 reject 为 `desktopOnly`，双外壳布局。
 
-### 2. 后端核心层 (Backend Core)
+### Desktop 端模块角色（依据 `modules/tauri-app.md`）
 
-*   **`desktop-rust-core`**: Tauri 后端的命令面与状态面骨架。
-    *   **职责**: 注册所有 Tauri 命令 (Config, Account, Protocol, Monitor, Quality, Update)，管理配置锁，协调后台监控循环。
-    *   **关键模式**: 使用 `AtomicU64` 代际标记防止竞态，串行化配置 IO，原子文件落盘。
-    *   **依赖**: `campus_login_lib` (协议核心), `campus-detect` (探针), `login-history`, `quality-history`.
+- **进程入口** (`main.rs:17` 拦截提权模式、设 WebView2 参数；`app/startup.rs:23` 装配插件与 `setup_app`)。
+- **共享状态** (`infra/state/mod.rs:184` `AppState` 聚合 `ConfigStore`(ArcSwap)、`TaskFlags`、`NetworkState` 等；`infra/command_context.rs:10` `CommandContext` 提供统一访问；`infra/events.rs:8` `EventBus` 推送事件)。
+- **配置模型** (`config/model.rs:10` `Config` 全字段，密码 DPAPI 加密、出站 `masked_for_display`；`config/persist.rs` 原子写与账号档案加解密)。
+- **命令层** (`commands/login.rs` 登录注销；`commands/account.rs` 账号 CRUD；`commands/config_cmd.rs` 落盘广播)。
+- **认证/监控/网络** (`auth/service.rs:81` `full_login` 编排；`monitor/watcher.rs:16` 启动 5 类后台任务；`network/client.rs` 客户端池与 Portal URL)。
+- **凭据加密** (`account/crypto.rs` Windows DPAPI 加解密)。
+- **更新/WebVPN** (`update/updater.rs` 版本镜像降级；`vpn/mod.rs` 深澜 Srun WebVPN 核心，校外回退)。
+- **辅助进程** (`campus-login-core` 无头 SYSTEM 任务；`helper` 提权子进程处理 MAC/DNS/适配器)。
+- **前端** (`tauri-app/frontend` 子模块)：WebView2 SPA 经 IPC 调命令。
 
-### 3. 前端基础设施层 (Frontend Infrastructure)
-
-*   **`android-frontend-hooks-and-stores`**: Android 前端的核心状态管理与 API 适配层。
-    *   **职责**: 基于 Zustand 管理 `Auth`, `Config`, `Quality`, `Theme` 等全局状态；封装 `tauriApi` 处理 IPC 调用与重试；编排应用启动流程 (`useAppInit`)。
-    *   **关键模式**: 脏数据冲突解决 (`dirtyFields`)，Android 特定降级策略 (`desktopOnly` 拦截)，动画性能自适应。
-*   **`android-frontend-lib-and-i18n`**: 底层工具库与国际化。
-    *   **职责**: 提供 `i18next` 国际化支持，封装玻璃拟态/Dock 栏交互效果 (`glass-dock`, `dock-lens`)，提供颜色转换、延迟解析等通用工具。
-    *   **关键模式**: 直接 DOM Style 操作保证 60fps+ 性能，容错降级约定。
-
-### 4. 前端功能模块层 (Feature Modules)
-
-*   **`android-frontend-app-shell`**: Android 前端的应用外壳与布局系统。
-    *   **职责**: 响应式双壳架构 (Mobile/Tablet)，全局状态聚合，导航组件 (BottomNav, DockNav)，日志面板。
-    *   **关键模式**: 基于 `useFormFactor` 的路由区分，高性能分片渲染，玻璃拟态视觉约定。
-*   **`android-frontend-auth`**: 认证交互与仪表盘。
-    *   **职责**: Dashboard 展示，About 对话框，认证状态 Hook (`useAuth`)。
-    *   **关键模式**: 自定义拖拽实现 (解决 WebView pointer capture 限制)，Extra 卡生命周期管理 (黑名单机制)。
-*   **`android-frontend-account`**: 账号面板与自助服务。
-    *   **职责**: 账号 CRUD，运营商绑定，设备在线管理，生物识别验证门控。
-    *   **关键模式**: 双层 TTL 生物识别门控 (`useHelloGate`), 并发去重 (`switchInFlight`), 错误静默降级。
-*   **`android-frontend-monitor`**: 网络监控核心。
-    *   **职责**: 从底层状态感知到可视化展示 (StatusBar, Capsule, Panel) 的完整闭环。
-    *   **关键模式**: 竞态与生命周期保护 (`mountedRef` + `busyRef`), 配置持久化优先策略，数据归一化算法。
-*   **`android-frontend-settings`**: 设置面板与新手引导。
-    *   **职责**: 设置面板，Onboarding Wizard，常亮保活卡片，主题管理。
-    *   **关键模式**: 平台差异化抽象 (`isAndroid` 条件渲染)，状态机与动画解耦，密码掩码态处理。
-
-### 5. 桌面端特有模块 (Desktop Specific)
-
-*   **`desktop-frontend-account`**: 桌面端账号管理。
-    *   **职责**: 与 Android 端 `android-frontend-account` 功能类似，但集成 Windows Hello 验证。
-    *   **关键模式**: 数据归一化 (多源转一态), 安全门控机制, StrictMode 兼容性。
+两工程通过一致的命令契约与共享 `campus_login_lib` 保持协议同源；Android 以插件弥补移动平台限制，Desktop 以 Windows 专属子进程/计划任务覆盖桌面场景。未来 agent 修改协议逻辑时必须只改核心 crate，端侧仅调用。
