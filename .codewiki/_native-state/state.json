@@ -1,0 +1,63 @@
+{
+  "stateVersion": 1,
+  "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
+  "consumedRange": {
+    "baseCommit": "24a6aa5ea6b2db4819d117549219877d3dc0ef97",
+    "headCommit": "2848f33aebcca517f01ff8ba6727b0943620464d"
+  },
+  "pendingChanges": {
+    "state": "ok",
+    "baseCommit": "24a6aa5ea6b2db4819d117549219877d3dc0ef97",
+    "headCommit": "2848f33aebcca517f01ff8ba6727b0943620464d",
+    "committed": [
+      "android/frontend/index.html",
+      "android/frontend/src/App.tsx",
+      "android/frontend/src/components/ui/select.tsx",
+      "android/frontend/src/hooks/useThemeStore.ts",
+      "android/frontend/src/main.tsx",
+      "android/frontend/src/settings/OnboardingWizard.tsx",
+      "android/frontend/src/settings/ThemeDialog.tsx",
+      "tauri-app/frontend/index.html",
+      "tauri-app/frontend/src/App.tsx",
+      "tauri-app/frontend/src/components/ui/select.tsx",
+      "tauri-app/frontend/src/hooks/useThemeStore.ts",
+      "tauri-app/frontend/src/main.tsx",
+      "tauri-app/frontend/src/settings/OnboardingWizard.tsx",
+      "tauri-app/frontend/src/settings/ThemeDialog.tsx"
+    ],
+    "staged": [],
+    "unstaged": [],
+    "untracked": [
+      ".dsh-ops/dock-lens-browser.cjs",
+      ".dsh-ops/dock-lens-far.png",
+      ".dsh-ops/dock-lens-initial.png",
+      ".dsh-ops/dock-lens-near.png",
+      "android/build-apk.ps1.lnk",
+      "build-apk.ps1.lnk",
+      "nul"
+    ],
+    "deleted": [],
+    "renamed": [],
+    "reason": ""
+  },
+  "unconsumed": [
+    ".dsh-ops/dock-lens-browser.cjs",
+    ".dsh-ops/dock-lens-far.png",
+    ".dsh-ops/dock-lens-initial.png",
+    ".dsh-ops/dock-lens-near.png",
+    "android/build-apk.ps1.lnk",
+    "build-apk.ps1.lnk",
+    "nul"
+  ],
+  "engineVersion": "2.0.0",
+  "scope": "auto",
+  "effectiveScope": "full",
+  "updateOutcome": null,
+  "fallbackReason": "还没有持久化状态（首次增量）",
+  "notes": [
+    "增量不可用，改走全量：还没有持久化状态（首次增量）",
+    "工作区快照未成立，本轮退回用 HEAD 记账：造快照失败：Command failed: git add -A -- .\nwarning: in the working copy of '.codewiki/concepts/animation-system.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of '.codewiki/concepts/config-and-persistence.md', LF will be replaced by CRLF the next time Git touches it\n",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mvuk7e20-1-native（63 个文件）"
+  ],
+  "updatedAt": "2026-10-30T09:55:51.675Z"
+}
