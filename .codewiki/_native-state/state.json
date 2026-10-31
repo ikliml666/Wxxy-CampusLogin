@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "24a6aa5ea6b2db4819d117549219877d3dc0ef97",
-    "headCommit": "612e88a6034a491f902e5a4618f9bc59a0cf798a"
+    "headCommit": "61cbdd1a14303b19cccf4aa1059cb626ae5f1493"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "24a6aa5ea6b2db4819d117549219877d3dc0ef97",
-    "headCommit": "612e88a6034a491f902e5a4618f9bc59a0cf798a",
+    "headCommit": "61cbdd1a14303b19cccf4aa1059cb626ae5f1493",
     "committed": [
       "android/frontend/index.html",
       "android/frontend/src/App.tsx",
@@ -56,7 +56,7 @@
   "fallbackReason": "",
   "notes": [
     "工作区快照未成立，本轮退回用 HEAD 记账：造快照失败：Command failed: git add -A -- .\nwarning: in the working copy of '.codewiki/_index.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of '.codewiki/concepts/animation-system.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working c",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mvwltzrw-f-native（65 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mvwnz5t8-j-native（65 个文件）"
   ],
-  "updatedAt": "2026-10-31T16:22:59.431Z"
+  "updatedAt": "2026-10-31T17:23:19.603Z"
 }
