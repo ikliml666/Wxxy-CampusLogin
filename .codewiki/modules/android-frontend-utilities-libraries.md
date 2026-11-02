@@ -69,7 +69,7 @@ flowchart TD
 
 ## 1. 通用工具组
 
-> 以下四个子分组的详细文档已拆分为独立页面：[dock 弹簧物理内核](android_frontend_utilities_libraries/android_frontend_utilities_libraries_dock_physics.md)、[悬浮栏镜头系统](android_frontend_utilities_libraries/android_frontend_utilities_libraries_lens.md)、[Hyalite 折射玻璃](android_frontend_utilities_libraries/android_frontend_utilities_libraries_hyalite.md)、[网络质量展示解析](android_frontend_utilities_libraries/android_frontend_utilities_libraries_quality_display.md)。
+> 以下四个子分组的详细文档已拆分为独立页面：[dock 弹簧物理内核](android-frontend-utilities-libraries-dock-physics.md)、[悬浮栏镜头系统](android-frontend-utilities-libraries-lens.md)、[Hyalite 折射玻璃](android-frontend-utilities-libraries-hyalite.md)、[网络质量展示解析](android-frontend-utilities-libraries-quality-display.md)。
 
 ### utils.ts — 样式与存储
 
@@ -88,7 +88,7 @@ flowchart TD
 
 ## 2. 网络质量展示组（latency.ts）
 
-后端（`android_backend_tauri` 的 `quality_history.rs` / `quality_cmds.rs`）按「先网关、后外网逐域名」的节奏**增量推送** `NetworkQuality` 事件，期间 `quality` 字段会长期停在 `unknown`/`busy`。这个文件是所有展示端的统一口径，逐函数细节见 [网络质量展示解析子页](android_frontend_utilities_libraries/android_frontend_utilities_libraries_quality_display.md)：
+后端（`android_backend_tauri` 的 `quality_history.rs` / `quality_cmds.rs`）按「先网关、后外网逐域名」的节奏**增量推送** `NetworkQuality` 事件，期间 `quality` 字段会长期停在 `unknown`/`busy`。这个文件是所有展示端的统一口径，逐函数细节见 [网络质量展示解析子页](android-frontend-utilities-libraries-quality-display.md)：
 
 - **`getLatencyLevel(latency)`**：六档阈值表——≤20ms 极速、≤50 优秀、≤100 良好、≤200 一般、≤400 较慢、其余拥堵；负值直接 `bad`。
 - **`getLatencyColor(latency)`**：把档位映射到 Tailwind 三色 token（`text` / `bg` / `borderBg`），配置来自 `network/constants.ts` 的 `QUALITY_CONFIG`（与设置页的颜色表同源）。
@@ -97,7 +97,7 @@ flowchart TD
   - `busy`（后端批次中间态）：**只合并明细、不采纳等级**，避免慢网络下胶囊永远显示「检测中」；
   - 其余情况合并 `details` 并继承 `metrics`。
 - **`extractGatewayLatency` / `extractExternalLatency`**：从嵌套的 `details` 里取数，外网取**中位数**（多个域名延迟的中点），缺失逐级回落。
-- **`resolveQualityDisplay(nq)`**：首页卡与质量页共用的解析——只要 `displayLatency >= 0`，就用延迟反推等级，忽略 `unknown`/`busy` 的原始 `quality`。类型来自 `monitor/types.ts` 的 `NetworkQuality`（见 [android_frontend_monitoring_network.md](android_frontend_monitoring_network.md)）。
+- **`resolveQualityDisplay(nq)`**：首页卡与质量页共用的解析——只要 `displayLatency >= 0`，就用延迟反推等级，忽略 `unknown`/`busy` 的原始 `quality`。类型来自 `monitor/types.ts` 的 `NetworkQuality`（见 [android_frontend_monitoring_network.md](android-frontend-monitoring-network.md)）。
 
 ## 3. 动效变体组（animations.ts）
 
@@ -112,7 +112,7 @@ flowchart TD
 
 ### dock-spring.ts — 物理内核（无 React 依赖）
 
-> 详细类图、积分公式与停表策略见 [dock 弹簧物理内核子页](android_frontend_utilities_libraries/android_frontend_utilities_libraries_dock_physics.md)。
+> 详细类图、积分公式与停表策略见 [dock 弹簧物理内核子页](android-frontend-utilities-libraries-dock-physics.md)。
 
 ```mermaid
 classDiagram
@@ -123,6 +123,7 @@ classDiagram
         +number speed
         +number accel
         +boolean moving
+        +constructor(initial, onFrame)
         +to(target, spec?)
         +jump(value)
         +step(dt)
@@ -135,6 +136,7 @@ classDiagram
     Motion --> SpringSpec : 持有
 ```
 
+- **构造 `new Motion(initial, onFrame)`**：`value` 与 `target` 同时落在 `initial`（首帧不会从 0 滑入），速度从 0 起、弹簧参数默认 `springOfDuration(300)`；`onFrame(value)` 是每帧回调，`dock-lens.ts` 的六条曲线都靠它把当前值直接写进 DOM style，之后由 `to()`/`jump()`/`step()` 触发。
 - **为什么不用 CSS transition**：拖动时目标每帧被改写，transition 每次改目标都从零速重启，观感一路顿挫；弹簧保留速度与位置连续，手指走到哪镜头跟到哪，松手还有惯性。
 - 实现是**半隐式欧拉积分**：`v += (k·(target−x) − c·v)·dt; x += v·dt`，全部 `Motion` 共享一个 `requestAnimationFrame` 循环，**全部静止后自动停表**（省 GPU/电量），`MAX_STEP = 1/30` 钳制切窗口回来时的大步。
 - 参数反解工具：`springOfDuration(ms, bounce)`（稳定时长 + 回弹量 → k/c，对应 Flutter `withDurationAndBounce`）与 `springOfRatio(stiffness, ratio)`（刚度 + 阻尼比 → 对应 `withDampingRatio`）。
@@ -142,7 +144,7 @@ classDiagram
 
 ### dock-lens.ts — `useDockLens(navRef, opts)` DOM 接管层
 
-> 六条弹簧的手感标定、测量/渲染分离规则、ResizeObserver 与监听拆装的完整生命周期见 [悬浮栏镜头系统子页](android_frontend_utilities_libraries/android_frontend_utilities_libraries_lens.md)。
+> 六条弹簧的手感标定、测量/渲染分离规则、ResizeObserver 与监听拆装的完整生命周期见 [悬浮栏镜头系统子页](android-frontend-utilities-libraries-lens.md)。
 
 调用方在导航栏 DOM 里用 `data-dock-*` 属性布好节点（项 `[data-dock-item]`、药丸 `[data-dock-lens]`、放大层 `[data-dock-magnify]` 及其 `inner`、项容器 `[data-dock-strip]`），hook 接管「镜头怎么动」；渲染项本身、点击、无障碍仍由调用方负责。
 
@@ -180,7 +182,7 @@ sequenceDiagram
 
 ## 5. 折射玻璃组（glass-dock.tsx + vendor/hyalite.*）
 
-> Hyalite 滤镜链（位移图、双-pass 抗楼梯、色散、边缘剖面）与 `useGlassRefraction` 的完整挂载时序见 [Hyalite 折射玻璃子页](android_frontend_utilities_libraries/android_frontend_utilities_libraries_hyalite.md)。
+> Hyalite 滤镜链（位移图、双-pass 抗楼梯、色散、边缘剖面）与 `useGlassRefraction` 的完整挂载时序见 [Hyalite 折射玻璃子页](android-frontend-utilities-libraries-hyalite.md)。
 
 ### 为什么不用 `backdrop-filter: blur()`
 
@@ -202,7 +204,7 @@ sequenceDiagram
 
 ### `useGlassRefraction(ref, level)` — React 封装
 
-`level: 'off' | 'standard' | 'ultra'` 对应设置页的玻璃档位（由 [android_frontend_settings.md](android_frontend_settings.md) 的配置态传入）。`GLASS_DOCK_OPTS` 把两档参数固化：**档位差只做在 `blur` 上**（standard 8px、ultra 1.6px，后者更透、能读出背后内容轮廓），`thickness/slope/shade` 全部对齐；`ultra` 的 `shade` 需反向补偿膜厚差（0.2 vs 0.45），否则四角阴影过重。`rim: 0` 与 `edge: 0` 是硬约定——边缘光全部由 CSS 伪元素负责，避免两层亮光叠成「白色外框」。
+`level: 'off' | 'standard' | 'ultra'` 对应设置页的玻璃档位（由 [android_frontend_settings.md](android-frontend-settings.md) 的配置态传入）。`GLASS_DOCK_OPTS` 把两档参数固化：**档位差只做在 `blur` 上**（standard 8px、ultra 1.6px，后者更透、能读出背后内容轮廓），`thickness/slope/shade` 全部对齐；`ultra` 的 `shade` 需反向补偿膜厚差（0.2 vs 0.45），否则四角阴影过重。`rim: 0` 与 `edge: 0` 是硬约定——边缘光全部由 CSS 伪元素负责，避免两层亮光叠成「白色外框」。
 
 挂载拆成三步，每一步的时机都有实测依据：
 
@@ -222,9 +224,9 @@ flowchart LR
 ## 与其他模块的关系
 
 - **上游（消费本模块）**：
-  - [android_frontend_hooks.md](android_frontend_hooks.md)：动画 profile、主题色与页面闲置态的 hook 消费 `easing-config` / `animations` / `color`；
-  - [android_frontend_monitoring_network.md](android_frontend_monitoring_network.md)：`useMonitor` 与质量卡用 `latency.ts` 的解析结果渲染；
-  - [android_frontend_settings.md](android_frontend_settings.md)：玻璃档位开关传给 `useGlassRefraction`；
-  - [android_frontend_shared_components.md](android_frontend_shared_components.md)：`FluidBackground`、`AnimatedNumber` 等共享组件使用 `cn` / 变体工厂。
+  - [android_frontend_hooks.md](android-frontend-hooks.md)：动画 profile、主题色与页面闲置态的 hook 消费 `easing-config` / `animations` / `color`；
+  - [android_frontend_monitoring_network.md](android-frontend-monitoring-network.md)：`useMonitor` 与质量卡用 `latency.ts` 的解析结果渲染；
+  - [android_frontend_settings.md](android-frontend-settings.md)：玻璃档位开关传给 `useGlassRefraction`；
+  - [android_frontend_shared_components.md](android-frontend-shared-components.md)：`FluidBackground`、`AnimatedNumber` 等共享组件使用 `cn` / 变体工厂。
 - **下游（本模块依赖）**：仅 `@/monitor`（`NetworkQuality` 类型）与 `@/network/constants`（`QUALITY_CONFIG`），无后端调用。
-- **桌面端镜像**：桌面版同名文件见 [desktop_frontend_utilities_libraries.md](desktop_frontend_utilities_libraries.md)，两端需保持参数同步；Android 端特有的差异是 dock 触屏手势优先级更高（TOUCH_SLOP、form-factor 相关的项宽度）、玻璃入场无 GSAP 序列所以 `backdropReady` 通常第一帧通过。
+- **桌面端镜像**：桌面版同名文件见 [desktop_frontend_utilities_libraries.md](desktop-frontend-utilities-libraries.md)，两端需保持参数同步；Android 端特有的差异是 dock 触屏手势优先级更高（TOUCH_SLOP、form-factor 相关的项宽度）、玻璃入场无 GSAP 序列所以 `backdropReady` 通常第一帧通过。

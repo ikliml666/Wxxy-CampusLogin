@@ -124,7 +124,7 @@ sequenceDiagram
 - **日志目录探测**：安装目录（如 `Program Files`）不可写时回退到用户数据目录 `app_data_dir/logs`，通过 `.log_probe` 写测试判定。
 - **logger 先于 config 初始化**：避免配置加载过程的日志丢失。
 - **静默启动识别**：`config.hidden_start && args 含 --autostart` 时调用 `window::mark_hidden_by_design(true)`，防止兜底显示线程把自启窗口强拉前台（v2.4.2 缺陷）。
-- **启动期任务**：`run_startup_tasks` 按配置开关分别 spawn 后台巡检、启动质量检测、延迟测试循环、启动自动登录、每日定时动作循环（详见 [desktop_backend_monitoring.md](desktop_backend_monitoring.md)）。
+- **启动期任务**：`run_startup_tasks` 按配置开关分别 spawn 后台巡检、启动质量检测、延迟测试循环、启动自动登录、每日定时动作循环（详见 [desktop_backend_monitoring.md](desktop-backend-monitoring.md)）。
 
 ---
 
@@ -140,7 +140,7 @@ sequenceDiagram
 | `tauri_plugin_global_shortcut` | `Ctrl+Shift+C` 取消退出，事件转发 `shortcut::handle_shortcut_event` |
 | `tauri_plugin_single_instance` | 二次启动时唤起主窗口：窗口在 → 直接显示；窗口已被轻量化销毁 → 延迟 2s 后走 `show_or_rebuild_main` 幂等入口 |
 
-`invoke_handler` 一次性注册全部 ~60 个命令（config / login / network / account / background / system / updater / self_service / vpn / logger），命令实现与分组详见 [desktop_backend_commands.md](desktop_backend_commands.md)。
+`invoke_handler` 一次性注册全部 ~60 个命令（config / login / network / account / background / system / updater / self_service / vpn / logger），命令实现与分组详见 [desktop_backend_commands.md](desktop-backend-commands.md)。
 
 **ExitRequested 轻量化拦截**：`app.run` 的回调仅在「轻量化关闭导致最后一个窗口销毁」时 `api.prevent_exit()`，判据是单次守卫 `take_lightweight_exit_guard()` 且 `AppState.exit.is_quitting` 为 false —— 托盘退出与系统关机绝不拦截。
 
@@ -339,7 +339,7 @@ flowchart TD
 - **防截断设计**：历史缺陷中关闭窗口直接退出 run loop，异步排空被中断（DHCP 子进程/登录请求/日志刷盘被截断）；现统一先 `prevent_close`，排空后主动 `exit(0)`。
 - **detach 自杀自等**：退出类任务调用 `shutdown_and_exit` 前先 `task_manager.detach`，避免 shutdown 等待自己导致死锁。
 
-退出编排的倒计时、通知与快捷键细节在 [desktop_backend_infrastructure.md](desktop_backend_infrastructure.md) 的 lifecycle 模块中定义。
+退出编排的倒计时、通知与快捷键细节在 [desktop_backend_infrastructure.md](desktop-backend-infrastructure.md) 的 lifecycle 模块中定义。
 
 ---
 
@@ -347,14 +347,14 @@ flowchart TD
 
 | 关联模块 | 关系 |
 |----------|------|
-| [desktop_backend_infrastructure.md](desktop_backend_infrastructure.md) | `AppState` / `CommandContext` 状态底座、`BackgroundTaskManager` 任务注册与取消、lifecycle 倒计时退出、logger 刷盘、EventBus 事件 |
-| [desktop_backend_commands.md](desktop_backend_commands.md) | `invoke_handler` 注册的全部命令；托盘事件复用 `perform_switch_account_sync`、`perform_full_logout_sync` |
-| [desktop_backend_monitoring.md](desktop_backend_monitoring.md) | `run_startup_tasks` 启动的后台巡检 / 自动登录 / 定时动作循环；`adapter_watch` 适配器监听 |
-| [desktop_backend_auth_protocol.md](desktop_backend_auth_protocol.md) | 托盘快速登录复用的 `auth::service::full_login` 与 `post_login_handler` |
-| [desktop_backend_update.md](desktop_backend_update.md) | `start_update_check_loop` 启动期挂载与临时安装包清理 |
-| [desktop_backend_platform_specific.md](desktop_backend_platform_specific.md) | RTSS 预检测、GPU 检测预热、EcoQoS、任务代理提权（helper 模式平台细节） |
-| [desktop_backend_configuration.md](desktop_backend_configuration.md) | 启动时加载的 `Config`（`hidden_start` / `lightweight_mode` / `minimize_to_tray` / `campus_exit_*` 等行为开关） |
-| [desktop_frontend_hooks.md](desktop_frontend_hooks.md) | 前端 `useHeartbeat`（心跳上报）、`useAppInit`（就绪信号 `notify_window_ready` 的对端） |
+| [desktop_backend_infrastructure.md](desktop-backend-infrastructure.md) | `AppState` / `CommandContext` 状态底座、`BackgroundTaskManager` 任务注册与取消、lifecycle 倒计时退出、logger 刷盘、EventBus 事件 |
+| [desktop_backend_commands.md](desktop-backend-commands.md) | `invoke_handler` 注册的全部命令；托盘事件复用 `perform_switch_account_sync`、`perform_full_logout_sync` |
+| [desktop_backend_monitoring.md](desktop-backend-monitoring.md) | `run_startup_tasks` 启动的后台巡检 / 自动登录 / 定时动作循环；`adapter_watch` 适配器监听 |
+| [desktop_backend_auth_protocol.md](desktop-backend-auth-protocol.md) | 托盘快速登录复用的 `auth::service::full_login` 与 `post_login_handler` |
+| [desktop_backend_update.md](desktop-backend-update.md) | `start_update_check_loop` 启动期挂载与临时安装包清理 |
+| [desktop_backend_platform_specific.md](desktop-backend-platform-specific.md) | RTSS 预检测、GPU 检测预热、EcoQoS、任务代理提权（helper 模式平台细节） |
+| [desktop_backend_configuration.md](desktop-backend-configuration.md) | 启动时加载的 `Config`（`hidden_start` / `lightweight_mode` / `minimize_to_tray` / `campus_exit_*` 等行为开关） |
+| [desktop_frontend_hooks.md](desktop-frontend-hooks.md) | 前端 `useHeartbeat`（心跳上报）、`useAppInit`（就绪信号 `notify_window_ready` 的对端） |
 
 ---
 

@@ -25,14 +25,14 @@ fsoft_page: android_frontend_face_verification.md
 
 消费侧（不在本模块内）：
 
-- `android/frontend/src/face/FaceCaptureDialog.tsx`：录入/验证共用的相机弹窗 UI 单例，挂在 App 根部，由 store 命令式驱动（见 [android_frontend_entrypoint_mocks.md](android_frontend_entrypoint_mocks.md) 中 App 组装）。
-- `android/frontend/src/hooks/tauriApi.ts` 的 `verifyWindowsIdentity`：验证门统一出口，决策走系统生物识别还是 2D 人脸回退（详见 [android_frontend_hooks.md](android_frontend_hooks.md)）。
+- `android/frontend/src/face/FaceCaptureDialog.tsx`：录入/验证共用的相机弹窗 UI 单例，挂在 App 根部，由 store 命令式驱动（见 [android_frontend_entrypoint_mocks.md](android-frontend-entrypoint-mocks.md) 中 App 组装）。
+- `android/frontend/src/hooks/tauriApi.ts` 的 `verifyWindowsIdentity`：验证门统一出口，决策走系统生物识别还是 2D 人脸回退（详见 [android_frontend_hooks.md](android-frontend-hooks.md)）。
 
 ## 设计动机与安全边界
 
 1. **许可边界**：底层推理库为 `@vladmandic/human`（MIT），其 BlazeFace/FaceMesh/HSE FaceRes 模型为 Apache-2.0。human 的 antispoof/liveness/insightface 模型因许可不明或 NC 条款被**明确禁用**（详见代码注释中的 THIRD-PARTY-NOTICES 引用）。
 2. **安全模型**：动作挑战（眨眼/转头）只能挡静态照片，**不防重放视频**——这是用户已确认接受的安全边界。描述子模板仅存本机（特征向量非原始人脸图像，本机攻击者本可直接调后端命令，加密不改变威胁模型）。
-3. **后端无感**：比对结果最终经 `verify_biometric_identity` Tauri 命令上报后端（`{success, method: 'face2d' | 'biometric'}`），后端据 `success` 记 600s TTL 时间戳；验证门（`ensure_identity_gate`）不区分验证方式（见 [android_backend_tauri.md](android_backend_tauri.md)）。
+3. **后端无感**：比对结果最终经 `verify_biometric_identity` Tauri 命令上报后端（`{success, method: 'face2d' | 'biometric'}`），后端据 `success` 记 600s TTL 时间戳；验证门（`ensure_identity_gate`）不区分验证方式（见 [android_backend_tauri.md](android-backend-tauri.md)）。
 
 ## 架构总览
 
@@ -139,12 +139,12 @@ sequenceDiagram
 - 源排序跟随 `update_source` 设置（github 直连优先 / 镜像优先），镜像降级链与更新链同构（ghfast.top → gh-proxy.com → ghproxy.net）。
 - 前端 `ensureFaceModels` 把六文件顺序下载的进度折算成整体百分比（`(文件序 + 文件内百分比)/文件数`），经 `face-models-download-progress` 事件转发给弹窗展示。
 
-详见 [android_backend_tauri.md](android_backend_tauri.md) 中 `face_model_cmds` 小节。
+详见 [android_backend_tauri.md](android-backend-tauri.md) 中 `face_model_cmds` 小节。
 
 ## 关联模块
 
-- 验证门调用方与失败文案映射：[android_frontend_account_management.md](android_frontend_account_management.md)（`selfServiceState.ts`）
-- 统一出口 `verifyWindowsIdentity` 与重试包装：[android_frontend_hooks.md](android_frontend_hooks.md)（`tauriApi.ts`）
-- 配置开关 `allow2dFaceVerify` 与 `DEFAULT_CONFIG`：[android_frontend_settings.md](android_frontend_settings.md)
-- 模板存取 `safeStorage`（localStorage + 内存兜底）：[android_frontend_utilities_libraries.md](android_frontend_utilities_libraries.md)（`lib/utils.ts`）
-- 后端 TTL 门与模型下载命令：[android_backend_tauri.md](android_backend_tauri.md)（`identity_gate.rs`、`face_model_cmds.rs`、`self_service_cmds.rs::verify_biometric_identity`）
+- 验证门调用方与失败文案映射：[android_frontend_account_management.md](android-frontend-account-management.md)（`selfServiceState.ts`）
+- 统一出口 `verifyWindowsIdentity` 与重试包装：[android_frontend_hooks.md](android-frontend-hooks.md)（`tauriApi.ts`）
+- 配置开关 `allow2dFaceVerify` 与 `DEFAULT_CONFIG`：[android_frontend_settings.md](android-frontend-settings.md)
+- 模板存取 `safeStorage`（localStorage + 内存兜底）：[android_frontend_utilities_libraries.md](android-frontend-utilities-libraries.md)（`lib/utils.ts`）
+- 后端 TTL 门与模型下载命令：[android_backend_tauri.md](android-backend-tauri.md)（`identity_gate.rs`、`face_model_cmds.rs`、`self_service_cmds.rs::verify_biometric_identity`）

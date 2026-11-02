@@ -24,7 +24,7 @@ fsoft_page: desktop_backend_platform_specific.md
 3. **运行环境适配**（`gpu.rs` + `rtss_compat.rs`）：GPU 分级与 WebView2 启动参数、刷新率探测、RTSS hook 注入风险告知；
 4. **身份与安全**（`identity.rs`）：Windows Hello 本地身份确认及验证时效缓存。
 
-所有文件均以 `#[cfg(target_os = "windows")]` 或 Windows-only Win32 crate 实现；跨平台行为由各调用方在其他平台上走分支或不编译本模块路径。上层调用关系详见 [desktop_backend_commands.md](desktop_backend_commands.md)、[desktop_backend_networking.md](desktop_backend_networking.md) 与 [desktop_backend_app_lifecycle.md](desktop_backend_app_lifecycle.md)。
+所有文件均以 `#[cfg(target_os = "windows")]` 或 Windows-only Win32 crate 实现；跨平台行为由各调用方在其他平台上走分支或不编译本模块路径。上层调用关系详见 [desktop_backend_commands.md](desktop-backend-commands.md)、[desktop_backend_networking.md](desktop-backend-networking.md) 与 [desktop_backend_app_lifecycle.md](desktop-backend-app-lifecycle.md)。
 
 ## 模块组成
 
@@ -127,7 +127,7 @@ sequenceDiagram
 - **清除语义**：`clear_adapter_dns_via_api` 先清 IPv6（失败仅警告——Win11 未实测确证）再清 IPv4（失败必报错，接口级残留会覆盖 profile DNS）；
 - **状态回读**：`read_adapter_dns_from_registry` 读 `HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces`，并解析 `netsh dns show encryption` 输出还原 DoH 启用状态与模板（修复了 IPv6 条目模板串染问题）。
 
-上层 `useDnsSetup` 前端 hook 与 `setup_dns_doh` / `reset_dns` 命令的编排见 [desktop_frontend_network_management.md](desktop_frontend_network_management.md) 与 [desktop_backend_commands.md](desktop_backend_commands.md)。
+上层 `useDnsSetup` 前端 hook 与 `setup_dns_doh` / `reset_dns` 命令的编排见 [desktop_frontend_network_management.md](desktop-frontend-network-management.md) 与 [desktop_backend_commands.md](desktop-backend-commands.md)。
 
 ### 路由精确删除（route_table.rs）
 
@@ -138,7 +138,7 @@ sequenceDiagram
 - 返回 `DeleteExact::Deleted` / `DeleteExact::AlreadyGone`（表内无此行 = 幂等成功）；
 - `mask_to_prefix_len` 只接受连续掩码，非连续掩码报错而非猜前缀长度。
 
-新增兜底路由能力已整体删除（同键不同跃点的条目在 Windows 上必然被判重复，`CreateIpForwardEntry2` 返回 `ERROR_OBJECT_ALREADY_EXISTS`）。该能力供夜间出站切换后的历史残留清理，调用链见 [desktop_backend_monitoring.md](desktop_backend_monitoring.md)。
+新增兜底路由能力已整体删除（同键不同跃点的条目在 Windows 上必然被判重复，`CreateIpForwardEntry2` 返回 `ERROR_OBJECT_ALREADY_EXISTS`）。该能力供夜间出站切换后的历史残留清理，调用链见 [desktop_backend_monitoring.md](desktop-backend-monitoring.md)。
 
 ## 运行环境适配
 
@@ -150,7 +150,7 @@ sequenceDiagram
 
 ### RTSS 兼容检测（rtss_compat.rs）
 
-RTSS（RivaTuner Statistics Server / MSI Afterburner 组件）向 WebView2 子进程注入 `RTSSHooks64.dll`，部分机器触发 `0xc0000005` 崩溃白屏。**写入排除 profile 已实测无效**（RTSS 7.3.7 不应用手放入 Profiles 目录的 cfg），因此只做检测与告知：`preinit_detect()` 在 main 入口（WebView2 环境创建前）探测 `ProgramFiles(x86)/ProgramFiles` 下的 `RivaTuner Statistics Server\Profiles` 目录并暂存 `RtssOutcome`，待 logger 就绪后由 `log_preinit_outcome()` 留痕（已安装则警告并附手动排除步骤）。该早期调用点在 [desktop_backend_app_lifecycle.md](desktop_backend_app_lifecycle.md) 的启动流程中描述。
+RTSS（RivaTuner Statistics Server / MSI Afterburner 组件）向 WebView2 子进程注入 `RTSSHooks64.dll`，部分机器触发 `0xc0000005` 崩溃白屏。**写入排除 profile 已实测无效**（RTSS 7.3.7 不应用手放入 Profiles 目录的 cfg），因此只做检测与告知：`preinit_detect()` 在 main 入口（WebView2 环境创建前）探测 `ProgramFiles(x86)/ProgramFiles` 下的 `RivaTuner Statistics Server\Profiles` 目录并暂存 `RtssOutcome`，待 logger 就绪后由 `log_preinit_outcome()` 留痕（已安装则警告并附手动排除步骤）。该早期调用点在 [desktop_backend_app_lifecycle.md](desktop-backend-app-lifecycle.md) 的启动流程中描述。
 
 ## Windows Hello 身份确认（identity.rs）
 
@@ -199,10 +199,10 @@ graph LR
     RT2 -.->|"RouteDelete"| OP
 ```
 
-- **提权 op 目录**：`HelperOp`（Dns / ClearDns / Mac / EnableAdapter / DisableAdapter / RouteDelete / EnableDevice / ReenumerateDevice / SetMetric / RegisterTaskProxy / RegisterBootTask / RemoveBootTask / SelfCheck）的语义与安全收口见 [desktop_backend_infrastructure.md](desktop_backend_infrastructure.md)（`helper/mod.rs` 与 infra 层同页）；
-- **网络监控消费方**：夜间出站切换与适配器禁用/启用的编排消费了 `route_table.rs` 的精确删除与 `task_proxy.rs` 的提权代理，见 [desktop_backend_monitoring.md](desktop_backend_monitoring.md)；
-- **命令层暴露**：前端经 `setup_dns_doh`、`reset_dns`、`verify_windows_identity` 等 Tauri 命令间接触达本模块，命令清单见 [desktop_backend_commands.md](desktop_backend_commands.md)；
-- **启动时序**：`main.rs` 中的 `--helper-task` / `--helper` 参数拦截、RTSS preinit、GPU env 注入发生在 Tauri Builder 之前，见 [desktop_backend_app_lifecycle.md](desktop_backend_app_lifecycle.md)。
+- **提权 op 目录**：`HelperOp`（Dns / ClearDns / Mac / EnableAdapter / DisableAdapter / RouteDelete / EnableDevice / ReenumerateDevice / SetMetric / RegisterTaskProxy / RegisterBootTask / RemoveBootTask / SelfCheck）的语义与安全收口见 [desktop_backend_infrastructure.md](desktop-backend-infrastructure.md)（`helper/mod.rs` 与 infra 层同页）；
+- **网络监控消费方**：夜间出站切换与适配器禁用/启用的编排消费了 `route_table.rs` 的精确删除与 `task_proxy.rs` 的提权代理，见 [desktop_backend_monitoring.md](desktop-backend-monitoring.md)；
+- **命令层暴露**：前端经 `setup_dns_doh`、`reset_dns`、`verify_windows_identity` 等 Tauri 命令间接触达本模块，命令清单见 [desktop_backend_commands.md](desktop-backend-commands.md)；
+- **启动时序**：`main.rs` 中的 `--helper-task` / `--helper` 参数拦截、RTSS preinit、GPU env 注入发生在 Tauri Builder 之前，见 [desktop_backend_app_lifecycle.md](desktop-backend-app-lifecycle.md)。
 
 ## 关键设计取舍速查
 

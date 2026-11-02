@@ -20,7 +20,7 @@ fsoft_page: desktop_frontend_monitoring.md
 2. **渲染状态栏（StatusBar）**：将监控结果以紧凑的状态栏形式呈现在桌面端主界面，实时反馈网络在线状态、运营商标识与网络质量；
 3. **类型契约定义**：通过 `types.ts` 定义前后端共享的监控数据结构（`BackgroundStatus`、`NetworkQuality`、`AutoLoginEventData`），保证与 Tauri 后端命令返回值的一致性。
 
-该模块本身不直接发起网络请求或执行巡检逻辑，而是作为**后端监控能力的前端投影层**：真正的巡检循环、动态间隔、夜间切换调度由 Rust 侧实现（见 [桌面端后端监控模块](desktop_backend_monitoring.md)），前端只负责订阅、展示与少量状态派生。
+该模块本身不直接发起网络请求或执行巡检逻辑，而是作为**后端监控能力的前端投影层**：真正的巡检循环、动态间隔、夜间切换调度由 Rust 侧实现（见 [桌面端后端监控模块](desktop-backend-monitoring.md)），前端只负责订阅、展示与少量状态派生。
 
 ## 模块组成
 
@@ -84,9 +84,9 @@ flowchart TD
     TAPI --> BCMD
 ```
 
-- **向下依赖**：前端基础设施 Hooks（见 [桌面端前端 Hooks 模块](desktop_frontend_hooks.md)），以及网络质量展示工具（见 [桌面端前端工具库](desktop_frontend_utilities_libraries.md)）。
-- **向后依赖**：通过 Tauri 命令与后端交互，对应 [桌面端后端命令模块](desktop_backend_commands.md) 中的 `background.rs`、`network_cmd.rs` 命令族，以及 [桌面端后端监控模块](desktop_backend_monitoring.md) 的巡检调度内核。
-- **被依赖**：被桌面端主界面组装层引用，为 `StatusBar` 提供状态；与 [桌面端前端认证模块](desktop_frontend_auth.md)（在线状态来源）、[桌面端前端网络管理模块](desktop_frontend_network_management.md)（适配器/出网信息）协同展示。
+- **向下依赖**：前端基础设施 Hooks（见 [桌面端前端 Hooks 模块](desktop-frontend-hooks.md)），以及网络质量展示工具（见 [桌面端前端工具库](desktop-frontend-utilities-libraries.md)）。
+- **向后依赖**：通过 Tauri 命令与后端交互，对应 [桌面端后端命令模块](desktop-backend-commands.md) 中的 `background.rs`、`network_cmd.rs` 命令族，以及 [桌面端后端监控模块](desktop-backend-monitoring.md) 的巡检调度内核。
+- **被依赖**：被桌面端主界面组装层引用，为 `StatusBar` 提供状态；与 [桌面端前端认证模块](desktop-frontend-auth.md)（在线状态来源）、[桌面端前端网络管理模块](desktop-frontend-network-management.md)（适配器/出网信息）协同展示。
 
 ## 核心组件说明
 
@@ -100,7 +100,7 @@ flowchart TD
 | `NetworkQuality` | 网络质量探测结果 | 延迟、丢包、质量等级（优/良/差），用于状态栏着色 |
 | `AutoLoginEventData` | 自动登录事件负载 | 自动登录触发原因、结果（成功/失败）、运营商标识，用于状态栏提示 |
 
-这些类型与后端 Rust 结构体（如 [桌面端后端监控模块](desktop_backend_monitoring.md) 中的 `PortalCheckResult`、`DynamicInterval` 的检查结果）通过 serde 序列化对齐，前端以只读方式消费。
+这些类型与后端 Rust 结构体（如 [桌面端后端监控模块](desktop-backend-monitoring.md) 中的 `PortalCheckResult`、`DynamicInterval` 的检查结果）通过 serde 序列化对齐，前端以只读方式消费。
 
 ### 2. `useMonitor` —— 监控状态聚合 Hook
 
@@ -116,7 +116,7 @@ flowchart TD
 两个测试文件基于 Vitest + React Testing Library（配置见 `tauri-app/frontend/vitest.config.ts`，jsdom 环境）对状态栏行为进行断言：
 
 - **`StatusBar.anchor.test.tsx`**（`renderBar`）：验证状态栏在不同锚点（布局位置）下的渲染结构是否完整；
-- **`StatusBar.onlineOperator.test.tsx`**（`renderBar`）：验证当存在在线运营商信息时，状态栏是否正确展示运营商标识（配合 [桌面端前端账号管理模块](desktop_frontend_account_management.md) 中的 `operatorChip` 样式约定）。
+- **`StatusBar.onlineOperator.test.tsx`**（`renderBar`）：验证当存在在线运营商信息时，状态栏是否正确展示运营商标识（配合 [桌面端前端账号管理模块](desktop-frontend-account-management.md) 中的 `operatorChip` 样式约定）。
 
 ## 数据流
 
@@ -164,14 +164,14 @@ flowchart TD
 
 ## 构建与测试
 
-- **构建**：本模块源码随前端整体打包，遵循 `tauri-app/frontend/vite.config.ts` 的构建配置（`manualChunks` 将 React、framer-motion、gsap、@radix-ui 拆分为独立 vendor chunk，见 [构建部署配置模块](build_deployment_configuration.md)）。
+- **构建**：本模块源码随前端整体打包，遵循 `tauri-app/frontend/vite.config.ts` 的构建配置（`manualChunks` 将 React、framer-motion、gsap、@radix-ui 拆分为独立 vendor chunk，见 [构建部署配置模块](build-deployment-configuration.md)）。
 - **测试**：使用 `npm test`（vitest，jsdom 环境）运行，配置见 `tauri-app/frontend/vitest.config.ts`；本模块的两个测试文件通过 `renderBar` 辅助函数渲染状态栏进行断言。
 - **别名解析**：测试与源码均通过 `@` 别名指向 `./src`，确保类型与 Hook 引用路径稳定。
 
 ## 与其他平台的对应关系
 
-- **Android 端**：对应模块为 [android_frontend_monitoring_network](android_frontend_monitoring_network.md)（其中的 `useMonitor`），但 Android 端监控运行在前台服务插件之上（见 [android_plugins_foreground_service](android_plugins_foreground_service.md)）；桌面端的 `BackgroundStatus` 类型在 Android 侧由 `android/src-tauri/src/monitor_loop.rs` 提供，职责划分不同。
-- **后端监控内核**：前端展示的所有状态最终来源于 [桌面端后端监控模块](desktop_backend_monitoring.md)（动态间隔 `DynamicInterval`、夜间切换 `outbound_night`、门户检查 `portal_check`）。
+- **Android 端**：对应模块为 [android_frontend_monitoring_network](android-frontend-monitoring-network.md)（其中的 `useMonitor`），但 Android 端监控运行在前台服务插件之上（见 [android_plugins_foreground_service](android-plugins-foreground-service.md)）；桌面端的 `BackgroundStatus` 类型在 Android 侧由 `android/src-tauri/src/monitor_loop.rs` 提供，职责划分不同。
+- **后端监控内核**：前端展示的所有状态最终来源于 [桌面端后端监控模块](desktop-backend-monitoring.md)（动态间隔 `DynamicInterval`、夜间切换 `outbound_night`、门户检查 `portal_check`）。
 
 ## 设计要点小结
 

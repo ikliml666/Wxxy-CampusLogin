@@ -24,7 +24,7 @@ fsoft_page: android_frontend_account_management.md
 1. **登录信息管理**——添加/编辑校园网登录账号（学号、密码、运营商），通过 `LoginInfoDialog` 表单完成。
 2. **自助服务面板**——调用校园自助服务系统的 HTTP 接口，展示在线设备列表、近期上网记录、按日期查询账单明细、运营商绑定与改密、VPN 通道管理等。
 
-该模块与桌面端 [desktop_frontend_account_management](desktop_frontend_account_management.md) 同构同源（大量格式化函数与验证门逻辑逐行对齐），但针对 Android 手机/平板形态做了移动端适配：竖排/横排封面流卡片堆叠、触控手势翻页、生物识别（BiometricPrompt + 2D 人脸回退）替代 Windows Hello。
+该模块与桌面端 [desktop_frontend_account_management](desktop-frontend-account-management.md) 同构同源（大量格式化函数与验证门逻辑逐行对齐），但针对 Android 手机/平板形态做了移动端适配：竖排/横排封面流卡片堆叠、触控手势翻页、生物识别（BiometricPrompt + 2D 人脸回退）替代 Windows Hello。
 
 ## 架构总览
 
@@ -84,15 +84,15 @@ flowchart TB
 
 本模块按职责可分为三个子模块，详见各自文档：
 
-### 1. 登录信息表单 —— [android_frontend_account_management_login_dialog.md](android_frontend_account_management/android_frontend_account_management_login_dialog.md)
+### 1. 登录信息表单 —— [android_frontend_account_management_login_dialog.md](android-frontend-account-management-login-dialog.md)
 
 `LoginInfoDialog.tsx` 提供「添加/编辑登录信息」双模式弹窗（`create` / `edit`）。新建态收集账号名 + 学号 + 密码 + 运营商；编辑态预填学号与运营商、密码留空表示保留现状，并附「修改密码 / 清除密码」入口。表单校验（账号名 1–32 码点、禁控制字符）由 `validators.ts` 的 `isValidDisplayName` 完成，与后端 `account_cmds.rs` 的 `validate_display_name` 单点对齐。
 
-### 2. 自助服务面板 —— [android_frontend_account_management_self_service_panel.md](android_frontend_account_management/android_frontend_account_management_self_service_panel.md)
+### 2. 自助服务面板 —— [android_frontend_account_management_self_service_panel.md](android-frontend-account-management-self-service-panel.md)
 
 `SelfServicePanel.tsx` 是面板容器，组合在线设备卡（`SelfOnlineStack`）、上网记录卡（`SelfOnlineRecords`）与 VPN 管理弹窗，通过 `selfServiceState.ts` 的验证门（`useSelfServiceVerify` / `useHelloGate`）保护敏感操作，经 `tauriApi` 调用后端 `self_service_cmds.rs` 的七个自助服务命令。数据格式与日分组、会话归一逻辑由 `selfServiceTypes.ts` 与面板内工具函数（`formatFlowMb` / `formatUseTimeMinutes`）统一。
 
-### 3. 运营商绑定流 —— [android_frontend_account_management_operator_binding.md](android_frontend_account_management/android_frontend_account_management_operator_binding.md)
+### 3. 运营商绑定流 —— [android_frontend_account_management_operator_binding.md](android-frontend-account-management-operator-binding.md)
 
 `useOperatorBind.ts` 将「绑定手机号、查询绑定状态、揭示明文短信密码、修改自助密码」四个操作的状态与回调机械外移为一个 hook，复用 `selfServiceState` 的验证门（揭示明文走 `ignoreToggle` 强制验证）。绑定成功后自动刷新状态弹窗；改密成功后同步本地登录密码，避免自动登录用旧密码失败。
 
@@ -156,9 +156,9 @@ sequenceDiagram
 
 ## 与其他模块的关系
 
-- **后端命令面**：所有 IPC 经 [android_backend_tauri](android_backend_tauri.md) 的 `self_service_cmds.rs` / `account_cmds.rs` / `vpn_cmds.rs` 落地；HTTP 协议封装在 `campus_login_lib::self_service` 库中（跨平台共享，与桌面 [desktop_backend_commands](desktop_backend_commands.md) 同构）。
-- **生物识别链路**：`verifyWindowsIdentity` 在 `tauriApi` 内分发系统 BiometricPrompt，不可用时回退到应用内 2D 人脸验证，见 [android_frontend_face_verification](android_frontend_face_verification.md)。
-- **共享 Hooks**：`tauriApi` 重试封装、`useConfigStore`、`useLogToastStore`、`useFormFactor` 见 [android_frontend_hooks](android_frontend_hooks.md)。
-- **UI 基础组件**：`Button` / `Input` / `Card` / `AnimatedCard` / `Dialog` 等见 [android_frontend_shared_ui_components](android_frontend_shared_ui_components.md)。
-- **运营商常量**：`ISP_OPTIONS` 下拉选项与 `operatorLabelKey` 见 [android_frontend_settings](android_frontend_settings.md)。
-- **桌面端同构参考**：桌面版同名面板（`SelfOnlineCards` / `SelfOnlineRecords` / `useHelloGate`）见 [desktop_frontend_account_management](desktop_frontend_account_management.md)，本模块大量注释标明「与桌面同构」并引用对应的桌面提交哈希。
+- **后端命令面**：所有 IPC 经 [android_backend_tauri](android-backend-tauri.md) 的 `self_service_cmds.rs` / `account_cmds.rs` / `vpn_cmds.rs` 落地；HTTP 协议封装在 `campus_login_lib::self_service` 库中（跨平台共享，与桌面 [desktop_backend_commands](desktop-backend-commands.md) 同构）。
+- **生物识别链路**：`verifyWindowsIdentity` 在 `tauriApi` 内分发系统 BiometricPrompt，不可用时回退到应用内 2D 人脸验证，见 [android_frontend_face_verification](android-frontend-face-verification.md)。
+- **共享 Hooks**：`tauriApi` 重试封装、`useConfigStore`、`useLogToastStore`、`useFormFactor` 见 [android_frontend_hooks](android-frontend-hooks.md)。
+- **UI 基础组件**：`Button` / `Input` / `Card` / `AnimatedCard` / `Dialog` 等见 [android_frontend_shared_ui_components](android-frontend-shared-ui-components.md)。
+- **运营商常量**：`ISP_OPTIONS` 下拉选项与 `operatorLabelKey` 见 [android_frontend_settings](android-frontend-settings.md)。
+- **桌面端同构参考**：桌面版同名面板（`SelfOnlineCards` / `SelfOnlineRecords` / `useHelloGate`）见 [desktop_frontend_account_management](desktop-frontend-account-management.md)，本模块大量注释标明「与桌面同构」并引用对应的桌面提交哈希。

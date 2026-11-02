@@ -30,7 +30,7 @@ fsoft_page: desktop_frontend_utilities_libraries.md
 4. **通用辅助函数**：类名合并、错误提取、安全存储
 5. **渲染链健康监测**：检测 GPU/合成器渲染循环是否停滞
 
-该模块是整个前端工程中**被依赖最广、但零业务状态**的一层：它不依赖任何 zustand store、不感知 Tauri 后端命令，只被 [hooks](desktop_frontend_hooks.md)、[monitor](desktop_frontend_monitoring.md)、[shared_ui_components](desktop_frontend_shared_ui_components.md) 等上层模块消费。
+该模块是整个前端工程中**被依赖最广、但零业务状态**的一层：它不依赖任何 zustand store、不感知 Tauri 后端命令，只被 [hooks](desktop-frontend-hooks.md)、[monitor](desktop-frontend-monitoring.md)、[shared_ui_components](desktop-frontend-shared-ui-components.md) 等上层模块消费。
 
 ---
 
@@ -104,11 +104,19 @@ flowchart TB
 | 概念 | 实现 | 目的 |
 |------|------|------|
 | `Motion` 类 | 标量运动曲线（value/target/velocity） | 拖动时目标每帧改写，保留速度与位置连续 |
+| `Motion.constructor(initial, onFrame)` | `this.value = this.target = initial`，并记下每帧回调 `onFrame` | 构造即「已在初始值停稳」，不必再补一次归位 |
 | `springOfDuration(durationMs, bounce)` | 由「稳定时长 + 回弹量」反解刚度/阻尼 | 观感标定 |
 | `springOfRatio(stiffness, ratio)` | 由「刚度 + 阻尼比」构造 | Flutter `withDampingRatio` 对应物 |
 | `loop()` | 共享 rAF，全部静止后自动停表 | 省电 |
 | `rubberBand(overshoot, limit)` | 越界指数衰减橡皮筋 | iOS 手感 |
 | `saturate(value)` | tanh 型饱和函数 | 速度/加速度归一化 |
+
+**构造契约 `Motion(initial, onFrame)`**（`dock-spring.ts` 第 84–88 行）：
+
+- 两个参数：`initial` 是曲线的起始标量值，`onFrame: (value: number) => void` 是每帧收到当前值的回调（渲染层写 style 的唯一入口）。
+- 构造只做三件事：`value`、`target` 双双取 `initial`，保存 `onFrame`。**不会**把自己加入 `active` 集合，也不申请 rAF——因此 `new Motion(...)` 本身零开销，只有第一次调用 `to()` 才启动共享循环。
+- `velocity` 保持字段默认值 `0`，`spec` 保持默认 `springOfDuration(300)`；这两项都不从构造参数读取，要换手感得靠 `to(target, spec)` 传入。
+- 因为 `target === value`，构造出来的曲线天然是静止态，不需要再调 `jump()` 归位；`dock-lens.ts` 的六条曲线正是按此约定创建：`lens` 以当前 `selected` 为初值（避免首帧从第 0 项滑入），`lift`/`stretch`/`jelly`/`glow`/`glowSpread` 全部以 `0` 为初值。
 
 **关键设计约束**（源码注释）：FlClash 原实现是 GPL-3.0，代码不可带入本项目，因此数值只按观感重标定，不逐值照抄。
 
@@ -297,11 +305,11 @@ flowchart TB
 
 | 上层模块 | 消费内容 |
 |----------|----------|
-| [desktop_frontend_hooks](desktop_frontend_hooks.md) | `animations.ts` / `easing-config.ts`（动画 hooks）、`renderLiveness.ts`（useHeartbeat）、`color.ts` |
-| [desktop_frontend_monitoring](desktop_frontend_monitoring.md) | `latency.ts`（StatusBar / useMonitor 展示延迟胶囊） |
-| [desktop_frontend_shared_ui_components](desktop_frontend_shared_ui_components.md) | `utils.ts::cn`（所有 UI 组件类名合并）、`dock-lens.ts` / `glass-dock.tsx`（悬浮导航栏） |
-| [desktop_frontend_shared_components_types](desktop_frontend_shared_components_types.md) | `utils.ts::cn`（AnimatedNumber 等） |
-| [desktop_frontend_network_management](desktop_frontend_network_management.md) | 反向提供 `QUALITY_CONFIG` 给 `latency.ts` |
+| [desktop_frontend_hooks](desktop-frontend-hooks.md) | `animations.ts` / `easing-config.ts`（动画 hooks）、`renderLiveness.ts`（useHeartbeat）、`color.ts` |
+| [desktop_frontend_monitoring](desktop-frontend-monitoring.md) | `latency.ts`（StatusBar / useMonitor 展示延迟胶囊） |
+| [desktop_frontend_shared_ui_components](desktop-frontend-shared-ui-components.md) | `utils.ts::cn`（所有 UI 组件类名合并）、`dock-lens.ts` / `glass-dock.tsx`（悬浮导航栏） |
+| [desktop_frontend_shared_components_types](desktop-frontend-shared-components-types.md) | `utils.ts::cn`（AnimatedNumber 等） |
+| [desktop_frontend_network_management](desktop-frontend-network-management.md) | 反向提供 `QUALITY_CONFIG` 给 `latency.ts` |
 
 ---
 
@@ -339,7 +347,7 @@ resolve: { alias: { '@': path.resolve(__dirname, './src') } }
 
 ## 与 Android 端工具库的对应关系
 
-Android 端存在结构高度对应的 [android_frontend_utilities_libraries](android_frontend_utilities_libraries.md)，共享 `animations.ts`、`color.ts`、`dock-lens.ts`、`dock-spring.ts`、`glass-dock.tsx`、`vendor/hyalite.*`、`utils.ts` 等同名文件。两端差异：
+Android 端存在结构高度对应的 [android_frontend_utilities_libraries](android-frontend-utilities-libraries.md)，共享 `animations.ts`、`color.ts`、`dock-lens.ts`、`dock-spring.ts`、`glass-dock.tsx`、`vendor/hyalite.*`、`utils.ts` 等同名文件。两端差异：
 
 - 桌面端多 `easing-config.ts`（按刷新率分档）、`renderLiveness.ts`（rAF 存活探测）、`latency.ts::mergeNetworkQuality`（增量合并）
 - Android 端 `dock-spring.ts` 不含 `Motion.jump`/`loop` 等部分成员，`latency.ts` 不含 `mergeNetworkQuality`

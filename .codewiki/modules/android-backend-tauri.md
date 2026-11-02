@@ -29,9 +29,9 @@ fsoft_page: android_backend_tauri.md
 
 ## 模块定位
 
-`android_backend_tauri` 是校园网登录助手的 **Android 原生后端层**，位于 `android/src-tauri/`，是 Tauri Android 构建的 Rust 核心进程。它承接安卓前端（详见 [android_frontend_hooks](android_frontend_hooks.md)、[android_frontend_auth](android_frontend_auth.md) 等）的全部 IPC 调用，并与三个自研 Tauri 插件（[android_plugins_foreground_service](android_plugins_foreground_service.md)、[android_plugins_keystore](android_plugins_keystore.md)、[android_plugins_network_bind](android_plugins_network_bind.md)）共同构成安卓端的运行时底座。
+`android_backend_tauri` 是校园网登录助手的 **Android 原生后端层**，位于 `android/src-tauri/`，是 Tauri Android 构建的 Rust 核心进程。它承接安卓前端（详见 [android_frontend_hooks](android-frontend-hooks.md)、[android_frontend_auth](android-frontend-auth.md) 等）的全部 IPC 调用，并与三个自研 Tauri 插件（[android_plugins_foreground_service](android-plugins-foreground-service.md)、[android_plugins_keystore](android-plugins-keystore.md)、[android_plugins_network_bind](android-plugins-network-bind.md)）共同构成安卓端的运行时底座。
 
-**核心设计原则**：命令面与桌面端（详见 [desktop_backend_commands](desktop_backend_commands.md)、[desktop_backend_app_lifecycle](desktop_backend_app_lifecycle.md)）同名对齐，前端近零适配；协议核心（登录/注销/Portal 判定/WebVPN/自助服务）通过 `campus-login` path 依赖（`Cargo.toml` 中 `campus-login = { path = "../../tauri-app/src-tauri" }`）与桌面端**单点共享**，避免双端实现漂移。
+**核心设计原则**：命令面与桌面端（详见 [desktop_backend_commands](desktop-backend-commands.md)、[desktop_backend_app_lifecycle](desktop-backend-app-lifecycle.md)）同名对齐，前端近零适配；协议核心（登录/注销/Portal 判定/WebVPN/自助服务）通过 `campus-login` path 依赖（`Cargo.toml` 中 `campus-login = { path = "../../tauri-app/src-tauri" }`）与桌面端**单点共享**，避免双端实现漂移。
 
 与桌面端的主要平台差异：
 
@@ -142,7 +142,7 @@ pub struct AndroidState {
 
 本模块体量较大，按职责拆为三个子模块文档：
 
-### 1. [android_backend_tauri_commands](android_backend_tauri/android_backend_tauri_commands.md) — IPC 命令面
+### 1. [android_backend_tauri_commands](android-backend-tauri-commands.md) — IPC 命令面
 
 各命令模块的详细职责、参数契约与出站形状：
 
@@ -154,7 +154,7 @@ pub struct AndroidState {
 - **`vpn_cmds`**：WebVPN 凭据六命令与 `resolve_self_service_channel` 通道自动路由。
 - **`system_cmds` / `update_cmds` / `face_model_cmds` / `quality_cmds`**：init_data 聚合、日志、调试模式；版本检查/APK 下载安装；人脸模型按需下载；质量测试启停。
 
-### 2. [android_backend_tauri_monitoring](android_backend_tauri/android_backend_tauri_monitoring.md) — 后台监控与定时编排
+### 2. [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md) — 后台监控与定时编排
 
 `monitor_loop.rs` 是安卓端最复杂的运行时：
 
@@ -164,7 +164,7 @@ pub struct AndroidState {
 - **WiFi 事件驱动**：NetworkCallback 变化即时触发检测（去抖 + 延迟），`lost` 事件零延迟。
 - **通知与保活**：常驻通知状态翻转按需重建、掉线/达上限系统通知、探针窗口 WifiLock/WakeLock 守卫。
 
-### 3. [android_backend_tauri_state_storage](android_backend_tauri/android_backend_tauri_state_storage.md) — 状态与持久化
+### 3. [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md) — 状态与持久化
 
 - **`AndroidState`** 与进程级静态标志（含 `WATCHER_FAILED`、`MONITOR` 代际体系）。
 - **配置持久化**：`Settings` 全量字段、`CryptoBridge` 抽象（真机 Keystore / 测试假桥）、`EncodedSettings` 磁盘形态（外露 password 恒空、密文单独存 `passwordCipher`）、tmp+rename 原子写、孤儿 tmp 清理。
@@ -194,7 +194,7 @@ pub struct AndroidState {
 
 ### 更新链的三态完整性校验
 
-`download_update` 按下载 URL 的 tag 取用检查期记账的 GitHub API digest：有 digest 且不匹配→删文件报错；API 在线却无 digest（哨兵）→拒绝安装；API 不可用→放行但 emit `update-unverified`。安装经 `install_update` 校验路径必须落在 `files/update/` 内，再由 [android_plugins_foreground_service](android_plugins_foreground_service.md) 的 FileProvider 交系统安装器；本地 APK 不立即删除（安装器异步读 content URI），由启动期 `cleanup_stale_apks` 清理超 24h 的残留包。
+`download_update` 按下载 URL 的 tag 取用检查期记账的 GitHub API digest：有 digest 且不匹配→删文件报错；API 在线却无 digest（哨兵）→拒绝安装；API 不可用→放行但 emit `update-unverified`。安装经 `install_update` 校验路径必须落在 `files/update/` 内，再由 [android_plugins_foreground_service](android-plugins-foreground-service.md) 的 FileProvider 交系统安装器；本地 APK 不立即删除（安装器异步读 content URI），由启动期 `cleanup_stale_apks` 清理超 24h 的残留包。
 
 ## 与其他模块的关系
 
@@ -232,11 +232,11 @@ flowchart LR
     LIB --> DC
 ```
 
-- **安卓前端**：[android_frontend_hooks](android_frontend_hooks.md) 的 `useAppInit` 启动编排、`useMonitor` 状态订阅、[android_frontend_account_management](android_frontend_account_management.md) 的多账号卡片，均直接消费本模块命令与 `background-check-result` / `login-log` / `config-changed` / `auto-login-result` / `update-available` / `update-download-progress` 事件。
-- **人脸模块**：[android_frontend_face_verification](android_frontend_face_verification.md) 的 WebView 内 `human.js` 模型由 `face_models_cmds` 经 asset 协议供给（SHA256 锁定六文件）。
-- **插件**：本模块通过三个自研插件的 Rust 扩展 trait（`CampusNetworkBindExt` / `CampusKeystoreExt` / `CampusMonitorServiceExt`）调用 Kotlin 侧能力，详见 [android_plugins_network_bind](android_plugins_network_bind.md)、[android_plugins_keystore](android_plugins_keystore.md)、[android_plugins_foreground_service](android_plugins_foreground_service.md)。
-- **桌面对照**：本模块命令名/返回形状刻意对齐 [desktop_backend_commands](desktop_backend_commands.md) 与 [desktop_backend_monitoring](desktop_backend_monitoring.md)；判定类纯函数（夜切、调度、子网）复用 [desktop_backend_configuration](desktop_backend_configuration.md) 所对应的共享 crate 实现。
-- **构建配置**：GRADLE 与 Cargo 构建参数详见 [build_deployment_configuration](build_deployment_configuration.md) 的 [build_deployment_configuration_android_build](build_deployment_configuration/build_deployment_configuration_android_build.md) 与 [build_deployment_configuration_android_plugins](build_deployment_configuration/build_deployment_configuration_android_plugins.md)。
+- **安卓前端**：[android_frontend_hooks](android-frontend-hooks.md) 的 `useAppInit` 启动编排、`useMonitor` 状态订阅、[android_frontend_account_management](android-frontend-account-management.md) 的多账号卡片，均直接消费本模块命令与 `background-check-result` / `login-log` / `config-changed` / `auto-login-result` / `update-available` / `update-download-progress` 事件。
+- **人脸模块**：[android_frontend_face_verification](android-frontend-face-verification.md) 的 WebView 内 `human.js` 模型由 `face_models_cmds` 经 asset 协议供给（SHA256 锁定六文件）。
+- **插件**：本模块通过三个自研插件的 Rust 扩展 trait（`CampusNetworkBindExt` / `CampusKeystoreExt` / `CampusMonitorServiceExt`）调用 Kotlin 侧能力，详见 [android_plugins_network_bind](android-plugins-network-bind.md)、[android_plugins_keystore](android-plugins-keystore.md)、[android_plugins_foreground_service](android-plugins-foreground-service.md)。
+- **桌面对照**：本模块命令名/返回形状刻意对齐 [desktop_backend_commands](desktop-backend-commands.md) 与 [desktop_backend_monitoring](desktop-backend-monitoring.md)；判定类纯函数（夜切、调度、子网）复用 [desktop_backend_configuration](desktop-backend-configuration.md) 所对应的共享 crate 实现。
+- **构建配置**：GRADLE 与 Cargo 构建参数详见 [build_deployment_configuration](build-deployment-configuration.md) 的 [build_deployment_configuration_android_build](build-deployment-configuration-android-build.md) 与 [build_deployment_configuration_android_plugins](build-deployment-configuration-android-plugins.md)。
 
 ## 前端事件契约（本模块 emit）
 

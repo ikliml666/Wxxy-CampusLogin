@@ -17,7 +17,7 @@ fsoft_page: desktop_backend_networking.md
 
 `desktop_backend_networking` 是 Tauri 桌面端（`tauri-app/src-tauri/src/network/`）的**网络基础设施层**，负责为本应用所有上层业务（校园网认证、后台巡检、出站切换、质量探测）提供统一的网络适配器发现、适配器缓存、设备级启用、DNS 解析与旁路连接能力。
 
-本模块的核心职责是**屏蔽操作系统差异**：在 Windows 桌面端，通过 Win32 `GetAdaptersAddresses`、cfgmgr32（PnP 设备树）、注册表三层实现对网卡状态的精确四分类判定与设备级恢复；在 Android 端（共享同一 crate 的目标门控代码），通过 `SO_BINDTODEVICE` 实现全量 VPN 下的物理网卡旁路。模块自身不直接对接前端 UI，而是被 [desktop_backend_commands](desktop_backend_commands.md)、[desktop_backend_monitoring](desktop_backend_monitoring.md) 等模块调用。
+本模块的核心职责是**屏蔽操作系统差异**：在 Windows 桌面端，通过 Win32 `GetAdaptersAddresses`、cfgmgr32（PnP 设备树）、注册表三层实现对网卡状态的精确四分类判定与设备级恢复；在 Android 端（共享同一 crate 的目标门控代码），通过 `SO_BINDTODEVICE` 实现全量 VPN 下的物理网卡旁路。模块自身不直接对接前端 UI，而是被 [desktop_backend_commands](desktop-backend-commands.md)、[desktop_backend_monitoring](desktop-backend-monitoring.md) 等模块调用。
 
 ### 核心组件一览
 
@@ -229,11 +229,11 @@ flowchart LR
 
 **关键跨模块依赖：**
 
-- [desktop_backend_commands](desktop_backend_commands.md)：`commands/network_cmd.rs` 通过 `get_adapters_cached` / `get_adapters_force` / `enable_adapter` / `get_adapter_details_cached` 对外暴露 Tauri 命令（`get_adapters`、`enable_adapter`、`get_adapter_details`）。
-- [desktop_backend_monitoring](desktop_backend_monitoring.md)：`monitor/outbound_night.rs` 夜间出站切换依赖 devnode.rs 的非持久化设备级禁用临时下线校园网卡；`monitor/watcher.rs` 的启动任务统一管理缓存后台刷新。
-- [desktop_backend_platform_specific](desktop_backend_platform_specific.md)：`platform/elevation.rs::is_admin()` 判定提权路径；`platform/helper_spawn.rs::spawn_elevated_helper` 执行非管理员设备级启用与 netsh；`platform/dns_config.rs` 的 `PRIMARY_DNS` / `DOH_SERVERS` 与本模块的 DNS fallback 列表对齐。
-- [desktop_backend_infrastructure](desktop_backend_infrastructure.md)：`infra/task_manager.rs::BackgroundTaskManager` 托管 `start_cache_refresh_task` 的生命周期；`log_info!` / `log_debug!` / `log_warn!` 宏统一日志前缀（`adapter` / `network` / `dns`）。
-- [desktop_backend_auth_protocol](desktop_backend_auth_protocol.md)：Portal 探测（`monitor/portal_check.rs`）依赖 `network/client.rs` 的 Portal HTTP 客户端，而 client 又依赖 `dns.rs` 的域名解析。
+- [desktop_backend_commands](desktop-backend-commands.md)：`commands/network_cmd.rs` 通过 `get_adapters_cached` / `get_adapters_force` / `enable_adapter` / `get_adapter_details_cached` 对外暴露 Tauri 命令（`get_adapters`、`enable_adapter`、`get_adapter_details`）。
+- [desktop_backend_monitoring](desktop-backend-monitoring.md)：`monitor/outbound_night.rs` 夜间出站切换依赖 devnode.rs 的非持久化设备级禁用临时下线校园网卡；`monitor/watcher.rs` 的启动任务统一管理缓存后台刷新。
+- [desktop_backend_platform_specific](desktop-backend-platform-specific.md)：`platform/elevation.rs::is_admin()` 判定提权路径；`platform/helper_spawn.rs::spawn_elevated_helper` 执行非管理员设备级启用与 netsh；`platform/dns_config.rs` 的 `PRIMARY_DNS` / `DOH_SERVERS` 与本模块的 DNS fallback 列表对齐。
+- [desktop_backend_infrastructure](desktop-backend-infrastructure.md)：`infra/task_manager.rs::BackgroundTaskManager` 托管 `start_cache_refresh_task` 的生命周期；`log_info!` / `log_debug!` / `log_warn!` 宏统一日志前缀（`adapter` / `network` / `dns`）。
+- [desktop_backend_auth_protocol](desktop-backend-auth-protocol.md)：Portal 探测（`monitor/portal_check.rs`）依赖 `network/client.rs` 的 Portal HTTP 客户端，而 client 又依赖 `dns.rs` 的域名解析。
 
 ---
 
@@ -302,4 +302,4 @@ sequenceDiagram
 - **Android 旁路（目标门控）**：`[target.'cfg(target_os = "android")'.dependencies]` 下的 `socket2 = "0.6"`、`libc = "0.2"`、`network-interface = "2"`——桌面端零编译、零行为变化。
 - **ICMP 探测**：`surge-ping = "0.8"`（供 `network/quality.rs` 使用）。
 
-Android 物理网卡旁路的插件化封装见 [android_plugins_network_bind](android_plugins_network_bind.md)，其 Kotlin 层 `NetworkBindPlugin` 与本模块 `bound_socket.rs` 共同构成 Android 端网络绑定能力。
+Android 物理网卡旁路的插件化封装见 [android_plugins_network_bind](android-plugins-network-bind.md)，其 Kotlin 层 `NetworkBindPlugin` 与本模块 `bound_socket.rs` 共同构成 Android 端网络绑定能力。

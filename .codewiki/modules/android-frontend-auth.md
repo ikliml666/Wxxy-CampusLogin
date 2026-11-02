@@ -188,13 +188,13 @@ export interface ExtraCardDef {
 
 ## 与其他模块的关系
 
-- **[android_frontend_hooks](android_frontend_hooks.md)**：`useAuth` 与 `DashboardPanel` 深度依赖 `useAuthStore`、`useConfigStore`、`useQualityStore`、`useLogToastStore`、`useGlowAnimation`、`useAsyncLock`、`useFormFactor`、`tauriApiWithRetry` 等。这些 store 的字段定义与订阅方式在该模块文档中详述。
-- **[android_frontend_account_management](android_frontend_account_management.md)**：自助在线 / 自助记录卡片复用其 `useHelloGate`（身份验证门）、`OnlineDeviceStack` / `OnlineDeviceStackH` / `OnlineDeviceStackCard`（堆叠卡）、`DeviceAliasDialog`（设备别名）、`operatorChip`（运营商 chip 样式）、`selfServiceTypes`（`formatMac` / `formatEpoch` / `formatFlowMb` / `formatUseTimeMinutes` / `formatTerminalType` / `localDateStr` 等格式化函数）。
-- **[android_frontend_monitoring_network](android_frontend_monitoring_network.md)**：`NetworkQualityCard` 复用其 `LatencyPair` 时延展示组件，数据来源于 `useMonitor` 驱动的 `useQualityStore.networkQuality`。
-- **[android_frontend_settings](android_frontend_settings.md)**：卡片依赖 `AccountItem`（账号档案类型）、`Config`（配置类型）、`operatorLabelKey`（运营商后缀到 i18n key 的映射）。
-- **[android_frontend_shared_ui_components](android_frontend_shared_ui_components.md)**：`AnimatedCard`、`CardHeader` / `CardContent` / `CardTitle` / `CardDescription`、`Button`、`Badge`、`EmptyState` 等基础 UI 原语。
-- **[android_frontend_utilities_libraries](android_frontend_utilities_libraries.md)**：`cn` / `extractErrorMessage` / `safeStorage`（`lib/utils.ts`）、`resolveQualityDisplay`（`lib/latency.ts`）、framer-motion 的 `m` 组件（用于拖拽动画）。
-- **[android_backend_tauri](android_backend_tauri.md)**：所有后端命令通过 `tauriApiWithRetry` 桥接，涉及 `protocol_cmds.rs`（登录 / Portal 状态）、`self_service_cmds.rs`（自助仪表盘 / 在线日志 / 会话注销 / 生物识别验证）、`system_cmds.rs`（打开外链）等。
+- **[android_frontend_hooks](android-frontend-hooks.md)**：`useAuth` 与 `DashboardPanel` 深度依赖 `useAuthStore`、`useConfigStore`、`useQualityStore`、`useLogToastStore`、`useGlowAnimation`、`useAsyncLock`、`useFormFactor`、`tauriApiWithRetry` 等。这些 store 的字段定义与订阅方式在该模块文档中详述。
+- **[android_frontend_account_management](android-frontend-account-management.md)**：自助在线 / 自助记录卡片复用其 `useHelloGate`（身份验证门）、`OnlineDeviceStack` / `OnlineDeviceStackH` / `OnlineDeviceStackCard`（堆叠卡）、`DeviceAliasDialog`（设备别名）、`operatorChip`（运营商 chip 样式）、`selfServiceTypes`（`formatMac` / `formatEpoch` / `formatFlowMb` / `formatUseTimeMinutes` / `formatTerminalType` / `localDateStr` 等格式化函数）。
+- **[android_frontend_monitoring_network](android-frontend-monitoring-network.md)**：`NetworkQualityCard` 复用其 `LatencyPair` 时延展示组件，数据来源于 `useMonitor` 驱动的 `useQualityStore.networkQuality`。
+- **[android_frontend_settings](android-frontend-settings.md)**：卡片依赖 `AccountItem`（账号档案类型）、`Config`（配置类型）、`operatorLabelKey`（运营商后缀到 i18n key 的映射）。
+- **[android_frontend_shared_ui_components](android-frontend-shared-ui-components.md)**：`AnimatedCard`、`CardHeader` / `CardContent` / `CardTitle` / `CardDescription`、`Button`、`Badge`、`EmptyState` 等基础 UI 原语。
+- **[android_frontend_utilities_libraries](android-frontend-utilities-libraries.md)**：`cn` / `extractErrorMessage` / `safeStorage`（`lib/utils.ts`）、`resolveQualityDisplay`（`lib/latency.ts`）、framer-motion 的 `m` 组件（用于拖拽动画）。
+- **[android_backend_tauri](android-backend-tauri.md)**：所有后端命令通过 `tauriApiWithRetry` 桥接，涉及 `protocol_cmds.rs`（登录 / Portal 状态）、`self_service_cmds.rs`（自助仪表盘 / 在线日志 / 会话注销 / 生物识别验证）、`system_cmds.rs`（打开外链）等。
 
 ## 构建与运行
 

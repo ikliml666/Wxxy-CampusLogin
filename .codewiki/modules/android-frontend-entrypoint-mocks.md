@@ -15,7 +15,7 @@ fsoft_page: android_frontend_entrypoint_mocks.md
 1. **应用启动引导**（`android/frontend/src/main.tsx`）：动画运行时全局配置、首帧主题落定、GPU/渲染崩溃的自动恢复、安卓系统内存压力下的人脸引擎兜底释放，以及将 `App` 挂入 React 根节点。
 2. **Tauri 浏览器 Mock**（`android/frontend/tauri-mock.js`）：在普通桌面浏览器中运行安卓前端时，以内存实现顶替 Tauri 的 `__TAURI_INTERNALS__` IPC 层，使整套 invoke / listen 链路无需 Rust 后端即可跑通，用于本地浏览器预览、headless 截图与手工走查。
 
-它与桌面端 [desktop_frontend_entrypoint_mocks.md](desktop_frontend_entrypoint_mocks.md) 结构同构（同一份 `main.tsx` 演进、同构的 `tauri-mock.js`），但安卓版在启动引导上多了**内存压力钩子**，在 mock 上多了**手机竖屏布局约束**等移动专属行为。
+它与桌面端 [desktop_frontend_entrypoint_mocks.md](desktop-frontend-entrypoint-mocks.md) 结构同构（同一份 `main.tsx` 演进、同构的 `tauri-mock.js`），但安卓版在启动引导上多了**内存压力钩子**，在 mock 上多了**手机竖屏布局约束**等移动专属行为。
 
 ---
 
@@ -87,7 +87,7 @@ flowchart LR
 - `window.__faceSessionActive` 为真（录入/比对会话进行中）则跳过——释放会让轮询循环打到已 reset 的实例直至静默超时；
 - 否则动态 import 并调 `releaseFaceEngine()`，释放 TFJS 模型权重（最大常驻缓存），失败仅 best-effort 不重试。
 
-> 人脸引擎本身属于 [android_frontend_face_verification.md](android_frontend_face_verification.md)，此处仅消费其维护的两个全局标志。
+> 人脸引擎本身属于 [android_frontend_face_verification.md](android-frontend-face-verification.md)，此处仅消费其维护的两个全局标志。
 
 ### 2. Tauri 浏览器 Mock `android/frontend/tauri-mock.js`
 
@@ -135,13 +135,13 @@ flowchart LR
 
 ## 与其他模块的关系
 
-- **被启动的应用主体**：`App` 来自 `android/frontend/src/App.tsx`，其手机/平板双外壳、面板懒加载等见 [android_frontend_hooks.md](android_frontend_hooks.md) 的启动编排与 [android_frontend_shared_components.md](android_frontend_shared_components.md)。
-- **崩溃恢复依赖的渲染链探测**：`isRenderLoopAlive` 来自 `android/frontend/src/lib/renderLiveness.ts`，属 [android_frontend_utilities_libraries.md](android_frontend_utilities_libraries.md)。
-- **主题常量与存储**：`VALID_THEMES` / `VALID_GLASS_LEVELS` 来自 [android_frontend_settings.md](android_frontend_settings.md)；`safeStorage` / `cn` 来自 [android_frontend_utilities_libraries.md](android_frontend_utilities_libraries.md)。
-- **内存压力钩子的对端**：人脸引擎 `releaseFaceEngine` 与 `__faceEngineLoaded` / `__faceSessionActive` 标志由 [android_frontend_face_verification.md](android_frontend_face_verification.md) 的 `faceService.ts` 维护；Kotlin `MainActivity.onTrimMemory` 属 [android_backend_tauri.md](android_backend_tauri.md)。
-- **Mock 顶替的真实命令面**：`invoke` 背后的 Rust 命令（`get_init_data`、`do_login`、`query_self_dashboard`、`list_accounts`、`start_background_check` 等）由 [android_backend_tauri.md](android_backend_tauri.md) 实现。
-- **Mock 服务的 API 层**：`tauriApi.ts` 的 `TauriApi` / `createEventListener` / `withRetry` 见 [android_frontend_hooks.md](android_frontend_hooks.md)——mock 保证这一层在浏览器里无需后端也能工作。
-- **桌面同构对照**：桌面端入口与 mock（含各自的 `vite.mock.config.ts`）见 [desktop_frontend_entrypoint_mocks.md](desktop_frontend_entrypoint_mocks.md)。
+- **被启动的应用主体**：`App` 来自 `android/frontend/src/App.tsx`，其手机/平板双外壳、面板懒加载等见 [android_frontend_hooks.md](android-frontend-hooks.md) 的启动编排与 [android_frontend_shared_components.md](android-frontend-shared-components.md)。
+- **崩溃恢复依赖的渲染链探测**：`isRenderLoopAlive` 来自 `android/frontend/src/lib/renderLiveness.ts`，属 [android_frontend_utilities_libraries.md](android-frontend-utilities-libraries.md)。
+- **主题常量与存储**：`VALID_THEMES` / `VALID_GLASS_LEVELS` 来自 [android_frontend_settings.md](android-frontend-settings.md)；`safeStorage` / `cn` 来自 [android_frontend_utilities_libraries.md](android-frontend-utilities-libraries.md)。
+- **内存压力钩子的对端**：人脸引擎 `releaseFaceEngine` 与 `__faceEngineLoaded` / `__faceSessionActive` 标志由 [android_frontend_face_verification.md](android-frontend-face-verification.md) 的 `faceService.ts` 维护；Kotlin `MainActivity.onTrimMemory` 属 [android_backend_tauri.md](android-backend-tauri.md)。
+- **Mock 顶替的真实命令面**：`invoke` 背后的 Rust 命令（`get_init_data`、`do_login`、`query_self_dashboard`、`list_accounts`、`start_background_check` 等）由 [android_backend_tauri.md](android-backend-tauri.md) 实现。
+- **Mock 服务的 API 层**：`tauriApi.ts` 的 `TauriApi` / `createEventListener` / `withRetry` 见 [android_frontend_hooks.md](android-frontend-hooks.md)——mock 保证这一层在浏览器里无需后端也能工作。
+- **桌面同构对照**：桌面端入口与 mock（含各自的 `vite.mock.config.ts`）见 [desktop_frontend_entrypoint_mocks.md](desktop-frontend-entrypoint-mocks.md)。
 
 ---
 

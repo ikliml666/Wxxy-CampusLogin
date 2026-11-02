@@ -15,7 +15,7 @@ fsoft_page: desktop_frontend_auth.md
 
 `desktop_frontend_auth` 是桌面端（Tauri）前端的认证业务模块，负责将用户在登录面板上的交互（输入账号、点击登录/登出、查看门户状态等）转换为对 Rust 后端命令的调用，并把后端返回的登录结果、门户状态转换结果暴露给 React UI 与全局状态层使用。该模块位于 `tauri-app/frontend/src/auth/` 目录下，与全局状态、监控模块、账户管理模块协同，共同构成桌面端校园网登录的前端闭环。
 
-本模块在职责上保持"薄"：真正的登录协议、门户探测、重试与冷却逻辑全部由后端实现，前端只负责参数组装、调用编排、结果类型对齐与测试保障。后端实现细节请参阅 [desktop_backend_auth_protocol](desktop_backend_auth_protocol.md) 与 [desktop_backend_commands](desktop_backend_commands.md)。
+本模块在职责上保持"薄"：真正的登录协议、门户探测、重试与冷却逻辑全部由后端实现，前端只负责参数组装、调用编排、结果类型对齐与测试保障。后端实现细节请参阅 [desktop_backend_auth_protocol](desktop-backend-auth-protocol.md) 与 [desktop_backend_commands](desktop-backend-commands.md)。
 
 ## 模块组成
 
@@ -37,12 +37,12 @@ fsoft_page: desktop_frontend_auth.md
 
 `useAuth` 是面向 Dashboard 登录面板的组合式 Hook，主要工作包括：
 
-1. 从全局 Store（见 [desktop_frontend_hooks](desktop_frontend_hooks.md) 中的 `useAuthStore`）读取当前账号、运营商绑定、配置中的自动登录冷却等状态。
+1. 从全局 Store（见 [desktop_frontend_hooks](desktop-frontend-hooks.md) 中的 `useAuthStore`）读取当前账号、运营商绑定、配置中的自动登录冷却等状态。
 2. 通过 `TauriApi` 抽象层调用后端命令（`do_login`、`do_logout`、`check_portal_status`），并对返回值按 `LoginResult` / `CommandResult` / `PortalStatusResult` 类型解析。
 3. 在调用前后更新全局 UI 状态（loading、toast 提示、按钮禁用等），并把登录成功后的账号上下文写入 Store，供 Account、Monitor 等模块消费。
-4. 处理超时、失败重试与用户取消等异常路径，把后端错误消息通过 [desktop_frontend_shared_components_types](desktop_frontend_shared_components_types.md) 中定义的 `ToastMessage` 通道呈现给用户。
+4. 处理超时、失败重试与用户取消等异常路径，把后端错误消息通过 [desktop_frontend_shared_components_types](desktop-frontend-shared-components-types.md) 中定义的 `ToastMessage` 通道呈现给用户。
 
-> `useAuth` 不直接持有登录协议状态（如 nonce、加密参数），那些参数由后端在 `do_login` 内部完成，详见 [desktop_backend_auth_protocol](desktop_backend_auth_protocol.md)。
+> `useAuth` 不直接持有登录协议状态（如 nonce、加密参数），那些参数由后端在 `do_login` 内部完成，详见 [desktop_backend_auth_protocol](desktop-backend-auth-protocol.md)。
 
 ### 测试层（DashboardPanel.selfCards.test.tsx）
 
@@ -52,7 +52,7 @@ fsoft_page: desktop_frontend_auth.md
 - `eyeBtns`：定位自助卡片上的"显示/隐藏敏感字段"（如运营商密码）按钮集合。
 - `noop`：作为未使用的回调注入，保持 props 完整。
 
-测试重点验证：当 `useAuth` 返回指定的 `LoginResult` 后，自助卡片能否正确展开在线设备列表、能否切换敏感字段可见性。这类组件测试配合 `tauri-mock.js`（见 [desktop_frontend_entrypoint_mocks](desktop_frontend_entrypoint_mocks.md) 中的 `invoke`/`emitEvent`）可在无 Tauri 运行时的环境下跑通。
+测试重点验证：当 `useAuth` 返回指定的 `LoginResult` 后，自助卡片能否正确展开在线设备列表、能否切换敏感字段可见性。这类组件测试配合 `tauri-mock.js`（见 [desktop_frontend_entrypoint_mocks](desktop-frontend-entrypoint-mocks.md) 中的 `invoke`/`emitEvent`）可在无 Tauri 运行时的环境下跑通。
 
 ## 在整体架构中的位置
 
@@ -123,18 +123,18 @@ sequenceDiagram
 
 ## 依赖与协作关系
 
-- **全局状态**：依赖 [desktop_frontend_hooks](desktop_frontend_hooks.md) 中的 `useAuthStore`（门户状态缓存、校园网检测 `detectCampusNetwork`、`queryPortalStatus`）与 `TauriApi`（命令调用与事件监听）。
-- **账户管理**：登录成功后写入的活动账号由 [desktop_frontend_account_management](desktop_frontend_account_management.md) 中的 `useAccount` 消费；自助面板（在线设备、账单）的数据来源为后端 `query_self_dashboard` 等命令。
-- **监控**：登录状态是 [desktop_frontend_monitoring](desktop_frontend_monitoring.md) 中 `useMonitor` 调度周期性门户检查、自动重连的输入；监控模块同样复用 `PortalStatusResult` 类型语义。
-- **共享 UI**：登录按钮、输入框、toast 等复用 [desktop_frontend_shared_ui_components](desktop_frontend_shared_ui_components.md) 与 [desktop_frontend_shared_components_types](desktop_frontend_shared_components_types.md) 中定义的组件与类型。
-- **后端契约**：命令名、参数与返回结构对齐 [desktop_backend_commands](desktop_backend_commands.md)（`do_login`、`do_logout`、`check_portal_status`）与 [desktop_backend_auth_protocol](desktop_backend_auth_protocol.md)。
+- **全局状态**：依赖 [desktop_frontend_hooks](desktop-frontend-hooks.md) 中的 `useAuthStore`（门户状态缓存、校园网检测 `detectCampusNetwork`、`queryPortalStatus`）与 `TauriApi`（命令调用与事件监听）。
+- **账户管理**：登录成功后写入的活动账号由 [desktop_frontend_account_management](desktop-frontend-account-management.md) 中的 `useAccount` 消费；自助面板（在线设备、账单）的数据来源为后端 `query_self_dashboard` 等命令。
+- **监控**：登录状态是 [desktop_frontend_monitoring](desktop-frontend-monitoring.md) 中 `useMonitor` 调度周期性门户检查、自动重连的输入；监控模块同样复用 `PortalStatusResult` 类型语义。
+- **共享 UI**：登录按钮、输入框、toast 等复用 [desktop_frontend_shared_ui_components](desktop-frontend-shared-ui-components.md) 与 [desktop_frontend_shared_components_types](desktop-frontend-shared-components-types.md) 中定义的组件与类型。
+- **后端契约**：命令名、参数与返回结构对齐 [desktop_backend_commands](desktop-backend-commands.md)（`do_login`、`do_logout`、`check_portal_status`）与 [desktop_backend_auth_protocol](desktop-backend-auth-protocol.md)。
 
 ## 构建与测试
 
 - 前端工程位于 `tauri-app/frontend/`，由 `tauri-app/frontend/package.json` 中的脚本驱动：`dev`（vite 开发服务器）、`build`（产物构建）、`test`/`test:watch`（Vitest 运行组件测试，含 `DashboardPanel.selfCards.test.tsx`）。
 - Vitest 配置见 `tauri-app/frontend/vitest.config.ts`：jsdom 环境、`@` 路径别名指向 `src`、`setupFiles` 为 `src/test-setup.ts`。
-- 命令通道在开发/测试环境可通过 `tauri-app/frontend/tauri-mock.js`（见 [desktop_frontend_entrypoint_mocks](desktop_frontend_entrypoint_mocks.md)）中的 `invoke` mock 替换为本地桩，无需启动真实 Tauri 运行时。
+- 命令通道在开发/测试环境可通过 `tauri-app/frontend/tauri-mock.js`（见 [desktop_frontend_entrypoint_mocks](desktop-frontend-entrypoint-mocks.md)）中的 `invoke` mock 替换为本地桩，无需启动真实 Tauri 运行时。
 
 ## 与 Android 端的差异
 
-Android 端存在对应的 [android_frontend_auth](android_frontend_auth.md) 模块（`android/frontend/src/auth/`），其 `useAuth` Hook 与 `DashboardPanel` 在 API 形态上与桌面端保持一致，但面向移动端的布局与交互存在差异。本页仅覆盖桌面端（`tauri-app/`）实现。
+Android 端存在对应的 [android_frontend_auth](android-frontend-auth.md) 模块（`android/frontend/src/auth/`），其 `useAuth` Hook 与 `DashboardPanel` 在 API 形态上与桌面端保持一致，但面向移动端的布局与交互存在差异。本页仅覆盖桌面端（`tauri-app/`）实现。

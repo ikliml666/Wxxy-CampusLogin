@@ -112,7 +112,7 @@ flowchart TD
 
 ### 1. `watcher.rs` —— 启动编排
 
-`run_startup_tasks(app_handle)` 是应用启动后拉起全部后台循环的唯一入口（由 [desktop_backend_app_lifecycle](desktop_backend_app_lifecycle.md) 在应用就绪阶段调用）。它从 `CommandContext` / `AppState` 读取配置，按开关条件经 `task_manager.spawn` 注册可取消任务：
+`run_startup_tasks(app_handle)` 是应用启动后拉起全部后台循环的唯一入口（由 [desktop_backend_app_lifecycle](desktop-backend-app-lifecycle.md) 在应用就绪阶段调用）。它从 `CommandContext` / `AppState` 读取配置，按开关条件经 `task_manager.spawn` 注册可取消任务：
 
 | 任务名 | 条件 | 行为 |
 |---|---|---|
@@ -272,7 +272,7 @@ sequenceDiagram
 - **看门狗** `watchdog_re_disable_campus`：guard 窗口 ∧ 切换态下复核禁用名单，名单内校园卡被外部重新启用（手动启用/网络重置/驱动重装）时自动重新禁用并通知一次。
 - **待切换清理** `drive_pending_switch`：兼容职责——清掉旧版本登录闸写入的 `waiting-login` 挂起行（2026-10-26 起本版本不再产生挂起：登录闸方向相反，热点出口永不可能登录校园 Portal，曾导致整夜挂起不切）。
 - **启动对账** `reconcile_outbound_on_startup`：循环启动前一次性——三份快照任一非空说明上次运行残留切换态：恢复窗内/功能已关闭 → 立即还原；夜间窗口内目标卡仍非校园网可用 → 重放切换；目标卡回校园网/已不存在 → 还原。
-- **手动入口** `manual_outbound_switch` / `manual_outbound_restore`：经 [desktop_backend_commands](desktop_backend_commands.md) 的 `outbound_switch_now` / `outbound_restore_now` 命令暴露给前端；手动切换先落当日 hold（冻结当日自动动作）再执行，已处于切换态时拒绝（避免把已改动的跃点当原值重新快照）。
+- **手动入口** `manual_outbound_switch` / `manual_outbound_restore`：经 [desktop_backend_commands](desktop-backend-commands.md) 的 `outbound_switch_now` / `outbound_restore_now` 命令暴露给前端；手动切换先落当日 hold（冻结当日自动动作）再执行，已处于切换态时拒绝（避免把已改动的跃点当原值重新快照）。
 
 ---
 
@@ -323,14 +323,14 @@ sequenceDiagram
 
 | 方向 | 模块 | 关系 |
 |---|---|---|
-| 上游调用 | [desktop_backend_app_lifecycle](desktop_backend_app_lifecycle.md) | 应用启动时调用 `watcher::run_startup_tasks` |
-| 命令入口 | [desktop_backend_commands](desktop_backend_commands.md) | `outbound_switch_now` / `outbound_restore_now`（手动切换/还原）、`start/stop/trigger_background_check`（巡检控制）等命令的后端实现多数落在本模块 |
-| 判定纯函数 | [desktop_backend_configuration](desktop_backend_configuration.md) | `config::night_switch`（运营商夜切判定）、`config::outbound_switch`（出站判定+守护窗口+预判定窗口）、`config::scheduled_tick`（编排门控组合）——双端单点，桌面与安卓同语义 |
-| Portal 协议 | [desktop_backend_auth_protocol](desktop_backend_auth_protocol.md) | `portal_check` 依赖 `auth::portal::check_portal_full`；夜切复验依赖 `parse_chkstatus` / `uid_matches` |
-| 网络层 | [desktop_backend_networking](desktop_backend_networking.md) | 适配器枚举/缓存（`get_adapters_cached`）、绑源 ICMP（`check_gateway_reachable_from`）、`enable_adapter`（含 pnputil problem 22 分流） |
-| 平台层 | [desktop_backend_platform_specific](desktop_backend_platform_specific.md) | 跃点读写（`platform::metric`）、路由表（`platform::route_table`、`best_route`）、提权 helper（`helper_spawn`）、PnP 实例 ID（`discovery::devnode`） |
-| 基础设施 | [desktop_backend_infrastructure](desktop_backend_infrastructure.md) | `task_manager`（任务注册/取消）、`AppState`（配置/登录锁/当日标记）、`EventBus`（前端日志事件）、通知 |
-| 安卓对照 | [android_backend_tauri](android_backend_tauri.md) 的 `monitor_loop.rs` | 双端共享 `config` 层纯判定（`evaluate_scheduled_actions` 等），副作用各自实现（桌面改跃点/禁网卡；安卓蜂窝标记） |
+| 上游调用 | [desktop_backend_app_lifecycle](desktop-backend-app-lifecycle.md) | 应用启动时调用 `watcher::run_startup_tasks` |
+| 命令入口 | [desktop_backend_commands](desktop-backend-commands.md) | `outbound_switch_now` / `outbound_restore_now`（手动切换/还原）、`start/stop/trigger_background_check`（巡检控制）等命令的后端实现多数落在本模块 |
+| 判定纯函数 | [desktop_backend_configuration](desktop-backend-configuration.md) | `config::night_switch`（运营商夜切判定）、`config::outbound_switch`（出站判定+守护窗口+预判定窗口）、`config::scheduled_tick`（编排门控组合）——双端单点，桌面与安卓同语义 |
+| Portal 协议 | [desktop_backend_auth_protocol](desktop-backend-auth-protocol.md) | `portal_check` 依赖 `auth::portal::check_portal_full`；夜切复验依赖 `parse_chkstatus` / `uid_matches` |
+| 网络层 | [desktop_backend_networking](desktop-backend-networking.md) | 适配器枚举/缓存（`get_adapters_cached`）、绑源 ICMP（`check_gateway_reachable_from`）、`enable_adapter`（含 pnputil problem 22 分流） |
+| 平台层 | [desktop_backend_platform_specific](desktop-backend-platform-specific.md) | 跃点读写（`platform::metric`）、路由表（`platform::route_table`、`best_route`）、提权 helper（`helper_spawn`）、PnP 实例 ID（`discovery::devnode`） |
+| 基础设施 | [desktop_backend_infrastructure](desktop-backend-infrastructure.md) | `task_manager`（任务注册/取消）、`AppState`（配置/登录锁/当日标记）、`EventBus`（前端日志事件）、通知 |
+| 安卓对照 | [android_backend_tauri](android-backend-tauri.md) 的 `monitor_loop.rs` | 双端共享 `config` 层纯判定（`evaluate_scheduled_actions` 等），副作用各自实现（桌面改跃点/禁网卡；安卓蜂窝标记） |
 
 ---
 

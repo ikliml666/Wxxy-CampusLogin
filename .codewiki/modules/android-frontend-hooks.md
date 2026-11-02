@@ -37,9 +37,9 @@ fsoft_page: android_frontend_hooks.md
 
 | 子模块 | 覆盖内容 |
 |---|---|
-| [启动编排与 IPC 门面](android_frontend_hooks/android_frontend_hooks_startup_orchestration.md) | `tauriApi.ts`（TauriApi 接口、事件订阅工厂、桌面专属拒绝、重试）、`useAppInit` 及其子 Hook（事件总线接入、初始数据加载、心跳、全局快捷键） |
-| [领域状态 Store](android_frontend_hooks/android_frontend_hooks_android_frontend_hooks_state_stores.md) | `useAuthStore`、`useConfigStore`、`useQualityStore`、`useLogToastStore`、`useThemeStore`、`useAdapterStore` 的状态形状、防抖/脏字段/节流机制与跨 store 协作 |
-| [动画与设备运行时](android_frontend_hooks/android_frontend_hooks_animation_runtime.md) | 氛围动画三件套（呼吸/发光/脉冲）、页面空闲 Provider、自适应帧率、设备形态/横竖屏探测、动效偏好降级 |
+| [启动编排与 IPC 门面](android-frontend-hooks-startup-orchestration.md) | `tauriApi.ts`（TauriApi 接口、事件订阅工厂、桌面专属拒绝、重试）、`useAppInit` 及其子 Hook（事件总线接入、初始数据加载、心跳、全局快捷键） |
+| [领域状态 Store](android-frontend-hooks-android-frontend-hooks-state-stores.md) | `useAuthStore`、`useConfigStore`、`useQualityStore`、`useLogToastStore`、`useThemeStore`、`useAdapterStore` 的状态形状、防抖/脏字段/节流机制与跨 store 协作 |
+| [动画与设备运行时](android-frontend-hooks-animation-runtime.md) | 氛围动画三件套（呼吸/发光/脉冲）、页面空闲 Provider、自适应帧率、设备形态/横竖屏探测、动效偏好降级 |
 
 ## 架构总览
 
@@ -178,9 +178,9 @@ flowchart TB
 ```
 
 - **被 UI 层消费**：所有面板通过 `useAuthStore`、`useConfigStore`、`useQualityStore`、`useLogToastStore` 读写状态；`App.tsx` 根部直接调用 `useAppInit`、`useAdaptiveFramePace`、`AnimationActiveProvider`、`useFormFactor`。
-- **跨模块依赖**：生物识别验证出口回调 [android_frontend_face_verification](android_frontend_face_verification.md) 的 `shouldUseFaceFallback` / `useFaceDialogStore`；网络质量合并、颜色换算、错误消息抽取来自 [android_frontend_utilities_libraries](android_frontend_utilities_libraries.md)。
-- **对接后端**：命令与事件名一一对应 [android_backend_tauri](android_backend_tauri.md)（`get_config`/`save_config`/`check_portal_status`/`background-check-result`/`network-quality-result`/`config-changed` 等）。
-- **与桌面版的关系**：桌面平行模块见 [desktop_frontend_hooks](desktop_frontend_hooks.md)；安卓端在此基础上裁剪了适配器/DHCP/DNS/窗口链路，并新增电池优化、WiFi SSID 权限、`get_avoid_bad_wifi_status`/`restore_written_settings`（Settings.Global 写通道）等安卓专属命令。
+- **跨模块依赖**：生物识别验证出口回调 [android_frontend_face_verification](android-frontend-face-verification.md) 的 `shouldUseFaceFallback` / `useFaceDialogStore`；网络质量合并、颜色换算、错误消息抽取来自 [android_frontend_utilities_libraries](android-frontend-utilities-libraries.md)。
+- **对接后端**：命令与事件名一一对应 [android_backend_tauri](android-backend-tauri.md)（`get_config`/`save_config`/`check_portal_status`/`background-check-result`/`network-quality-result`/`config-changed` 等）。
+- **与桌面版的关系**：桌面平行模块见 [desktop_frontend_hooks](desktop-frontend-hooks.md)；安卓端在此基础上裁剪了适配器/DHCP/DNS/窗口链路，并新增电池优化、WiFi SSID 权限、`get_avoid_bad_wifi_status`/`restore_written_settings`（Settings.Global 写通道）等安卓专属命令。
 
 ## 关键设计要点
 

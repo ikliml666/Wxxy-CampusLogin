@@ -77,7 +77,7 @@ flowchart TD
 
 ### 2. 移动端悬浮快捷操作条（`mobile/MobileQuickActions.tsx`）
 
-针对竖屏手机导航栏设计的**紧凑双胶囊**（登录 = 实心主色、注销 = 磨砂 tonal 玻璃），固定悬浮于底导航栏上方右缘、不随内容滚动。登录前先调用 `bindToWifi` 绑定 WLAN，再复用 [android_frontend_hooks](android_frontend_hooks.md) 中 `useAuthStore` 的 `doLogin` 走与桌面端同款的登录流。
+针对竖屏手机导航栏设计的**紧凑双胶囊**（登录 = 实心主色、注销 = 磨砂 tonal 玻璃），固定悬浮于底导航栏上方右缘、不随内容滚动。登录前先调用 `bindToWifi` 绑定 WLAN，再复用 [android_frontend_hooks](android-frontend-hooks.md) 中 `useAuthStore` 的 `doLogin` 走与桌面端同款的登录流。
 
 ## 关键设计要点
 
@@ -96,7 +96,7 @@ flowchart TD
 
 - `AnimatedCard` 通过 `prefers-reduced-motion` 媒体查询（模块级缓存 `MediaQueryList`）自动关闭入场动画；
 - 提供 `noHover` / `noAnimation` / `noEnterAnimation` / `enableTilt` 开关逐项降级；
-- 动效参数来自 `useAnimationProfile`（依据 `QualityStore.refreshRate` 选择对应刷新率的缓动曲线），详见 [android_frontend_hooks](android_frontend_hooks.md) 与 [android_frontend_utilities_libraries](android_frontend_utilities_libraries.md)。
+- 动效参数来自 `useAnimationProfile`（依据 `QualityStore.refreshRate` 选择对应刷新率的缓动曲线），详见 [android_frontend_hooks](android-frontend-hooks.md) 与 [android_frontend_utilities_libraries](android-frontend-utilities-libraries.md)。
 
 ### 移动端安全区适配
 
@@ -125,9 +125,9 @@ flowchart LR
     MQA --> Hooks
 ```
 
-- **上游消费方**：本模块的组件被登录面板（[android_frontend_auth](android_frontend_auth.md)）、账号/自助服务面板（[android_frontend_account_management](android_frontend_account_management.md)）与设置面板（[android_frontend_settings](android_frontend_settings.md)）组合使用。
-- **底层依赖**：类名合并工具 `cn`、动画变体与缓动配置位于 [android_frontend_utilities_libraries](android_frontend_utilities_libraries.md)；登录状态与 Tauri 命令封装位于 [android_frontend_hooks](android_frontend_hooks.md)。
-- **桌面端对照**：桌面前端的共享 UI 组件（`tauri-app/frontend/src/components/ui/`）与本模块并行存在、API 基本对齐，见 [desktop_frontend_shared_ui_components](desktop_frontend_shared_ui_components.md)。
+- **上游消费方**：本模块的组件被登录面板（[android_frontend_auth](android-frontend-auth.md)）、账号/自助服务面板（[android_frontend_account_management](android-frontend-account-management.md)）与设置面板（[android_frontend_settings](android-frontend-settings.md)）组合使用。
+- **底层依赖**：类名合并工具 `cn`、动画变体与缓动配置位于 [android_frontend_utilities_libraries](android-frontend-utilities-libraries.md)；登录状态与 Tauri 命令封装位于 [android_frontend_hooks](android-frontend-hooks.md)。
+- **桌面端对照**：桌面前端的共享 UI 组件（`tauri-app/frontend/src/components/ui/`）与本模块并行存在、API 基本对齐，见 [desktop_frontend_shared_ui_components](desktop-frontend-shared-ui-components.md)。
 
 ## 参考文件清单
 

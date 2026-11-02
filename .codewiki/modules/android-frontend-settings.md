@@ -64,8 +64,8 @@ flowchart TD
 | 子模块 | 文件 | 核心职责 | 文档 |
 | --- | --- | --- | --- |
 | 设置常量与选项字典 | `android/frontend/src/settings/constants.ts` | 默认配置、ISP/主题/玻璃档位选项、运营商徽标映射 | （见下文本页说明） |
-| 设置操作聚合 | `android/frontend/src/settings/useSettings.ts` | 亮暗模式、通知权限、开机自启、主题切换的统一入口 | [android_frontend_settings_use_settings.md](android_frontend_settings/android_frontend_settings_use_settings.md) |
-| 新手引导流程 | `android/frontend/src/settings/useOnboardingFlow.ts` | 4 步状态机、绑定运营商副作用、凭据纪律 | [android_frontend_settings_onboarding_flow.md](android_frontend_settings/android_frontend_settings_onboarding_flow.md) |
+| 设置操作聚合 | `android/frontend/src/settings/useSettings.ts` | 亮暗模式、通知权限、开机自启、主题切换的统一入口 | [android_frontend_settings_use_settings.md](android-frontend-settings-use-settings.md) |
+| 新手引导流程 | `android/frontend/src/settings/useOnboardingFlow.ts` | 4 步状态机、绑定运营商副作用、凭据纪律 | [android_frontend_settings_onboarding_flow.md](android-frontend-settings-onboarding-flow.md) |
 
 > 说明：`constants.ts` 为纯常量集合（单文件、无状态、无副作用），复杂度不足以单独成篇，故在本页直接详述。
 
@@ -126,11 +126,11 @@ sequenceDiagram
 
 ## 与其他模块的关系
 
-- 配置读取/保存细节、zustand 订阅方式见 [android_frontend_hooks.md](android_frontend_hooks.md)（`useConfigStore`、`useThemeStore`、`useLogToastStore`）。
-- Hello 自助服务验证门的语义见 [android_frontend_account_management.md](android_frontend_account_management.md)（`useHelloGate`）。
-- 后端配置持久化（`get_config` / `save_config`）与命令面见 [android_backend_tauri.md](android_backend_tauri.md)（`config_state.rs`、`system_cmds.rs`、`self_service_cmds.rs`）。
-- 通知权限与前端工具函数（`safeStorage`、`extractErrorMessage`）见 [android_frontend_utilities_libraries.md](android_frontend_utilities_libraries.md)。
-- 构建产物（`android/frontend/package.json`、`vite.config.ts`）见 [build_deployment_configuration.md](build_deployment_configuration.md)。
+- 配置读取/保存细节、zustand 订阅方式见 [android_frontend_hooks.md](android-frontend-hooks.md)（`useConfigStore`、`useThemeStore`、`useLogToastStore`）。
+- Hello 自助服务验证门的语义见 [android_frontend_account_management.md](android-frontend-account-management.md)（`useHelloGate`）。
+- 后端配置持久化（`get_config` / `save_config`）与命令面见 [android_backend_tauri.md](android-backend-tauri.md)（`config_state.rs`、`system_cmds.rs`、`self_service_cmds.rs`）。
+- 通知权限与前端工具函数（`safeStorage`、`extractErrorMessage`）见 [android_frontend_utilities_libraries.md](android-frontend-utilities-libraries.md)。
+- 构建产物（`android/frontend/package.json`、`vite.config.ts`）见 [build_deployment_configuration.md](build-deployment-configuration.md)。
 
 ## 设计要点小结
 

@@ -22,7 +22,7 @@ fsoft_page: android_frontend_shared_components.md
 - **渲染健壮性兜底**（错误边界、崩溃恢复入口）；
 - **纯前端素材资源的统一出口**（WebP 插画、每日轮换立绘）。
 
-它是其他 Android 前端模块（[账号管理](android_frontend_account_management.md)、[认证面板](android_frontend_auth.md)、[监控](android_frontend_monitoring_network.md)、[设置](android_frontend_settings.md) 等）的公共依赖底座，被 `main.tsx` 入口直接引用，也被各业务面板间接消费。
+它是其他 Android 前端模块（[账号管理](android-frontend-account-management.md)、[认证面板](android-frontend-auth.md)、[监控](android-frontend-monitoring-network.md)、[设置](android-frontend-settings.md) 等）的公共依赖底座，被 `main.tsx` 入口直接引用，也被各业务面板间接消费。
 
 ## 架构概览
 
@@ -77,7 +77,7 @@ flowchart TD
 | 组件 / 函数 | 文件 | 职责 |
 | --- | --- | --- |
 | `AnimatedNumber` | `AnimatedNumber.tsx` | 用 GSAP `quickTo` 把数值变化平滑滚动为文本，附带 scale 弹跳反馈；首帧直出不做动画 |
-| `ErrorBoundary` | `ErrorBoundary.tsx` | React 类组件错误边界，捕获子树渲染异常后展示兜底界面（看板娘 + 错误信息 + 重载按钮） |
+| `ErrorBoundary` | `ErrorBoundary.tsx` | React 类组件错误边界，`constructor` 初始化 `{ hasError: false, error: null }`，捕获子树渲染异常后展示兜底界面（看板娘 + 错误信息 + 重载按钮） |
 | `FluidBackground` | `FluidBackground.tsx` | 绝对定位的纯色背景层（`var(--surface-main)`），Android 端精简版流体背景 |
 | `ispMarkSrc` / `IspMark` | `IspMark.tsx` | 运营商后缀 → WebP 标识图的映射表与 memo 化 `<img>` 组件，校徽自动加白圆底 |
 | `MascotFigure` | `MascotFigure.tsx` | `public/girl/mascot-*.webp` 插画的统一出口，支持 7 种 variant 与 3 档尺寸 |
@@ -110,8 +110,8 @@ flowchart LR
     D -->|超过 3 次| F["停止自动恢复<br/>避免重载死循环"]
 ```
 
-- **`ErrorBoundary`** 捕获 React 渲染期错误（如某个面板抛异常），用 `getDerivedStateFromError` 置位、`componentDidCatch` 在 DEV 下打印，并引导用户手动重载；
-- **`setupCrashRecovery()`**（定义于入口 `main.tsx`，见 [入口与模拟层](android_frontend_entrypoint_mocks.md)）监听 rAF 心跳停滞、GPU/WebGL 报错与空白 root，自动重载最多 3 次；同时把 `gsap.globalTimeline` 在页面隐藏时 pause、可见时 resume。
+- **`ErrorBoundary`** 捕获 React 渲染期错误（如某个面板抛异常），`constructor` 以 `super(props)` 之后写入初始状态 `{ hasError: false, error: null }` 保证首帧走正常渲染分支，随后用 `getDerivedStateFromError` 置位、`componentDidCatch` 在 DEV 下打印，并引导用户手动重载；
+- **`setupCrashRecovery()`**（定义于入口 `main.tsx`，见 [入口与模拟层](android-frontend-entrypoint-mocks.md)）监听 rAF 心跳停滞、GPU/WebGL 报错与空白 root，自动重载最多 3 次；同时把 `gsap.globalTimeline` 在页面隐藏时 pause、可见时 resume。
 
 `ErrorBoundary` 在 `main.tsx` 中直接包裹整个 `<App/>`，是最外层防线。
 
@@ -125,10 +125,10 @@ flowchart LR
 
 ## 与其他模块的关系
 
-- **被入口直接引用**：`main.tsx` 从本模块导入 `ErrorBoundary` 包裹应用根节点（见 [入口与模拟层](android_frontend_entrypoint_mocks.md)）。
-- **消费 hooks 层**：`AnimatedNumber` 依赖的 `useAnimationProfile`、`useAnimationActive` 属于 [Android 前端 Hooks](android_frontend_hooks.md) 的动画运行时子模块；`cn()` 工具来自 [工具库](android_frontend_utilities_libraries.md)。
+- **被入口直接引用**：`main.tsx` 从本模块导入 `ErrorBoundary` 包裹应用根节点（见 [入口与模拟层](android-frontend-entrypoint-mocks.md)）。
+- **消费 hooks 层**：`AnimatedNumber` 依赖的 `useAnimationProfile`、`useAnimationActive` 属于 [Android 前端 Hooks](android-frontend-hooks.md) 的动画运行时子模块；`cn()` 工具来自 [工具库](android-frontend-utilities-libraries.md)。
 - **被业务面板间接消费**：`MascotFigure`、`IspMark`、`AnimatedNumber` 被认证面板、监控面板、账号面板等用于状态展示与空/错态插画。
-- **与桌面端共享设计**：`MascotFigure`/`IspMark` 的素材命名与桌面端 [shared 组件](desktop_frontend_shared_components_types.md) 同构（注释标明"双端同构"），但 Android 端不包含桌面端的 `types.ts` 类型定义，属于 Android 精简子集。
+- **与桌面端共享设计**：`MascotFigure`/`IspMark` 的素材命名与桌面端 [shared 组件](desktop-frontend-shared-components-types.md) 同构（注释标明"双端同构"），但 Android 端不包含桌面端的 `types.ts` 类型定义，属于 Android 精简子集。
 
 ## 数据流：AnimatedNumber 数值更新时序
 
