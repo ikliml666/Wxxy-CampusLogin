@@ -694,7 +694,7 @@ stateDiagram-v2
 - **工具库**：`mergeNetworkQuality`、`hexToHsl`、`safeStorage`、`extractErrorMessage` 来自 [安卓前端工具库](android-frontend-utilities-libraries.md)；`i18next` 由 `main.tsx` 侧的 i18n 初始化装配。
 - **动画层**：本层与 [动画运行时](android-frontend-hooks-animation-runtime.md) 基本解耦，唯一的接触点是 `useQualityStore.refreshRate`——`useAnimationProfile` 以 React hook 形式订阅该字段来选取缓动曲线。帧节奏（`useAdaptiveFramePace`）、空闲暂停（`AnimationActiveProvider`）、形态判定（`useFormFactor`）都不读写本层任何 store，因此主题/日志高频变更不会驱动动画循环重算。
 - **后端对应**：`save_config` / `config-changed` / `get_init_data` / `do_login` / `check_portal_status` / `check_network_quality` 等命令与事件的后端实现见 [安卓后端状态存储](android-backend-tauri-state-storage.md) 与 [安卓后端监控](android-backend-tauri-monitoring.md)。
-- **同名兄弟页**：仓库中另有 android_frontend_hooks_android_frontend_hooks_state_stores.md 覆盖同一组六个 store，可互为参照。
+- **同名兄弟页**：仓库中另有 [android_frontend_hooks_android_frontend_hooks_state_stores.md](android-frontend-hooks-android-frontend-hooks-state-stores.md) 覆盖同一组六个 store，可互为参照。
 
 ## 构建与类型检查
 

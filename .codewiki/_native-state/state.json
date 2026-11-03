@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "24a6aa5ea6b2db4819d117549219877d3dc0ef97",
-    "headCommit": "e2fa20014a7edd5ed22ec44630adcbc8cf299514"
+    "headCommit": "2d0bc8cc99074b29568eefb1cf4ebe4c54bf63ad"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "24a6aa5ea6b2db4819d117549219877d3dc0ef97",
-    "headCommit": "e2fa20014a7edd5ed22ec44630adcbc8cf299514",
+    "headCommit": "2d0bc8cc99074b29568eefb1cf4ebe4c54bf63ad",
     "committed": [
       ".gitignore",
       "android/frontend/index.html",
@@ -49,7 +49,9 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw0tq6zi-1-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw0vsxzb-1-native（66 个文件）",
+    "android_frontend_hooks/android_frontend_hooks_state_stores.md：校对改写 1 处失效链接（剩余 0 处）",
+    "语义校对改写了 1 篇（android_frontend_hooks/android_frontend_hooks_state_stores.md），改后重新判门"
   ],
-  "updatedAt": "2026-11-03T15:11:43.486Z"
+  "updatedAt": "2026-11-03T16:14:48.215Z"
 }
