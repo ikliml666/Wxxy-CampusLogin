@@ -110,3 +110,7 @@ pnpm-lock.yaml
 pnpm-workspace.yaml
 
 # iOS 壳 crate 构建产物(ios/src-tauri/.cargo/config.toml 指定)
+
+# Windows 快捷方式与 nul（2026-11-03 用户确认：本地产物，不入库）
+*.lnk
+/nul
