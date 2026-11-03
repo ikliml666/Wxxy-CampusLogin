@@ -296,7 +296,7 @@ flowchart LR
 
 ## 与入口层的关系
 
-启动编排之上还有 [安卓前端入口与 Mock](../android_frontend_entrypoint_mocks.md) 中的 `setupCrashRecovery`，负责渲染异常恢复：
+启动编排之上还有 [安卓前端入口与 Mock](android-frontend-entrypoint-mocks.md) 中的 `setupCrashRecovery`，负责渲染异常恢复：
 
 - 检测 GPU/WebGL 错误、rAF 心跳停滞（>10s 阈值，避免低端机长 GC 误判）、root 元素为空时自动重载，最多 3 次。
 - 切页面可见性时暂停/恢复 GSAP 全局时间线。
@@ -356,9 +356,9 @@ flowchart TD
 
 ## 相关模块参考
 
-- 状态存储实现细节：[安卓前端 Hooks — 状态存储](android_frontend_hooks_state_stores.md)（`useConfigStore`、`useAuthStore`、`useQualityStore`、`useLogToastStore`、`useThemeStore`、`useAdapterStore`）
-- 动画与表单因子运行时：[安卓前端 Hooks — 动画运行时](android_frontend_hooks_animation_runtime.md)
-- Hooks 父模块总览：[安卓前端 Hooks](../android_frontend_hooks.md)
-- 入口与崩溃恢复：[安卓前端入口与 Mock](../android_frontend_entrypoint_mocks.md)
-- 后端命令实现：[安卓后端 Tauri](../android_backend_tauri.md)（`get_init_data`、`render_heartbeat`、`check_portal_status`、`do_login` 等命令）
-- 构建配置：[构建与部署配置 — 安卓构建](../build_deployment_configuration/build_deployment_configuration_android_build.md)（`android/frontend/package.json` 的 `build`/`dev`/`typecheck` 脚本）
+- 状态存储实现细节：[安卓前端 Hooks — 状态存储](android-frontend-hooks-state-stores.md)（`useConfigStore`、`useAuthStore`、`useQualityStore`、`useLogToastStore`、`useThemeStore`、`useAdapterStore`）
+- 动画与表单因子运行时：[安卓前端 Hooks — 动画运行时](android-frontend-hooks-animation-runtime.md)
+- Hooks 父模块总览：[安卓前端 Hooks](android-frontend-hooks.md)
+- 入口与崩溃恢复：[安卓前端入口与 Mock](android-frontend-entrypoint-mocks.md)
+- 后端命令实现：[安卓后端 Tauri](android-backend-tauri.md)（`get_init_data`、`render_heartbeat`、`check_portal_status`、`do_login` 等命令）
+- 构建配置：[构建与部署配置 — 安卓构建](build-deployment-configuration-android-build.md)（`android/frontend/package.json` 的 `build`/`dev`/`typecheck` 脚本）

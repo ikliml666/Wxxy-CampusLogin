@@ -235,9 +235,9 @@ Android 端的 `glass-dock.tsx` 与桌面端 `tauri-app/frontend/src/lib/glass-d
 
 ## 参考文档
 
-- 父模块：[`android_frontend_utilities_libraries`](../android_frontend_utilities_libraries.md)
+- 父模块：[`android_frontend_utilities_libraries`](android-frontend-utilities-libraries.md)
 - 兄弟子模块：
-  - [`android_frontend_utilities_libraries_dock_physics`](android_frontend_utilities_libraries_dock_physics.md)
-  - [`android_frontend_utilities_libraries_lens`](android_frontend_utilities_libraries_lens.md)
-  - [`android_frontend_utilities_libraries_quality_display`](android_frontend_utilities_libraries_quality_display.md)
-- 上游消费方：[`android_frontend_shared_ui_components`](../android_frontend_shared_ui_components.md)
+  - [`android_frontend_utilities_libraries_dock_physics`](android-frontend-utilities-libraries-dock-physics.md)
+  - [`android_frontend_utilities_libraries_lens`](android-frontend-utilities-libraries-lens.md)
+  - [`android_frontend_utilities_libraries_quality_display`](android-frontend-utilities-libraries-quality-display.md)
+- 上游消费方：[`android_frontend_shared_ui_components`](android-frontend-shared-ui-components.md)

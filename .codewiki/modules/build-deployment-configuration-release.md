@@ -13,7 +13,7 @@ fsoft_page: build_deployment_configuration/build_deployment_configuration_releas
 
 ## 简介
 
-本模块负责**版本号管理、发布说明（Release Notes）以及桌面端 Rust 工作区（cargo 构建）的发布级配置**。它是整个构建部署体系（见 [build_deployment_configuration.md](../build_deployment_configuration.md)）中唯一面向「对外发布」维度的子模块，核心职责包括：
+本模块负责**版本号管理、发布说明（Release Notes）以及桌面端 Rust 工作区（cargo 构建）的发布级配置**。它是整个构建部署体系（见 [build_deployment_configuration.md](build-deployment-configuration.md)）中唯一面向「对外发布」维度的子模块，核心职责包括：
 
 1. 以单一权威文件维护当前发布版本（`version.json`）与配套的发布说明文案（下载渠道、变更摘要）；
 2. 保证**版本号在多处配置文件间的一致性**（`version.json`、`tauri.conf.json`、两端 `Cargo.toml`、两端 `package.json`）；
@@ -21,9 +21,9 @@ fsoft_page: build_deployment_configuration/build_deployment_configuration_releas
 4. 通过构建脚本 `build.rs` 把版本号注入 Rust 编译环境，并处理 Tauri 打包产物（`externalBin`）的占位协调。
 
 > 说明：前端构建脚本（Vite/TS 配置、打包分块策略）与 Gradle/Android 打包链的细节分别由兄弟模块
-> [build_deployment_configuration_desktop_build.md](build_deployment_configuration_desktop_build.md)、
-> [build_deployment_configuration_android_build.md](build_deployment_configuration_android_build.md) 与
-> [build_deployment_configuration_android_plugins.md](build_deployment_configuration_android_plugins.md)
+> [build_deployment_configuration_desktop_build.md](build-deployment-configuration-desktop-build.md)、
+> [build_deployment_configuration_android_build.md](build-deployment-configuration-android-build.md) 与
+> [build_deployment_configuration_android_plugins.md](build-deployment-configuration-android-plugins.md)
 > 负责；本页不重复展开，只描述与「发布版本」直接相关的部分。
 
 ---
@@ -139,12 +139,12 @@ sequenceDiagram
 
 **`notes` 的结构与用途**：
 
-1. **下载提醒头部**：明确指引用户前往 GitHub Releases 或夸克网盘下载安装包——因为应用内的镜像下载渠道（见桌面端 [desktop_backend_update.md](../desktop_backend_update.md) 中的 `check_update` / `download_update`）在网络受限时可能缓慢或失败，必须给用户两条备选渠道；
+1. **下载提醒头部**：明确指引用户前往 GitHub Releases 或夸克网盘下载安装包——因为应用内的镜像下载渠道（见桌面端 [desktop_backend_update.md](desktop-backend-update.md) 中的 `check_update` / `download_update`）在网络受限时可能缓慢或失败，必须给用户两条备选渠道；
 2. **分点变更摘要**：面向用户的「本版本最重要的变化」，按主题归纳（如校园网判定修复、WebVPN 校外访问、夜间出站切换、悬浮栏玻璃质感、系统级自动登录、新手引导、安全审计）；
 3. **跨版本说明**：标注 v2.4.2 已完成开发但未单独发布、与 v2.4.3 合并发布，避免从 v2.4.1 升级的用户误判新功能范围；
 4. **指引到完整 Release Notes**（GitHub Releases 页面）。
 
-该文件与安卓端更新流程中的 `VersionFile`（见 [android_backend_tauri.md](../android_backend_tauri.md) 中的 `check_update`）共享同一套版本比对语义；安卓端还会额外对 APK 做 `sha256_checksum` 完整性校验（`android/src-tauri/Cargo.toml` 中引入的 `sha2` crate）。
+该文件与安卓端更新流程中的 `VersionFile`（见 [android_backend_tauri.md](android-backend-tauri.md) 中的 `check_update`）共享同一套版本比对语义；安卓端还会额外对 APK 做 `sha256_checksum` 完整性校验（`android/src-tauri/Cargo.toml` 中引入的 `sha2` crate）。
 
 ---
 
@@ -170,8 +170,8 @@ flowchart LR
 关键点：
 
 - `default-run = "campus-login"`：新增无头核心后，tauri CLI 必须显式指定默认主二进制，否则会歧义；
-- `campus-login-core` 是**不依赖 tauri 运行时**的无头登录核心，复用 `campus_login_lib` 的纯函数（协议/探测/DPAPI），由 SYSTEM 计划任务在开机未登录桌面时拉起——这对应 v2.4.3 发布说明中的「桌面端系统级自动登录」（见 [desktop_backend_commands.md](../desktop_backend_commands.md)）；
-- 安卓 crate 通过 `campus-login = { path = "../../tauri-app/src-tauri" }` 直接复用这个 lib（见 [android_backend_tauri.md](../android_backend_tauri.md)）。
+- `campus-login-core` 是**不依赖 tauri 运行时**的无头登录核心，复用 `campus_login_lib` 的纯函数（协议/探测/DPAPI），由 SYSTEM 计划任务在开机未登录桌面时拉起——这对应 v2.4.3 发布说明中的「桌面端系统级自动登录」（见 [desktop_backend_commands.md](desktop-backend-commands.md)）；
+- 安卓 crate 通过 `campus-login = { path = "../../tauri-app/src-tauri" }` 直接复用这个 lib（见 [android_backend_tauri.md](android-backend-tauri.md)）。
 
 ### 跨平台依赖划分
 
@@ -200,7 +200,7 @@ flowchart TD
 
 - 安卓的 `socket2` / `network-interface` 仅在 `cfg(target_os = "android")` 下编译，桌面构建产物不含这些符号；
 - 桌面专属插件（shell / autostart / global-shortcut / single-instance）不参与移动构建，写法与官方 updater 插件 README 一致；
-- Windows 依赖集合覆盖了校园网判定（IpHelper/Ndis）、计划任务（TaskScheduler）、DPAPI 凭据（Credentials_UI）、GPU 检测（Gdi/Dxgi）等平台能力，对应 [desktop_backend_platform_specific.md](../desktop_backend_platform_specific.md)。
+- Windows 依赖集合覆盖了校园网判定（IpHelper/Ndis）、计划任务（TaskScheduler）、DPAPI 凭据（Credentials_UI）、GPU 检测（Gdi/Dxgi）等平台能力，对应 [desktop_backend_platform_specific.md](desktop-backend-platform-specific.md)。
 
 ### Release Profile（编译优化参数）
 
@@ -275,10 +275,10 @@ flowchart LR
 
 ## 与其他模块的关系
 
-- 上级总览：[build_deployment_configuration.md](../build_deployment_configuration.md)
-- 桌面前端构建细节（Vite 分块、TS 配置、mock 入口）：[build_deployment_configuration_desktop_build.md](build_deployment_configuration_desktop_build.md)
-- 安卓前端与 Gradle 构建细节：[build_deployment_configuration_android_build.md](build_deployment_configuration_android_build.md)
-- 安卓三个本地插件的构建配置：[build_deployment_configuration_android_plugins.md](build_deployment_configuration_android_plugins.md)
-- 无头核心二进制的运行时入口：[desktop_backend_commands.md](../desktop_backend_commands.md)（`campus-login-core.rs::main`）
-- 应用内更新与版本比对逻辑（桌面）：[desktop_backend_update.md](../desktop_backend_update.md)
-- 安卓端 `VersionFile` / `check_update`：[android_backend_tauri.md](../android_backend_tauri.md)
+- 上级总览：[build_deployment_configuration.md](build-deployment-configuration.md)
+- 桌面前端构建细节（Vite 分块、TS 配置、mock 入口）：[build_deployment_configuration_desktop_build.md](build-deployment-configuration-desktop-build.md)
+- 安卓前端与 Gradle 构建细节：[build_deployment_configuration_android_build.md](build-deployment-configuration-android-build.md)
+- 安卓三个本地插件的构建配置：[build_deployment_configuration_android_plugins.md](build-deployment-configuration-android-plugins.md)
+- 无头核心二进制的运行时入口：[desktop_backend_commands.md](desktop-backend-commands.md)（`campus-login-core.rs::main`）
+- 应用内更新与版本比对逻辑（桌面）：[desktop_backend_update.md](desktop-backend-update.md)
+- 安卓端 `VersionFile` / `check_update`：[android_backend_tauri.md](android-backend-tauri.md)

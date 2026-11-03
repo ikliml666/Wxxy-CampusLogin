@@ -78,9 +78,9 @@ flowchart TD
 
 | 依赖方向 | 组件 | 用途 |
 | --- | --- | --- |
-| 被依赖 | [`android_frontend_hooks`](../android_frontend_hooks.md) 的 `useQualityStore` | 调用 `mergeNetworkQuality` 合并后端推送 |
-| 被依赖 | [`android_frontend_auth`](../android_frontend_auth.md) 的 `DashboardPanel` | 调用 `resolveQualityDisplay` 渲染网络质量卡 |
-| 被依赖 | [`android_frontend_monitoring_network`](../android_frontend_monitoring_network.md) 的 `LatencyComponents` | 调用 `getLatencyLevel` 渲染信号条 |
+| 被依赖 | [`android_frontend_hooks`](android-frontend-hooks.md) 的 `useQualityStore` | 调用 `mergeNetworkQuality` 合并后端推送 |
+| 被依赖 | [`android_frontend_auth`](android-frontend-auth.md) 的 `DashboardPanel` | 调用 `resolveQualityDisplay` 渲染网络质量卡 |
+| 被依赖 | [`android_frontend_monitoring_network`](android-frontend-monitoring-network.md) 的 `LatencyComponents` | 调用 `getLatencyLevel` 渲染信号条 |
 | 依赖 | `@/monitor` 的 `NetworkQuality` 类型 | 数据结构来源 |
 | 依赖 | `@/network/constants` 的 `QUALITY_CONFIG` | 各等级的颜色 / 图标 / 文案配置表 |
 
@@ -239,10 +239,10 @@ sequenceDiagram
 
 ## 与其它模块的协作要点
 
-- **状态存储**：[`android_frontend_hooks`](../android_frontend_hooks.md) 中的 `useQualityStore.refreshQuality` 主动调用 `checkNetworkQuality`，并把返回值交给 `mergeNetworkQuality` 合并；`setNetworkQuality` 同时刷新 `lastQualityResultTime`，供登录后手动探测节流（历史缺陷 P2-F5）。
-- **后台巡检**：[`android_frontend_monitoring_network`](../android_frontend_monitoring_network.md) 的 `useMonitor` 通过 `handleToggleLatencyTest` 启停后端延迟循环，事件回流后仍走同一套合并逻辑。
-- **UI 渲染**：[`android_frontend_auth`](../android_frontend_auth.md) 的 `DashboardPanel` 在 `networkQuality` 卡片中调用 `resolveQualityDisplay`；`LatencyComponents.SignalBars` 直接调用 `getLatencyLevel` 决定点亮几根信号条。
-- **父工具库**：本模块是 [`android_frontend_utilities_libraries`](../android_frontend_utilities_libraries.md) 下的一个子领域，与 dock 物理引擎、玻璃折射、hyalite 厂商封装等并列，互不依赖。
+- **状态存储**：[`android_frontend_hooks`](android-frontend-hooks.md) 中的 `useQualityStore.refreshQuality` 主动调用 `checkNetworkQuality`，并把返回值交给 `mergeNetworkQuality` 合并；`setNetworkQuality` 同时刷新 `lastQualityResultTime`，供登录后手动探测节流（历史缺陷 P2-F5）。
+- **后台巡检**：[`android_frontend_monitoring_network`](android-frontend-monitoring-network.md) 的 `useMonitor` 通过 `handleToggleLatencyTest` 启停后端延迟循环，事件回流后仍走同一套合并逻辑。
+- **UI 渲染**：[`android_frontend_auth`](android-frontend-auth.md) 的 `DashboardPanel` 在 `networkQuality` 卡片中调用 `resolveQualityDisplay`；`LatencyComponents.SignalBars` 直接调用 `getLatencyLevel` 决定点亮几根信号条。
+- **父工具库**：本模块是 [`android_frontend_utilities_libraries`](android-frontend-utilities-libraries.md) 下的一个子领域，与 dock 物理引擎、玻璃折射、hyalite 厂商封装等并列，互不依赖。
 
 ---
 

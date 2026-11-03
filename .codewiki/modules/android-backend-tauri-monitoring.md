@@ -22,9 +22,9 @@ fsoft_page: android_backend_tauri/android_backend_tauri_monitoring.md
 > 后台监控循环:tick = 校园网判定 → Portal 探测 → 掉线自动重登(cooldown + 次数上限)
 > → emit `background-check-result` / `login-log`。
 
-本模块在 [android_backend_tauri](../android_backend_tauri.md) 总览中的定位是其三大子模块之一
-（另两个为 [android_backend_tauri_commands](android_backend_tauri_commands.md)
-与 [android_backend_tauri_state_storage](android_backend_tauri_state_storage.md)）。
+本模块在 [android_backend_tauri](android-backend-tauri.md) 总览中的定位是其三大子模块之一
+（另两个为 [android_backend_tauri_commands](android-backend-tauri-commands.md)
+与 [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md)）。
 监控循环本身不含协议实现：登录/注销走 `protocol_cmds`，校园网探针走 `campus_detect`，
 判定类纯函数（夜间切换、定时调度、出站切换）全部复用桌面共享 crate `campus_login_lib::config::*`，
 实现双端单点、杜绝漂移。
@@ -140,7 +140,7 @@ flowchart TB
 | `stop_background_check` | 先推进代际再清标志 → 注销 WiFi watcher → 停 FGS → 记 `login-log` |
 | `trigger_background_check` | 仅在监控运行中放行一次 `run_check_once`；停跑时明确拒绝（避免产生无 watch/无通知管理的孤立检测） |
 | `get_background_status` | 返回 `status_value()`：运行标志、计数、连续失败、重连次数、最近结果、`watcherFailed`，并把 `online`/`message`/`onlineOperator`/`serverAvailable`/`onCampusNetwork` 五个关键字段展平到顶层——前端启动初值的唯一可靠来源（首轮 emit 先于 WebView 监听建立，事件会丢） |
-| `get_boot_autostart` / `set_boot_autostart` | 开机自启开关：插件组件启停 + `enable_boot_autostart` 配置字段同步落盘（详见 [android_plugins_foreground_service](../android_plugins_foreground_service.md) 的 `BootReceiver`） |
+| `get_boot_autostart` / `set_boot_autostart` | 开机自启开关：插件组件启停 + `enable_boot_autostart` 配置字段同步落盘（详见 [android_plugins_foreground_service](android-plugins-foreground-service.md) 的 `BootReceiver`） |
 | `get_notification_enabled` / `set_notification_enabled` | 系统通知开关：`enable_notification` 配置字段读写，失败分支不发 `notify_system` |
 
 ## 启动恢复：`run_startup_tasks`
@@ -277,7 +277,7 @@ flowchart TB
 ## WiFi 事件驱动：即时检测
 
 随后台检测起停的 NetworkCallback watcher 注册在 `start_wifi_watcher` / `stop_wifi_watcher`
-（经 [android_plugins_network_bind](../android_plugins_network_bind.md) 的 channel 推送，
+（经 [android_plugins_network_bind](android-plugins-network-bind.md) 的 channel 推送，
 事件体为 `{"event": "available|lost|validated|unvalidated"}`）：
 
 ```mermaid
@@ -400,7 +400,7 @@ flowchart TB
 夜间切换改写配置后统一经 `persist_settings` 落盘并重读：
 
 - 经 `CryptoBridge` 重新加密凭据落盘（与 `save_config` 命令同链路，详见
-  [android_backend_tauri_state_storage](android_backend_tauri_state_storage.md)）；
+  [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md)）；
 - 刷新 `AndroidState.config` 内存缓存；
 - `auto_create_account_for_current` 同步本地账号档案；
 - `emit_config_changed` 广播掩码后配置——夜切改的 `operator`/`night_operator_restore`
@@ -442,21 +442,21 @@ flowchart LR
     LIB2 -.-> DBM
 ```
 
-- **前端消费**：[android_frontend_monitoring_network](../android_frontend_monitoring_network.md)
+- **前端消费**：[android_frontend_monitoring_network](android-frontend-monitoring-network.md)
   的 `useMonitor` 调本模块命令启停巡检并同步 `bgStatus`；状态页经
   `useAuthStore` 订阅 `background-check-result` / `login-log` / `auto-login-result` 事件流。
 - **命令兄弟**：登录/注销/绑 WiFi 的实现在
-  [android_backend_tauri_commands](android_backend_tauri_commands.md)
+  [android_backend_tauri_commands](android-backend-tauri-commands.md)
   （`protocol_cmds::run_login` / `do_logout` / `ensure_wifi_bound`、`campus_detect` 探针、
   `config_state::Settings` 读写）；`AndroidState`、`login_history`、`WATCHER_FAILED` 的
-  持久化语义见 [android_backend_tauri_state_storage](android_backend_tauri_state_storage.md)。
+  持久化语义见 [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md)。
 - **插件**：FGS 保活、常驻通知、探针窗口电源锁、开机自启组件的 Kotlin 实现见
-  [android_plugins_foreground_service](../android_plugins_foreground_service.md)；
+  [android_plugins_foreground_service](android-plugins-foreground-service.md)；
   WiFi watcher 通道、`avoid_bad_wifi` 快照写回、`reportNetworkUnusable` 见
-  [android_plugins_network_bind](../android_plugins_network_bind.md)。
+  [android_plugins_network_bind](android-plugins-network-bind.md)。
 - **共享判定**：调度/夜切/出站判定全部为 `campus_login_lib::config::*` 纯函数（桌面同源），
-  与桌面 [desktop_backend_monitoring](../desktop_backend_monitoring.md) 保持同语义对照。
-- **构建**：本模块随 [build_deployment_configuration_android_build](../build_deployment_configuration/build_deployment_configuration_android_build.md)
+  与桌面 [desktop_backend_monitoring](desktop-backend-monitoring.md) 保持同语义对照。
+- **构建**：本模块随 [build_deployment_configuration_android_build](build-deployment-configuration-android-build.md)
   交叉编译为 `libcampus_login_android_lib.so` 打入 APK。
 
 ## 单测锁定的纯函数

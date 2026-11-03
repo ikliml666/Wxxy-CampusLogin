@@ -25,7 +25,7 @@ fsoft_page: android_frontend_account_management/android_frontend_account_managem
 | `SelfOnlineRecords.tsx` | 上网记录融合卡：近期流水 / 账单明细双源同卡，日分组会话列表 + 统计芯片 |
 | `selfServiceTypes.ts` | 自助服务协议共享类型与格式化工具（MAC、epoch、终端类型、时长、流量、金额、本地日期） |
 
-> 本面板的**验证门（生物识别 / 2D 人脸）**、**VPN 弹窗**、**运营商绑定**等能力由同账号模块下的其他子页提供，详见 [运营商绑定与验证门](android_frontend_account_management_operator_binding.md)；面板使用的 UI 基础组件见 [安卓共享 UI 组件](../android_frontend_shared_ui_components.md)；命令封装与重试机制见 [安卓 Hooks](../android_frontend_hooks.md)。
+> 本面板的**验证门（生物识别 / 2D 人脸）**、**VPN 弹窗**、**运营商绑定**等能力由同账号模块下的其他子页提供，详见 [运营商绑定与验证门](android-frontend-account-management-operator-binding.md)；面板使用的 UI 基础组件见 [安卓共享 UI 组件](android-frontend-shared-ui-components.md)；命令封装与重试机制见 [安卓 Hooks](android-frontend-hooks.md)。
 
 ### 面板在账号体系中的位置
 
@@ -302,15 +302,15 @@ flowchart TB
 | `vpnTestConnection` / `vpnVerifyCredential` | `vpn_test_connection` / `vpn_verify_credential` | 连通性测试 / 保存前校验 |
 | `verifyWindowsIdentity` | `verify_biometric_identity` | 生物识别/2D 人脸验证并记 TTL 时间戳 |
 
-> 后端命令统一经 `resolve_self_service_channel` 决策直连或 WebVPN 包装，校外直连失败文案会附加配置指引。后端命令面整体见 [安卓后端 Tauri](../android_backend_tauri.md)。
+> 后端命令统一经 `resolve_self_service_channel` 决策直连或 WebVPN 包装，校外直连失败文案会附加配置指引。后端命令面整体见 [安卓后端 Tauri](android-backend-tauri.md)。
 
 ## 九、相关模块链接
 
-- 父模块：[安卓账号管理](../android_frontend_account_management.md)
-- 验证门与运营商绑定：[运营商绑定与验证门](android_frontend_account_management_operator_binding.md)
-- 登录信息弹窗：[登录信息弹窗](android_frontend_account_management_login_dialog.md)
-- UI 基础组件（`AnimatedCard` / `Button` / `Input` / `Card`）：[安卓共享 UI 组件](../android_frontend_shared_ui_components.md)
-- 命令封装与 `withRetry` 重试：[安卓 Hooks](../android_frontend_hooks.md)
-- 表单因子判定（`useFormFactor` 区分手机/平板）：[安卓 Hooks](../android_frontend_hooks.md)
-- 后端自助服务命令：[安卓后端 Tauri](../android_backend_tauri.md)
-- 桌面端同构面板（实现对照参考）：[桌面账号管理](../desktop_frontend_account_management.md)
+- 父模块：[安卓账号管理](android-frontend-account-management.md)
+- 验证门与运营商绑定：[运营商绑定与验证门](android-frontend-account-management-operator-binding.md)
+- 登录信息弹窗：[登录信息弹窗](android-frontend-account-management-login-dialog.md)
+- UI 基础组件（`AnimatedCard` / `Button` / `Input` / `Card`）：[安卓共享 UI 组件](android-frontend-shared-ui-components.md)
+- 命令封装与 `withRetry` 重试：[安卓 Hooks](android-frontend-hooks.md)
+- 表单因子判定（`useFormFactor` 区分手机/平板）：[安卓 Hooks](android-frontend-hooks.md)
+- 后端自助服务命令：[安卓后端 Tauri](android-backend-tauri.md)
+- 桌面端同构面板（实现对照参考）：[桌面账号管理](desktop-frontend-account-management.md)

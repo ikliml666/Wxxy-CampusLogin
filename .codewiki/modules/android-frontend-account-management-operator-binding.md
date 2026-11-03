@@ -19,7 +19,7 @@ fsoft_page: android_frontend_account_management/android_frontend_account_managem
 
 两者协同保证：**所有触及自助服务系统（运营商绑定、踢下线、查上网记录、查明文密码、改密码）的操作，在执行前都要经过一次生物识别验证，且验证结果在 TTL 内被前后端双层缓存共享**，避免每次点击都弹一次 BiometricPrompt。
 
-本模块自身不渲染 UI——它的 hook 返回状态与回调，由账号面板 / 绑定弹窗的宿主组件消费；与 [登录信息弹窗](android_frontend_account_management_login_dialog.md)、[自助服务面板](android_frontend_account_management_self_service_panel.md) 并列组成完整的账号管理功能。
+本模块自身不渲染 UI——它的 hook 返回状态与回调，由账号面板 / 绑定弹窗的宿主组件消费；与 [登录信息弹窗](android-frontend-account-management-login-dialog.md)、[自助服务面板](android-frontend-account-management-self-service-panel.md) 并列组成完整的账号管理功能。
 
 ---
 
@@ -189,7 +189,7 @@ const gateFresh = (verifiedAt: number) => {
 | `biometryNotEnrolled` / `noDeviceCredential` / `biometryNotAvailable` | `account.biometricNotEnrolled` | 未录入生物或未设锁屏 → 引导补齐锁屏（已带 `allowDeviceCredential: true`） |
 | `biometryLockout` | `account.biometricLockout` | 锁定 |
 | `authenticationFailed` | `account.biometricFailed` | 不匹配 |
-| `faceTimeout` / `faceChallenge` / `faceMismatch` / `faceCamera` | 同名 key | 2D 人脸回退链业务错误（见 [人脸验证](../android_frontend_face_verification.md)） |
+| `faceTimeout` / `faceChallenge` / `faceMismatch` / `faceCamera` | 同名 key | 2D 人脸回退链业务错误（见 [人脸验证](android-frontend-face-verification.md)） |
 
 ---
 
@@ -207,7 +207,7 @@ export type BindStatuses = Record<'cmcc' | 'telecom' | 'unicom', OperatorBinding
 
 - `null` = 该运营商未绑定；
 - `account` 来自后端 `masked_account`，**前端从不接触明文运营商账号**；
-- 与新手指引向导 [useOnboardingFlow](../android_frontend_settings.md) 中同名类型完全同构（同一份后端 JSON）。
+- 与新手指引向导 [useOnboardingFlow](android-frontend-settings.md) 中同名类型完全同构（同一份后端 JSON）。
 
 ### 与后端 IPC 的对应关系
 
@@ -283,12 +283,12 @@ flowchart TD
 
 | 模块 | 关系 |
 | --- | --- |
-| [登录信息弹窗](android_frontend_account_management_login_dialog.md) | 并列的账号管理子模块；`LoginInfoDialog` 负责收集/编辑 `config.user / password / operator`，为 `useOperatorBind` 提供 `user / passwordSaved` 输入 |
-| [自助服务面板](android_frontend_account_management_self_service_panel.md) | 同一文件 `selfServiceState.ts` 的另一消费者：`SelfServicePanel` 使用 `useSelfServiceVerify` 与 `resetSelfSessionGate`，与本模块的绑定门相互独立 |
-| [Android 前端共享 hooks](../android_frontend_hooks.md) | 依赖 `tauriApiWithRetry`（IPC）、`useConfigStore`（凭据与总开关）、`useLogToastStore`（toast） |
-| [Android 人脸验证](../android_frontend_face_verification.md) | `verifyWindowsIdentity` 在系统 BiometricPrompt 不可用时回退到应用内 2D 人脸验证，失败码经 `biometricFailMessage` 翻译 |
-| [Android 后端 Tauri](../android_backend_tauri.md) | 命令实现于 `self_service_cmds.rs` / `identity_gate.rs`，TTL 600s 与前端 570s 对应 |
-| [新手指引向导](../android_frontend_settings.md) | `useOnboardingFlow` 复用 `useHelloGate` 与同名 `OperatorBindingInfo` 类型，绑定步骤在进入时自动查一次状态 |
+| [登录信息弹窗](android-frontend-account-management-login-dialog.md) | 并列的账号管理子模块；`LoginInfoDialog` 负责收集/编辑 `config.user / password / operator`，为 `useOperatorBind` 提供 `user / passwordSaved` 输入 |
+| [自助服务面板](android-frontend-account-management-self-service-panel.md) | 同一文件 `selfServiceState.ts` 的另一消费者：`SelfServicePanel` 使用 `useSelfServiceVerify` 与 `resetSelfSessionGate`，与本模块的绑定门相互独立 |
+| [Android 前端共享 hooks](android-frontend-hooks.md) | 依赖 `tauriApiWithRetry`（IPC）、`useConfigStore`（凭据与总开关）、`useLogToastStore`（toast） |
+| [Android 人脸验证](android-frontend-face-verification.md) | `verifyWindowsIdentity` 在系统 BiometricPrompt 不可用时回退到应用内 2D 人脸验证，失败码经 `biometricFailMessage` 翻译 |
+| [Android 后端 Tauri](android-backend-tauri.md) | 命令实现于 `self_service_cmds.rs` / `identity_gate.rs`，TTL 600s 与前端 570s 对应 |
+| [新手指引向导](android-frontend-settings.md) | `useOnboardingFlow` 复用 `useHelloGate` 与同名 `OperatorBindingInfo` 类型，绑定步骤在进入时自动查一次状态 |
 
 ---
 

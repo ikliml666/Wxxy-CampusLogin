@@ -64,9 +64,9 @@ flowchart TD
 
 **说明**：
 
-- `useOnboardingFlow` 是设置模块（`android_frontend_settings`）的子模块，与「设置常量」（见父模块主页 [android_frontend_settings.md](../android_frontend_settings.md) 的「常量字典」一节）和 [android_frontend_settings_use_settings](android_frontend_settings_use_settings.md)（设置读写）共同构成完整的设置子系统。
-- 运营商绑定的**业务实现**位于账号模块，详见 [android_frontend_account_management_operator_binding](../android_frontend_account_management/android_frontend_account_management_operator_binding.md)；`useOnboardingFlow` 只是在向导层面编排该能力。
-- 配置的最终持久化经由 [`android_frontend_hooks`](../android_frontend_hooks.md) 中的 `ConfigStore` 完成，后者通过 `TauriApi` 调用 Android 后端 `config_state.rs` 中的 `get_config` / `save_config` 命令。
+- `useOnboardingFlow` 是设置模块（`android_frontend_settings`）的子模块，与「设置常量」（见父模块主页 [android_frontend_settings.md](android-frontend-settings.md) 的「常量字典」一节）和 [android_frontend_settings_use_settings](android-frontend-settings-use-settings.md)（设置读写）共同构成完整的设置子系统。
+- 运营商绑定的**业务实现**位于账号模块，详见 [android_frontend_account_management_operator_binding](android-frontend-account-management-operator-binding.md)；`useOnboardingFlow` 只是在向导层面编排该能力。
+- 配置的最终持久化经由 [`android_frontend_hooks`](android-frontend-hooks.md) 中的 `ConfigStore` 完成，后者通过 `TauriApi` 调用 Android 后端 `config_state.rs` 中的 `get_config` / `save_config` 命令。
 
 ---
 
@@ -106,7 +106,7 @@ flowchart LR
     G --> H["下次启动跳过引导"]
 ```
 
-后端命令对应 `android/src-tauri/src/self_service_cmds.rs` 中的 `query_bind_status` 与 `bind_operator`（详见 [android_backend_tauri](../android_backend_tauri.md)），引导流程本身不直接实现绑定协议，而是委托给账号模块的绑定 Hook。
+后端命令对应 `android/src-tauri/src/self_service_cmds.rs` 中的 `query_bind_status` 与 `bind_operator`（详见 [android_backend_tauri](android-backend-tauri.md)），引导流程本身不直接实现绑定协议，而是委托给账号模块的绑定 Hook。
 
 ---
 
@@ -114,12 +114,12 @@ flowchart LR
 
 | 关联模块 | 关系说明 |
 | --- | --- |
-| [android_frontend_settings](../android_frontend_settings.md) | 父模块，引导流程是设置子域的一部分 |
-| 设置常量（`DEFAULT_CONFIG` 等） | 见父模块主页 [android_frontend_settings.md](../android_frontend_settings.md) 的「常量字典」一节，引导首次写入时使用 |
-| [android_frontend_settings_use_settings](android_frontend_settings_use_settings.md) | 引导产出的设置项经 `useSettings` 统一读写 |
-| [android_frontend_account_management_operator_binding](../android_frontend_account_management/android_frontend_account_management_operator_binding.md) | 复用运营商绑定 Hook 与 `OperatorBindingInfo` 类型 |
-| [android_frontend_hooks](../android_frontend_hooks.md) | 依赖 `ConfigStore`、`TauriApi` 等通用基础设施 |
-| [android_backend_tauri](../android_backend_tauri.md) | 绑定状态查询与提交的后端命令来源 |
+| [android_frontend_settings](android-frontend-settings.md) | 父模块，引导流程是设置子域的一部分 |
+| 设置常量（`DEFAULT_CONFIG` 等） | 见父模块主页 [android_frontend_settings.md](android-frontend-settings.md) 的「常量字典」一节，引导首次写入时使用 |
+| [android_frontend_settings_use_settings](android-frontend-settings-use-settings.md) | 引导产出的设置项经 `useSettings` 统一读写 |
+| [android_frontend_account_management_operator_binding](android-frontend-account-management-operator-binding.md) | 复用运营商绑定 Hook 与 `OperatorBindingInfo` 类型 |
+| [android_frontend_hooks](android-frontend-hooks.md) | 依赖 `ConfigStore`、`TauriApi` 等通用基础设施 |
+| [android_backend_tauri](android-backend-tauri.md) | 绑定状态查询与提交的后端命令来源 |
 
 ---
 

@@ -166,11 +166,11 @@ flowchart TD
 
 ### 与其他模块的关系
 
-- 父级面板及自助服务面板本体：见 [android_frontend_account_management_self_service_panel](android_frontend_account_management_self_service_panel.md)（`SelfServicePanel`、在线设备堆叠、上网记录）与上级页 [android_frontend_account_management](../android_frontend_account_management.md)。
-- 运营商绑定流（`useOperatorBind`、生物验证门 `useHelloGate` / `useSelfServiceVerify`）：见 [android_frontend_account_management_operator_binding](android_frontend_account_management_operator_binding.md)。注意本弹窗本身**不挂**生物验证门——编辑密码属于主配置编辑，非自助服务特权操作。
-- 后端命令（`create_account`、`save_current_as_account`、`save_config`）与账号文件格式、密文落盘：见 [android_backend_tauri](../android_backend_tauri.md) 的 `account_cmds.rs` / `config_state.rs`。
-- 共享 UI 原语（`Dialog`、`Input`、`Button`、`Select`）：见 [android_frontend_shared_ui_components](../android_frontend_shared_ui_components.md)。
-- 运营商选项常量（`ISP_OPTIONS`、`operatorLabelKey`）：见 [android_frontend_settings](../android_frontend_settings.md)。
+- 父级面板及自助服务面板本体：见 [android_frontend_account_management_self_service_panel](android-frontend-account-management-self-service-panel.md)（`SelfServicePanel`、在线设备堆叠、上网记录）与上级页 [android_frontend_account_management](android-frontend-account-management.md)。
+- 运营商绑定流（`useOperatorBind`、生物验证门 `useHelloGate` / `useSelfServiceVerify`）：见 [android_frontend_account_management_operator_binding](android-frontend-account-management-operator-binding.md)。注意本弹窗本身**不挂**生物验证门——编辑密码属于主配置编辑，非自助服务特权操作。
+- 后端命令（`create_account`、`save_current_as_account`、`save_config`）与账号文件格式、密文落盘：见 [android_backend_tauri](android-backend-tauri.md) 的 `account_cmds.rs` / `config_state.rs`。
+- 共享 UI 原语（`Dialog`、`Input`、`Button`、`Select`）：见 [android_frontend_shared_ui_components](android-frontend-shared-ui-components.md)。
+- 运营商选项常量（`ISP_OPTIONS`、`operatorLabelKey`）：见 [android_frontend_settings](android-frontend-settings.md)。
 
 ---
 
@@ -180,4 +180,4 @@ flowchart TD
 2. **`saving` 是并发闸**：`submit()` 首行 `if (saving) return`，按钮同时 disabled + 旋转图标，防双击重复提交。
 3. **Enter 提交**：密码框 `onKeyDown` 绑定回车提交，符合移动端表单习惯。
 4. **`__default__` 归一化**：Select 的 value 用 `operator || '__default__'` 兜底显示默认项，提交时转回 `''`，双向转换各一次，避免裸 `''` 落入 Select 导致占位符误显。
-5. **与桌面端同构**：本组件注释明确"与桌面 LoginInfoDialog 同构，安卓无主网卡字段"。桌面对应实现见 [desktop_frontend_account_management](../../tauri-app/frontend/src/account/LoginInfoDialog.tsx)（文档页 [desktop_frontend_account_management](../desktop_frontend_account_management.md)）。若两端逻辑分叉，优先保持"同构"约定。
+5. **与桌面端同构**：本组件注释明确"与桌面 LoginInfoDialog 同构，安卓无主网卡字段"。桌面对应实现见 [desktop_frontend_account_management](../../tauri-app/frontend/src/account/LoginInfoDialog.tsx)（文档页 [desktop_frontend_account_management](desktop-frontend-account-management.md)）。若两端逻辑分叉，优先保持"同构"约定。

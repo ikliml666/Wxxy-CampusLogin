@@ -13,7 +13,7 @@ fsoft_page: android_frontend_utilities_libraries/android_frontend_utilities_libr
 
 ## 在整体架构中的位置
 
-本模块属于 [安卓前端工具库](../android_frontend_utilities_libraries.md) 的叶子子模块，只对三件事负责：**手势接管 → 弹簧驱动 → DOM 裁剪与落位**。它不做玻璃折射（那是 [Hyalite 折射玻璃](android_frontend_utilities_libraries_hyalite.md) 的职责），不做弹簧积分（那是 [悬浮栏弹簧物理](android_frontend_utilities_libraries_dock_physics.md) 的职责）。
+本模块属于 [安卓前端工具库](android-frontend-utilities-libraries.md) 的叶子子模块，只对三件事负责：**手势接管 → 弹簧驱动 → DOM 裁剪与落位**。它不做玻璃折射（那是 [Hyalite 折射玻璃](android-frontend-utilities-libraries-hyalite.md) 的职责），不做弹簧积分（那是 [悬浮栏弹簧物理](android-frontend-utilities-libraries-dock-physics.md) 的职责）。
 
 ```mermaid
 flowchart LR
@@ -71,7 +71,7 @@ flowchart LR
 
 ## 六条弹簧曲线
 
-本模块创建 6 条 [Motion](android_frontend_utilities_libraries_dock_physics.md) 曲线，共享同一个 rAF，回调合并后每帧最多写一次 DOM：
+本模块创建 6 条 [Motion](android-frontend-utilities-libraries-dock-physics.md) 曲线，共享同一个 rAF，回调合并后每帧最多写一次 DOM：
 
 ```mermaid
 flowchart TD
@@ -172,7 +172,7 @@ flowchart LR
 
 ## 与周边模块的关系
 
-- **弹簧内核**：`Motion`、`springOfDuration/springOfRatio`、`rubberBand`、`saturate` 全部来自 [悬浮栏弹簧物理](android_frontend_utilities_libraries_dock_physics.md)。本模块只管「用哪几条曲线、目标是什么」。
-- **折射玻璃**：`--dock-stretch` 写在 nav 上供 [Hyalite 折射玻璃](android_frontend_utilities_libraries_hyalite.md) 的 `useGlassRefraction` 读取祖先链状态（该 hook 特意从父元素起查，避开 nav 自身常驻的 `translateX(--dock-stretch)`，否则永远等不到 backdrop 就绪）。
+- **弹簧内核**：`Motion`、`springOfDuration/springOfRatio`、`rubberBand`、`saturate` 全部来自 [悬浮栏弹簧物理](android-frontend-utilities-libraries-dock-physics.md)。本模块只管「用哪几条曲线、目标是什么」。
+- **折射玻璃**：`--dock-stretch` 写在 nav 上供 [Hyalite 折射玻璃](android-frontend-utilities-libraries-hyalite.md) 的 `useGlassRefraction` 读取祖先链状态（该 hook 特意从父元素起查，避开 nav 自身常驻的 `translateX(--dock-stretch)`，否则永远等不到 backdrop 就绪）。
 - **CSS 变量**：`--dock-glow-x/y/alpha/reach` 由悬浮栏样式表消费（光斑径向渐变）；`--dock-stretch` 同时供玻璃层与栏体水平平移。
-- **安卓端使用方**：由悬浮导航栏组件（[安卓前端共享组件](../android_frontend_shared_components.md)）装配 `data-dock-*` 节点结构后调用；与桌面端 `desktop_frontend_utilities_libraries/dock-lens.ts` 保持同一套语义（桌面版多了「邻近项移动的阻尼差异」等调参，Android 版按移动端手形标定）。
+- **安卓端使用方**：由悬浮导航栏组件（[安卓前端共享组件](android-frontend-shared-components.md)）装配 `data-dock-*` 节点结构后调用；与桌面端 `desktop_frontend_utilities_libraries/dock-lens.ts` 保持同一套语义（桌面版多了「邻近项移动的阻尼差异」等调参，Android 版按移动端手形标定）。

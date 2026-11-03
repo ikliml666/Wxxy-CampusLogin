@@ -22,7 +22,7 @@ fsoft_page: android_backend_tauri/android_backend_tauri_state_storage.md
 3. **历史流水落盘**（`login_history.rs` / `quality_history.rs`）：登录历史与网络质量历史，均为头插法、上限 100 条、损坏文件备份后重置、tmp+rename 原子写。
 4. **生物识别验证门**（`identity_gate.rs`）：进程内 TTL 时间戳（600s），带时钟回拨守卫。
 
-配置结构 `Settings` 与桌面 [desktop_backend_configuration](../desktop_backend_configuration.md) 的 `Config` 可适用子集同契约（camelCase IPC），但安卓端的出站切换/DNS 优化等桌面专属字段仅镜像结构、不消费。密码加密通道在安卓侧由 [android_plugins_keystore](../android_plugins_keystore.md) 插件提供（替代桌面 DPAPI）。
+配置结构 `Settings` 与桌面 [desktop_backend_configuration](desktop-backend-configuration.md) 的 `Config` 可适用子集同契约（camelCase IPC），但安卓端的出站切换/DNS 优化等桌面专属字段仅镜像结构、不消费。密码加密通道在安卓侧由 [android_plugins_keystore](android-plugins-keystore.md) 插件提供（替代桌面 DPAPI）。
 
 ## 架构总览
 
@@ -60,14 +60,14 @@ flowchart TB
 
 ### 1. AndroidState（`android_state.rs`）
 
-Tauri 通过 `.manage(AndroidState::default())` 注入（见 [android_backend_tauri](../android_backend_tauri.md) 入口 `lib.rs::run`）：
+Tauri 通过 `.manage(AndroidState::default())` 注入（见 [android_backend_tauri](android-backend-tauri.md) 入口 `lib.rs::run`）：
 
 | 字段 | 类型 | 用途 |
 | --- | --- | --- |
 | `cached_source_ip` | `Mutex<Option<Ipv4Addr>>` | 检测阶段写入的 wlan0 源 IP，登录/注销复用 |
 | `config` | `Mutex<Option<Settings>>` | 明文配置内存态；`get_config`/`save_config` 落盘后同步刷新，`current_settings` 缓存优先读取 |
 
-`WATCHER_FAILED` 故意不放进 `AndroidState` 而独立为进程级静态 `AtomicBool`：它可能在 tauri `.manage` 之前被调用（单测/启动早期），此时 State 不可得；`AtomicBool` 免锁。start 成功置 `false`，注册失败置 `true`，经 `get_background_status("watcherFailed")` 暴露给前端（消费方见 [android_backend_tauri_monitoring](android_backend_tauri_monitoring.md)）。
+`WATCHER_FAILED` 故意不放进 `AndroidState` 而独立为进程级静态 `AtomicBool`：它可能在 tauri `.manage` 之前被调用（单测/启动早期），此时 State 不可得；`AtomicBool` 免锁。start 成功置 `false`，注册失败置 `true`，经 `get_background_status("watcherFailed")` 暴露给前端（消费方见 [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md)）。
 
 ### 2. 配置持久化（`config_state.rs`）
 
@@ -95,7 +95,7 @@ flowchart LR
     end
 ```
 
-`CryptoBridge::from_app` 在真机把闭包绑定到 `tauri_plugin_campus_keystore`（见 [android_plugins_keystore](../android_plugins_keystore.md)）；host 编译为恒 Err；单测注入 base64 可逆实现，保证「落盘路径经过加密层」可测。
+`CryptoBridge::from_app` 在真机把闭包绑定到 `tauri_plugin_campus_keystore`（见 [android_plugins_keystore](android-plugins-keystore.md)）；host 编译为恒 Err；单测注入 base64 可逆实现，保证「落盘路径经过加密层」可测。
 
 #### 读写与 IO 串行锁
 
@@ -145,7 +145,7 @@ sequenceDiagram
 #### 掩码与事件出口
 
 - `masked_for_display`：非空 `password` / `vpn_password_enc` → `"***"`（`PASSWORD_MASK`），空保持空。这是敏感信息出站的**唯一出口**，`get_config` 返回值与 `emit_config_changed` 的 payload 都复用它。
-- `emit_config_changed`：落盘后广播 `config-changed { config: 掩码后配置 }`。前端依赖该事件同步 store（见 [android_frontend_hooks_state_stores](../android_frontend_hooks/android_frontend_hooks_state_stores.md) 的 `ConfigStore`），不广播则 UI 停留旧快照、后续保存会把后端新值覆盖回去。
+- `emit_config_changed`：落盘后广播 `config-changed { config: 掩码后配置 }`。前端依赖该事件同步 store（见 [android_frontend_hooks_state_stores](android-frontend-hooks-state-stores.md) 的 `ConfigStore`），不广播则 UI 停留旧快照、后续保存会把后端新值覆盖回去。
 - `resolve_password_field(incoming, current, clear)`：空串或 `***` 占位符视为「未修改」回退已存值，`clear=true` 显式置空——与桌面 `save_config` 同构语义。
 
 ### 3. 历史流水（login_history.rs / quality_history.rs）
@@ -179,7 +179,7 @@ stateDiagram-v2
     过期 --> 未验证: identity_verified_recently() = false
 ```
 
-纯进程内 `AtomicU64` 时间戳，TTL 600s，语义与桌面 `platform/identity.rs` 同构。消费方见 [android_backend_tauri_commands](android_backend_tauri_commands.md) 的 `verify_biometric_identity` / `reveal_operator_credential` 等自助服务命令。`reset_for_tests` 仅供单测。
+纯进程内 `AtomicU64` 时间戳，TTL 600s，语义与桌面 `platform/identity.rs` 同构。消费方见 [android_backend_tauri_commands](android-backend-tauri-commands.md) 的 `verify_biometric_identity` / `reveal_operator_credential` 等自助服务命令。`reset_for_tests` 仅供单测。
 
 ## 与其他模块的关系
 
@@ -219,11 +219,11 @@ flowchart LR
     CFG -->|"config-changed 事件"| FE
 ```
 
-- 命令面入口（`get_config` / `save_config` / 各登录与自助命令）见 [android_backend_tauri_commands](android_backend_tauri_commands.md)。
-- 后台巡检循环如何消费 `WATCHER_FAILED`、配置间隔与夜切标记见 [android_backend_tauri_monitoring](android_backend_tauri_monitoring.md)。
-- 插件层加密通道见 [android_plugins_keystore](../android_plugins_keystore.md)。
-- 前端侧状态 store 如何接收 `config-changed` 并展示掩码配置见 [android_frontend_hooks_state_stores](../android_frontend_hooks/android_frontend_hooks_state_stores.md) 与 [android_frontend_settings](../android_frontend_settings.md)。
-- 顶层 Tauri 入口如何 `.manage(AndroidState)`、启动时调度 `cleanup_stale_config_tmp` 见 [android_backend_tauri](../android_backend_tauri.md)。
+- 命令面入口（`get_config` / `save_config` / 各登录与自助命令）见 [android_backend_tauri_commands](android-backend-tauri-commands.md)。
+- 后台巡检循环如何消费 `WATCHER_FAILED`、配置间隔与夜切标记见 [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md)。
+- 插件层加密通道见 [android_plugins_keystore](android-plugins-keystore.md)。
+- 前端侧状态 store 如何接收 `config-changed` 并展示掩码配置见 [android_frontend_hooks_state_stores](android-frontend-hooks-state-stores.md) 与 [android_frontend_settings](android-frontend-settings.md)。
+- 顶层 Tauri 入口如何 `.manage(AndroidState)`、启动时调度 `cleanup_stale_config_tmp` 见 [android_backend_tauri](android-backend-tauri.md)。
 
 ## 设计要点速查
 

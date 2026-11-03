@@ -17,9 +17,9 @@ fsoft_page: build_deployment_configuration/build_deployment_configuration_deskto
 
 ## 简介
 
-本模块描述 `tauri-app/frontend/` 目录下桌面端 Web 前端的整套构建配置：依赖清单（`package.json`）、TypeScript 编译配置（`tsconfig.json` / `tsconfig.node.json`）、Vite 开发与生产构建配置（`vite.config.ts`）、Vitest 单元测试配置（`vitest.config.ts`），以及 Tauri 应用根目录的 `tauri-app/package.json`（Tauri CLI 集成脚本）和浏览器联调用的 `vite.mock.config.ts`。它是桌面端（Windows）从源码到可运行前端产物的唯一入口层，最终与 Rust 后端一起打包成 NSIS 安装包（见 [版本与发布配置](build_deployment_configuration_release.md) 与 [构建部署总览](../build_deployment_configuration.md)）。
+本模块描述 `tauri-app/frontend/` 目录下桌面端 Web 前端的整套构建配置：依赖清单（`package.json`）、TypeScript 编译配置（`tsconfig.json` / `tsconfig.node.json`）、Vite 开发与生产构建配置（`vite.config.ts`）、Vitest 单元测试配置（`vitest.config.ts`），以及 Tauri 应用根目录的 `tauri-app/package.json`（Tauri CLI 集成脚本）和浏览器联调用的 `vite.mock.config.ts`。它是桌面端（Windows）从源码到可运行前端产物的唯一入口层，最终与 Rust 后端一起打包成 NSIS 安装包（见 [版本与发布配置](build-deployment-configuration-release.md) 与 [构建部署总览](build-deployment-configuration.md)）。
 
-前端源码本身的组织（组件、hooks、命令封装）不在本模块展开，而是分散在各业务模块中：例如 [桌面端 hooks](../desktop_frontend_hooks.md)、[桌面端网络管理](../desktop_frontend_network_management.md)、[桌面端账号管理](../desktop_frontend_account_management.md)、[桌面端入口与 mock](../desktop_frontend_entrypoint_mocks.md) 等。
+前端源码本身的组织（组件、hooks、命令封装）不在本模块展开，而是分散在各业务模块中：例如 [桌面端 hooks](desktop-frontend-hooks.md)、[桌面端网络管理](desktop-frontend-network-management.md)、[桌面端账号管理](desktop-frontend-account-management.md)、[桌面端入口与 mock](desktop-frontend-entrypoint-mocks.md) 等。
 
 ## 配置文件一览
 
@@ -95,10 +95,10 @@ flowchart TD
 ### 关键依赖分组
 
 - **运行时 UI 栈**：`react` / `react-dom` 19、`@radix-ui/*` 无头组件、`lucide-react` 图标、`clsx` + `tailwind-merge` + `class-variance-authority` 类名工具。
-- **动画层**：`framer-motion`（页面/面板过渡）、`gsap`（弹簧与 dock 动效，见 [桌面端工具库](../desktop_frontend_utilities_libraries.md)）。
-- **状态管理**：`zustand`（各 store，见 [桌面端 hooks](../desktop_frontend_hooks.md)）。
+- **动画层**：`framer-motion`（页面/面板过渡）、`gsap`（弹簧与 dock 动效，见 [桌面端工具库](desktop-frontend-utilities-libraries.md)）。
+- **状态管理**：`zustand`（各 store，见 [桌面端 hooks](desktop-frontend-hooks.md)）。
 - **i18n**：`i18next`、`react-i18next`、`i18next-browser-languagedetector`。
-- **Tauri 桥接**：`@tauri-apps/api` ^2、`@tauri-apps/plugin-shell` ^2（与 Rust 命令通信，详见 [桌面端命令层](../desktop_backend_commands.md) 对应的前端封装）。
+- **Tauri 桥接**：`@tauri-apps/api` ^2、`@tauri-apps/plugin-shell` ^2（与 Rust 命令通信，详见 [桌面端命令层](desktop-backend-commands.md) 对应的前端封装）。
 - **开发依赖**：Vite 6、TypeScript 5.5、Vitest 4、Tailwind 3.4、PostCSS、autoprefixer、jsdom、`@testing-library/react` 与 `@testing-library/jest-dom`。
 
 > 注意：`tauri-app/package.json` 内还保留了一份略有出入的依赖快照（多出 `@tauri-apps/plugin-autostart` / `plugin-global-shortcut` 等 Tauri 插件声明，缺少 `gsap`、`i18next` 等），实际安装以 `frontend/` 子目录为准——根清单主要承担 Tauri CLI 入口角色。
@@ -166,7 +166,7 @@ flowchart LR
 - 环境为 **jsdom**（`environment: 'jsdom'`），`globals: true` 放开 `describe/it/expect` 全局 API。
 - `setupFiles: ['./src/test-setup.ts']`，该文件仅做一件事：`import '@testing-library/jest-dom'`，使组件断言可用 `toBeInTheDocument()` 等匹配器。
 - 复用 `@` 别名与 `@vitejs/plugin-react`，与生产配置保持同一解析行为。
-- 测试文件命名遵循 `*.test.ts(x)` 约定，散落在各业务目录（如 `account/AccountPanel.helloGate.test.tsx`、`hooks/useAsyncLock.test.tsx`、`network/adapters.test.ts`），对应文档见 [桌面端账号管理](../desktop_frontend_account_management.md)、[桌面端 hooks](../desktop_frontend_hooks.md)、[桌面端网络管理](../desktop_frontend_network_management.md) 等。
+- 测试文件命名遵循 `*.test.ts(x)` 约定，散落在各业务目录（如 `account/AccountPanel.helloGate.test.tsx`、`hooks/useAsyncLock.test.tsx`、`network/adapters.test.ts`），对应文档见 [桌面端账号管理](desktop-frontend-account-management.md)、[桌面端 hooks](desktop-frontend-hooks.md)、[桌面端网络管理](desktop-frontend-network-management.md) 等。
 
 ## Tauri 集成（tauri-app/package.json 与 tauri.conf.json）
 
@@ -194,11 +194,11 @@ sequenceDiagram
   - `beforeDevCommand`: `cd frontend && npm run dev`、`devUrl`: `http://localhost:5173`
   - `beforeBuildCommand`: `cd frontend && npm run build`
   - `frontendDist`: `../frontend/dist`
-- 打包产物与 Rust 侧的衔接（`beforeBundleCommand` 构建无头核心 `campus-login-core`、NSIS 目标）见 [版本与发布配置](build_deployment_configuration_release.md)；Rust 编译脚本如何注入 `APP_VERSION` 见 [桌面端基础设施](../desktop_backend_infrastructure.md) 与该发布页。
+- 打包产物与 Rust 侧的衔接（`beforeBundleCommand` 构建无头核心 `campus-login-core`、NSIS 目标）见 [版本与发布配置](build-deployment-configuration-release.md)；Rust 编译脚本如何注入 `APP_VERSION` 见 [桌面端基础设施](desktop-backend-infrastructure.md) 与该发布页。
 
 ## 浏览器 Mock 联调（vite.mock.config.ts）
 
-该配置是**非 git 跟踪的本地调试副本**，用途：不经过 Tauri/WebView，直接在普通浏览器里打开前端，借助 `tauri-mock.js` 桩住 `__TAURI_INTERNALS__`（详见 [桌面端入口与 mock](../desktop_frontend_entrypoint_mocks.md)）。
+该配置是**非 git 跟踪的本地调试副本**，用途：不经过 Tauri/WebView，直接在普通浏览器里打开前端，借助 `tauri-mock.js` 桩住 `__TAURI_INTERNALS__`（详见 [桌面端入口与 mock](desktop-frontend-entrypoint-mocks.md)）。
 
 - 实现方式：`import baseConfig from './vite.config'` 后派生，追加自定义插件 `tauri-mock-inject`，其 `transformIndexHtml` 在 `index.html` 头部（`head-prepend`）以同步 `<script src="/tauri-mock.js">` 标签注入，保证桩代码先于任何 module 脚本执行。
 - 端口改为 **5175**，避免与正式 dev server 的 5173 冲突。
@@ -224,7 +224,7 @@ npx vite --config vite.mock.config.ts
 
 ## 与其他模块的关系
 
-- 上游编排：[构建部署总览](../build_deployment_configuration.md)、[版本与发布配置](build_deployment_configuration_release.md)。
-- 并列平台：[Android 端前端构建](build_deployment_configuration_android_build.md)（同一套 Vite/TS 思路的 Android 变体）。
-- 前端业务实现：[桌面端入口与 mock](../desktop_frontend_entrypoint_mocks.md)（`main.tsx` 与 `tauri-mock.js`）、[桌面端 hooks](../desktop_frontend_hooks.md)、[桌面端账号管理](../desktop_frontend_account_management.md)、[桌面端网络管理](../desktop_frontend_network_management.md)、[桌面端监控](../desktop_frontend_monitoring.md)、[桌面端设置](../desktop_frontend_settings.md)、[桌面端共享 UI 组件](../desktop_frontend_shared_ui_components.md)、[桌面端工具库](../desktop_frontend_utilities_libraries.md)。
-- 后端协作：前端产物通过 `frontendDist` 嵌入 Tauri WebView，与 [桌面端命令层](../desktop_backend_commands.md)、[桌面端应用生命周期](../desktop_backend_app_lifecycle.md) 通信。
+- 上游编排：[构建部署总览](build-deployment-configuration.md)、[版本与发布配置](build-deployment-configuration-release.md)。
+- 并列平台：[Android 端前端构建](build-deployment-configuration-android-build.md)（同一套 Vite/TS 思路的 Android 变体）。
+- 前端业务实现：[桌面端入口与 mock](desktop-frontend-entrypoint-mocks.md)（`main.tsx` 与 `tauri-mock.js`）、[桌面端 hooks](desktop-frontend-hooks.md)、[桌面端账号管理](desktop-frontend-account-management.md)、[桌面端网络管理](desktop-frontend-network-management.md)、[桌面端监控](desktop-frontend-monitoring.md)、[桌面端设置](desktop-frontend-settings.md)、[桌面端共享 UI 组件](desktop-frontend-shared-ui-components.md)、[桌面端工具库](desktop-frontend-utilities-libraries.md)。
+- 后端协作：前端产物通过 `frontendDist` 嵌入 Tauri WebView，与 [桌面端命令层](desktop-backend-commands.md)、[桌面端应用生命周期](desktop-backend-app-lifecycle.md) 通信。

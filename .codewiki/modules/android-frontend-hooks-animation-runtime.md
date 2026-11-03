@@ -25,7 +25,7 @@ fsoft_page: android_frontend_hooks/android_frontend_hooks_animation_runtime.md
 - **运动无障碍适配**：尊重系统“减弱动态效果”设置（`useReducedMotion`）；
 - **形态与方向感知**：根据屏幕尺寸（手机 / 平板）与横竖屏方向调整动效参数（`useFormFactor` / `useOrientation`）。
 
-它是整个 Android 前端视觉表现层的“地基”：[共享 UI 组件](../android_frontend_shared_ui_components.md)、[共享组件](../android_frontend_shared_components.md)（如 `FluidBackground`、`MascotFigure`）以及 [认证界面](../android_frontend_auth.md) 均通过该模块的 Hook 获得动效能力，而无需各自管理 `requestAnimationFrame`、定时器或系统偏好。
+它是整个 Android 前端视觉表现层的“地基”：[共享 UI 组件](android-frontend-shared-ui-components.md)、[共享组件](android-frontend-shared-components.md)（如 `FluidBackground`、`MascotFigure`）以及 [认证界面](android-frontend-auth.md) 均通过该模块的 Hook 获得动效能力，而无需各自管理 `requestAnimationFrame`、定时器或系统偏好。
 
 ---
 
@@ -85,10 +85,10 @@ flowchart TD
     BOOT -.应用启动后挂载.-> IDLE
 ```
 
-**说明**：本模块属于 [android_frontend_hooks](../android_frontend_hooks.md) 的三大子模块之一，另外两个为：
+**说明**：本模块属于 [android_frontend_hooks](android-frontend-hooks.md) 的三大子模块之一，另外两个为：
 
-- [状态存储子系统](android_frontend_hooks_state_stores.md)（Zustand 状态与 Tauri 桥接状态）；
-- [启动编排子系统](android_frontend_hooks_startup_orchestration.md)（`useAppInit`、`tauriApi`）。
+- [状态存储子系统](android-frontend-hooks-state-stores.md)（Zustand 状态与 Tauri 桥接状态）；
+- [启动编排子系统](android-frontend-hooks-startup-orchestration.md)（`useAppInit`、`tauriApi`）。
 
 三者平级，通过 React Context 与 Zustand store 协同：启动编排负责在应用挂载时建立 [AnimationActiveProvider](#全局动画开关-animationactiveprovider--useidle)，主题存储提供辉光取色所需的配色。
 
@@ -154,7 +154,7 @@ flowchart LR
 - 内部基于**页面空闲检测**（用户无交互、页面不可见 / 处于后台时置为非活跃）；
 - 所有动画 Hook 通过读取该 Context 决定是否继续驱动 RAF 循环。
 
-**价值**：用户切到其他页面或锁屏后，呼吸 / 辉光 / 脉冲立刻挂起，避免 WebView 后台持续渲染。该行为是 Android 移动端长时运行的关键优化（Android 端应用长期驻留前台监控网络，详见 [前台服务插件](../android_plugins_foreground_service.md)）。
+**价值**：用户切到其他页面或锁屏后，呼吸 / 辉光 / 脉冲立刻挂起，避免 WebView 后台持续渲染。该行为是 Android 移动端长时运行的关键优化（Android 端应用长期驻留前台监控网络，详见 [前台服务插件](android-plugins-foreground-service.md)）。
 
 ### 4. 运动无障碍 `useReducedMotion`
 
@@ -231,11 +231,11 @@ sequenceDiagram
     Anim->>Anim: 停止 RAF 循环, 返回静态值
 ```
 
-- **被谁使用**：[共享 UI 组件](../android_frontend_shared_ui_components.md) 中的 `animated-card.tsx`、`badge.tsx`、`button.tsx`；[共享组件](../android_frontend_shared_components.md) 中的 `FluidBackground.tsx`、`MascotFigure.tsx`、`AnimatedNumber.tsx`；[认证面板](../android_frontend_auth.md) 的 `DashboardPanel.tsx`；[账号与自助服务](../android_frontend_account_management.md) 各面板。
+- **被谁使用**：[共享 UI 组件](android-frontend-shared-ui-components.md) 中的 `animated-card.tsx`、`badge.tsx`、`button.tsx`；[共享组件](android-frontend-shared-components.md) 中的 `FluidBackground.tsx`、`MascotFigure.tsx`、`AnimatedNumber.tsx`；[认证面板](android-frontend-auth.md) 的 `DashboardPanel.tsx`；[账号与自助服务](android-frontend-account-management.md) 各面板。
 - **依赖谁**：
-  - [状态存储子系统](android_frontend_hooks_state_stores.md)：提供主题配色（`useThemeStore`），辉光取色依赖主题 token；
-  - [启动编排子系统](android_frontend_hooks_startup_orchestration.md)：在应用初始化时挂载 `AnimationActiveProvider`；
-  - [工具与动画库](../android_frontend_utilities_libraries.md)：`lib/animations.ts` 的变体工厂、`easing-config` 缓动配置、`dock-spring` 弹簧物理提供底层数学支持。
+  - [状态存储子系统](android-frontend-hooks-state-stores.md)：提供主题配色（`useThemeStore`），辉光取色依赖主题 token；
+  - [启动编排子系统](android-frontend-hooks-startup-orchestration.md)：在应用初始化时挂载 `AnimationActiveProvider`；
+  - [工具与动画库](android-frontend-utilities-libraries.md)：`lib/animations.ts` 的变体工厂、`easing-config` 缓动配置、`dock-spring` 弹簧物理提供底层数学支持。
 
 ---
 

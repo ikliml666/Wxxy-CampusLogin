@@ -18,7 +18,7 @@ fsoft_page: android_frontend_hooks/android_frontend_hooks_android_frontend_hooks
 
 本模块是 Android 前端的**全局状态层**，基于 [zustand](https://github.com/pmndrs/zustand) 构建，集中管理应用的六大领域状态：认证流程、配置持久化、网络质量、日志与提示、主题外观、面板导航。所有 store 均以 `create()` 创建于 `android/frontend/src/hooks/` 目录，以模块级单例形式导出，组件通过 hook 方式订阅，避免 prop drilling。
 
-本模块是 Android 前端架构的核心枢纽：上游对接 [启动编排模块](android_frontend_hooks_startup_orchestration.md)（`useAppInit` 驱动数据加载与事件监听），下游服务于 [认证面板](../android_frontend_auth.md)、[账号管理](../android_frontend_account_management.md)、[监控网络](../android_frontend_monitoring_network.md)、[设置](../android_frontend_settings.md) 等业务模块。
+本模块是 Android 前端架构的核心枢纽：上游对接 [启动编排模块](android-frontend-hooks-startup-orchestration.md)（`useAppInit` 驱动数据加载与事件监听），下游服务于 [认证面板](android-frontend-auth.md)、[账号管理](android-frontend-account-management.md)、[监控网络](android-frontend-monitoring-network.md)、[设置](android-frontend-settings.md) 等业务模块。
 
 > 注意：仓库中存在两个同名的子模块页面（`android_frontend_hooks_state_stores` 与 `android_frontend_hooks_android_frontend_hooks_state_stores`），二者覆盖相同的六个 store 文件；本文档为后者，聚焦这些 store 的**领域职责与内部机制**。
 
@@ -259,11 +259,11 @@ flowchart TB
 
 ## 与其他模块的关系
 
-- **启动编排**：[android_frontend_hooks_startup_orchestration](android_frontend_hooks_startup_orchestration.md) 中的 `useAppInit` → `useInitialDataLoad` 负责调用 `get_init_data` 填充 `useConfigStore.config` 并置 `configLoaded = true`；`useEventListeners` 负责监听后端 `config-changed` / `update-available` / `auto-login` 等事件回写各 store。
-- **API 适配**：所有 store 统一使用 `tauriApiWithRetry`（见 [启动编排模块的 tauriApi 文档](android_frontend_hooks_startup_orchestration.md)），该层对桌面专属能力（适配器/DHCP/DNS/窗口）在安卓端显式 `desktopOnly` 拒绝。
-- **业务消费方**：[认证面板](../android_frontend_auth.md) 订阅 `useAuthStore` 的 `status`；[账号管理](../android_frontend_account_management.md) 依赖 `useConfigStore.accounts` / `activeAccount`；[监控网络](../android_frontend_monitoring_network.md) 的 `useMonitor` 周期调用 `checkOnline` 并写 `bgStatus`；[设置](../android_frontend_settings.md) 写入 `config` 与语言；[人脸验证](../android_frontend_face_verification.md) 的验证结果写入日志。
-- **动画运行时**：[animation runtime 子模块](android_frontend_hooks_animation_runtime.md) 不依赖这些 store，仅通过 `useReducedMotion` / `usePageIdle` 与主题层解耦协作。
-- **工具库**：`hexToHsl`（[android_frontend_utilities_libraries](../android_frontend_utilities_libraries.md)）供 `useThemeStore` 计算自定义主题色变量；`mergeNetworkQuality`、`extractErrorMessage`、`safeStorage` 同属该模块。
+- **启动编排**：[android_frontend_hooks_startup_orchestration](android-frontend-hooks-startup-orchestration.md) 中的 `useAppInit` → `useInitialDataLoad` 负责调用 `get_init_data` 填充 `useConfigStore.config` 并置 `configLoaded = true`；`useEventListeners` 负责监听后端 `config-changed` / `update-available` / `auto-login` 等事件回写各 store。
+- **API 适配**：所有 store 统一使用 `tauriApiWithRetry`（见 [启动编排模块的 tauriApi 文档](android-frontend-hooks-startup-orchestration.md)），该层对桌面专属能力（适配器/DHCP/DNS/窗口）在安卓端显式 `desktopOnly` 拒绝。
+- **业务消费方**：[认证面板](android-frontend-auth.md) 订阅 `useAuthStore` 的 `status`；[账号管理](android-frontend-account-management.md) 依赖 `useConfigStore.accounts` / `activeAccount`；[监控网络](android-frontend-monitoring-network.md) 的 `useMonitor` 周期调用 `checkOnline` 并写 `bgStatus`；[设置](android-frontend-settings.md) 写入 `config` 与语言；[人脸验证](android-frontend-face-verification.md) 的验证结果写入日志。
+- **动画运行时**：[animation runtime 子模块](android-frontend-hooks-animation-runtime.md) 不依赖这些 store，仅通过 `useReducedMotion` / `usePageIdle` 与主题层解耦协作。
+- **工具库**：`hexToHsl`（[android_frontend_utilities_libraries](android-frontend-utilities-libraries.md)）供 `useThemeStore` 计算自定义主题色变量；`mergeNetworkQuality`、`extractErrorMessage`、`safeStorage` 同属该模块。
 
 ## 关键设计模式总结
 

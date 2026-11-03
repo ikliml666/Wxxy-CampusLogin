@@ -13,7 +13,7 @@ fsoft_page: android_frontend_utilities_libraries/android_frontend_utilities_libr
 
 `android/frontend/src/lib/dock-spring.ts` 是 Android 前端悬浮栏（dock）镜头系统的**物理内核**：一个零依赖的自研弹簧仿真器，负责驱动悬浮栏上所有连续运动曲线——镜头位置、抬起高度、果冻形变、越界拉伸、光斑强度与扩散。
 
-它是 [android_frontend_utilities_libraries](../android_frontend_utilities_libraries.md) 下的叶子模块，是 [dock 镜头系统（useDockLens）](android_frontend_utilities_libraries_lens.md) 的直接依赖，与镜片折射层 [glass-dock / hyalite](android_frontend_utilities_libraries_hyalite.md) 同属一套悬浮栏视觉体系。
+它是 [android_frontend_utilities_libraries](android-frontend-utilities-libraries.md) 下的叶子模块，是 [dock 镜头系统（useDockLens）](android-frontend-utilities-libraries-lens.md) 的直接依赖，与镜片折射层 [glass-dock / hyalite](android-frontend-utilities-libraries-hyalite.md) 同属一套悬浮栏视觉体系。
 
 ### 为什么自研弹簧而非 CSS transition / 补间库
 
@@ -82,6 +82,8 @@ flowchart TD
 
 `Motion` 是本模块的绝对核心，代表**一条**标量弹簧运动曲线：内部维护 `value`（当前值）、`target`（目标）、`velocity`（速度）与 `spec`（弹簧参数），构造时传入 `onFrame(value)` 每帧回调。
 
+构造函数把 `value` 与 `target` **同时**置为 `initial`（因此首帧不会从 0 滑到初始项，dock-lens 用它给镜头/拉伸/光斑等曲线定静态起点），`velocity` 保持 0、`spec` 取默认的 `springOfDuration(300)`；此时曲线**不进 `active` 集合**，也不申请 rAF——只有第一次 `to()` 才会启动共享循环。
+
 ### 属性与方法
 
 ```mermaid
@@ -107,6 +109,7 @@ classDiagram
 
 | 成员 | 语义 | 消费方 |
 | --- | --- | --- |
+| `constructor(initial, onFrame)` | 新建一条**静止**曲线：`value = target = initial`，零速度，默认 `springOfDuration(300)` 参数 | `dock-lens.ts` 建 6 条曲线时传入各自的静态起点与每帧回调 |
 | `current` | 当前值（= `value`） | 渲染层读它写 style |
 | `goal` | 当前追赶目标 | 镜头层算「距目标多远」（途中衰减倍率、落下判定） |
 | `speed` | 速度（单位/秒） | **果冻形变读它决定拉伸量** |
@@ -230,14 +233,14 @@ flowchart LR
     PARENT -.-> 包含 .-> GLASS
 ```
 
-- **被 [dock 镜头系统（useDockLens）](android_frontend_utilities_libraries_lens.md) 全部消费**：6 条 `Motion` 曲线（lens、lift、stretch、jelly、glow、glowSpread）的构造、目标改写、速度/加速度读取都发生在 `dock-lens.ts`。物理引擎本身不含任何 DOM 或 React 依赖。
-- **与 [Hyalite 折射玻璃](android_frontend_utilities_libraries_hyalite.md) 并列、互不依赖**：两者共同服务于同一套悬浮栏视觉，但玻璃层只负责给背板「弯折光线」的静态滤镜，不参与运动曲线。
-- **桌面端同构**：桌面前端 `tauri-app/frontend/src/lib/dock-spring.ts` 是同语义的桌面版（见 [desktop_frontend_utilities_libraries](../desktop_frontend_utilities_libraries.md)），Android 端为其精简移植；两端观感参数各自标定。
+- **被 [dock 镜头系统（useDockLens）](android-frontend-utilities-libraries-lens.md) 全部消费**：6 条 `Motion` 曲线（lens、lift、stretch、jelly、glow、glowSpread）的构造、目标改写、速度/加速度读取都发生在 `dock-lens.ts`。物理引擎本身不含任何 DOM 或 React 依赖。
+- **与 [Hyalite 折射玻璃](android-frontend-utilities-libraries-hyalite.md) 并列、互不依赖**：两者共同服务于同一套悬浮栏视觉，但玻璃层只负责给背板「弯折光线」的静态滤镜，不参与运动曲线。
+- **桌面端同构**：桌面前端 `tauri-app/frontend/src/lib/dock-spring.ts` 是同语义的桌面版（见 [desktop_frontend_utilities_libraries](desktop-frontend-utilities-libraries.md)），Android 端为其精简移植；两端观感参数各自标定。
 - **构建归属**：本模块为纯 TypeScript 库，经 `android/frontend/vite.config.ts` 的 `@` 别名（指向 `./src`）导入，不产生独立 chunk。
 
 ## 典型使用时序（拖动 → 松手投掷）
 
-以下时序展示一次完整的「按住拖动 → 松手投到邻近项」交互中，物理引擎如何被驱动（手势判定与松手投影的细节归 [useDockLens](android_frontend_utilities_libraries_lens.md) 文档，此处只标注本模块的参与点）：
+以下时序展示一次完整的「按住拖动 → 松手投到邻近项」交互中，物理引擎如何被驱动（手势判定与松手投影的细节归 [useDockLens](android-frontend-utilities-libraries-lens.md) 文档，此处只标注本模块的参与点）：
 
 ```mermaid
 sequenceDiagram
@@ -270,6 +273,7 @@ sequenceDiagram
 
 ## 实现要点速查（给维护者）
 
+- **构造即静止**：`new Motion(initial, onFrame)` 只写 `value`/`target`/`onFrame`，不入 `active`、不申请帧；`velocity` 恒从 0 起，`spec` 先用默认 `springOfDuration(300)`，直到某次 `to(target, spec)` 显式传参才被子覆盖。给曲线定初始位置时若不想触发任何动画，用 `jump()` 而不是构造后再 `to()`。
 - **不要在 `to()` 里清零速度**：`if (target === this.target && active.has(this)) return` 是跟手惯性的根基；改它会让拖动重新顿挫。
 - **`jump()` 用于跳过动画**：初始化（首帧落位避免从第 0 项滑入）、ResizeObserver 重测量后归位、光斑按下时复位扩散量。
 - **步长钳制 `MAX_STEP`**：防止后台切回时一次大步冲过目标；调大它会在掉帧时看到镜头乱跳。

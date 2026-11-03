@@ -22,17 +22,17 @@ fsoft_page: android_backend_tauri/android_backend_tauri_commands.md
 
 ## 简介
 
-`android/src-tauri/src` 下的命令模块构成了安卓端的「后端服务层」:它们以 Tauri IPC 命令为边界,向上承接 React 前端(见 [android_frontend_hooks](../android_frontend_hooks.md) 中 `TauriApi` 的 `invoke` 封装),向下复用桌面端共享的协议核心(`campus_login_lib`)、平台插件(网络绑定、Keystore、前台服务)与持久化状态。
+`android/src-tauri/src` 下的命令模块构成了安卓端的「后端服务层」:它们以 Tauri IPC 命令为边界,向上承接 React 前端(见 [android_frontend_hooks](android-frontend-hooks.md) 中 `TauriApi` 的 `invoke` 封装),向下复用桌面端共享的协议核心(`campus_login_lib`)、平台插件(网络绑定、Keystore、前台服务)与持久化状态。
 
 核心设计纪律贯穿全模块:
 
 - **敏感纪律**:任何日志、错误文案、事件 payload 不得携带 `password`;出站(IPC 返回)一律经 `masked_for_display` 打码;落盘密码必经 AndroidKeyStore AES-GCM 加密,磁盘文件恒为密文。
-- **契约对齐**:命令名/参数/返回形状与桌面 [desktop_backend_commands](../desktop_backend_commands.md) 同构,差异仅在平台不支持项(桌面专属命令在安卓缺省或返回空结构)。
+- **契约对齐**:命令名/参数/返回形状与桌面 [desktop_backend_commands](desktop-backend-commands.md) 同构,差异仅在平台不支持项(桌面专属命令在安卓缺省或返回空结构)。
 - **WiFi 绑定先行**:全链路(登录/注销/探测/检测)执行前统一经 `ensure_wifi_bound` 把进程网络绑定到 WLAN,避免 WiFi+流量同开时默认路由落蜂窝。
 
 ## 命令总览与分组
 
-本模块按职责划分为九个命令文件,命令在 [android_backend_tauri](../android_backend_tauri.md) 的 `lib.rs::run` 中统一注册进 `invoke_handler`。
+本模块按职责划分为九个命令文件,命令在 [android_backend_tauri](android-backend-tauri.md) 的 `lib.rs::run` 中统一注册进 `invoke_handler`。
 
 | 命令分组 | 文件 | 核心命令 | 职责 |
 | --- | --- | --- | --- |
@@ -131,14 +131,14 @@ flowchart LR
 
 ### 1. 协议命令面(`protocol_cmds.rs`)
 
-**登录/注销/Portal 探测**复用桌面协议核心 `campus_login_lib::auth::protocol`,与桌面 [desktop_backend_commands](../desktop_backend_commands.md) 的 `do_login`/`do_logout` 同契约:前端 `invoke('do_login', {adapterName})` 仅传适配器,凭据由后端配置回退。
+**登录/注销/Portal 探测**复用桌面协议核心 `campus_login_lib::auth::protocol`,与桌面 [desktop_backend_commands](desktop-backend-commands.md) 的 `do_login`/`do_logout` 同契约:前端 `invoke('do_login', {adapterName})` 仅传适配器,凭据由后端配置回退。
 
 - `do_login`:空用户名/密码回退已保存配置 → `ensure_wifi_bound` → `run_login` → 登录历史落盘(`login_history::append`)→ 成功后清除自动登录熔断与注销保护、置 `was_online`。`run_login` 是同步函数,经 `spawn_blocking` 桥接。
 - `do_logout`:两步注销(Radius + MAC 解绑),成功后设 60s 注销保护期(`logout_protected_until_ms`),防止后台检测把用户自动登回。
 - `check_portal_status`:端口 80 页面特征判在线(协议走 :801)。
 - `ping_test`:存活探针,恒返回 `"pong"`。
 
-**WiFi 绑定族**(`bind_to_wifi` / `accept_wifi_network` / `get_avoid_bad_wifi_status` / `restore_written_settings`)是安卓独有,经 [android_plugins_network_bind](../android_plugins_network_bind.md) 插件的 JNI 通道操作:进程级 `bindProcessToNetwork`、接受未认证 WiFi 的 captive portal 确认、查询/还原 `Settings.Global` 写通道状态。非移动端编译期消除为空实现。
+**WiFi 绑定族**(`bind_to_wifi` / `accept_wifi_network` / `get_avoid_bad_wifi_status` / `restore_written_settings`)是安卓独有,经 [android_plugins_network_bind](android-plugins-network-bind.md) 插件的 JNI 通道操作:进程级 `bindProcessToNetwork`、接受未认证 WiFi 的 captive portal 确认、查询/还原 `Settings.Global` 写通道状态。非移动端编译期消除为空实现。
 
 ### 2. 校园网探针(`campus_detect.rs`)
 
@@ -148,7 +148,7 @@ flowchart LR
 2. **/18 子网判定**:`is_same_subnet_18` 命中即判校园网。
 3. **TCP 兜底**:子网不命中时,网关 TCP 与 Portal TCP **并行**探测(最坏 3s 而非串行 6s),任一可达即判在校园网。
 
-SSID 通道(名称检查开启时):经 network-bind 插件的 `WifiManager` 读取 SSID,`ssid_matches` 命中直接判在校园网;权限不足时返回 `None` 退回 TCP 探测。结果同时缓存源 IP 供登录/注销使用。详见 [android_backend_tauri_state_storage](android_backend_tauri_state_storage.md) 中的状态落盘语义。
+SSID 通道(名称检查开启时):经 network-bind 插件的 `WifiManager` 读取 SSID,`ssid_matches` 命中直接判在校园网;权限不足时返回 `None` 退回 TCP 探测。结果同时缓存源 IP 供登录/注销使用。详见 [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md) 中的状态落盘语义。
 
 ### 3. 配置状态(`config_state.rs`)
 
@@ -198,7 +198,7 @@ SSID 通道(名称检查开启时):经 network-bind 插件的 `WifiManager` 读�
 
 ### 8. 应用更新(`update_cmds.rs`)
 
-更新流与桌面 [desktop_backend_update](../desktop_backend_update.md) 共享 HTTP 逻辑,安装端改 APK 意图:
+更新流与桌面 [desktop_backend_update](desktop-backend-update.md) 共享 HTTP 逻辑,安装端改 APK 意图:
 
 - `check_update`:`version.json` 按 `update_source` 设置排序镜像源(镜像优先/官方优先),4 源按序降级;顺带从 GitHub API 拉 APK 资产与服务端 digest(三态记账:有 digest / 在线无 digest 哨兵 / API 不可用不记账)。
 - `download_update`:白名单域名校验(`allowed_url`,防 SSRF)→ 流式下载 → 节流 emit `update-download-progress` → SHA256 校验(按 URL tag 取记账 digest,校验不匹配即删文件;无校验值 emit `update-unverified` 警示)。
@@ -208,7 +208,7 @@ SSID 通道(名称检查开启时):经 network-bind 插件的 `WifiManager` 读�
 
 ### 9. 人脸模型(`face_model_cmds.rs`)
 
-APK 不打包约 8.9MB 模型,首次启用人脸时按需下载(详见 [android_frontend_face_verification](../android_frontend_face_verification.md)):
+APK 不打包约 8.9MB 模型,首次启用人脸时按需下载(详见 [android_frontend_face_verification](android-frontend-face-verification.md)):
 
 - `face_models_state`:六文件(blazeface/facemesh/faceres 的 json+bin)就位状态,逐个 `verify_file_sha256` 强校验。
 - `face_models_download`:复用 `update_cmds` 的 `allowed_url`/`http_client`/`verify_file_sha256`,镜像源排序跟随 `update_source`,逐文件增量下载(已校验跳过),写 `.part` 临时文件后原子改名,节流 emit `face-models-download-progress`。
@@ -219,7 +219,7 @@ APK 不打包约 8.9MB 模型,首次启用人脸时按需下载(详见 [android_
 
 - 代际 token(`LATENCY_GENERATION`)防「旧循环误清新一轮运行标志」的生命周期竞态 —— stop 先推进代际再清标志。
 - 稳态退避:连续 5 拍 good 及以上,间隔翻倍(上限 1800s);波动立即恢复基础间隔,省电。
-- 每拍结果经 `quality_history::append` 落盘(见 [android_backend_tauri_state_storage](android_backend_tauri_state_storage.md))。
+- 每拍结果经 `quality_history::append` 落盘(见 [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md))。
 
 ## 关键数据流:手动登录全链路
 
@@ -297,8 +297,8 @@ flowchart LR
 
 ## 与其他模块的关系
 
-- **共享协议核心**:登录/注销、Portal 探测、自助服务、WebVPN 的 HTTP 实现都在 `campus_login_lib`(桌面 [desktop_backend_auth_protocol](../desktop_backend_auth_protocol.md)、[desktop_backend_vpn_integration](../desktop_backend_vpn_integration.md) 同源),本模块只做命令层适配与 Android 专属前置(WiFi 绑定、加密桥)。
-- **状态与存储**:命令面读写的 `AndroidState`(源 IP 缓存、配置缓存)、配置/账号/历史落盘细节见 [android_backend_tauri_state_storage](android_backend_tauri_state_storage.md)。
-- **后台监控循环**:`do_login`/`do_logout`/`check_campus_status` 与 `monitor_loop` 的 `MONITOR` 原子状态(熔断、注销保护、was_online、avoid_bad_wifi 还原)紧密耦合,详见 [android_backend_tauri_monitoring](android_backend_tauri_monitoring.md)。
-- **平台插件**:WiFi 绑定/SSID 读取见 [android_plugins_network_bind](../android_plugins_network_bind.md),Keystore 加密桥见 [android_plugins_keystore](../android_plugins_keystore.md),APK 安装器见 [android_plugins_foreground_service](../android_plugins_foreground_service.md)。
-- **前端消费**:命令的 IPC 契约由 [android_frontend_hooks](../android_frontend_hooks.md) 的 `TauriApi` 一一对应封装,前端其余页面(账号管理、认证面板、自助服务、设置)经其调用,不直接写 `invoke`。
+- **共享协议核心**:登录/注销、Portal 探测、自助服务、WebVPN 的 HTTP 实现都在 `campus_login_lib`(桌面 [desktop_backend_auth_protocol](desktop-backend-auth-protocol.md)、[desktop_backend_vpn_integration](desktop-backend-vpn-integration.md) 同源),本模块只做命令层适配与 Android 专属前置(WiFi 绑定、加密桥)。
+- **状态与存储**:命令面读写的 `AndroidState`(源 IP 缓存、配置缓存)、配置/账号/历史落盘细节见 [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md)。
+- **后台监控循环**:`do_login`/`do_logout`/`check_campus_status` 与 `monitor_loop` 的 `MONITOR` 原子状态(熔断、注销保护、was_online、avoid_bad_wifi 还原)紧密耦合,详见 [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md)。
+- **平台插件**:WiFi 绑定/SSID 读取见 [android_plugins_network_bind](android-plugins-network-bind.md),Keystore 加密桥见 [android_plugins_keystore](android-plugins-keystore.md),APK 安装器见 [android_plugins_foreground_service](android-plugins-foreground-service.md)。
+- **前端消费**:命令的 IPC 契约由 [android_frontend_hooks](android-frontend-hooks.md) 的 `TauriApi` 一一对应封装,前端其余页面(账号管理、认证面板、自助服务、设置)经其调用,不直接写 `invoke`。
