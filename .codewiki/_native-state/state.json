@@ -2,30 +2,14 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "24a6aa5ea6b2db4819d117549219877d3dc0ef97",
-    "headCommit": "2d0bc8cc99074b29568eefb1cf4ebe4c54bf63ad"
+    "baseCommit": "2d0bc8cc99074b29568eefb1cf4ebe4c54bf63ad",
+    "headCommit": "a895d11acabb3f076db3d45075f60aac0d83dfe4"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "24a6aa5ea6b2db4819d117549219877d3dc0ef97",
-    "headCommit": "2d0bc8cc99074b29568eefb1cf4ebe4c54bf63ad",
-    "committed": [
-      ".gitignore",
-      "android/frontend/index.html",
-      "android/frontend/src/App.tsx",
-      "android/frontend/src/components/ui/select.tsx",
-      "android/frontend/src/hooks/useThemeStore.ts",
-      "android/frontend/src/main.tsx",
-      "android/frontend/src/settings/OnboardingWizard.tsx",
-      "android/frontend/src/settings/ThemeDialog.tsx",
-      "tauri-app/frontend/index.html",
-      "tauri-app/frontend/src/App.tsx",
-      "tauri-app/frontend/src/components/ui/select.tsx",
-      "tauri-app/frontend/src/hooks/useThemeStore.ts",
-      "tauri-app/frontend/src/main.tsx",
-      "tauri-app/frontend/src/settings/OnboardingWizard.tsx",
-      "tauri-app/frontend/src/settings/ThemeDialog.tsx"
-    ],
+    "baseCommit": "2d0bc8cc99074b29568eefb1cf4ebe4c54bf63ad",
+    "headCommit": "a895d11acabb3f076db3d45075f60aac0d83dfe4",
+    "committed": [],
     "staged": [],
     "unstaged": [],
     "untracked": [],
@@ -49,9 +33,8 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw0vsxzb-1-native（66 个文件）",
-    "android_frontend_hooks/android_frontend_hooks_state_stores.md：校对改写 1 处失效链接（剩余 0 处）",
-    "语义校对改写了 1 篇（android_frontend_hooks/android_frontend_hooks_state_stores.md），改后重新判门"
+    "持久化基线 24a6aa5 与本次 cw 基线 2d0bc8c 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw0xy3yj-6-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-03T16:14:48.215Z"
+  "updatedAt": "2026-11-03T17:09:54.327Z"
 }
