@@ -114,23 +114,23 @@ flowchart TD
 
 本模块按构建链横向切分为四个子模块（每个含详细文档页）：
 
-### 1. 版本与发布治理（[build_deployment_configuration_release.md](build_deployment_configuration/build_deployment_configuration_release.md)）
-- `version.json`：应用内更新流的版本号（`v2.4.3`）与面向用户的 release notes 文案，同时供桌面与安卓端的检查更新命令读取；其 `sha256_checksum` 字段被安卓端用于 APK 下载完整性校验（见 [android_backend_update](../android_backend_update.md) 的 `VersionFile`）。
+### 1. 版本与发布治理（[build_deployment_configuration_release.md](build-deployment-configuration-release.md)）
+- `version.json`：应用内更新流的版本号（`v2.4.3`）与面向用户的 release notes 文案，同时供桌面与安卓端的检查更新命令读取；其 `sha256_checksum` 字段被安卓端用于 APK 下载完整性校验（见 android_backend_update 的 `VersionFile`）。
 - `tauri.conf.json`（桌面）：版本权威源、NSIS 打包目标、WebView2 bootstrapper 下载模式、CSP 策略、`beforeBundleCommand` 无头核心打包钩子。
 - Android `tauri.properties` → `versionCode`/`versionName` → APK 输出文件命名 `Wxxy-CampusLogin_<版本>.apk`。
 
-### 2. 桌面端构建链（[build_deployment_configuration_desktop_build.md](build_deployment_configuration/build_deployment_configuration_desktop_build.md)）
+### 2. 桌面端构建链（[build_deployment_configuration_desktop_build.md](build-deployment-configuration-desktop-build.md)）
 - `tauri-app/frontend/`：`package.json` 脚本（dev/build/preview/test/test:watch/clean）、双 `tsconfig`（app + node 工程）、`vite.config.ts`（端口 5173、HMR 外网穿透、`manualChunks` 分包策略、`.tmpdir` watch 忽略）、`vitest.config.ts`（jsdom + `src/test-setup.ts`）。
 - `tauri-app/package.json`：Tauri CLI 入口与桌面专属插件依赖（autostart / global-shortcut / single-instance / shell）。
 - `tauri-app/src-tauri/`：`Cargo.toml`（target 门控依赖矩阵：桌面插件、Windows API、Android 物理网卡旁路编译声明）、`build.rs`（externalBin 空占位、`APP_VERSION` 注入）。
 - `vite.mock.config.ts`：浏览器里跑前端的 mock 配置（`transformIndexHtml` 注入 `/tauri-mock.js`、端口 5175、`cacheDir` 外移到 TEMP 绕开杀软写盘拦截）。
 
-### 3. 安卓端构建链（[build_deployment_configuration_android_build.md](build_deployment_configuration/build_deployment_configuration_android_build.md)）
+### 3. 安卓端构建链（[build_deployment_configuration_android_build.md](build-deployment-configuration-android-build.md)）
 - `android/frontend/`：`package.json`（`build` = `tsc --noEmit && vite build`，比桌面多一道类型门禁；含 `@vladmandic/human` 人脸推理依赖）、`vite.config.ts`（端口 5174）、`vite.mock.config.ts`（端口 5176 + 竖屏居中样式注入）。
 - `android/src-tauri/`：workspace 根 `Cargo.toml`（path 依赖共享核、三个手写插件、biometric/opener 官方插件、fat LTO）、极简 `build.rs`。
 - `gen/android/` Gradle 体系：根 `build.gradle.kts`（AGP 8.11.0 + Kotlin 1.9.25 classpath）、`buildSrc` 的 `rust` 插件、`app/build.gradle.kts`（namespace `com.campuslogin.client`、minSdk 29、release minify + 签名、产物命名）、`settings.gradle` 插件 include 清单。
 
-### 4. 安卓手写插件工程（[build_deployment_configuration_android_plugins.md](build_deployment_configuration/build_deployment_configuration_android_plugins.md)）
+### 4. 安卓手写插件工程（[build_deployment_configuration_android_plugins.md](build-deployment-configuration-android-plugins.md)）
 - 三个插件（`foreground-service` / `keystore` / `network-bind`）的统一脚手架模式：`Cargo.toml`（`links` + `tauri-plugin` build 依赖）、`build.rs`（`COMMANDS` 常量 + `tauri_plugin::Builder`）、`android/build.gradle.kts`（AGP library、compileSdk 36、minSdk 24、依赖 `project(":tauri-android")`）。
 - 各插件暴露的命令清单与 `settings.gradle` include 的对应关系。
 
@@ -167,8 +167,8 @@ sequenceDiagram
 
 ## 测试与 Mock 链路
 
-- **桌面单元测试**：`vitest.config.ts` 以 jsdom 环境 + globals + `setupFiles: ./src/test-setup.ts` 运行 `*.test.ts(x)`；脚本入口 `npm test` / `npm run test:watch`。测试用例见各业务模块（如 [desktop_frontend_hooks](desktop_frontend_hooks.md) 的 `useAsyncLock.test.tsx`、[desktop_frontend_monitoring](desktop_frontend_monitoring.md) 的 `StatusBar.*.test.tsx`）。
-- **浏览器 mock 预览**：两套 `vite.mock.config.ts` 通过 `transformIndexHtml` 在 `index.html` 头部同步注入 `/tauri-mock.js`（mock `__TAURI_INTERNALS__` 的 `invoke`/`emitEvent`），使纯浏览器可以打开前端；桌面版端口 5175，安卓版端口 5176 并附带竖屏居中样式。Mock 实现见 [desktop_frontend_entrypoint_mocks](desktop_frontend_entrypoint_mocks.md) 与 [android_frontend_entrypoint_mocks](android_frontend_entrypoint_mocks.md)。
+- **桌面单元测试**：`vitest.config.ts` 以 jsdom 环境 + globals + `setupFiles: ./src/test-setup.ts` 运行 `*.test.ts(x)`；脚本入口 `npm test` / `npm run test:watch`。测试用例见各业务模块（如 [desktop_frontend_hooks](desktop-frontend-hooks.md) 的 `useAsyncLock.test.tsx`、[desktop_frontend_monitoring](desktop-frontend-monitoring.md) 的 `StatusBar.*.test.tsx`）。
+- **浏览器 mock 预览**：两套 `vite.mock.config.ts` 通过 `transformIndexHtml` 在 `index.html` 头部同步注入 `/tauri-mock.js`（mock `__TAURI_INTERNALS__` 的 `invoke`/`emitEvent`），使纯浏览器可以打开前端；桌面版端口 5175，安卓版端口 5176 并附带竖屏居中样式。Mock 实现见 [desktop_frontend_entrypoint_mocks](desktop-frontend-entrypoint-mocks.md) 与 [android_frontend_entrypoint_mocks](android-frontend-entrypoint-mocks.md)。
 - **环境约束**：mock 配置注释中记录了本机防护软件按路径拦截 esbuild 写盘的问题，需以 `ESBUILD_BINARY_PATH` 指向改名副本启动、并把 vite cacheDir 外移到系统 TEMP。
 
 ---
@@ -177,7 +177,7 @@ sequenceDiagram
 
 业务侧（按构建产物归属）：
 
-- 桌面前端：[desktop_frontend_hooks](desktop_frontend_hooks.md)、[desktop_frontend_account_management](desktop_frontend_account_management.md)、[desktop_frontend_auth](desktop_frontend_auth.md)、[desktop_frontend_settings](desktop_frontend_settings.md)、[desktop_frontend_monitoring](desktop_frontend_monitoring.md)、[desktop_frontend_network_management](desktop_frontend_network_management.md)、[desktop_frontend_shared_ui_components](desktop_frontend_shared_ui_components.md)、[desktop_frontend_utilities_libraries](desktop_frontend_utilities_libraries.md)
-- 桌面后端：[desktop_backend_commands](desktop_backend_commands.md)（含 `campus-login-core` 无头 bin 的 `main`）、[desktop_backend_app_lifecycle](desktop_backend_app_lifecycle.md)、[desktop_backend_configuration](desktop_backend_configuration.md)、[desktop_backend_update](desktop_backend_update.md)
-- 安卓前端：[android_frontend_hooks](android_frontend_hooks.md)、[android_frontend_settings](android_frontend_settings.md)、[android_frontend_face_verification](android_frontend_face_verification.md)
-- 安卓后端/插件：[android_backend_tauri](android_backend_tauri.md)、[android_plugins_foreground_service](android_plugins_foreground_service.md)、[android_plugins_keystore](android_plugins_keystore.md)、[android_plugins_network_bind](android_plugins_network_bind.md)
+- 桌面前端：[desktop_frontend_hooks](desktop-frontend-hooks.md)、[desktop_frontend_account_management](desktop-frontend-account-management.md)、[desktop_frontend_auth](desktop-frontend-auth.md)、[desktop_frontend_settings](desktop-frontend-settings.md)、[desktop_frontend_monitoring](desktop-frontend-monitoring.md)、[desktop_frontend_network_management](desktop-frontend-network-management.md)、[desktop_frontend_shared_ui_components](desktop-frontend-shared-ui-components.md)、[desktop_frontend_utilities_libraries](desktop-frontend-utilities-libraries.md)
+- 桌面后端：[desktop_backend_commands](desktop-backend-commands.md)（含 `campus-login-core` 无头 bin 的 `main`）、[desktop_backend_app_lifecycle](desktop-backend-app-lifecycle.md)、[desktop_backend_configuration](desktop-backend-configuration.md)、[desktop_backend_update](desktop-backend-update.md)
+- 安卓前端：[android_frontend_hooks](android-frontend-hooks.md)、[android_frontend_settings](android-frontend-settings.md)、[android_frontend_face_verification](android-frontend-face-verification.md)
+- 安卓后端/插件：[android_backend_tauri](android-backend-tauri.md)、[android_plugins_foreground_service](android-plugins-foreground-service.md)、[android_plugins_keystore](android-plugins-keystore.md)、[android_plugins_network_bind](android-plugins-network-bind.md)
