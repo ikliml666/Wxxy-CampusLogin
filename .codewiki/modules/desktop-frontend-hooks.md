@@ -37,7 +37,7 @@ fsoft_page: desktop_frontend_hooks.md
 2. **领域状态（zustand stores）**：认证、配置、网卡、网络质量、日志/通知、主题六个 store 集中管理前端全局状态，并处理状态合并、防抖保存、并发锁、节流等工程细节；
 3. **应用装配与动画**：`useAppInit` 负责启动编排（初始数据加载、事件监听、心跳、全局快捷键），其余 hooks 提供动画档位、空闲暂停、入场编排等通用能力。
 
-该层对上为各面板组件（认证、账号、网络、监控、设置）提供稳定的数据与动作接口；对下通过 `@tauri-apps/api` 的 `invoke` / `listen` 与 Rust 后端交互。Android 端存在结构相似的对应模块，详见 [android_frontend_hooks.md](android_frontend_hooks.md)。
+该层对上为各面板组件（认证、账号、网络、监控、设置）提供稳定的数据与动作接口；对下通过 `@tauri-apps/api` 的 `invoke` / `listen` 与 Rust 后端交互。Android 端存在结构相似的对应模块，详见 [android_frontend_hooks.md](android-frontend-hooks.md)。
 
 ---
 
@@ -122,7 +122,7 @@ flowchart TB
 - **`tauriApiWithRetry`**：默认透传原始 `tauriApi`，**仅 `saveConfig` 包了重试**——配置保存是一次性关键操作无兜底；高频命令（`checkPortalStatus`、`checkNetworkQuality`）不包重试，避免放大流量。
 - **`openExternal`**：带安全校验的链接打开——仅允许 `http(s)://`、URL 长度 ≤ 2048、可被 `new URL` 解析；先 invoke `open_external`，失败回退 `@tauri-apps/plugin-shell`。
 
-类型依赖来自 `@/auth`、`@/network`、`@/monitor`、`@/account`、`@/settings`、`@/shared` 各域，详见对应文档：[desktop_frontend_auth.md](desktop_frontend_auth.md)、[desktop_frontend_network_management.md](desktop_frontend_network_management.md)、[desktop_frontend_monitoring.md](desktop_frontend_monitoring.md)、[desktop_frontend_account_management.md](desktop_frontend_account_management.md)、[desktop_frontend_settings.md](desktop_frontend_settings.md)、[desktop_frontend_shared_components_types.md](desktop_frontend_shared_components_types.md)。
+类型依赖来自 `@/auth`、`@/network`、`@/monitor`、`@/account`、`@/settings`、`@/shared` 各域，详见对应文档：[desktop_frontend_auth.md](desktop-frontend-auth.md)、[desktop_frontend_network_management.md](desktop-frontend-network-management.md)、[desktop_frontend_monitoring.md](desktop-frontend-monitoring.md)、[desktop_frontend_account_management.md](desktop-frontend-account-management.md)、[desktop_frontend_settings.md](desktop-frontend-settings.md)、[desktop_frontend_shared_components_types.md](desktop-frontend-shared-components-types.md)。
 
 ### 2. 领域 Store
 
@@ -197,7 +197,7 @@ flowchart LR
 
 - **`useInitialDataLoad`**：单次异步初始化。`get_init_data` 失败时降级 `DEFAULT_CONFIG` 并记错误日志；StrictMode 下 cleanup→setup 二次执行时恢复 `mountedRef = true`，防止异步回调整体被丢弃。`configLoaded` 信号供依赖配置的启动逻辑（自助服务自动验证等）等待。
 - **`useEventListeners`**：在一个 `useEffect` 内集中注册约 15 个事件订阅，统一处理 `mountedRef` 校验、时间戳节流（后台检测 1s、上线日志 5s、网卡变化 500ms trailing）、引用稳定化（`EMPTY_ADAPTER_STATUSES` 复用、JSON 比较跳过详情重复）。**刻意不注册 `onCloseRequested`**——Tauri core 检测到 JS 关闭监听存在会无条件 `prevent_close`，曾导致关闭按钮失效。
-- **`useHeartbeat`**：5s 间隔调用 `render_heartbeat`；窗口 hidden 时暂停；**渲染链失活时跳过**（`isRenderLoopAlive()` 判定 GPU 崩溃/rAF 停滞，让后端按心跳丢失重载 WebView，见 [desktop_backend_app_lifecycle.md](desktop_backend_app_lifecycle.md) 的 webview 恢复逻辑）。
+- **`useHeartbeat`**：5s 间隔调用 `render_heartbeat`；窗口 hidden 时暂停；**渲染链失活时跳过**（`isRenderLoopAlive()` 判定 GPU 崩溃/rAF 停滞，让后端按心跳丢失重载 WebView，见 [desktop_backend_app_lifecycle.md](desktop-backend-app-lifecycle.md) 的 webview 恢复逻辑）。
 - **`useGlobalShortcut`**：`Ctrl+Shift+C` 取消自动退出；忽略 INPUT/TEXTAREA/contentEditable 目标，避免复制操作误触发。
 
 ### 4. 通用工具 Hooks
@@ -258,14 +258,14 @@ flowchart TB
 
 | 前端方法 | 后端命令 | 后端模块 |
 |---|---|---|
-| `getInitData / getConfig / saveConfig / exportConfig / importConfig` | `get_init_data / get_config / save_config / export_config / import_config` | [desktop_backend_commands.md](desktop_backend_commands.md)（system / config_cmd） |
+| `getInitData / getConfig / saveConfig / exportConfig / importConfig` | `get_init_data / get_config / save_config / export_config / import_config` | [desktop_backend_commands.md](desktop-backend-commands.md)（system / config_cmd） |
 | `doLogin / doLogout` | `do_login / do_logout` | commands/login.rs |
 | `checkCampusStatus / checkPortalStatus` | `check_campus_status / check_portal_status` | commands/network_cmd.rs |
 | `listAccounts / createAccount / switchAccount ...` | 同名 | commands/account.rs |
 | `startBackgroundCheck / getBackgroundStatus` | 同名 | commands/background.rs |
 | `renderHeartbeat / notifyWindowReady` | 同名 | commands/system.rs |
 | `checkUpdate / downloadUpdate / installUpdate` | 同名 | commands/updater.rs |
-| 事件 `background-check-result` 等 emit | 后端巡检/更新循环 | [desktop_backend_monitoring.md](desktop_backend_monitoring.md)、[desktop_backend_update.md](desktop_backend_update.md) |
+| 事件 `background-check-result` 等 emit | 后端巡检/更新循环 | [desktop_backend_monitoring.md](desktop-backend-monitoring.md)、[desktop_backend_update.md](desktop-backend-update.md) |
 
 事件名（如 `adapters-changed`、`config-changed`、`auto-exit-countdown`、`network-quality-result`）由后端 `AppHandle.emit` 发出，前端 `createEventListener` 订阅。
 

@@ -21,7 +21,7 @@ fsoft_page: desktop_frontend_shared_ui_components.md
 
 核心设计原则：
 
-1. **主题令牌驱动**：全部样式使用 Tailwind 语义类（`bg-card`、`text-primary`、`border-destructive` 等），而非写死颜色，确保自动适配亮色/暗色与三档主题（见 [desktop_frontend_hooks](desktop_frontend_hooks.md) 中的 `useThemeStore`）。
+1. **主题令牌驱动**：全部样式使用 Tailwind 语义类（`bg-card`、`text-primary`、`border-destructive` 等），而非写死颜色，确保自动适配亮色/暗色与三档主题（见 [desktop_frontend_hooks](desktop-frontend-hooks.md) 中的 `useThemeStore`）。
 2. **cva 变体系统**：`Button` 与 `Badge` 使用 `class-variance-authority` 定义 variant/size 二维变体矩阵，外部只需传入语义化 prop 即可组合样式。
 3. **动效分级可控**：`AnimatedCard` 通过 `noAnimation` / `noEnterAnimation` / `enableTilt` 等开关把进场动画与 3D 倾斜下沉到组件内部，业务面板只需按全局动画配置批量传入开关。
 
@@ -104,8 +104,8 @@ flowchart TD
 
 **依赖说明：**
 
-- **`cn()`（`lib/utils.ts`）**：所有组件统一通过 `twMerge(clsx(...))` 合并类名，保证调用方传入的 `className` 能正确覆盖默认变体。详见 [desktop_frontend_utilities_libraries](desktop_frontend_utilities_libraries.md)。
-- **`useAnimationProfile()`**：仅 `AnimatedCard` 消费，用于读取全局动画档位（当前恒为 `high`）与 `enableTilt` 开关。档位来源于 `useQualityStore` 的刷新率，详见 [desktop_frontend_hooks](desktop_frontend_hooks.md)。
+- **`cn()`（`lib/utils.ts`）**：所有组件统一通过 `twMerge(clsx(...))` 合并类名，保证调用方传入的 `className` 能正确覆盖默认变体。详见 [desktop_frontend_utilities_libraries](desktop-frontend-utilities-libraries.md)。
+- **`useAnimationProfile()`**：仅 `AnimatedCard` 消费，用于读取全局动画档位（当前恒为 `high`）与 `enableTilt` 开关。档位来源于 `useQualityStore` 的刷新率，详见 [desktop_frontend_hooks](desktop-frontend-hooks.md)。
 - **Radix 原语**：`Button` 的 `asChild` 基于 `@radix-ui/react-slot`，`Label` 基于 `@radix-ui/react-label`，保证无障碍语义（点击标签聚焦、按钮样式透传到子元素）。
 - **Tailwind 主题令牌**：所有颜色类（`bg-primary`、`border-input`、`text-destructive` 等）映射到 `index.css` 中定义的 CSS 变量，与 `useThemeStore` 联动切换主题。
 
@@ -249,14 +249,14 @@ flowchart TD
 **与其他模块的关系：**
 
 - **消费方模块**：
-  - [desktop_frontend_auth](desktop_frontend_auth.md) — `DashboardPanel` 是 `AnimatedCard` + `Badge` + `Button` 的最大消费方（五张可拖拽卡片）。
-  - [desktop_frontend_account_management](desktop_frontend_account_management.md) — `LoginInfoDialog` 密集使用 `Input`（图标/错误态）、`Button`（`isLoading` 保存态）、`Label`。
-  - [desktop_frontend_monitoring](desktop_frontend_monitoring.md) — `StatusBar` 用 `Badge` 表达在线状态。
-  - [desktop_frontend_settings](desktop_frontend_settings.md) — 设置页用 `SettingRow` 统一参数行布局。
+  - [desktop_frontend_auth](desktop-frontend-auth.md) — `DashboardPanel` 是 `AnimatedCard` + `Badge` + `Button` 的最大消费方（五张可拖拽卡片）。
+  - [desktop_frontend_account_management](desktop-frontend-account-management.md) — `LoginInfoDialog` 密集使用 `Input`（图标/错误态）、`Button`（`isLoading` 保存态）、`Label`。
+  - [desktop_frontend_monitoring](desktop-frontend-monitoring.md) — `StatusBar` 用 `Badge` 表达在线状态。
+  - [desktop_frontend_settings](desktop-frontend-settings.md) — 设置页用 `SettingRow` 统一参数行布局。
 - **依赖的基础设施**：
-  - [desktop_frontend_utilities_libraries](desktop_frontend_utilities_libraries.md) — `cn()` 类合并、`extractErrorMessage`。
-  - [desktop_frontend_hooks](desktop_frontend_hooks.md) — `useAnimationProfile`（倾斜开关）、`useThemeStore`（主题令牌）、`useQualityStore`（刷新率驱动 easing）。
-- **Android 端对照**：移动端有一份功能对齐但独立的组件集，见 [android_frontend_shared_ui_components](android_frontend_shared_ui_components.md)（含 `MobileQuickActions`、`card.tsx` 等桌面端没有的文件），两端通过复制而非共享代码演进。
+  - [desktop_frontend_utilities_libraries](desktop-frontend-utilities-libraries.md) — `cn()` 类合并、`extractErrorMessage`。
+  - [desktop_frontend_hooks](desktop-frontend-hooks.md) — `useAnimationProfile`（倾斜开关）、`useThemeStore`（主题令牌）、`useQualityStore`（刷新率驱动 easing）。
+- **Android 端对照**：移动端有一份功能对齐但独立的组件集，见 [android_frontend_shared_ui_components](android-frontend-shared-ui-components.md)（含 `MobileQuickActions`、`card.tsx` 等桌面端没有的文件），两端通过复制而非共享代码演进。
 
 ## 设计约束与历史缺陷记录
 

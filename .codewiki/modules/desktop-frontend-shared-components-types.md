@@ -305,16 +305,16 @@ flowchart TB
 
 | 关联模块 | 关系说明 |
 |----------|---------|
-| [desktop_frontend_hooks](desktop_frontend_hooks.md) | `tauriApi.ts` 从 `@/shared` 导入所有类型契约；`useLogToastStore` 消费 `LogEntry` / `ToastMessage` / `LogType`；`useConfigStore` 消费 `PASSWORD_MASK` |
-| [desktop_frontend_shared_ui_components](desktop_frontend_shared_ui_components.md) | 本模块的 `LogPanel` / `ToastContainer` 依赖 `ui/button` / `ui/badge` / `ui/animated-card` 等基础 UI 原语 |
-| [desktop_frontend_auth](desktop_frontend_auth.md) | 认证面板通过 Toast 系统反馈登录结果，消费 `ToastMessage` 类型 |
-| [desktop_frontend_account_management](desktop_frontend_account_management.md) | 账号面板使用 `IspMark` 展示运营商标识、`MascotFigure` 展示空状态插图 |
-| [desktop_frontend_network_management](desktop_frontend_network_management.md) | 网络面板通过 `onAdapterDisabledWarning` 事件消费 `AdapterDisabledWarningData` |
-| [desktop_frontend_monitoring](desktop_frontend_monitoring.md) | 监控面板使用 `AnimatedNumber` 展示延迟数值 |
-| [desktop_frontend_settings](desktop_frontend_settings.md) | 设置面板触发配置保存，消费 `SaveConfigResult`；自动退出倒计时消费 `AutoExitCountdownData` |
-| [desktop_backend_update](desktop_backend_update.md) | Rust `updater.rs` 中 `UpdateInfo` / `DownloadProgress` 结构体（`#[serde(rename_all = "camelCase")]`）与本模块 `types.ts` 一一对应 |
-| [desktop_backend_commands](desktop_backend_commands.md) | `commands/updater.rs`、`commands/system.rs` 发射的 Tauri 事件 payload 由本模块类型定义约束 |
-| [android_frontend_shared_components](android_frontend_shared_components.md) | Android 端对等的共享组件模块，共享 `AnimatedNumber` / `IspMark` / `MascotFigure` 概念但独立实现 |
+| [desktop_frontend_hooks](desktop-frontend-hooks.md) | `tauriApi.ts` 从 `@/shared` 导入所有类型契约；`useLogToastStore` 消费 `LogEntry` / `ToastMessage` / `LogType`；`useConfigStore` 消费 `PASSWORD_MASK` |
+| [desktop_frontend_shared_ui_components](desktop-frontend-shared-ui-components.md) | 本模块的 `LogPanel` / `ToastContainer` 依赖 `ui/button` / `ui/badge` / `ui/animated-card` 等基础 UI 原语 |
+| [desktop_frontend_auth](desktop-frontend-auth.md) | 认证面板通过 Toast 系统反馈登录结果，消费 `ToastMessage` 类型 |
+| [desktop_frontend_account_management](desktop-frontend-account-management.md) | 账号面板使用 `IspMark` 展示运营商标识、`MascotFigure` 展示空状态插图 |
+| [desktop_frontend_network_management](desktop-frontend-network-management.md) | 网络面板通过 `onAdapterDisabledWarning` 事件消费 `AdapterDisabledWarningData` |
+| [desktop_frontend_monitoring](desktop-frontend-monitoring.md) | 监控面板使用 `AnimatedNumber` 展示延迟数值 |
+| [desktop_frontend_settings](desktop-frontend-settings.md) | 设置面板触发配置保存，消费 `SaveConfigResult`；自动退出倒计时消费 `AutoExitCountdownData` |
+| [desktop_backend_update](desktop-backend-update.md) | Rust `updater.rs` 中 `UpdateInfo` / `DownloadProgress` 结构体（`#[serde(rename_all = "camelCase")]`）与本模块 `types.ts` 一一对应 |
+| [desktop_backend_commands](desktop-backend-commands.md) | `commands/updater.rs`、`commands/system.rs` 发射的 Tauri 事件 payload 由本模块类型定义约束 |
+| [android_frontend_shared_components](android-frontend-shared-components.md) | Android 端对等的共享组件模块，共享 `AnimatedNumber` / `IspMark` / `MascotFigure` 概念但独立实现 |
 
 ---
 
@@ -330,7 +330,7 @@ flowchart TB
 | `PASSWORD_MASK` | `'***'` | 密码占位符——配置回传时后端以此掩码表示"密码未变" |
 | `NAV_ITEMS` | 九项导航数组 | 面板导航配置（含 i18n key、图标名、快捷键） |
 
-> `APP_VERSION` 为前端静态硬编码，构建期真实版本号以仓库根目录 `version.json` 为准（详见 [build_deployment_configuration](build_deployment_configuration.md)）。
+> `APP_VERSION` 为前端静态硬编码，构建期真实版本号以仓库根目录 `version.json` 为准（详见 [build_deployment_configuration](build-deployment-configuration.md)）。
 
 ---
 

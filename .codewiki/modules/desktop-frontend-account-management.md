@@ -27,7 +27,7 @@ fsoft_page: desktop_frontend_account_management.md
 1. **多账号档案管理**：账号列表渲染、新增（保存当前登录信息为账号）、删除、切换、内联改名（仅改显示名，账号 id 稳定不变）。
 2. **运营商绑定与自助服务**：校园网运营商（移动 `cmcc` / 电信 `telecom` / 联通 `unicom`）账号绑定、绑定状态查询（掩码展示）、明文密码揭示、自助服务面板（在线设备卡、近期上网记录、按日期查询的账单明细、自助改密），以及贯穿敏感操作的 Windows Hello（`verify_windows_identity`）验证门。
 
-所有后端命令经统一封装层 `tauriApiWithRetry`（见 [桌面前端 Hooks](desktop_frontend_hooks.md)）下发到 Rust 侧账号/自助服务命令（见 [桌面后端账号管理](desktop_backend_account_management.md) 与 [桌面后端命令](desktop_backend_commands.md)）。
+所有后端命令经统一封装层 `tauriApiWithRetry`（见 [桌面前端 Hooks](desktop-frontend-hooks.md)）下发到 Rust 侧账号/自助服务命令（见 [桌面后端账号管理](desktop-backend-account-management.md) 与 [桌面后端命令](desktop-backend-commands.md)）。
 
 ---
 
@@ -174,7 +174,7 @@ classDiagram
     SessionRow ..> SelfHistoryRow : recentToSessionRows 归一
 ```
 
-- `AccountItem` 复用 [桌面前端设置](desktop_frontend_settings.md) 的 `@/settings/types` 定义，`id` 是账号文件名 stem（稳定），`displayName` 可编辑。
+- `AccountItem` 复用 [桌面前端设置](desktop-frontend-settings.md) 的 `@/settings/types` 定义，`id` 是账号文件名 stem（稳定），`displayName` 可编辑。
 - `SelfLogRow / SelfLogSummary` 字段键逆向自自助服务页面 JS（2026-09-05/06），原始 JSON 透传，大小写敏感（汇总键大写）。
 - `SessionRow` 是近期流水（`SelfHistoryRow` 元组）与账单行（`SelfLogRow`）的前端归一形态，由 `mode` 区分补充字段。
 
@@ -341,9 +341,9 @@ flowchart TD
 
 **关键外部契约**：
 
-- `tauriApiWithRetry`（[桌面前端 Hooks](desktop_frontend_hooks.md)）提供 `listAccounts / saveCurrentAsAccount / deleteAccount / switchAccount / renameAccount / verifyWindowsIdentity / getBindStatus / bindOperator / revealOperatorCredential / changeSelfPassword` 等命令封装。
+- `tauriApiWithRetry`（[桌面前端 Hooks](desktop-frontend-hooks.md)）提供 `listAccounts / saveCurrentAsAccount / deleteAccount / switchAccount / renameAccount / verifyWindowsIdentity / getBindStatus / bindOperator / revealOperatorCredential / changeSelfPassword` 等命令封装。
 - `useConfigStore` 提供 `accounts / activeAccount / setAccounts / setActiveAccount / updateConfig / saveConfigDirect / syncPasswordSaved` 与 `config.selfHelloEnabled / selfReverifyEachAction / deviceAliases`。
-- 后端命令落点见 [桌面后端命令](desktop_backend_commands.md) 的 `commands/account.rs`（`create_account / save_current_as_account / delete_account / switch_account / rename_account / list_accounts`）与 `commands/self_service.rs`（`bind_operator / query_bind_status / reveal_operator_credential / change_self_password / query_self_dashboard / query_self_online_log / self_offline_session / verify_windows_identity`）。
+- 后端命令落点见 [桌面后端命令](desktop-backend-commands.md) 的 `commands/account.rs`（`create_account / save_current_as_account / delete_account / switch_account / rename_account / list_accounts`）与 `commands/self_service.rs`（`bind_operator / query_bind_status / reveal_operator_credential / change_self_password / query_self_dashboard / query_self_online_log / self_offline_session / verify_windows_identity`）。
 - 显示名校验的后端单点为 `commands/account.rs::validate_display_name`（前端 `isValidDisplayName` 仅作快速反馈，禁止单方面放宽/收紧）。
 
 ---
@@ -358,16 +358,16 @@ flowchart TD
 | `AccountPanel.rename.test.tsx` | 账号列表 + 改名流 | 按 `displayName` 渲染、`key=id`、`isActive` 按 id 判断；改名走真实 `useAccount` → `rename_account({ accountId, displayName })` 并刷新列表；Esc 取消不发请求；空显示名不发请求并 toast 校验失败 |
 
 - 测试通过 `vi.mock('@/hooks/tauriApi')` 模拟后端命令，并从 `document.body` 查找 Radix portal 挂载的弹窗按钮。
-- 测试基础设施（`vitest.config.ts`、`@testing-library/react`）见 [构建与部署配置](build_deployment_configuration.md)。
+- 测试基础设施（`vitest.config.ts`、`@testing-library/react`）见 [构建与部署配置](build-deployment-configuration.md)。
 
 ---
 
 ## 与其他模块的关系
 
-- **账号列表数据来源**：应用初始化时由 `get_init_data` 一次性带出 `accounts`（`AccountItem[]`）与 `activeAccount`，见 [桌面前端设置](desktop_frontend_settings.md) 的 `InitData`。
-- **凭据加密**：账号保存的密码在 Rust 侧用 DPAPI 加密落盘（`dpapi.encrypt / decrypt`），前端不接触明文存储，见 [桌面后端账号管理](desktop_backend_account_management.md)。
-- **身份验证**：`verify_windows_identity` 在 Rust 侧维护「最近验证时间戳」与 TTL 判定，见 [桌面后端平台相关](desktop_backend_platform_specific.md) 的 `platform/identity.rs`（`identity_verified_recently / note_identity_verified`）。
-- **同类移动端实现**：本模块与 [Android 前端账号管理](android_frontend_account_management.md) 共享大部分类型/格式化口径，但 Android 端把「Hello 门」替换为生物识别（`verify_biometric_identity`），且面板形态为 `SelfOnlineStack` 卡片堆叠。
+- **账号列表数据来源**：应用初始化时由 `get_init_data` 一次性带出 `accounts`（`AccountItem[]`）与 `activeAccount`，见 [桌面前端设置](desktop-frontend-settings.md) 的 `InitData`。
+- **凭据加密**：账号保存的密码在 Rust 侧用 DPAPI 加密落盘（`dpapi.encrypt / decrypt`），前端不接触明文存储，见 [桌面后端账号管理](desktop-backend-account-management.md)。
+- **身份验证**：`verify_windows_identity` 在 Rust 侧维护「最近验证时间戳」与 TTL 判定，见 [桌面后端平台相关](desktop-backend-platform-specific.md) 的 `platform/identity.rs`（`identity_verified_recently / note_identity_verified`）。
+- **同类移动端实现**：本模块与 [Android 前端账号管理](android-frontend-account-management.md) 共享大部分类型/格式化口径，但 Android 端把「Hello 门」替换为生物识别（`verify_biometric_identity`），且面板形态为 `SelfOnlineStack` 卡片堆叠。
 
 ---
 

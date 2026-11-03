@@ -28,11 +28,11 @@ fsoft_page: desktop_backend_infrastructure.md
 
 业务模块如何使用这些设施（登录命令、后台检测循环、系统命令等）请参考：
 
-- [桌面后端命令层](desktop_backend_commands.md)
-- [桌面后端应用生命周期](desktop_backend_app_lifecycle.md)
-- [桌面后端配置模型](desktop_backend_configuration.md)
-- [桌面后端监控](desktop_backend_monitoring.md)
-- [桌面后端平台特定能力](desktop_backend_platform_specific.md)
+- [桌面后端命令层](desktop-backend-commands.md)
+- [桌面后端应用生命周期](desktop-backend-app-lifecycle.md)
+- [桌面后端配置模型](desktop-backend-configuration.md)
+- [桌面后端监控](desktop-backend-monitoring.md)
+- [桌面后端平台特定能力](desktop-backend-platform-specific.md)
 
 ---
 
@@ -410,15 +410,15 @@ flowchart TB
 
 | 关联模块 | 关系 |
 | --- | --- |
-| [桌面后端命令层](desktop_backend_commands.md) | 所有 `#[tauri::command]` 函数的统一入口；通过 `CommandContext` 访问 `AppState`，通过 `EventBus` 回推前端 |
-| [桌面后端应用生命周期](desktop_backend_app_lifecycle.md) | `app::startup::run` 装配 Tauri Builder、托盘、窗口恢复；本模块提供 `AppState` 托管与 logger 初始化时机 |
-| [桌面后端配置模型](desktop_backend_configuration.md) | `ConfigStore` 是 `Config` 的 `ArcSwap` 快照容器；夜间切换/定时动作标记存于 `ScheduledFired` |
-| [桌面后端监控](desktop_backend_monitoring.md) | 后台检测循环注册进 `BackgroundTaskManager`；网络快照写入 `NetworkState` |
-| [桌面后端平台特定能力](desktop_backend_platform_specific.md) | `task_proxy.rs` 注册 SYSTEM 计划任务，与本模块 `helper` worker 配套；`rtss_compat` 预检在 `main.rs` 极早期执行 |
-| [桌面后端账号管理](desktop_backend_account_management.md) | `validate_account_name` / `sanitize_account_id` / `AccountItem` 是账号持久层的校验与出站契约 |
-| [桌面后端更新](desktop_backend_update.md) | `UpdateStats` 持有更新通知与 WebView 恢复滑动窗口的原子计数 |
-| [桌面后端 VPN 集成](desktop_backend_vpn_integration.md) | 复用 `async_util` 的 block_on 统一入口发起 WebVPN 请求 |
-| [构建部署配置](build_deployment_configuration.md) | `Cargo.toml` 定义 lib/bin 双产物（`campus_login_lib` + `campus-login-core`），release profile 使用 panic=unwind + thin LTO |
+| [桌面后端命令层](desktop-backend-commands.md) | 所有 `#[tauri::command]` 函数的统一入口；通过 `CommandContext` 访问 `AppState`，通过 `EventBus` 回推前端 |
+| [桌面后端应用生命周期](desktop-backend-app-lifecycle.md) | `app::startup::run` 装配 Tauri Builder、托盘、窗口恢复；本模块提供 `AppState` 托管与 logger 初始化时机 |
+| [桌面后端配置模型](desktop-backend-configuration.md) | `ConfigStore` 是 `Config` 的 `ArcSwap` 快照容器；夜间切换/定时动作标记存于 `ScheduledFired` |
+| [桌面后端监控](desktop-backend-monitoring.md) | 后台检测循环注册进 `BackgroundTaskManager`；网络快照写入 `NetworkState` |
+| [桌面后端平台特定能力](desktop-backend-platform-specific.md) | `task_proxy.rs` 注册 SYSTEM 计划任务，与本模块 `helper` worker 配套；`rtss_compat` 预检在 `main.rs` 极早期执行 |
+| [桌面后端账号管理](desktop-backend-account-management.md) | `validate_account_name` / `sanitize_account_id` / `AccountItem` 是账号持久层的校验与出站契约 |
+| [桌面后端更新](desktop-backend-update.md) | `UpdateStats` 持有更新通知与 WebView 恢复滑动窗口的原子计数 |
+| [桌面后端 VPN 集成](desktop-backend-vpn-integration.md) | 复用 `async_util` 的 block_on 统一入口发起 WebVPN 请求 |
+| [构建部署配置](build-deployment-configuration.md) | `Cargo.toml` 定义 lib/bin 双产物（`campus_login_lib` + `campus-login-core`），release profile 使用 panic=unwind + thin LTO |
 
 ---
 

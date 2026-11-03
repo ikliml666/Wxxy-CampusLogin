@@ -20,7 +20,7 @@ fsoft_page: desktop_frontend_network_management.md
 
 `desktop_frontend_network_management` 是 Tauri 桌面应用前端（`tauri-app/frontend/src/network/`）中负责**网络控制面板**的领域模块。它向用户呈现本机所有网卡适配器，提供 DHCP 续租/换 IP、适配器启用、DNS / DoH 一键优化、夜间出站切换的手动触发与拖拽排序、以及主/副登录网卡与账号绑定的配置入口。
 
-模块遵循「面板只渲染、逻辑全部外移」的分层原则：`NetworkPanel` 负责视图与交互编排，业务逻辑收敛在 `useNetwork` / `useDnsSetup` / `useOutboundManual` 三个自定义 Hook，纯计算（适配器名解析、出站排序）放在无副作用的 `adapters.ts` / `outboundOrder.ts`，类型契约集中在 `types.ts` 并经 `index.ts` 桶文件再导出。所有与本机的交互均通过 [hooks 模块的 `tauriApiWithRetry`](desktop_frontend_hooks.md) 发起 Tauri IPC（`invoke`），本模块不直接调用 `@tauri-apps/api`。
+模块遵循「面板只渲染、逻辑全部外移」的分层原则：`NetworkPanel` 负责视图与交互编排，业务逻辑收敛在 `useNetwork` / `useDnsSetup` / `useOutboundManual` 三个自定义 Hook，纯计算（适配器名解析、出站排序）放在无副作用的 `adapters.ts` / `outboundOrder.ts`，类型契约集中在 `types.ts` 并经 `index.ts` 桶文件再导出。所有与本机的交互均通过 [hooks 模块的 `tauriApiWithRetry`](desktop-frontend-hooks.md) 发起 Tauri IPC（`invoke`），本模块不直接调用 `@tauri-apps/api`。
 
 ## 目录与组件总览
 
@@ -109,11 +109,11 @@ flowchart TB
 
 - `NetworkPanel` 通过 `useShallow` 自订阅 `useConfigStore.config` / `useAdapterStore` / `useAuthStore.bgStatus`，使 App 外壳不再因任意配置字段变化而级联重渲染。
 - DHCP 结果的「归一化 + 成功/跳过/失败三类提示」由 `useNetwork` 导出的 `normalizeDhcpResults` / `announceDhcpResults` 实现，`DashboardPanel` 与 `NetworkPanel` 两个入口共用同一套 i18n 文案（键：`network.gotNewIp` / `network.skipNonCampus` / `network.getNewIpFailed`）。
-- 适配器刷新统一走 `refreshAdapterData()`（定义在 [hooks 模块的 `useAdapterStore`](desktop_frontend_hooks.md)），收敛了三处历史重复实现（缺陷 P2-F10）。
+- 适配器刷新统一走 `refreshAdapterData()`（定义在 [hooks 模块的 `useAdapterStore`](desktop-frontend-hooks.md)），收敛了三处历史重复实现（缺陷 P2-F10）。
 
 ## 类型契约（types.ts）
 
-`types.ts` 是前端与后端 IPC 的对齐契约，被 [hooks 模块的 `TauriApi`](desktop_frontend_hooks.md) 直接引用：
+`types.ts` 是前端与后端 IPC 的对齐契约，被 [hooks 模块的 `TauriApi`](desktop-frontend-hooks.md) 直接引用：
 
 ```mermaid
 classDiagram
@@ -224,11 +224,11 @@ flowchart LR
     MAIN --> NET
 ```
 
-**跨端对照**：Android 端仅保留 DNS 设置与轮询两条精简能力（见 [android_frontend_monitoring_network](android_frontend_monitoring_network.md)），DHCP 换 IP、适配器启用、夜间出站拖拽排序均为桌面端专属，与本模块形成「桌面全量 / 移动精简」的对照。
+**跨端对照**：Android 端仅保留 DNS 设置与轮询两条精简能力（见 [android_frontend_monitoring_network](android-frontend-monitoring-network.md)），DHCP 换 IP、适配器启用、夜间出站拖拽排序均为桌面端专属，与本模块形成「桌面全量 / 移动精简」的对照。
 
 ### IPC 命令清单（前端发起 → 后端命令）
 
-下表为本模块经 `tauriApiWithRetry` 发起的全部 Tauri 命令，后端实现见 [desktop_backend_commands](desktop_backend_commands.md) 的 `network_cmd.rs`：
+下表为本模块经 `tauriApiWithRetry` 发起的全部 Tauri 命令，后端实现见 [desktop_backend_commands](desktop-backend-commands.md) 的 `network_cmd.rs`：
 
 | 前端方法 | IPC 命令 | 用途 |
 | --- | --- | --- |
@@ -352,7 +352,7 @@ flowchart LR
 
 - **拖拽期屏蔽外部同步**：`isDraggingRef` 为 true 时，外部 `outboundPriority` 落盘回显到达不会重置本地 `dragOrder`，避免拖拽中闪烁回旧序；`onDragEnd` 才一次性提交，顺序未变化（误触长按未移动）则不落盘。
 - **长按起拖**：`DRAG_LONG_PRESS_MS = 250ms`，位移超 `DRAG_DEAD_ZONE_PX = 8px` 视为滚动意图并取消；行右侧按钮区 `stopPropagation`，防止点按钮拖走整行。
-- **前后端对齐**：排序语义与后端 `effective_outbound_priority`（见 [desktop_backend_configuration](desktop_backend_configuration.md) 的 `outbound_switch.rs`）保持一致；`adapters.ts` 的 `resolveAdapterNames` 同样要求与后端 `resolve_adapter_names` 规则不漂移，否则登录/注销选择器与实际登录目标对不上。
+- **前后端对齐**：排序语义与后端 `effective_outbound_priority`（见 [desktop_backend_configuration](desktop-backend-configuration.md) 的 `outbound_switch.rs`）保持一致；`adapters.ts` 的 `resolveAdapterNames` 同样要求与后端 `resolve_adapter_names` 规则不漂移，否则登录/注销选择器与实际登录目标对不上。
 
 ## 关键设计约定
 
@@ -364,27 +364,27 @@ flowchart LR
 
 ### 错误提示归一化
 
-所有异步动作的 catch 分支统一走 [`extractErrorMessage`](desktop_frontend_utilities_libraries.md)（处理 string / Error / `{message}` 普通对象三种 reject 形态），再交给 `useLogToastStore.addToast` 输出；DEV 环境额外 `console.error` 打印原始异常。
+所有异步动作的 catch 分支统一走 [`extractErrorMessage`](desktop-frontend-utilities-libraries.md)（处理 string / Error / `{message}` 普通对象三种 reject 形态），再交给 `useLogToastStore.addToast` 输出；DEV 环境额外 `console.error` 打印原始异常。
 
 ### 网络质量常量（constants.ts）
 
-`QUALITY_CONFIG` 定义 `excellent / great / good / fair / poor / bad / unknown / disabled / busy` 九级，每级携带 label、i18n key、Tailwind 文本/背景/边框色、lucide 图标名、hex、信号条数与 glow 色。[utilities 模块的 `latency.ts`](desktop_frontend_utilities_libraries.md) 按毫秒延迟映射到这些级别（`≤20ms` 极速 … `>400ms` 拥堵，`<0` 视为 bad），[monitoring 模块的 `StatusBar`](desktop_frontend_monitoring.md) 与首页质量卡共用同一份渲染口径。
+`QUALITY_CONFIG` 定义 `excellent / great / good / fair / poor / bad / unknown / disabled / busy` 九级，每级携带 label、i18n key、Tailwind 文本/背景/边框色、lucide 图标名、hex、信号条数与 glow 色。[utilities 模块的 `latency.ts`](desktop-frontend-utilities-libraries.md) 按毫秒延迟映射到这些级别（`≤20ms` 极速 … `>400ms` 拥堵，`<0` 视为 bad），[monitoring 模块的 `StatusBar`](desktop-frontend-monitoring.md) 与首页质量卡共用同一份渲染口径。
 
 ## 测试
 
-单测基于 vitest（配置见 [build 模块的 `vitest.config.ts`](build_deployment_configuration.md)），由 `tauri-app/frontend/package.json` 的 `test` / `test:watch` 脚本驱动：
+单测基于 vitest（配置见 [build 模块的 `vitest.config.ts`](build-deployment-configuration.md)），由 `tauri-app/frontend/package.json` 的 `test` / `test:watch` 脚本驱动：
 
 - `adapters.test.ts` — `resolveAdapterNames` 全分支（见上）。
 - `useNetwork.test.ts` — `normalizeDhcpResults` 的批量/单条形态；`announceDhcpResults` 的「无失败不发失败 toast」「失败汇总为一条 error」「全跳过只发 info」三场景。测试环境不加载全局 i18n，`beforeAll` 注入最小 zh 资源。
 
 ## 相关模块索引
 
-- [desktop_frontend_hooks](desktop_frontend_hooks.md) — `tauriApiWithRetry`、`useAdapterStore`（含 `refreshAdapterData`）、`useQualityStore`、`useLogToastStore`、`useConfigStore`
-- [desktop_frontend_monitoring](desktop_frontend_monitoring.md) — 网络质量类型 `NetworkQuality`、后台巡检事件消费方
-- [desktop_frontend_auth](desktop_frontend_auth.md) — `DashboardPanel` 复用 DHCP 换 IP 提示
-- [desktop_frontend_settings](desktop_frontend_settings.md) — `Config` 的 `adapter1` / `adapter2` / `dualAdapter` / `adapter1Account` / `adapter2Account` / `outboundPriority` / `dnsOptimizeAdapters` / `enableNightOutboundSwitch` / `nightRestoreMinutes`
-- [desktop_frontend_shared_ui_components](desktop_frontend_shared_ui_components.md) 与 [desktop_frontend_shared_components_types](desktop_frontend_shared_components_types.md) — UI 基元与 `OnlineDeviceCardStack` / `IspMark` 复用
-- [desktop_frontend_utilities_libraries](desktop_frontend_utilities_libraries.md) — `cn` / `extractErrorMessage` / `latency.ts`
-- [desktop_backend_commands](desktop_backend_commands.md) — `network_cmd.rs` 全部命令后端实现
-- [desktop_backend_configuration](desktop_backend_configuration.md) — `outbound_switch.rs` / `night_switch.rs` 出站与夜间切换的后端归一化
-- [android_frontend_monitoring_network](android_frontend_monitoring_network.md) — 移动端精简对照（仅 DNS 设置与轮询）
+- [desktop_frontend_hooks](desktop-frontend-hooks.md) — `tauriApiWithRetry`、`useAdapterStore`（含 `refreshAdapterData`）、`useQualityStore`、`useLogToastStore`、`useConfigStore`
+- [desktop_frontend_monitoring](desktop-frontend-monitoring.md) — 网络质量类型 `NetworkQuality`、后台巡检事件消费方
+- [desktop_frontend_auth](desktop-frontend-auth.md) — `DashboardPanel` 复用 DHCP 换 IP 提示
+- [desktop_frontend_settings](desktop-frontend-settings.md) — `Config` 的 `adapter1` / `adapter2` / `dualAdapter` / `adapter1Account` / `adapter2Account` / `outboundPriority` / `dnsOptimizeAdapters` / `enableNightOutboundSwitch` / `nightRestoreMinutes`
+- [desktop_frontend_shared_ui_components](desktop-frontend-shared-ui-components.md) 与 [desktop_frontend_shared_components_types](desktop-frontend-shared-components-types.md) — UI 基元与 `OnlineDeviceCardStack` / `IspMark` 复用
+- [desktop_frontend_utilities_libraries](desktop-frontend-utilities-libraries.md) — `cn` / `extractErrorMessage` / `latency.ts`
+- [desktop_backend_commands](desktop-backend-commands.md) — `network_cmd.rs` 全部命令后端实现
+- [desktop_backend_configuration](desktop-backend-configuration.md) — `outbound_switch.rs` / `night_switch.rs` 出站与夜间切换的后端归一化
+- [android_frontend_monitoring_network](android-frontend-monitoring-network.md) — 移动端精简对照（仅 DNS 设置与轮询）

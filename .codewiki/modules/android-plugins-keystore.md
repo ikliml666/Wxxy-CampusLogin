@@ -98,6 +98,6 @@ sequenceDiagram
 
 ## 与其它模块的关系
 
-- **桌面端等价物**:密码落盘加密在 Windows 端由 [desktop_backend_account_management](desktop_backend_account_management.md) 的 `dpapi.encrypt` / `dpapi.decrypt` 承担;本插件即 Android 侧的对应实现,二者对上层账户命令保持一致语义。
-- **被调用方**:Android 账户/配置命令(见 [android_backend_tauri](android_backend_tauri.md),如 `account_cmds`、`config_state`)通过 `campus_keystore()` 门面读写加密凭据。
-- **同批插件**:与 [android_plugins_foreground_service](android_plugins_foreground_service.md)(前台保活)、[android_plugins_network_bind](android_plugins_network_bind.md)(WLAN 绑定)同属 `android/plugins/` 下的三个原生 Tauri 插件,构建配置参见 [build_deployment_configuration_android_plugins](build_deployment_configuration/build_deployment_configuration_android_plugins.md)。
+- **桌面端等价物**:密码落盘加密在 Windows 端由 [desktop_backend_account_management](desktop-backend-account-management.md) 的 `dpapi.encrypt` / `dpapi.decrypt` 承担;本插件即 Android 侧的对应实现,二者对上层账户命令保持一致语义。
+- **被调用方**:Android 账户/配置命令(见 [android_backend_tauri](android-backend-tauri.md),如 `account_cmds`、`config_state`)通过 `campus_keystore()` 门面读写加密凭据。
+- **同批插件**:与 [android_plugins_foreground_service](android-plugins-foreground-service.md)(前台保活)、[android_plugins_network_bind](android-plugins-network-bind.md)(WLAN 绑定)同属 `android/plugins/` 下的三个原生 Tauri 插件,构建配置参见 [build_deployment_configuration_android_plugins](build-deployment-configuration-android-plugins.md)。

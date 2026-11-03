@@ -21,7 +21,7 @@ fsoft_page: desktop_backend_auth_protocol.md
 | `auth/protocol.rs` | Dr.COM ePortal 登录/注销协议实现：构造并发送登录请求（`/eportal/portal/login`）、Radius 注销（`/eportal/portal/logout`）、MAC 解绑（`/eportal/portal/mac/unbind`），并解析 JSONP 响应 |
 | `auth/failure_tracker.rs` | 认证失败与 Portal 请求失败的计数追踪，连续失败达到阈值时触发 MAC 重置（DHCP 释放续租）自愈 |
 
-该模块是整个桌面端认证链路的**底层协议引擎**：上层的命令处理（[`commands/login.rs`](desktop_backend_commands.md)）、服务编排（`auth/service.rs`）、会话包装（`auth/session.rs`）、后台巡检（[`monitor/background_check.rs`](desktop_backend_monitoring.md)）均通过它与门户网关通信。
+该模块是整个桌面端认证链路的**底层协议引擎**：上层的命令处理（[`commands/login.rs`](desktop-backend-commands.md)）、服务编排（`auth/service.rs`）、会话包装（`auth/session.rs`）、后台巡检（[`monitor/background_check.rs`](desktop-backend-monitoring.md)）均通过它与门户网关通信。
 
 ---
 
@@ -78,7 +78,7 @@ flowchart TB
 
 #### 1.1 核心类型 `PortalStatus`
 
-探测结果序列化结构（前端 `PortalStatusResult` 类型对应，见 [desktop_frontend_auth.md](desktop_frontend_auth.md)）：
+探测结果序列化结构（前端 `PortalStatusResult` 类型对应，见 [desktop_frontend_auth.md](desktop-frontend-auth.md)）：
 
 ```rust
 pub struct PortalStatus {
@@ -396,7 +396,7 @@ sequenceDiagram
 
 - **可中断重试**：所有重试循环通过 `is_quitting: &AtomicBool` 每 100ms 检查退出标志，应用退出时立即中止
 - **原子计数**：失败计数通过 `update_with_result` 单次闭包完成读-增-判定，避免 TOCTOU 双重触发
-- **运行时上下文**：同步线程中的 async HTTP 请求通过 `block_on_sync` 驱动——优先 `Handle::block_on`（带 reactor guard），裸线程回退到自持多线程 Runtime（详见 [desktop_backend_infrastructure.md](desktop_backend_infrastructure.md)）
+- **运行时上下文**：同步线程中的 async HTTP 请求通过 `block_on_sync` 驱动——优先 `Handle::block_on`（带 reactor guard），裸线程回退到自持多线程 Runtime（详见 [desktop_backend_infrastructure.md](desktop-backend-infrastructure.md)）
 
 ---
 
@@ -406,22 +406,22 @@ sequenceDiagram
 
 | 模块 | 调用点 | 说明 |
 |------|--------|------|
-| [desktop_backend_commands.md](desktop_backend_commands.md) | `commands/login.rs::do_login/do_logout`、`commands/network_cmd.rs::check_portal_status` | Tauri 命令入口，编排本模块的协议调用 |
-| [desktop_backend_monitoring.md](desktop_backend_monitoring.md) | `monitor/background_check.rs`、`monitor/auto_auth.rs`、`monitor/portal_check.rs` | 后台巡检周期调用 `check_portal_full`，失败时调用 `handle_portal_request_failure` |
-| [desktop_backend_account_management.md](desktop_backend_account_management.md) | 账号凭据加密存储（DPAPI），供登录时读取用户名/密码 | 凭据来源，不直接调用本模块 |
+| [desktop_backend_commands.md](desktop-backend-commands.md) | `commands/login.rs::do_login/do_logout`、`commands/network_cmd.rs::check_portal_status` | Tauri 命令入口，编排本模块的协议调用 |
+| [desktop_backend_monitoring.md](desktop-backend-monitoring.md) | `monitor/background_check.rs`、`monitor/auto_auth.rs`、`monitor/portal_check.rs` | 后台巡检周期调用 `check_portal_full`，失败时调用 `handle_portal_request_failure` |
+| [desktop_backend_account_management.md](desktop-backend-account-management.md) | 账号凭据加密存储（DPAPI），供登录时读取用户名/密码 | 凭据来源，不直接调用本模块 |
 
 ### 下游依赖（本模块依赖）
 
 | 模块 | 依赖内容 | 说明 |
 |------|----------|------|
-| [desktop_backend_networking.md](desktop_backend_networking.md) | `network/client.rs::create_safe_http_client`、`PORTAL_URL`、`dhcp_release_renew_single`、`check_gateway_reachable_from` | HTTP 客户端池（TLS 1.3/1.2 降级、绑定源 IP、no_proxy）、MAC 重置、网关可达性检测 |
-| [desktop_backend_infrastructure.md](desktop_backend_infrastructure.md) | `infra/state/network.rs::NetworkSnapshot`、`infra/events.rs::EventBus`、`infra/async_util.rs::block_on_sync`、`infra/notification::emit_notification` | 原子状态存储、事件总线（login-log/mac-reset-cycle）、同步驱动 async、系统通知 |
-| [desktop_backend_configuration.md](desktop_backend_configuration.md) | `config/validate.rs::validate_username/operator/password`、`config/model.rs::Config` | 登录前凭据校验、门户地址/网关等配置 |
-| [desktop_backend_platform_specific.md](desktop_backend_platform_specific.md) | `platform/console_output.rs::decode_charset_bytes` | GBK Portal 响应的字符集解码 |
+| [desktop_backend_networking.md](desktop-backend-networking.md) | `network/client.rs::create_safe_http_client`、`PORTAL_URL`、`dhcp_release_renew_single`、`check_gateway_reachable_from` | HTTP 客户端池（TLS 1.3/1.2 降级、绑定源 IP、no_proxy）、MAC 重置、网关可达性检测 |
+| [desktop_backend_infrastructure.md](desktop-backend-infrastructure.md) | `infra/state/network.rs::NetworkSnapshot`、`infra/events.rs::EventBus`、`infra/async_util.rs::block_on_sync`、`infra/notification::emit_notification` | 原子状态存储、事件总线（login-log/mac-reset-cycle）、同步驱动 async、系统通知 |
+| [desktop_backend_configuration.md](desktop-backend-configuration.md) | `config/validate.rs::validate_username/operator/password`、`config/model.rs::Config` | 登录前凭据校验、门户地址/网关等配置 |
+| [desktop_backend_platform_specific.md](desktop-backend-platform-specific.md) | `platform/console_output.rs::decode_charset_bytes` | GBK Portal 响应的字符集解码 |
 
 ### 前端契约
 
-前端通过 Tauri `invoke` 调用本模块对应的命令（`do_login`、`do_logout`、`check_portal_status`），返回类型对应 [desktop_frontend_auth.md](desktop_frontend_auth.md) 中的 `LoginResult` / `PortalStatusResult` / `CommandResult`。
+前端通过 Tauri `invoke` 调用本模块对应的命令（`do_login`、`do_logout`、`check_portal_status`），返回类型对应 [desktop_frontend_auth.md](desktop-frontend-auth.md) 中的 `LoginResult` / `PortalStatusResult` / `CommandResult`。
 
 ---
 
@@ -433,4 +433,4 @@ sequenceDiagram
 - **`protocol.rs`**：登录成功/已在线/AC认证失败/非法用户/账号禁用解析、JSONP msg 含半角括号不截断、纯 JSON 响应解析、注销结果合并
 - **`failure_tracker.rs`**：认证失败码识别（已知码/网络错误/成功/缺失 code/缺失 data）
 
-测试运行方式见 [build_deployment_configuration.md](build_deployment_configuration.md) 的 `tauri-app/src-tauri/Cargo.toml` 配置。
+测试运行方式见 [build_deployment_configuration.md](build-deployment-configuration.md) 的 `tauri-app/src-tauri/Cargo.toml` 配置。

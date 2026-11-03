@@ -1,5 +1,5 @@
 ---
-title: 桌面端设置模块（desktop_frontend_settings）
+title: 桌面端前端设置模块（desktop_frontend_settings）
 type: module
 source_files:
   - tauri-app/frontend/src/settings/constants.ts
@@ -7,326 +7,424 @@ source_files:
   - tauri-app/frontend/src/settings/useSettings.ts
 tags: []
 generated_by: fsoft-native
-fsoft_page: docs/desktop_frontend_settings.md
+fsoft_page: desktop_frontend_settings.md
 ---
-# 桌面端设置模块（desktop_frontend_settings）
+# 桌面端前端设置模块（desktop_frontend_settings）
 
-## 简介
+`desktop_frontend_settings` 对应桌面端前端 `tauri-app/frontend/src/settings/` 目录，是整个桌面 UI 的**配置契约层与设置交互层**。它向上为所有面板提供「配置长什么样、默认值是什么、选项文案怎么取」的唯一权威定义，向下通过 Zustand store 与 Tauri `invoke` 通道把用户的一次点击变成后端落盘的持久化数据。
 
-`desktop_frontend_settings` 是 Tauri 桌面端（`tauri-app/frontend`）前端的设置领域模块，位于 `tauri-app/frontend/src/settings/` 目录下。它承担三大职责：
+模块的核心由三类构件组成：
 
-1. **定义配置领域的 TypeScript 类型**：`Config`（运行期全量配置对象）、`AccountItem`（账号列表项）、`InitData`（启动一次性初始化数据包）等，是前端各模块与 Rust 后端之间配置契约的核心描述。
-2. **提供默认配置与静态选项常量**：`DEFAULT_CONFIG`（含全部配置字段的默认值与迁移注释）、`ISP_OPTIONS`（运营商后缀选项）、`THEME_OPTIONS` / `GLASS_OPTIONS`（主题与玻璃质感档位选项）、`operatorLabelKey`（运营商后缀到 i18n 标签键的映射函数）等。
-3. **导出 `useSettings` React Hook**：作为设置面板 UI 与底层 Zustand store 之间的薄编排层，聚合配置 store、主题 store、日志 toast store，并实现浅色模式切换、通知开关、开机自启、主题设置等具体行为处理器。
+1. **类型契约**（`types.ts`）：`Config`、`AccountItem`、`InitData`、`AutoLaunchResult`、`CoreAutostartResult` —— 前端与 Rust 后端之间所有配置类命令的返回值形状。
+2. **常量字典**（`constants.ts`）：`DEFAULT_CONFIG`、`ISP_OPTIONS`、`THEME_OPTIONS`、`VALID_THEMES`、`GLASS_OPTIONS`、`VALID_GLASS_LEVELS`、`DEFAULT_PANEL_OPTIONS` 以及纯函数 `operatorLabelKey`。
+3. **行为聚合 Hook**（`useSettings.ts`）：把 `useConfigStore` / `useThemeStore` / `useLogToastStore` 三个领域 store 与后端命令缝合为一个「设置操作」出口，供 `App.tsx` 外壳、`TitleBar`、`SettingsPanel` 复用。
 
-该模块本身不渲染任何界面组件，而是为设置页面、主题对话框、账号面板等 UI 提供类型、常量与行为逻辑支撑；其配置读写的最终落盘由后端命令 `save_config` / `get_config` 完成（详见 [desktop_backend_commands.md](desktop_backend_commands.md)）。
+此外 `index.ts` 还对外导出三个设置相关的界面组件：`SettingsPanel`（设置面板）、`ThemeDialog`（主题 / 玻璃质感对话框）、`OnboardingWizard`（首次运行引导卡堆）。
 
 ---
 
-## 架构总览
-
-### 模块在前端依赖图中的位置
+## 1. 模块在系统中的位置
 
 ```mermaid
-graph TD
-    subgraph 本模块["settings/ 目录（本模块）"]
-        CONST["constants.ts<br/>DEFAULT_CONFIG / ISP_OPTIONS<br/>THEME_OPTIONS / GLASS_OPTIONS<br/>operatorLabelKey()"]
-        TYPES["types.ts<br/>Config / AccountItem<br/>InitData / AutoLaunchResult<br/>CoreAutostartResult"]
-        HOOK["useSettings.ts<br/>useSettings() Hook"]
-    end
+graph TB
+  subgraph BE["Rust 后端 (src-tauri)"]
+    CMD["commands/config_cmd.rs 与 system.rs 与 account.rs"]
+    MODEL["config/model.rs::Config (snake_case)"]
+  end
 
-    subgraph 依赖方向
-        TYPES -->|被引用类型| HOOK
-        CONST -->|被引用常量| HOOK
-        CONST -->|被引用常量| TYPES
-    end
+  subgraph API["tauriApi 层"]
+    TA["hooks/tauriApi.ts::TauriApi"]
+    RETRY["tauriApiWithRetry (仅 saveConfig 带重试)"]
+  end
 
-    subgraph 外部消费方
-        UI["设置面板 / 主题对话框<br/>等 UI 组件"]
-        OTHER_HOOKS["useConfigStore / useThemeStore<br/>useAppInit 等其他 Hook"]
-    end
+  subgraph STORE["Zustand 领域 store"]
+    CS["hooks/useConfigStore.ts"]
+    TS["hooks/useThemeStore.ts"]
+    LTS["hooks/useLogToastStore.ts"]
+    AS["hooks/useAdapterStore.ts"]
+  end
 
-    UI -->|调用| HOOK
-    OTHER_HOOKS -->|import 类型与常量| TYPES
-    OTHER_HOOKS -->|import DEFAULT_CONFIG| CONST
+  subgraph SET["desktop_frontend_settings（本模块）"]
+    TY["settings/types.ts<br/>Config / AccountItem / InitData"]
+    CN["settings/constants.ts<br/>DEFAULT_CONFIG / ISP / THEME / GLASS"]
+    HOOK["settings/useSettings.ts"]
+    PANEL["settings/SettingsPanel.tsx"]
+    THEME["settings/ThemeDialog.tsx"]
+    ONB["settings/OnboardingWizard.tsx"]
+    BARREL["settings/index.ts"]
+  end
 
-    HOOK -->|组合| CONFIG_STORE["useConfigStore<br/>配置领域 store"]
-    HOOK -->|组合| THEME_STORE["useThemeStore<br/>主题领域 store"]
-    HOOK -->|组合| TOAST_STORE["useLogToastStore<br/>日志/toast store"]
-    HOOK -->|调用后端命令| TAURI_API["tauriApiWithRetry<br/>setNotificationEnabled<br/>setAutoLaunch"]
+  subgraph UI["消费方"]
+    APP["App.tsx 外壳"]
+    TB["components/layout/TitleBar.tsx"]
+    SB["monitor/StatusBar.tsx"]
+    INIT["hooks/useInitialDataLoad.ts"]
+  end
 
-    CONFIG_STORE -->|invoke 落盘| BACKEND["Rust 后端命令<br/>save_config / get_config"]
-    TAURI_API -->|invoke| BACKEND
+  CMD -->|"invoke 返回 JSON"| TA
+  TA --> RETRY
+  MODEL -.->|"camelCase 序列化"| TY
+  TY --> CS
+  CN -->|"DEFAULT_CONFIG 作为初值"| CS
+  CN -->|"VALID_THEMES / VALID_GLASS_LEVELS"| TS
+  CN -->|"DEFAULT_CONFIG 兜底合并"| INIT
+  CS --> HOOK
+  TS --> HOOK
+  LTS --> HOOK
+  RETRY --> HOOK
+  HOOK --> APP
+  HOOK --> TB
+  APP --> PANEL
+  APP -->|"lazy + preload"| THEME
+  APP -->|"lazy + preload"| ONB
+  CN -->|"operatorLabelKey"| SB
+  CS --> PANEL
+  AS --> PANEL
+  BARREL --> TY
+  BARREL --> CN
+  BARREL --> HOOK
+
+  CS <-->|"save_config / config-changed"| RETRY
 ```
 
-### 核心组件职责一览
+模块本身不直接 `invoke` 后端命令（唯一例外是 `SettingsPanel` / `OnboardingWizard` 内的低频命令），持久化一律委托给 [desktop_frontend_hooks](desktop-frontend-hooks.md) 中的 store；这种「类型 + 常量在下、状态在中、行为在上」的切分，使得后端 `Config` 字段增删时，前端只需改 `types.ts` 与 `constants.ts` 两处。
 
-| 组件 | 文件 | 职责 |
+---
+
+## 2. 类型契约（`settings/types.ts`）
+
+### 2.1 `Config`
+
+`Config` 是桌面端唯一的「全量配置」形状，字段以 camelCase 与 Rust 侧 `crate::config::model::Config`（snake_case）通过 serde 重命名对齐。后端配置模型的默认值函数与校验规则详见 [desktop_backend_configuration](desktop-backend-configuration.md)。
+
+按用途可把 `Config` 字段分为九组：
+
+| 分组 | 字段 | 说明 |
 | --- | --- | --- |
-| `DEFAULT_CONFIG` | `constants.ts` | 全量配置默认值；`configVersion: 5` 标识当前配置模式版本，与后端迁移逻辑对应 |
-| `ISP_OPTIONS` | `constants.ts` | 运营商后缀下拉选项（无锡学院 / 电信 / 联通 / 移动），每项带 i18n `labelKey` |
-| `operatorLabelKey()` | `constants.ts` | 运营商后缀 → i18n 标签键映射；`null/undefined`（离线/未知）返回 `undefined`，调用方据此隐藏徽标 |
-| `THEME_OPTIONS` / `VALID_THEMES` | `constants.ts` | 7 套主题色选项及合法性校验数组 |
-| `GLASS_OPTIONS` / `VALID_GLASS_LEVELS` | `constants.ts` | 玻璃质感三档（off / standard / ultra）及合法性校验数组 |
-| `DEFAULT_PANEL_OPTIONS` | `constants.ts` | 由 `NAV_ITEMS` 派生的「默认启动面板」选项 |
-| `Config` | `types.ts` | 运行期全量配置接口（约 50 个字段，涵盖登录、网络、外观、定时任务、夜间切换等） |
-| `AccountItem` | `types.ts` | 账号列表项：`id`（稳定文件名 stem）、`displayName`（可编辑显示名）、`user`/`operator`/`passwordSaved` 扩展字段 |
-| `InitData` | `types.ts` | 启动一次性数据包：配置、版本、适配器、账号、后台状态、自启状态等的聚合 |
-| `AutoLaunchResult` / `CoreAutostartResult` | `types.ts` | 开机自启（用户级注册表）与核心自启（SYSTEM 计划任务）命令返回体 |
-| `useSettings()` | `useSettings.ts` | 编排 Hook：聚合三个 store，暴露 `handleToggleLightMode` / `handleToggleNotification` / `handleSetAutoLaunch` / `handleSetTheme` 四个处理器 |
+| 账号与凭证 | `user`、`password`、`operator`、`displayName`、`activeAccount` | `password` 出站恒为掩码 `PASSWORD_MASK`（`'***'`），仅表示「已保存」，明文永不进 webview |
+| 自助服务安全 | `selfHelloEnabled`、`selfReverifyEachAction` | Windows Hello 总开关与「每次操作都二次验证」，供 [desktop_frontend_account_management](desktop-frontend-account-management.md) 的验证门读取 |
+| 适配器 | `adapter1`、`adapter2`、`dualAdapter`、`adapter1Account`、`adapter2Account`、`outboundPriority`、`dnsOptimizeAdapters` | 后两个 `*Account` 是「仅桌面」的设备级绑定，切账号不改动；解析规则见 `network/adapters.ts::resolveAdapterNames` |
+| 启动与窗口 | `autoLaunch`、`hiddenStart`、`minimizeToTray`、`lightweightMode`、`autoLoginOnStart`、`autoLoginOnPreparation`、`autoExitAfterLogin`、`autoExitOnOnline` | 对应后端 `set_auto_launch` / `get_init_data.isAutoStart` / `close_window` 分支 |
+| 夜间切换与出站（后端内部状态） | `enableNightOperatorSwitch`、`nightOperatorRestore`、`enableNightOutboundSwitch`、`nightRestoreMinutes`、`nightOutboundRestore`、`outboundMetricRestore`、`outboundDisabledAdapters`、`outboundStandbyRoute`、`outboundManualHoldDay`、`outboundPendingSwitch` | UI 只读或仅暴露开关，其余字段由后端 monitor 层维护，导入配置时会被本机值整体覆盖（见 §6.4） |
+| 检测与调度 | `enableBackgroundCheck`、`backgroundCheckInterval`、`maxDisconnectReconnect`、`autoLoginCooldownSecs`、`scheduledLoginMinutes`、`scheduledLogoutMinutes`、`campusExitOnFail`、`campusExitStartMinutes`、`campusExitEndMinutes`、`campusCheckStartMinutes`、`campusCheckEndMinutes` | 分钟数字段以「当日分钟数」编码；`1440` 是禁用哨兵（真实 `00:00` 用 `0`） |
+| 校园网判定 | `portalUrl`、`fixedGateway`、`campusGateway`、`requiredNetworkName`、`enableNetworkNameCheck` | 与 [desktop_frontend_monitoring](desktop-frontend-monitoring.md) 的 `BackgroundStatus` 字段同构回传 |
+| 质量与延迟 | `enableNetworkQuality`、`enableLatencyTest`、`latencyTestInterval`、`skipTtfbInLatency`、`skipContentInLatency` | `enableNetworkQuality=false` 会联动关闭 `enableLatencyTest` 并清理 `defaultPanel='quality'`（见 §5.1.2） |
+| 界面与数据 | `themeMode`、`customThemeColor`、`defaultPanel`、`enableNotification`、`updateSource`、`logRetentionDays`、`configVersion`、`deviceAliases?` | `configVersion` 当前为 `5`，后端 `config_version` 迁移据此一次性刷新历史默认值 |
+
+### 2.2 其余契约类型
+
+- **`AccountItem`**：账号列表项。`id` 是账号文件名 stem（稳定不变），`displayName` 为可编辑显示名；`user` / `operator` / `passwordSaved` 为 `list_accounts` 的扩展字段，旧后端缺省时 UI 显示占位。账号操作命令与结果类型在 [desktop_frontend_account_management](desktop-frontend-account-management.md)（`SwitchAccountResult` 等）与 [desktop_backend_commands](desktop-backend-commands.md)（`commands/account.rs`）。
+- **`InitData`**：`get_init_data` 的一次性启动快照，聚合 `config`、`version`、`adapters`、`adapterDetails`、`accounts`、`activeAccount`、`backgroundStatus`、`isAutoStart`、`autoLaunch`、`notificationEnabled`、`logRetentionDays`、`debugMode`、`refreshRate?`。原先的四条一次性只读命令已并入此处，由 `useInitialDataLoad` 分发给各 store。
+- **`AutoLaunchResult` / `CoreAutostartResult`**：两者形状相同（`success` + 可选 `message`），分别对应「当前用户注册表自启」与「未登录 Windows 的 SYSTEM 计划任务无头核心自启」。后者开启时后端会写机器级加密配置，详见 [desktop_backend_platform_specific](desktop-backend-platform-specific.md)。
+
+> 值得注意：`account/types.ts` 通过 `export type { AccountItem } from '@/settings'` 复用本模块定义 —— 即 `settings` 是账号类型的**唯一定义源**，账号模块只做再导出。
 
 ---
 
-## 组件详解
+## 3. 常量字典（`settings/constants.ts`）
 
-### 1. `constants.ts` — 默认配置与静态选项
+### 3.1 `DEFAULT_CONFIG`
 
-#### `DEFAULT_CONFIG`
+`DEFAULT_CONFIG` 是 `Config` 的完整前端兜底值（`configVersion: 5`）。它有三个消费点：
 
-`DEFAULT_CONFIG` 是前端 config store 的初始值，也是后端配置缺失字段时的兜底。其字段按功能可分为若干组：
+1. `useConfigStore` 的 store 初始 state；
+2. `useInitialDataLoad` 与后端 `initData.config` 做浅合并（`{ ...DEFAULT_CONFIG, ...initData.config }`），保证后端新增字段在前端不缺失；
+3. `getInitData` 失败时的降级配置（此时同时置 `configLoaded = true`，避免依赖该信号的流程被永久阻塞）。
 
-- **登录凭证**：`user` / `password` / `operator`（运营商后缀）、`selfHelloEnabled`（Windows Hello 验证总开关）、`selfReverifyEachAction`（每次操作二次验证）。
-- **适配器**：`adapter1` / `adapter2` / `dualAdapter`，其中 `adapter1` 默认值为 `AUTO_DETECT_ADAPTER`（来自 [desktop_frontend_network_management.md](desktop_frontend_network_management.md) 的 `adapters.ts`）。
-- **启动与窗口行为**：`autoLoginOnStart`、`autoExitAfterLogin`、`minimizeToTray`、`lightweightMode`（桌面专属：关闭窗口仅留后端与托盘）、`hiddenStart`、`autoLaunch`。
-- **后台检测**：`enableBackgroundCheck`、`backgroundCheckInterval`（默认 60000ms）、`autoLoginOnPreparation`。
-- **夜间运营商/出站切换**：`enableNightOperatorSwitch`、`nightOperatorRestore`、`enableNightOutboundSwitch`、`nightRestoreMinutes`、`outboundPriority`、`outboundMetricRestore`、`outboundDisabledAdapters`、`outboundStandbyRoute`、`outboundManualHoldDay`、`outboundPendingSwitch`、`nightOutboundRestore`。这些字段中多数为「后端内部状态」（注释中明确标注），前端仅透传，用于与 [desktop_backend_configuration.md](desktop_backend_configuration.md) 的夜间切换评估逻辑对接。
-- **DNS 优化**：`dnsOptimizeAdapters: string[]`。
-- **外观**：`themeMode`（默认 `'dark'`）、`customThemeColor: '#6366f1'`、`defaultPanel`、`enableNotification`。
-- **网络质量与延迟**：`enableLatencyTest`、`latencyTestInterval`（默认 600000ms）、`enableNetworkQuality`、`skipTtfbInLatency`、`skipContentInLatency`。
-- **校园网判定**：`portalUrl`、`fixedGateway`、`requiredNetworkName`、`enableNetworkNameCheck`、`campusGateway`、`campusExitOnFail`、`campusExitStartMinutes`（480=8:00）、`campusExitEndMinutes`（1380=23:00）、`campusCheckStartMinutes`（460=07:40）、`campusCheckEndMinutes`（1380=23:00）。
-- **定时任务**：`scheduledLoginMinutes` / `scheduledLogoutMinutes`（哨兵值 `1440` 表示禁用，注释说明 `1440` 不是真实 00:00 时刻）。
-- **健壮性**：`maxDisconnectReconnect`（默认 3）、`autoLoginCooldownSecs`（默认 60）、`logRetentionDays`（默认 7）。
-- **版本**：`configVersion: 5` —— 与后端 `config_version v2→v3` 迁移注释对应（代码注释指出 2026-09-13 起 `campusCheckEndMinutes` 默认值变更由后端迁移一次性刷新）。
+注释中保留了两条**版本化默认值迁移**说明：`2026-09-13` 起 `campusCheckEndMinutes` 由 `0` 改为 `1380`（23:00）、`2026-09-20` 起 `scheduledLoginMinutes/scheduledLogoutMinutes` 的禁用哨兵由 `0` 改为 `1440`（因为 `0` 已是真实的 `00:00`）。存量配置由后端 `config_version` v2→v3 迁移一次性刷新，前端只负责「新装即新默认」。
 
-> 注：注释中多处历史默认值与迁移说明，体现该配置 schema 经历了多个版本演进；后端侧对应的默认值与反序列化逻辑见 [desktop_backend_configuration.md](desktop_backend_configuration.md) 的 `model.rs`。
+### 3.2 `ISP_OPTIONS` 与 `operatorLabelKey`
 
-#### 运营商选项与 `operatorLabelKey`
+`ISP_OPTIONS` 定义四个运营商选项，`value` 为登录账号后缀：
 
-```typescript
-export const ISP_OPTIONS = [
-  { value: '__default__', label: '无锡学院', labelKey: 'settings.isp.wxxy' },
-  { value: '@telecom',    label: '中国电信', labelKey: 'settings.isp.telecom' },
-  { value: '@unicom',     label: '中国联通', labelKey: 'settings.isp.unicom' },
-  { value: '@cmcc',       label: '中国移动', labelKey: 'settings.isp.cmcc' },
-] as const
-
-export const operatorLabelKey = (suffix) =>
-  suffix === null || suffix === undefined
-    ? undefined
-    : ISP_OPTIONS.find(o => o.value === (suffix === '' ? '__default__' : suffix))?.labelKey
-```
-
-关键设计细节：`bgStatus.onlineOperator` 用空字符串 `''` 表示校园网默认线路，而下拉选项用 `'__default__'` 作为选择值，`operatorLabelKey` 负责在两者间做归一化映射；离线/未知（`null/undefined`）时返回 `undefined`，让徽标组件据此隐藏。
-
-#### 主题与玻璃档位
-
-- `THEME_OPTIONS`：7 套预设（默认蓝 / 活力紫 / 森林绿 / 午夜橙 / 海洋青 / 樱桃红 / 自定义），每项附带 `color` 预览色值。
-- `VALID_THEMES`：主题合法性校验数组，供 `useThemeStore` 的 `initTheme` 校验本地存储值是否合法。
-- `GLASS_OPTIONS`：三档玻璃质感（`off` / `standard` / `ultra`），注释明确设计语汇借鉴 FlClash 的 `LiquidGlassQuality` 与 Apple Liquid Glass，但未复制任何上游源码（许可证合规说明）。
-- `DEFAULT_PANEL_OPTIONS`：由 `NAV_ITEMS`（来自 [desktop_frontend_shared_components_types.md](desktop_frontend_shared_components_types.md) 对应的 `ui-constants.ts`）映射出「默认启动面板」下拉选项。
-
----
-
-### 2. `types.ts` — 配置领域类型契约
-
-#### `Config` 接口
-
-`Config` 是 `DEFAULT_CONFIG` 的类型对应物，约 50 个字段。几个值得注意的字段语义：
-
-- `nightOperatorRestore` / `outboundDisabledAdapters` / `outboundStandbyRoute` / `outboundManualHoldDay` / `outboundPendingSwitch`：类型为后端内部状态（字符串或数字），前端仅作透传容器，对应后端夜间切换的运行期快照（见 [desktop_backend_monitoring.md](desktop_backend_monitoring.md) 的 `outbound_night.rs` / `outbound_switch.rs`）。
-- `deviceAliases?: Record<string, string>`：在线设备自定义别名表，键为 12 位 hex MAC，自助服务面板设备卡卡头展示。
-- `adapter1Account` / `adapter2Account`：主/副适配器绑定的账号 id，桌面设备级配置，切账号不改动。
-- `displayName?`：当前激活账号的显示名，改名同步落盘；空时回退用账号 id。
-
-#### `AccountItem`
-
-```typescript
-export interface AccountItem {
-  id: string          // 账号文件名 stem（稳定不变）
-  displayName: string // 可编辑显示名（后端已兜底非空）
-  user?: string       // 档案内保存的学号（list_accounts 扩展字段）
-  operator?: string   // 档案内保存的运营商后缀（'' / '@telecom' 等）
-  passwordSaved?: boolean // 只显状态不显明文
-}
-```
-
-`id` 与 `displayName` 的分离设计：`id` 是文件系统层面的稳定标识，`displayName` 是用户可编辑的友好名称——这与 [desktop_frontend_account_management.md](desktop_frontend_account_management.md) 的账号改名（`rename_account`）逻辑直接对应。
-
-#### `InitData`
-
-`InitData` 是启动一次性加载（`get_init_data` 命令）的返回类型，聚合了前端冷启动所需的几乎全部初始状态：
-
-| 字段 | 说明 |
-| --- | --- |
-| `config: Partial<Config>` | 后端持久化配置（增量合并到 `DEFAULT_CONFIG` 之上） |
-| `version` | 应用版本号 |
-| `adapters` / `adapterDetails` | 网卡列表与详情（类型引自 [desktop_frontend_network_management.md](desktop_frontend_network_management.md)） |
-| `accounts` / `activeAccount` | 账号列表与当前激活账号 |
-| `backgroundStatus` | 后台检测状态（类型引自 [desktop_frontend_monitoring.md](desktop_frontend_monitoring.md)） |
-| `isAutoStart` / `autoLaunch` | 用户级自启状态 |
-| `notificationEnabled` | 通知开关运行期真实值 |
-| `logRetentionDays` / `debugMode` | 原一次性 `get_log_retention_days` / `get_debug_mode` 命令并入此处，减少启动期往返 |
-| `refreshRate?` | 显示器刷新率（可选） |
-
-这种「一次性聚合」设计减少了启动时的多次 `invoke` 往返，是启动性能优化的关键（对应后端 `get_init_data` 命令，见 [desktop_backend_commands.md](desktop_backend_commands.md) 的 `system.rs`）。
-
----
-
-### 3. `useSettings.ts` — 设置行为编排 Hook
-
-`useSettings()` 是一个纯编排层 Hook，本身不持有状态，而是通过 `useShallow` 从三个 Zustand store 中选取所需切片并合并返回：
-
-```mermaid
-flowchart LR
-    subgraph store切片["useShallow 选取"]
-        CS["useConfigStore<br/>config / updateConfig<br/>saveConfigDirect<br/>passwordSaved / syncPasswordSaved"]
-        TS["useThemeStore<br/>themeName / isLightMode<br/>customThemeColor<br/>setThemeName / setIsLightMode<br/>initTheme / setCustomThemeColor"]
-        LS["useLogToastStore<br/>addToast"]
-    end
-
-    HOOK["useSettings()"] --> CS
-    HOOK --> TS
-    HOOK --> LS
-
-    subgraph 处理器["暴露的行为处理器"]
-        H1["handleToggleLightMode<br/>切换浅色/深色模式"]
-        H2["handleToggleNotification<br/>切换通知开关"]
-        H3["handleSetAutoLaunch<br/>设置开机自启"]
-        H4["handleSetTheme<br/>设置主题色"]
-    end
-
-    HOOK --> H1
-    HOOK --> H2
-    HOOK --> H3
-    HOOK --> H4
-```
-
-#### 处理器行为详解
-
-**`handleToggleLightMode`**
-1. 读取 `useThemeStore.getState().isLightMode`，取反得到 `next`。
-2. 调用 `setIsLightMode(next)` 立即切换（`useThemeStore` 的 subscribe 副作用同步切换 DOM class 与 CSS 变量）。
-3. 调用 `useConfigStore.getState().updateConfig({ themeMode })` 把 `'light'/'dark'` 写入配置（经 debounce 落盘）。
-4. 用 `safeStorage.set('campus-light-mode', ...)` 写本地存储，供下次启动 `initTheme` 优先读取。
-
-**`handleToggleNotification`**
-1. 读取当前 `configEnableNotification`，取反。
-2. `updateConfig` 先更新本地 UI 状态（乐观更新）。
-3. `await api.setNotificationEnabled(next)` 调后端命令；失败仅在 DEV 环境打 console.error，不回滚 UI（通知开关非关键路径）。
-
-**`handleSetAutoLaunch(enabled)`**
-1. 同样先 `updateConfig({ autoLaunch: enabled })` 乐观更新。
-2. `await api.setAutoLaunch(enabled)`；**失败时通过 `store.addToast(i18next.t('settings.autoLaunchFailed'), 'error')` 提示用户**——因为 UI 已显示开启但注册表未生效，必须显式告知。
-
-**`handleSetTheme(name)`**
-1. `setThemeName(name as ThemeName)` 切换主题（subscribe 副作用切换 `theme-*` class / CSS 变量）。
-2. `safeStorage.set('campus-theme', name)` 持久化选择。
-
-> 值得注意的是：主题切换**只写本地存储**而**不立即落盘后端配置**（`updateConfig({ themeMode })` 仅在浅色模式切换时触发）。这是因为主题色是纯前端外观偏好，存在 `localStorage`（经 `safeStorage`）即可，无需进入后端配置 schema。
-
----
-
-## 与其他模块的依赖关系
-
-### 上游依赖（本模块 import 的模块）
-
-| 依赖模块 | 被引用的内容 | 文档链接 |
+| value | 含义 | labelKey |
 | --- | --- | --- |
-| `@/shared/ui-constants` | `NAV_ITEMS`（派生 `DEFAULT_PANEL_OPTIONS`）、`PASSWORD_MASK`（config store 使用） | [desktop_frontend_shared_components_types.md](desktop_frontend_shared_components_types.md) |
-| `@/shared/ui-types` | `ThemeName`、`GlassLevel`、`PanelName` 类型 | [desktop_frontend_shared_components_types.md](desktop_frontend_shared_components_types.md) |
-| `@/network/adapters` | `AUTO_DETECT_ADAPTER` 常量 | [desktop_frontend_network_management.md](desktop_frontend_network_management.md) |
-| `@/hooks/useConfigStore` | 配置领域 store（含 debounce 保存、dirty 字段跟踪、`flushPendingConfig`） | [desktop_frontend_hooks.md](desktop_frontend_hooks.md) |
-| `@/hooks/useThemeStore` | 主题领域 store（含 DOM 副作用 subscribe） | [desktop_frontend_hooks.md](desktop_frontend_hooks.md) |
-| `@/hooks/tauriApi` | `tauriApiWithRetry`（`setNotificationEnabled` / `setAutoLaunch` / `saveConfig` / `getInitData` 等） | [desktop_frontend_hooks.md](desktop_frontend_hooks.md) |
-| `@/hooks/useLogToastStore` | `addToast` / `addLog` | [desktop_frontend_hooks.md](desktop_frontend_hooks.md) |
-| `@/lib/utils` | `safeStorage`（localStorage 的 try/catch 封装，含内存兜底） | [desktop_frontend_utilities_libraries.md](desktop_frontend_utilities_libraries.md) |
-| `@/lib/color` | `hexToHsl`（自定义主题色转 HSL 写 CSS 变量） | [desktop_frontend_utilities_libraries.md](desktop_frontend_utilities_libraries.md) |
+| `__default__` | 无锡学院（校园网默认线路） | `settings.isp.wxxy` |
+| `@telecom` | 中国电信 | `settings.isp.telecom` |
+| `@unicom` | 中国联通 | `settings.isp.unicom` |
+| `@cmcc` | 中国移动 | `settings.isp.cmcc` |
 
-### 下游被消费（哪些模块 import 本模块）
-
-- **`useConfigStore`**（[desktop_frontend_hooks.md](desktop_frontend_hooks.md)）：import `DEFAULT_CONFIG` 作为初始值，import `Config` / `AccountItem` 类型。
-- **`useThemeStore`**（[desktop_frontend_hooks.md](desktop_frontend_hooks.md)）：import `VALID_THEMES` / `VALID_GLASS_LEVELS` 校验本地存储值。
-- **`useAppInit` / `useInitialDataLoad`**（[desktop_frontend_hooks.md](desktop_frontend_hooks.md)）：import `InitData` 类型，调用 `getInitData` 后填充 store。
-- **设置面板 UI 组件**：import `ISP_OPTIONS` / `THEME_OPTIONS` / `GLASS_OPTIONS` / `DEFAULT_PANEL_OPTIONS` 渲染下拉，import `useSettings()` 获得行为处理器。
-- **账号面板**（[desktop_frontend_account_management.md](desktop_frontend_account_management.md)）：import `AccountItem` 类型。
-- **状态条/徽标组件**（[desktop_frontend_monitoring.md](desktop_frontend_monitoring.md)）：调用 `operatorLabelKey()` 把在线运营商后缀映射为 i18n 标签。
-
----
-
-## 配置保存数据流
-
-```mermaid
-sequenceDiagram
-    participant UI as 设置面板 UI
-    participant HOOK as useSettings()
-    participant CS as useConfigStore
-    participant Timer as 500ms debounce 定时器
-    participant API as tauriApiWithRetry
-    participant BE as Rust 后端 save_config
-
-    UI->>HOOK: 用户切换某设置项
-    HOOK->>CS: updateConfig(partial)
-    CS->>CS: set({ config: next }) 立即更新
-    CS->>CS: 标记 dirtyFields + 重置失败计数
-    CS->>Timer: 重置 500ms 定时器
-    Note over Timer: 连续编辑时不断重置#59;合并为一次保存
-    Timer->>CS: 触发 flush
-    CS->>API: saveConfigDirect(pending)
-    API->>BE: invoke('save_config', { config })
-    alt 保存成功
-        BE-->>API: SaveConfigResult
-        API-->>CS: resolve
-        CS->>CS: 清除 dirtyFields + 失败计数
-        CS->>CS: 若含密码则 syncPasswordSaved(true)
-    else 保存失败
-        BE-->>API: reject
-        API-->>CS: throw
-        CS->>CS: 字段失败计数 +1#59;达 3 次放弃脏标记
-        CS->>CS: addLog(configSaveFailedLog)
-        CS-->>UI: reject（调用方决定 toast）
-    end
-    BE-->>CS: config-changed 事件（后端回传快照）
-    CS->>CS: mergeConfigFromBackend#59;跳过 dirty 字段
-```
-
-**关键防缺陷设计**（在 `useConfigStore` 中实现，本模块的 `Config` 类型是其数据基础）：
-
-1. **dirty 字段跟踪**：本地已修改但未被后端确认的字段不被 `config-changed` 回传覆盖，避免后端旧快照（含过期 MASK）覆盖本地新值。
-2. **失败计数兜底**：连续保存失败达 3 次的字段放弃脏标记，允许后端回传重新同步，避免 UI 与后端永久脱节（注释明确标注这是「历史缺陷」修复）。
-3. **in-flight 保存跟踪**：`saveConfigInFlight` 记录正在发送的保存 Promise，`hasPendingConfig()` / `flushPendingConfig()` 供关窗时等待完成，避免窗口销毁丢弃未落盘数据。
-4. **密码 MASK 处理**：`flushPendingConfig` 时若 `password === PASSWORD_MASK` 则删除该字段，让后端识别并保留原密码。
-
----
-
-## 启动期数据流（InitData 聚合）
+`operatorLabelKey` 解决的是**两套编码之间的口径差异**：运行时状态（`bgStatus.onlineOperator`）用 `''` 表示校园网默认线路，而下拉选择值用 `'__default__'`；`null` / `undefined` 表示离线或未知。
 
 ```mermaid
 flowchart TD
-    START["应用启动 main.tsx"] --> INIT["useAppInit / useInitialDataLoad"]
-    INIT --> INVOKE["invoke get_init_data"]
-    INVOKE --> BE["Rust get_init_data 命令<br/>聚合 config + adapters + accounts<br/>+ backgroundStatus + 自启状态<br/>+ logRetentionDays + debugMode"]
-    BE --> INITDATA["InitData 对象"]
-    INITDATA --> MERGE["mergeConfigFromBackend(config)<br/>合并到 DEFAULT_CONFIG 之上"]
-    INITDATA --> THEME["useThemeStore.initTheme(cfg)<br/>优先读 safeStorage#59;回落 config.themeMode#59;再回落 system 偏好"]
-    INITDATA --> ACCOUNTS["setAccounts / setActiveAccount"]
-    INITDATA --> FLAG["configLoaded = true<br/>通知依赖配置的延迟逻辑"]
+  A["suffix: string | null | undefined"] --> B{"suffix === null 或 undefined ?"}
+  B -->|是| C["返回 undefined<br/>调用方据此隐藏运营商徽标"]
+  B -->|否| D["normalize: suffix === '' ? '__default__' : suffix"]
+  D --> E["ISP_OPTIONS.find(o => o.value === normalize)"]
+  E --> F{"命中 ?"}
+  F -->|是| G["返回 o.labelKey，如 settings.isp.telecom"]
+  F -->|否| H["返回 undefined（未知后缀安全降级）"]
 ```
 
-`configLoaded` 标志的设计意图（注释明确说明）：自助服务面板的自动验证/回显「已保存」等依赖配置的启动逻辑应等此信号，避免在加载窗口期做出错误判断或提前消耗一次性流程（如 Windows Hello 验证只触发一次）。
+主要消费者是 `monitor/StatusBar.tsx`：它用 `operatorLabelKey(onlineOperator)` 渲染在线运营商徽标，并在夜切临时态（`config.operator === '' && nightOperatorRestore !== ''`）用 `operatorLabelKey(nightOperatorRestore)` 在 tooltip 里标注恢复目标。徽标图片映射（`''` → 校徽、`@cmcc` → 移动 logo）由 [desktop_frontend_shared_components_types](desktop-frontend-shared-components-types.md) 的 `shared/IspMark.tsx` 提供，两者共用同一套后缀字面量。
+
+### 3.3 主题与玻璃档位
+
+- `THEME_OPTIONS`：7 种配色（默认蓝 / 活力紫 / 森林绿 / 午夜橙 / 海洋青 / 樱桃红 / 自定义），每项带 `id`（`ThemeName`）、预览 `color` 与 `labelKey`。
+- `VALID_THEMES`：字符串数组版白名单，供 `useThemeStore.initTheme` 与 `main.tsx::initTheme` 校验 `localStorage` 中的历史值，防止脏值导致类名注入。
+- `GLASS_OPTIONS` / `VALID_GLASS_LEVELS`：玻璃质感三档 `off` / `standard` / `ultra`（不模糊 / 单层雾化 / 完整液体玻璃），注释明确「只借鉴 FlClash 与 Apple Liquid Glass 的设计语汇，未复制任何上游源码」。档位本身**不进 `Config`**，而是由 `useThemeStore` 写入 `localStorage` 的 `campus-glass-level` 并落到 `<html data-glass>` 属性，强度全部由 CSS 变量派生 —— 这样切档无需重载、也不受账号切换影响。
+- `DEFAULT_PANEL_OPTIONS`：由 `shared/ui-constants.ts::NAV_ITEMS` 映射而来（`value = item.id`、`labelKey = item.labelKey`），使「默认面板」下拉与导航栏永远同步，新增面板不需要改设置模块。
 
 ---
 
-## 平台差异说明
+## 4. `useSettings`：三个 store + 后端命令的行为聚合
 
-- **桌面专属字段**：`lightweightMode`（关闭窗口销毁界面仅留后端与托盘）、`adapter1Account` / `adapter2Account`（设备级网卡绑定）、`exportConfig(includePassword)`（DPAPI 密文导出）等仅桌面端存在；Android 端的对应实现见 [android_frontend_settings.md](android_frontend_settings.md)（其 `useSettings.ts` 增加了 `useOnboardingFlow` 引导流程，类型集合也相应裁剪）。
-- **`CoreAutostartResult`**：桌面端特有的 SYSTEM 计划任务自启（`set_core_autostart`），对应后端机器级加密配置注册；Android 端无此概念。
-- **`safeStorage`**：两端共用的 localStorage try/catch 封装（含内存兜底），桌面端因 WebView 环境稳定而主要直接命中 localStorage。
+`useSettings()` 用 `useShallow` 做浅比较订阅，避免任意 config 字段变化引起外壳级联重渲染，然后把三个领域 store 平铺成一个返回对象，外加四个「跨层副作用」处理器：
+
+| 处理器 | 写 store | 写 localStorage | 调后端 | 失败处理 |
+| --- | --- | --- | --- | --- |
+| `handleToggleLightMode` | `useThemeStore.setIsLightMode` + `useConfigStore.updateConfig({ themeMode })` | `campus-light-mode` = `'1'`/`'0'` | 无（走 500ms debounce 落盘） | — |
+| `handleToggleNotification` | `updateConfig({ enableNotification })` | — | `setNotificationEnabled` | DEV console（后端已同步落盘，不再重复提示） |
+| `handleSetAutoLaunch(enabled)` | `updateConfig({ autoLaunch })` | — | `setAutoLaunch` | `addToast('settings.autoLaunchFailed', 'error')` |
+| `handleSetTheme(name)` | `useThemeStore.setThemeName` | `campus-theme` | 无 | — |
+
+```mermaid
+sequenceDiagram
+  participant U as 用户
+  participant TB as TitleBar
+  participant H as useSettings
+  participant TH as useThemeStore
+  participant CF as useConfigStore
+  participant LS as safeStorage(localStorage)
+  participant DOM as document.documentElement
+  participant API as tauriApiWithRetry
+
+  U->>TB: 点击「浅色/深色」切换
+  TB->>H: handleToggleLightMode()
+  H->>TH: getState().setIsLightMode(next)
+  TH-->>DOM: subscribe: toggle .dark / data-light
+  H->>CF: getState().updateConfig({ themeMode })
+  CF-->>CF: dirtyFields.add('themeMode')，500ms debounce
+  H->>LS: set('campus-light-mode', '1' 或 '0')
+  Note over CF,API: 500ms 后合并的 partial 落盘
+  CF->>API: saveConfig(fullConfig)
+  API-->>CF: 成功：清脏标记；失败：addLog + passwordSaved 联动 + 上抛
+```
+
+**为什么主题名/浅色模式/玻璃档位写 `localStorage` 而 `themeMode` 又写 `Config`？**
+`localStorage` 用于**首帧防闪烁**：`main.tsx::initTheme()` 在 React 挂载前就读取 `campus-light-mode` / `campus-theme` / `campus-glass-level` 直接给 `<html>` 打类名与属性（见 [desktop_frontend_entrypoint_mocks](desktop-frontend-entrypoint-mocks.md)）。`Config.themeMode` 则是**可迁移的语义值**（`light` / `dark` / `system`），供配置导出/导入与 `useThemeStore.initTheme` 在存储缺失时回落 —— `system` 会去查询 `matchMedia('(prefers-color-scheme: light)')`。
+
+**`handleSetAutoLaunch` 的乐观更新权衡**：先改 UI 再调注册表，因此注释要求「API 失败时 UI 已显示开启但注册表未生效，须提示用户」；后端 `set_auto_launch` 本身遵循「先注册表成功再改配置」的顺序，注册表失败会直接返回 `Err` 让前端 `invoke` reject（审计 A14），从而保证这里的 `catch` 分支能被触发。
 
 ---
 
-## 关键设计要点总结
+## 5. 界面组件（经 `index.ts` 导出）
 
-1. **配置 schema 版本化**：`configVersion: 5` 与后端迁移逻辑对齐，注释中记录了多次默认值变更（如 `campusCheckEndMinutes` 从 0 改为 1380、`scheduledLoginMinutes` 哨兵值从 0 改为 1440）的历史背景。
-2. **乐观更新 + 失败提示**：开机自启等关键开关先更新 UI 再调后端，失败时 toast 提示，避免「UI 显示开启但系统未生效」的静默脱节。
-3. **主题偏好轻量化存储**：主题色选择只写 `localStorage`（经 `safeStorage`），不进入后端配置 schema，减少落盘开销；`themeMode`（浅色/深色）则同时写配置以支持跨设备同步。
-4. **一次性启动聚合**：`InitData` 把多个原本独立的查询命令（`get_log_retention_days` / `get_debug_mode` 等）合并到单次 `get_init_data` 调用，降低启动期 IPC 往返。
+### 5.1 `SettingsPanel`
+
+设置面板由 `App.tsx` 在 `case 'settings'` 分支渲染，props 极简（`autoLaunch`、`onUpdateConfig`、`onSetAutoLaunch`、`onShowOnboarding`），其余数据一律自订阅 `useConfigStore(useShallow(s => s.config))` —— 这样外壳不会因为任意 config 字段变化重渲染。布局为「顶部引导横幅 + 手动两列网格」，两列用 `justify-between` 摊开字体渲染带来的残差，保证底缘对齐。
+
+卡片分组与字段映射：
+
+| 卡片 | 控件 → `Config` 字段 |
+| --- | --- |
+| 启动设置 | `autoLaunch`（经 `onSetAutoLaunch`）、核心自启 `coreAutostart`（独立 state）、`hiddenStart` |
+| 登录自动化 | `autoLoginOnStart`、`autoExitAfterLogin`、`autoExitOnOnline` |
+| 窗口与界面 | `lightweightMode`、`minimizeToTray`、`defaultPanel`（`''` 用哨兵 `__remember__` 表达「记住上次」） |
+| 通知与安全 | `enableNotification`、`selfHelloEnabled`、`selfReverifyEachAction` |
+| 数据管理 | 配置导出/导入（`exportWithPassword` 为本地 state） |
+| 质量检测 | `enableNetworkQuality` + 弹窗内的 `skipTtfbInLatency`、`skipContentInLatency` |
+
+**布尔开关的读取惯例**：面板里三种写法各有含义，改动时不要统一化。
+
+- `config.x !== false`（`minimizeToTray`、`enableNotification`、`selfHelloEnabled`、`enableNetworkQuality`）：字段缺失时**视为开启**，用于「关闭需明确动作」的保护型开关。
+- `config.x || false`（`hiddenStart`、`autoLoginOnStart`、`autoExitAfterLogin`、`autoExitOnOnline`、`lightweightMode`、`skipTtfbInLatency`、`skipContentInLatency`）：缺失即关闭，纯功能开关。
+- `config.x === true`（`selfReverifyEachAction`）：只有显式开启才生效，最严格的二次验证语义。
+
+由于 `DEFAULT_CONFIG` 已经把全部字段填满，这三类写法实际只在「旧配置文件 / mock 后端缺字段」时才有差异 —— 它们是对历史配置形状的前向兼容兜底。
+
+#### 5.1.1 安全开关的「关闭方向」必须过 Hello 验证
+
+`handleSecurityDisable(apply)` 统一处理安全类开关的**放宽方向**（安全 → 宽松）：先调用后端 `verify_windows_identity`，成功才执行 `apply(true)` 并提示「已变更」，失败则保持原状态（Switch 受控自动回弹）。开启方向不需要验证。`selfReverifyEachAction` 在 `selfHelloEnabled === false` 时整体禁用，避免出现「主开关关了、子开关还能操作」的错觉。
+
+```mermaid
+flowchart TD
+  A["用户把安全开关拨向 off"] --> B["verifyWindowsIdentity(consentMessage)"]
+  B --> C{"success ?"}
+  C -->|是| D["apply(true) 写 config<br/>addToast(settings.securityChanged)"]
+  C -->|否| E["addToast(后端 message 或 securityVerifyFailed)"]
+  C -->|"invoke 抛错"| F["addToast(extractErrorMessage(err))"]
+  E --> G["不改 config：受控 Switch 回弹"]
+  F --> G
+```
+
+#### 5.1.2 关闭质量检测的三处联动清理
+
+```mermaid
+flowchart LR
+  A["enableNetworkQuality → false"] --> B{"activePanel === 'quality' ?"}
+  B -->|是| C["setActivePanel('dashboard')"]
+  A --> D{"config.enableLatencyTest ?"}
+  D -->|是| E["patch.enableLatencyTest = false<br/>+ stopLatencyTest()（双保险）"]
+  A --> F{"config.defaultPanel === 'quality' ?"}
+  F -->|是| G["patch.defaultPanel = ''"]
+  C --> H["onUpdateConfig(patch) 单次落盘"]
+  E --> H
+  G --> H
+```
+
+若不联动清理，`App.tsx` 会对 `quality` 面板渲染 `null`、Dock 隐藏入口，当前面板停在 `quality` 时主区域直接空白；后端 `start_latency_test` 也有同向校验，两端互为双保险。
+
+#### 5.1.3 配置导出 / 导入（桌面专属）
+
+- 导出：`exportConfig(includePassword)`。默认掩码态出站；勾选「含密码」时后端把内存明文重新 DPAPI 加密后写入，wrapper 带 `passwordEncrypted` 标志，**绝不明文落盘**。
+- 导入：文件来源是 Tauri 核心的 `getCurrentWebview().onDragDropEvent`（webview 把 HTML5 拖放拦成原生事件，直接拿到真实路径，无需 dialog 插件），关闭即清理监听；另有手工粘贴路径兜底。前端做「必须 `.json`」的轻校验，后端仍做强校验（≤1MB、JSON 解析、结构校验、密码还原、四类失败分列）。导入属破坏性覆盖，必须过全局 `ConfirmDialog` 二次确认。
+
+后端细节见 [desktop_backend_commands](desktop-backend-commands.md) 的 `commands/config_cmd.rs`。
+
+### 5.2 `ThemeDialog`
+
+低频对话框，在 `App.tsx` 中以 `React.lazy` + `preloadPanels()` 组合按需分包（分包规则见 `tauri-app/frontend/vite.config.ts` 的 `manualChunks`，vendor 按 react / framer-motion / gsap / radix 拆分）。对话框内容：
+
+1. **配色**：`THEME_OPTIONS` 两列按钮，选中态描边 + `Check`。
+2. **自定义主色**：仅当 `themeName === 'custom'` 展开；原生 `type="color"` 取色器（外观由外层 label 承载，控件透明覆盖）+ 8 个预设色块。每次改动**同时**写 `useThemeStore.setCustomThemeColor`（即时预览）与 `onSetCustomColor` → `updateConfig({ customThemeColor })`（持久化）。历史脏值（空串）用正则 `/^#[0-9a-f]{6}$/i` 兜回 `#6366f1`。
+3. **玻璃质感**：三档 `role="radiogroup"`，描述行预留 `min-h-[2rem]`，防止档位文案长短不一把对话框顶高造成「窗口跳一下」。
+4. **深浅色**：`Switch` 走 `onToggleLightMode`（即 §4 的 `handleToggleLightMode`）。
+
+自定义色落地时，`useThemeStore` 的订阅者用 `hexToHsl`（`lib/color.ts`）换算并通过 `style.setProperty` **覆盖**同名 CSS 变量 `--primary/--ring/--accent/--accent-foreground`；注释记录了历史缺陷：曾用 `cssText +=` 累积声明导致 inline style 无界增长。
+
+### 5.3 `OnboardingWizard`
+
+五步卡片堆引导（`STEP_TITLE_KEYS`：welcome → accountInfo → bindOperator → selectNetworkAdapter → setupComplete），实现「Apple 卡片堆」观感：`STACK_LAYERS` 定义四档 `y/scale/z`，第 4 层起共用最深档；前进时顶卡先竖直飞起并微旋（`EXIT_UP_MS = 240`）再落回队尾，后退时直接平滑归位。
+
+```mermaid
+stateDiagram-v2
+  S0: step 0 欢迎
+  S1: step 1 登录信息
+  S2: step 2 绑定运营商
+  S3: step 3 选择网卡
+  S4: step 4 完成
+  DONE: 引导结束（写 campus-onboarding-done）
+
+  [*] --> S0
+  S0 --> S1: 下一步 / 切换语言
+  S1 --> S2: canProceedAccount 通过后写 user、operator、password
+  S2 --> S3: 绑定成功（停留 1.2s）或跳过
+  S2 --> S1: 上一步
+  S3 --> S4: 下一步（写 adapter1、adapter2、dualAdapter）
+  S4 --> DONE: 登录成功，1.5s 后关闭
+  S0 --> DONE: 跳过
+  S2 --> S2: 重新检测 bindRefreshTick
+  DONE --> [*]
+```
+
+关键约束与踩坑记录：
+
+- **卡高统一**：`measureDeck` 把卡高临时放开为 `auto` 读 `scrollHeight` 与内层 `offsetHeight` 的最大值，再取 `min(max, max(420, innerHeight - 150))`；短内容步靠底部留白填平，切步时高度不跳。`useLayoutEffect` 保证绘制前完成，首帧 ref 未挂上时用 `requestAnimationFrame` 补测一次。
+- **不可见的卡仍会参与 Tab**：被盖住的卡仍在 DOM 里，仅 `pointer-events-none` 挡不住聚焦，因此用 `inert` 属性表达「整棵子树不可交互」。
+- **宽度不能用 `w-[760px] max-w-[calc(100vw-32px)]`**：`100vw` 在 WebView2 高 DPI/缩放下与真实布局宽不一致，会让固定宽溢出后被 `html{overflow:hidden}` 裁掉（曾表现为「引导卡左边框被截断」）；改为 `w-full + max-w` 从 flex 父容器取上限。
+- **绑定步的 Hello 门**：`useHelloGate()`（来自 [desktop_frontend_account_management](desktop-frontend-account-management.md) 的 `account/selfServiceState.ts`）在 `handleBind` 前先行验证，与后端验证门 TTL 对齐，保证一次通过；而进入步骤自动执行的 `query_bind_status` **不挂门**，避免刚进步骤就弹 Hello 打断引导。
+- **末步最终校验**：`handleLoginAndFinish` 重查账号密码必填，且拒绝 `dualAdapter:true` 配 `adapter2:''`/自动检测 的不一致配置（历史缺陷：RightPanel 会把这种组合视为未启用副适配器）。`AUTO_DETECT_ADAPTER` 落盘时统一转换为空串。
+- **密码草稿**：初值 `config.password === PASSWORD_MASK ? '' : config.password`，即掩码态显示为空，用户不输入就不覆盖已保存密码（后端 `save_config` 对空串/MASK 一律保留原密码）。
+- **跳过即打标**：`handleSkip` 与登录成功均写 `safeStorage.set('campus-onboarding-done','1')`；`App.tsx` 的自动弹出条件为「未打标 且 `!configUser`」，延时 800ms 等启动动画完成。
+
+---
+
+## 6. 数据流与状态一致性
+
+### 6.1 一次开关的完整旅程
+
+```mermaid
+sequenceDiagram
+  participant SP as SettingsPanel
+  participant CS as useConfigStore
+  participant API as tauriApiWithRetry
+  participant BE as Rust save_config
+  participant EV as event config-changed
+  participant EL as useEventListeners
+
+  SP->>CS: updateConfig({ enableNotification: false })
+  CS->>CS: set({config}) + dirtyFields.add + pending 合并
+  Note over CS: 500ms debounce（连续改动合并为一次）
+  CS->>API: saveConfig(fullConfig, clearPassword?)
+  API->>BE: invoke('save_config', {config, clearPassword})
+  BE-->>API: SaveConfigResult / Err
+  API-->>CS: 成功 → 清脏标记、password 非空则 passwordSaved=true
+  CS-->>SP: 失败 → addLog + passwordSaved=false + 上抛（toast 由调用方决定）
+  BE-->>EV: 落盘后广播 masked_for_display 快照
+  EV->>EL: onConfigChanged
+  EL->>CS: mergeConfigFromBackend(config)
+  Note over EL,CS: 跳过 dirtyFields 中的字段，防后端旧快照回滚本地新值
+  EL->>API: listAccounts() → setAccounts / setActiveAccount
+```
+
+三层防御值得留意：
+
+1. **脏字段保护**：`updateConfig` / `updateConfigLocal` 把字段名加入 `dirtyFields`，`mergeConfigFromBackend` 合并时跳过它们，避免后端回传的旧快照（含过期 `enableLatencyTest` 与密码 MASK）覆盖刚改的值。
+2. **脏标记有寿命**：保存连续失败 3 次（`DIRTY_FAILURE_LIMIT`）即放弃脏标记并写 warning 日志，防止「保存一直失败 → 字段被永久跳过 → UI 与后端永久脱节」。
+3. **关闭前 flush**：`hasPendingConfig()` 同时看 pending 与 in-flight；`flushPendingConfig()` 把本次新发的保存也纳入返回 promise，由关窗方一并等待，失焦路径（`useEventListeners` 的 `window blur`）作为 Alt+F4 兜底。相关窗口生命周期见 [desktop_backend_app_lifecycle](desktop-backend-app-lifecycle.md)。
+
+### 6.2 `config-changed` 与夜切字段的只读消费
+
+`outbound*` / `nightOperatorRestore` 等后端内部状态字段由 monitor 层写入并通过 `config-changed` 回传。`StatusBar` 直接读 `config.operator` 与 `config.nightOperatorRestore` 推断「夜切临时态」，徽标始终显示真实在线运营商 —— 前端不额外发命令，纯靠事件流保持同步。这体现了 `Config` 作为**前后端共享状态总线**的角色，细节见 [desktop_backend_monitoring](desktop-backend-monitoring.md)。
+
+### 6.3 `passwordSaved` 与 `PASSWORD_MASK` 语义链
+
+后端出站（`get_config` / `get_init_data`）密码恒为 `'***'` 或空串，`useConfigStore.passwordSaved` 由 `syncPasswordSaved` 维护：
+
+- `useInitialDataLoad`：`cfg.password === PASSWORD_MASK` → `true`；非空且不是 MASK → `false`（该值既非掩码也非空串，说明掩码未生效，按「凭证未就绪」保守处理）。
+- `saveConfigDirect` 成功且 `cfg.password` 非空 → `true`；失败 → `false`（账号面板的 `credReady` 依赖它判定凭证就绪）。
+
+任何新增「把配置发给前端」的命令都必须走 `masked_for_display()`，这是敏感信息出站的唯一出口。
+
+### 6.4 导入时的「本机不可迁移字段」白名单
+
+`import_config` 会显式丢弃导入文件中的 VPN 凭据与全部 `outbound*` 切换态（metric 快照 / 禁用名单 / 兜底路由 / 当日保持 / 待切换），改用本机当前值。原因：这些是本机系统状态，若在切换进行中导入，会把活跃快照整体顶掉，系统残留切换态却再无还原路径。因此**前端设置面板不暴露这些字段**，`types.ts` 仅以注释形式声明其内部状态属性。
+
+---
+
+## 7. 依赖清单
+
+### 7.1 模块内部
+
+```mermaid
+graph LR
+  UC["shared/ui-constants.ts::NAV_ITEMS"] --> CN["settings/constants.ts"]
+  UT["shared/ui-types.ts (ThemeName, GlassLevel, PanelName)"] --> TY["settings/types.ts"]
+  NA["network/adapters.ts::AUTO_DETECT_ADAPTER"] --> CN
+  NA --> TY
+  TY --> CN
+  CN --> HOOK["settings/useSettings.ts"]
+  CN --> PANEL["settings/SettingsPanel.tsx"]
+  CN --> THEME["settings/ThemeDialog.tsx"]
+  CN --> ONB["settings/OnboardingWizard.tsx"]
+  TY --> PANEL
+  TY --> ONB
+```
+
+### 7.2 外部依赖（按用途）
+
+| 依赖 | 用途 | 相关文档 |
+| --- | --- | --- |
+| `zustand` + `useShallow` | 领域 store 与浅比较订阅，避免外壳级联重渲染 | [desktop_frontend_hooks](desktop-frontend-hooks.md) |
+| `@tauri-apps/api`（`invoke`/`listen`/`webview`） | 命令调用、事件监听、导入用的原生拖放 | [desktop_backend_commands](desktop-backend-commands.md) |
+| `i18next` / `react-i18next` | 所有 labelKey 的取词（`settings.*`、`themeDialog.*`、`onboarding.*`）；`setLanguage` 写 `app-language` 并 `changeLanguage` | [desktop_frontend_utilities_libraries](desktop-frontend-utilities-libraries.md) |
+| `lib/utils.ts::safeStorage` | `localStorage` 访问的容错封装（异常时退回内存 Map） | [desktop_frontend_utilities_libraries](desktop-frontend-utilities-libraries.md) |
+| `components/ui/*`（`SettingRow`、`Switch`、`Select`、`AnimatedCard`、`badgeVariants`） | 面板与对话框的基础控件 | [desktop_frontend_shared_ui_components](desktop-frontend-shared-ui-components.md) |
+| `lib/color.ts::hexToHsl` | 自定义主色转 CSS 变量 | [desktop_frontend_utilities_libraries](desktop-frontend-utilities-libraries.md) |
+| `account/selfServiceState.ts::useHelloGate` | 引导向导绑定步的身份验证门 | [desktop_frontend_account_management](desktop-frontend-account-management.md) |
+| `hooks/useConfigStore` / `useThemeStore` / `useLogToastStore` / `useAdapterStore` | 配置、主题、toast/日志、面板激活态 | [desktop_frontend_hooks](desktop-frontend-hooks.md) |
+
+---
+
+## 8. 开发与验证指引
+
+- **新增一个 `Config` 字段**需要同步五处：`settings/types.ts::Config`、`settings/constants.ts::DEFAULT_CONFIG`（并按需升 `configVersion`）、Rust `config/model.rs`（含 `default_*` 函数与 serde 重命名）、UI 控件、必要时 `config/validate.rs`；迁移语义见 [desktop_backend_configuration](desktop-backend-configuration.md)。
+- **新增一个面板**只需改 `shared/ui-constants.ts::NAV_ITEMS`，`DEFAULT_PANEL_OPTIONS` 会自动出现在「默认面板」下拉中；`useInitialDataLoad` 的 `VALID_PANELS` 同源。
+- **新增运营商**请同时更新 `ISP_OPTIONS`、`shared/IspMark.tsx` 的 `ISP_MARK_SRC`、以及 `OnboardingWizard` 的 `OPERATOR_KEY_BY_VALUE` / `OPERATOR_VALUE_BY_KEY` / `OPERATOR_STATUS_ORDER` 三张映射表。
+- 单测通过 Vitest（`environment: 'jsdom'`、`globals: true`、`setupFiles: ./src/test-setup.ts`、别名 `@ → src`，见 `tauri-app/frontend/vitest.config.ts`）执行；开发期无 Rust 后端时由 `tauri-app/frontend/tauri-mock.js` 提供 `invoke`/`emitEvent` 假实现（见 [desktop_frontend_entrypoint_mocks](desktop-frontend-entrypoint-mocks.md)）。构建脚本 `build`/`dev`/`test`/`test:watch`/`clean` 定义于 `tauri-app/frontend/package.json`，整体构建流程见 [build_deployment_configuration_desktop_build](build-deployment-configuration-desktop-build.md)。
+
+### 8.1 与 Android 端的关系
+
+`android_frontend_settings`（`android/frontend/src/settings/`）与本模块**同构但独立**：`DEFAULT_CONFIG`、`ISP_OPTIONS`、`operatorLabelKey`、`THEME_OPTIONS`、`GLASS_OPTIONS` 的字面量与映射规则保持一致，差异集中在：Android 用 `useOnboardingFlow` 承担引导编排、无 `lightweightMode` / `coreAutostart` 等桌面专属能力、身份验证走生物识别而非 Windows Hello。改动桌面常量时应同步核对：[android_frontend_settings](android-frontend-settings.md)。
+
+---
+
+## 9. 设计要点回顾
+
+1. **契约集中**：`settings/types.ts` + `constants.ts` 是前端唯一的配置真值定义源，账号模块、监控模块、网络模块都反向依赖它，避免多份默认值漂移。
+2. **双通道持久化**：可迁移的语义值进 `Config`（DPAPI 加密落盘），纯呈现值（主题名、深浅色镜像、玻璃档位、已完成引导标记、上次面板）进 `localStorage`，后者服务「首帧不闪、切档不重载」。
+3. **乐观更新 + 显式失败反馈**：设置类操作一律先改 UI，再保证失败有 toast / 日志 / 脏标记寿命三重兜底，杜绝「假成功」。
+4. **安全放宽需自证**：所有让保护变弱的开关方向都必须过 Windows Hello，且受控组件在验证失败时自动回弹。
+5. **联动清理优先于渲染兜底**：`enableNetworkQuality`、`defaultPanel`、`activePanel` 三者的耦合在写侧一次性处理干净，读侧才能保持简单。

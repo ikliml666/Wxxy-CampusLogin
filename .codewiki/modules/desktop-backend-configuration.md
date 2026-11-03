@@ -136,11 +136,11 @@ sequenceDiagram
 
 | 方向 | 模块 | 说明 |
 | --- | --- | --- |
-| 被依赖（上游调用者） | [desktop_backend_commands](desktop_backend_commands.md) | `commands/config_cmd.rs` 的 `get_config` / `save_config` / `export_config` / `import_config` / `show_window` 直接读写本模块定义的配置结构 |
-| 被依赖（调度执行） | [desktop_backend_monitoring](desktop_backend_monitoring.md) | `monitor/watcher.rs`、`monitor/outbound_night.rs`、`monitor/outbound_switch.rs` 在每轮定时循环中调用 `scheduled_tick.rs` 的门控评估函数 |
-| 被依赖（运行时状态） | [desktop_backend_infrastructure](desktop_backend_infrastructure.md) | `infra/state/mod.rs` 中全局 AppState 持有本模块配置实例；`infra/logger.rs` 的日志保留天数由 `default_log_retention_days` 提供默认值 |
-| 无直接依赖 | [desktop_backend_networking](desktop_backend_networking.md) | 本模块不直接操作网卡，仅输出策略决策 |
-| 无直接依赖 | [desktop_backend_auth_protocol](desktop_backend_auth_protocol.md) | 本模块不参与登录协议，仅被监控循环调用以决定"是否自动联网/下线" |
+| 被依赖（上游调用者） | [desktop_backend_commands](desktop-backend-commands.md) | `commands/config_cmd.rs` 的 `get_config` / `save_config` / `export_config` / `import_config` / `show_window` 直接读写本模块定义的配置结构 |
+| 被依赖（调度执行） | [desktop_backend_monitoring](desktop-backend-monitoring.md) | `monitor/watcher.rs`、`monitor/outbound_night.rs`、`monitor/outbound_switch.rs` 在每轮定时循环中调用 `scheduled_tick.rs` 的门控评估函数 |
+| 被依赖（运行时状态） | [desktop_backend_infrastructure](desktop-backend-infrastructure.md) | `infra/state/mod.rs` 中全局 AppState 持有本模块配置实例；`infra/logger.rs` 的日志保留天数由 `default_log_retention_days` 提供默认值 |
+| 无直接依赖 | [desktop_backend_networking](desktop-backend-networking.md) | 本模块不直接操作网卡，仅输出策略决策 |
+| 无直接依赖 | [desktop_backend_auth_protocol](desktop-backend-auth-protocol.md) | 本模块不参与登录协议，仅被监控循环调用以决定"是否自动联网/下线" |
 
 ---
 
@@ -149,14 +149,14 @@ sequenceDiagram
 1. **纯函数优先**：`night_switch.rs` 与 `outbound_switch.rs` 中的评估函数均为纯函数（输入参数 + 当前时间，输出动作枚举），便于单元测试与多平台复用。
 2. **门控分层**：`scheduled_tick.rs` 作为薄封装层，将"纯策略"与"运行时门控（当日已触发、保护窗口）"分离，避免策略函数感知全局状态。
 3. **向后兼容**：`model.rs` 为每个字段提供 `default_*` 函数，旧配置文件升级时自动补全缺失字段；自定义反序列化器在加载早期即拒绝非法配置。
-4. **单一职责**：本模块不直接执行网络操作或登录动作，决策与执行分离，便于在 [desktop_backend_monitoring](desktop_backend_monitoring.md) 中集中处理执行细节（看门狗、回滚、日志）。
+4. **单一职责**：本模块不直接执行网络操作或登录动作，决策与执行分离，便于在 [desktop_backend_monitoring](desktop-backend-monitoring.md) 中集中处理执行细节（看门狗、回滚、日志）。
 
 ---
 
 ## 参考页面
 
-- 命令层读写入口：[desktop_backend_commands](desktop_backend_commands.md)（`commands/config_cmd.rs`、`commands/system.rs` 中的 `set_log_retention_days`）
-- 调度与执行：[desktop_backend_monitoring](desktop_backend_monitoring.md)（`monitor/watcher.rs`、`monitor/scheduled.rs`、`monitor/outbound_night.rs`、`monitor/outbound_switch.rs`）
-- 全局状态与日志：[desktop_backend_infrastructure](desktop_backend_infrastructure.md)（`infra/state/mod.rs`、`infra/logger.rs`）
-- 前端配置交互：[desktop_frontend_settings](desktop_frontend_settings.md)（`useSettings`、`InitData`）
-- 前端配置存储：[desktop_frontend_hooks](desktop_frontend_hooks.md)（`useConfigStore`、`flushPendingConfig`、`hasPendingConfig`）
+- 命令层读写入口：[desktop_backend_commands](desktop-backend-commands.md)（`commands/config_cmd.rs`、`commands/system.rs` 中的 `set_log_retention_days`）
+- 调度与执行：[desktop_backend_monitoring](desktop-backend-monitoring.md)（`monitor/watcher.rs`、`monitor/scheduled.rs`、`monitor/outbound_night.rs`、`monitor/outbound_switch.rs`）
+- 全局状态与日志：[desktop_backend_infrastructure](desktop-backend-infrastructure.md)（`infra/state/mod.rs`、`infra/logger.rs`）
+- 前端配置交互：[desktop_frontend_settings](desktop-frontend-settings.md)（`useSettings`、`InitData`）
+- 前端配置存储：[desktop_frontend_hooks](desktop-frontend-hooks.md)（`useConfigStore`、`flushPendingConfig`、`hasPendingConfig`）

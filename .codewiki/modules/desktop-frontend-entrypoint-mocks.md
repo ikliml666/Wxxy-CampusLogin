@@ -100,7 +100,7 @@ flowchart TD
 | `campus-theme` | 命中 `VALID_THEMES` 且非 `default` | 追加 `theme-<name>` class |
 | `campus-glass-level` | 命中 `VALID_GLASS_LEVELS`（`off/standard/ultra`） | `data-glass` 属性，缺省 `ultra` |
 
-> `VALID_THEMES` / `VALID_GLASS_LEVELS` 定义在 `tauri-app/frontend/src/settings/constants.ts`，主题与玻璃档的业务语义详见 [desktop_frontend_settings.md](desktop_frontend_settings.md)。`safeStorage` 的异常回退（localStorage 被禁时降级到内存 Map）见 [desktop_frontend_utilities_libraries.md](desktop_frontend_utilities_libraries.md)。
+> `VALID_THEMES` / `VALID_GLASS_LEVELS` 定义在 `tauri-app/frontend/src/settings/constants.ts`，主题与玻璃档的业务语义详见 [desktop_frontend_settings.md](desktop-frontend-settings.md)。`safeStorage` 的异常回退（localStorage 被禁时降级到内存 Map）见 [desktop_frontend_utilities_libraries.md](desktop-frontend-utilities-libraries.md)。
 
 ### 3. `setupCrashRecovery()` —— GPU/渲染崩溃自愈
 
@@ -125,9 +125,9 @@ stateDiagram-v2
    - 每 2s：页面可见时计算 `elapsed = now - lastHeartbeatTime`，超过 **10s**（FE-A-11 放宽，避免低端机长 GC 误判）即判定渲染链失活，触发 `tryRecover()`。
 4. **页面可见性与 GSAP 联动**：切后台时 `gsap.globalTimeline.pause()`，回前台 `resume()`，避免后台时钟漂移。
 
-`tryRecover()` 上限 3 次重载（`MAX_CRASH_RELOADS = 3`），超限仅打日志不再自动恢复，防止崩溃-重载死循环。`isRenderLoopAlive()` 的"按需 2 帧 rAF 短探测"实现与功耗考量（避免常驻 rAF 阻止 Chromium BeginFrame 休眠）详见 [desktop_frontend_utilities_libraries.md](desktop_frontend_utilities_libraries.md)。
+`tryRecover()` 上限 3 次重载（`MAX_CRASH_RELOADS = 3`），超限仅打日志不再自动恢复，防止崩溃-重载死循环。`isRenderLoopAlive()` 的"按需 2 帧 rAF 短探测"实现与功耗考量（避免常驻 rAF 阻止 Chromium BeginFrame 休眠）详见 [desktop_frontend_utilities_libraries.md](desktop-frontend-utilities-libraries.md)。
 
-外层 `ErrorBoundary` 组件兜底未捕获渲染异常，其文档见 [desktop_frontend_shared_components_types.md](desktop_frontend_shared_components_types.md)。
+外层 `ErrorBoundary` 组件兜底未捕获渲染异常，其文档见 [desktop_frontend_shared_components_types.md](desktop-frontend-shared-components-types.md)。
 
 ---
 
@@ -155,7 +155,7 @@ flowchart LR
 - **不进构建产物**：`vite build` 不引用 `vite.mock.config.ts`，生产包内无此脚本。
 - 启动命令形如 `npx vite --config vite.mock.config.ts`（本机还需带 `ESBUILD_BINARY_PATH` 环境变量绕过 esbuild 二进制拦截，配置注释中有记录）。
 
-构建/脚本全貌（`dev`/`build`/`preview`/`test` 等）见 [build_deployment_configuration.md](build_deployment_configuration.md)。
+构建/脚本全貌（`dev`/`build`/`preview`/`test` 等）见 [build_deployment_configuration.md](build-deployment-configuration.md)。
 
 ### 2. `__TAURI_INTERNALS__` 三件套
 
@@ -213,7 +213,7 @@ Mock 内置一份与真后端同构的内存状态，覆盖前端绝大部分面
 - `save_config` / `save_current_as_account` / `switch_account` / `delete_account` / `rename_account` / `start_latency_test` / `stop_latency_test` 在改完内存状态后，用 `setTimeout(…, 0)` 异步 `emitEvent('config-changed', {config})` 广播全量配置——真后端落盘后也广播此事件。
 - `invoke` 对命令结果统一走 `ok(data, message)` 包装：`{success: true, message, data}`；失败路径返回 `{success: false, message, data: null}`。
 
-真后端命令全集与 payload 契约见 [desktop_backend_commands.md](desktop_backend_commands.md)；前端封装层 `TauriApi`/`createEventListener` 的调用方式见 [desktop_frontend_hooks.md](desktop_frontend_hooks.md)。
+真后端命令全集与 payload 契约见 [desktop_backend_commands.md](desktop-backend-commands.md)；前端封装层 `TauriApi`/`createEventListener` 的调用方式见 [desktop_frontend_hooks.md](desktop-frontend-hooks.md)。
 
 ### 4. URL 查询参数场景开关
 
@@ -251,7 +251,7 @@ sequenceDiagram
     Note over App: AnimatedNumber 持续有数值可动画
 ```
 
-该循环让 [desktop_frontend_monitoring.md](desktop_frontend_monitoring.md) 的质量面板在 Mock 下也能看到数字跳动与 `AnimatedNumber` 动画效果，还原真实运行体感。
+该循环让 [desktop_frontend_monitoring.md](desktop-frontend-monitoring.md) 的质量面板在 Mock 下也能看到数字跳动与 `AnimatedNumber` 动画效果，还原真实运行体感。
 
 ---
 
@@ -290,12 +290,12 @@ sequenceDiagram
 
 ## 四、与其他模块的关系
 
-- **下游业务模块**：`main.tsx` 渲染 `App.tsx`，后者装配全部面板（认证总览、账号、自助、网络、监控、质量、设置、日志），详见 [desktop_frontend_auth.md](desktop_frontend_auth.md)、[desktop_frontend_account_management.md](desktop_frontend_account_management.md)、[desktop_frontend_network_management.md](desktop_frontend_network_management.md)、[desktop_frontend_monitoring.md](desktop_frontend_monitoring.md)、[desktop_frontend_settings.md](desktop_frontend_settings.md)。
-- **API 封装层**：所有 `invoke`/`listen` 经 [desktop_frontend_hooks.md](desktop_frontend_hooks.md) 的 `tauriApi.ts` 收口；Mock 的命令名与 payload 严格对齐该层类型。
-- **真后端契约**：Mock 复刻的命令对应 [desktop_backend_commands.md](desktop_backend_commands.md) 的 Rust 命令实现；改后端契约时须同步检查 `handlers` 同构性。
-- **工具函数**：`safeStorage`、`isRenderLoopAlive`、`extractErrorMessage` 见 [desktop_frontend_utilities_libraries.md](desktop_frontend_utilities_libraries.md)；`ErrorBoundary`、共享类型见 [desktop_frontend_shared_components_types.md](desktop_frontend_shared_components_types.md)。
-- **构建配置**：vite/tsconfig/端口/分包与测试脚本见 [build_deployment_configuration.md](build_deployment_configuration.md)。
-- **Android 端对应物**：Android 前端有同构的 `android/frontend/src/main.tsx` 与 `android/frontend/tauri-mock.js`（本模块为桌面端专属），见 [android_frontend_entrypoint_mocks.md](android_frontend_entrypoint_mocks.md)。
+- **下游业务模块**：`main.tsx` 渲染 `App.tsx`，后者装配全部面板（认证总览、账号、自助、网络、监控、质量、设置、日志），详见 [desktop_frontend_auth.md](desktop-frontend-auth.md)、[desktop_frontend_account_management.md](desktop-frontend-account-management.md)、[desktop_frontend_network_management.md](desktop-frontend-network-management.md)、[desktop_frontend_monitoring.md](desktop-frontend-monitoring.md)、[desktop_frontend_settings.md](desktop-frontend-settings.md)。
+- **API 封装层**：所有 `invoke`/`listen` 经 [desktop_frontend_hooks.md](desktop-frontend-hooks.md) 的 `tauriApi.ts` 收口；Mock 的命令名与 payload 严格对齐该层类型。
+- **真后端契约**：Mock 复刻的命令对应 [desktop_backend_commands.md](desktop-backend-commands.md) 的 Rust 命令实现；改后端契约时须同步检查 `handlers` 同构性。
+- **工具函数**：`safeStorage`、`isRenderLoopAlive`、`extractErrorMessage` 见 [desktop_frontend_utilities_libraries.md](desktop-frontend-utilities-libraries.md)；`ErrorBoundary`、共享类型见 [desktop_frontend_shared_components_types.md](desktop-frontend-shared-components-types.md)。
+- **构建配置**：vite/tsconfig/端口/分包与测试脚本见 [build_deployment_configuration.md](build-deployment-configuration.md)。
+- **Android 端对应物**：Android 前端有同构的 `android/frontend/src/main.tsx` 与 `android/frontend/tauri-mock.js`（本模块为桌面端专属），见 [android_frontend_entrypoint_mocks.md](android-frontend-entrypoint-mocks.md)。
 
 ---
 
