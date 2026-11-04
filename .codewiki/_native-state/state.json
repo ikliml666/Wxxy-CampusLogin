@@ -2,13 +2,13 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "4c3a003af685f1636ace3c3d82d740cd090bbf3c",
-    "headCommit": "282be6884ce2c149cbcea3744b40a3d786dad4c6"
+    "baseCommit": "282be6884ce2c149cbcea3744b40a3d786dad4c6",
+    "headCommit": "0f4454bca6507470fe369e7a243b2ec5ed28d0f9"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "4c3a003af685f1636ace3c3d82d740cd090bbf3c",
-    "headCommit": "282be6884ce2c149cbcea3744b40a3d786dad4c6",
+    "baseCommit": "282be6884ce2c149cbcea3744b40a3d786dad4c6",
+    "headCommit": "0f4454bca6507470fe369e7a243b2ec5ed28d0f9",
     "committed": [],
     "staged": [],
     "unstaged": [],
@@ -33,8 +33,8 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 c5db78d 与本次 cw 基线 4c3a003 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw1puahd-9-native（66 个文件）"
+    "持久化基线 4c3a003 与本次 cw 基线 282be68 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw1rzfok-g-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-04T06:12:01.976Z"
+  "updatedAt": "2026-11-04T07:11:04.919Z"
 }
