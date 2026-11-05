@@ -2,13 +2,13 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "92cd45b50db5867cba7ae36562a16d39a9ba7109",
-    "headCommit": "251330980aeddbfb298d187764753aaac247fdab"
+    "baseCommit": "251330980aeddbfb298d187764753aaac247fdab",
+    "headCommit": "4a2bfeb0465434828b13095f0b45687f34b73685"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "92cd45b50db5867cba7ae36562a16d39a9ba7109",
-    "headCommit": "251330980aeddbfb298d187764753aaac247fdab",
+    "baseCommit": "251330980aeddbfb298d187764753aaac247fdab",
+    "headCommit": "4a2bfeb0465434828b13095f0b45687f34b73685",
     "committed": [],
     "staged": [],
     "unstaged": [],
@@ -33,8 +33,8 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 91764d1 与本次 cw 基线 92cd45b 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw3mdjbo-a-native（66 个文件）"
+    "持久化基线 92cd45b 与本次 cw 基线 2513309 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw3nj54l-2-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-05T14:09:21.977Z"
+  "updatedAt": "2026-11-05T14:45:37.299Z"
 }
