@@ -1,3 +1,10 @@
+---
+title: "Radix Select 的选项高亮是 data-highlighted，不是 DOM focus"
+type: learning
+source_files: []
+tags: []
+---
+
 # Radix Select 的选项高亮是 data-highlighted，不是 DOM focus
 
 ## 症状

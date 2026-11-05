@@ -1,5 +1,3 @@
-这里是基于当前源码重写的 `learnings/mask-placeholder-persisted-as-plaintext.md` 文章。
-
 ---
 title: MASK 占位符被直接落盘会变明文密码 "***"
 type: learning

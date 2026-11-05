@@ -1,3 +1,10 @@
+---
+title: "Decision: 配置「落盘+广播」出口下沉 config::persist，monitor 层不刷托盘"
+type: decision
+source_files: []
+tags: []
+---
+
 # Decision: 配置「落盘+广播」出口下沉 config::persist，monitor 层不刷托盘
 
 **日期**：2026-10-03 · **状态**：已实施（feat/decouple-20261003） · **关联**：verification-baseline、_architecture 依赖方向

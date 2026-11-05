@@ -7,6 +7,7 @@ source_files:
   - tauri-app/frontend/src/settings/types.ts
   - tauri-app/src-tauri/src/commands/account.rs
 tags: [决策, 账号, 适配器, 双适配器, 凭据]
+---
 
 ## Overview
 

@@ -1,6 +1,6 @@
 ---
 title: 跨平台生物识别验证门（Identity Gate）
-type: module
+type: learning
 source_files:
   - android/src-tauri/src/self_service_cmds.rs
   - tauri-app/src-tauri/src/platform/identity.rs

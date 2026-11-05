@@ -1,3 +1,10 @@
+---
+title: "android vpn bypass infeasible"
+type: decision
+source_files: []
+tags: []
+---
+
 ### Compression Strategy
 
 1.  **Decompress**: `decisions/android-vpn-bypass-infeasible.md` (m00492).

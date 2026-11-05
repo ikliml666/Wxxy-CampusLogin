@@ -1,3 +1,10 @@
+---
+title: "安卓设置页同步：延迟计算选项折叠改 Modal + 删固定网关展示行"
+type: decision
+source_files: []
+tags: []
+---
+
 # 安卓设置页同步：延迟计算选项折叠改 Modal + 删固定网关展示行
 
 日期：2026-09-29 ｜ 范围：android/frontend/src/settings/SettingsPanel.tsx、android/frontend/src/i18n/locales/zh.json、android/frontend/src/i18n/locales/en.json（安卓端）

@@ -1,6 +1,6 @@
 ---
 title: 提权辅助子进程 helper
-type: module
+type: decision
 source_files:
   - tauri-app/src-tauri/src/helper/mod.rs
 tags: [提权, helper, windows, dns, mac]

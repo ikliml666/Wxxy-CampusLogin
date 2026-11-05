@@ -6,6 +6,7 @@ source_files:
   - android/frontend/src/settings/constants.ts
   - tauri-app/frontend/src/App.tsx
 tags: [决策, 质量检测, 默认值, 安卓, 双端同语义]
+---
 
 ## Overview
 

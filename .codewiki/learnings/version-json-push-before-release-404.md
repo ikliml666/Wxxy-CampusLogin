@@ -1,6 +1,6 @@
 ---
 title: 更新检查与下载流程（updater）
-type: module
+type: learning
 source_files:
   - tauri-app/src-tauri/src/update/updater.rs
   - tauri-app/src-tauri/src/commands/updater.rs

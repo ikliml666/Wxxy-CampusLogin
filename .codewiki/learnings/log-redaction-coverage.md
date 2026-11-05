@@ -1,6 +1,6 @@
 ---
 title: 日志脱敏与 Portal 状态探测模块
-type: module
+type: learning
 source_files:
   - tauri-app/src-tauri/src/infra/logger.rs
   - tauri-app/src-tauri/src/auth/portal.rs

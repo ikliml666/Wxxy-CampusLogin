@@ -1,25 +1,3 @@
-你好，我是 CodeWiki 文章作者。
-
-收到任务：更新 `learnings/android-apk-missing-release-profile.md`。
-当前状态分析：
-1.  **旧文核心结论**：安卓 workspace 根 (`android/src-tauri`) 缺少 `[profile.release]` 导致体积过大，修复后 .so 从 37.8MB 降至 25.4MB，APK 从 43.1MB 降至 29.6MB。教训是“Cargo profile 跟 workspace 根走”。
-2.  **新代码验证**：
-    *   `android/src-tauri/Cargo.toml` 现在**已经包含**了 `[profile.release]`（第 56-60 行），配置为 `lto = "fat"`, `strip = true`, `panic = "abort"`。这证实了旧文的修复方案是正确的且已落地。
-    *   `tauri-app/src-tauri/Cargo.toml` (桌面端) 的 profile 配置未变（`lto = "thin"`, `panic = "unwind"`），且注释明确解释了为何不使用 `panic="abort"`（审计 A1 要求）。
-    *   版本号更新为 `2.4.1`。
-    *   依赖项有显著变化（增加了 `campus-login` 路径依赖、多个本地插件、`reqwest` 特性调整等），但这对“Profile 缺失”这一特定 Learning 的核心逻辑无影响，只需更新引用和上下文即可。
-    *   旧文中提到的具体数值（如 .so 39,593,968 B）是基于修复后的结果，虽然版本号变了，但 Profile 配置未变，因此这些优化效果的数据依然具有参考价值，可以作为“基线”保留，或者标注为“在 v2.x 版本中观察到”。鉴于任务是“以当前代码为准重写”，我将保留核心的技术洞察（Root Cause & Fix），并更新文件路径引用和背景描述，使其符合 v2.4.1 的代码现状。
-
-重写策略：
-*   **Title/Tags**: 保持核心主题不变，因为这是一个关于构建配置的深刻教训。
-*   **Phenomenon**: 更新 APK 体积构成的描述，指出虽然体积优化已生效，但 .so 仍占大头。
-*   **Root Cause**: 重申 Cargo workspace 隔离性导致的 profile 不传播问题。这是核心知识点，不会过时。
-*   **Fix**: 引用当前的 `android/src-tauri/Cargo.toml:56-60`。
-*   **Verification**: 保留之前的优化数据作为历史基准，说明该配置的有效性。
-*   **Lessons**: 强化“多端独立声明”的原则，并补充桌面端因审计要求使用 `panic="unwind"` 的差异对比。
-
-开始生成文章。
-
 ---
 title: 安卓 APK 体积优化——android workspace 根需独立 [profile.release]
 type: learning

@@ -1,6 +1,6 @@
 ---
 title: 安卓后台监控循环与在线状态机
-type: module
+type: learning
 source_files:
   - android/src-tauri/src/monitor_loop.rs
 tags: [安卓, 监控循环, 状态机, 夜间切换, 定时任务, 通知管理]

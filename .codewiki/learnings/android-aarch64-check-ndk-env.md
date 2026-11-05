@@ -1,3 +1,10 @@
+---
+title: "Learning: 安卓 aarch64 cargo check 的 NDK 环境变量（llvm-ar 是 .exe）"
+type: learning
+source_files: []
+tags: []
+---
+
 # Learning: 安卓 aarch64 cargo check 的 NDK 环境变量（llvm-ar 是 .exe）
 
 **日期**：2026-10-03 · **关联**：android-host-cargo-check-fails.md（host 目标失败的另一问题）

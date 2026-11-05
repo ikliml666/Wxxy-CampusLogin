@@ -1,3 +1,10 @@
+---
+title: "Learning: clippy 1.98.0 工具链漂移击穿 `-D warnings` 基线"
+type: learning
+source_files: []
+tags: []
+---
+
 # Learning: clippy 1.98.0 工具链漂移击穿 `-D warnings` 基线
 
 **日期**：2026-10-03 · **影响**：验证基线 · ** discovered in**：解耦优化会话（feat/decouple-20261003）

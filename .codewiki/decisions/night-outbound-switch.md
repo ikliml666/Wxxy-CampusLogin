@@ -1,6 +1,6 @@
 ---
 title: "夜间出站自动切换（出站层夜切）"
-type: module
+type: decision
 source_files:
   - tauri-app/src-tauri/src/config/outbound_switch.rs
   - tauri-app/src-tauri/src/config/model.rs

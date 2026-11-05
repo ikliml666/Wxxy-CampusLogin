@@ -1,5 +1,11 @@
+---
+title: "login response retry semantics"
+type: learning
+source_files: []
+tags: []
+---
+
 我需要先阅读当前文章，然后对照最新代码重写。让我先获取文章的完整内容。
 
 
 让我读取当前文章文件：
-

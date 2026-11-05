@@ -1,6 +1,6 @@
 ---
 title: 更新模块：自动检查、下载、SHA256校验与安装
-type: module
+type: learning
 source_files:
   - tauri-app/src-tauri/src/update/updater.rs
   - tauri-app/src-tauri/src/commands/updater.rs

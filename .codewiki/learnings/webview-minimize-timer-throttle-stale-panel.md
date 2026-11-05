@@ -1,6 +1,6 @@
 ---
 title: NetworkPanel 网络适配器与出站管理面板
-type: module
+type: learning
 source_files:
   - tauri-app/frontend/src/network/NetworkPanel.tsx
   - tauri-app/src-tauri/src/commands/network_cmd.rs

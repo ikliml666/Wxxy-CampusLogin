@@ -1,3 +1,10 @@
+---
+title: "cargo target 移出工作区树（Low 完整性标签规避）"
+type: decision
+source_files: []
+tags: []
+---
+
 # cargo target 移出工作区树（Low 完整性标签规避）
 
 - 日期：2026-09-29

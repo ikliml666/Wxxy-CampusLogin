@@ -1,3 +1,10 @@
+---
+title: "桌面设置页不对称修复：两列重排（左三卡右三卡） + 删固定网关行 + 延迟计算选项折叠改 Modal"
+type: decision
+source_files: []
+tags: []
+---
+
 # 桌面设置页不对称修复：两列重排（左三卡右三卡） + 删固定网关行 + 延迟计算选项折叠改 Modal
 
 日期：2026-09-28 ｜ 范围：tauri-app/frontend/src/settings/SettingsPanel.tsx（桌面端 Windows）

@@ -1,4 +1,3 @@
-```markdown
 ---
 title: "质量历史落盘：双端一致范式，原子写与互斥保护"
 type: decision

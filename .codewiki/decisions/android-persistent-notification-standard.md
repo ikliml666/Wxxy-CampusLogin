@@ -1,6 +1,6 @@
 ---
 title: 安卓前台服务与常驻通知标准协议实现
-type: module
+type: decision
 source_files:
   - android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/ForegroundService.kt
   - android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/MonitorServicePlugin.kt

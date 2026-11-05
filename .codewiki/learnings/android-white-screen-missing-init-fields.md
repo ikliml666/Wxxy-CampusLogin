@@ -1,3 +1,10 @@
+---
+title: "android white screen missing init fields"
+type: learning
+source_files: []
+tags: []
+---
+
 ### 1. 分析 `system_cmds.rs`
 
 **文件**: `android/src-tauri/src/system_cmds.rs`

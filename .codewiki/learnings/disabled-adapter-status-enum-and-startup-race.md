@@ -8,6 +8,7 @@ source_files:
   - tauri-app/frontend/src/network/types.ts
   - android/frontend/src/network/types.ts
 tags: [教训, i18n, 枚举序列化, 启动竞态, 事件推送, Radix Select, 跨端契约]
+---
 
 ## Overview
 

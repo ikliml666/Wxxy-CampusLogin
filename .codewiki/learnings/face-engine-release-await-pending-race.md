@@ -1,6 +1,6 @@
 ---
 title: 应用内 2D 人脸验证（@vladmandic/human）
-type: module
+type: learning
 source_files:
   - android/frontend/src/face/faceService.ts
   - android/frontend/src/face/FaceCaptureDialog.tsx

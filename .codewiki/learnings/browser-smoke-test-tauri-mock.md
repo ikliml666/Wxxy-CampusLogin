@@ -1,3 +1,10 @@
+---
+title: "浏览器实测 Tauri mock 环境的三处坑（2026-09-27 首次跑通）"
+type: learning
+source_files: []
+tags: []
+---
+
 # 浏览器实测 Tauri mock 环境的三处坑（2026-09-27 首次跑通）
 
 用 AGENTS.md 规定的「index.html 注入 `__TAURI_INTERNALS__` mock + vite dev」做浏览器实测时踩到的三个坑：

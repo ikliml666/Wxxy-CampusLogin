@@ -1,6 +1,6 @@
 ---
 title: AccountPanel 账号管理面板架构与状态流
-type: module
+type: learning
 source_files:
   - tauri-app/frontend/src/account/AccountPanel.tsx
 tags: [前端, React, Tauri, 账号管理, 运营商绑定, 竞态保护]

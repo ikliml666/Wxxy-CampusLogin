@@ -1,4 +1,3 @@
-```markdown
 ---
 title: 桌面轻量化模式：销毁 WebView、EcoQoS 与退出守卫
 type: decision
@@ -100,4 +99,3 @@ tags: [决策, 轻量化, EcoQoS, 托盘, WebView2, 双端同构]
 - [[background-check-and-auto-login]]——检测循环的间隔下限消费方。
 - [[night-operator-switch]]——轻量化与夜切常驻的互补关系。
 - [[android-exit-guard-renderer-policy]]——安卓端的退出拦截与渲染策略对照。
-```

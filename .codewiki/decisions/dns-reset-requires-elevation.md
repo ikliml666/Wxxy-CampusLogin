@@ -4,6 +4,7 @@ type: decision
 source_files:
   - tauri-app/src-tauri/src/helper/mod.rs
 tags: [决策, DNS, 提权, helper, 可逆性]
+---
 
 ## Overview
 

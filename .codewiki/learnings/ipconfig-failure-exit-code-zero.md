@@ -1,6 +1,6 @@
 ---
 title: subnet 模块：子网计算、SSID 处理与网关可达性检查
-type: module
+type: learning
 source_files:
   - tauri-app/src-tauri/src/network/subnet.rs
 tags: [网络诊断, Windows, netsh, ICMP, 缓存, 子网掩码]

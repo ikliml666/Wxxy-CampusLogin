@@ -1,6 +1,6 @@
 ---
 title: 安卓配置状态管理 config_state.rs
-type: module
+type: decision
 source_files: []
 tags: [安卓, 配置, 状态机, 加密, Tauri]
 ---

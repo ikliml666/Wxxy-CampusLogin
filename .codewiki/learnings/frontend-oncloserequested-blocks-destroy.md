@@ -1,3 +1,10 @@
+---
+title: "前端注册 onCloseRequested 即触发 Tauri core 无条件 prevent_close，窗口销毁被转嫁给 JS 收尾"
+type: learning
+source_files: []
+tags: []
+---
+
 # 前端注册 onCloseRequested 即触发 Tauri core 无条件 prevent_close，窗口销毁被转嫁给 JS 收尾
 
 ## 结论
