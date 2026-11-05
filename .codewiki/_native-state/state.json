@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "55784c31cb96200d1f03a6eb88aba2b853f65886",
-    "headCommit": "7d235c6413b6c3d02aeb749a7d9cb1929fbc5d8e"
+    "headCommit": "a0565c8d17ced34c173cb2137db447d3c20fd1b0"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "55784c31cb96200d1f03a6eb88aba2b853f65886",
-    "headCommit": "7d235c6413b6c3d02aeb749a7d9cb1929fbc5d8e",
+    "headCommit": "a0565c8d17ced34c173cb2137db447d3c20fd1b0",
     "committed": [],
     "staged": [],
     "unstaged": [],
@@ -33,7 +33,7 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw2siyhf-1u-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw2uo4yv-22-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-05T00:13:33.615Z"
+  "updatedAt": "2026-11-05T01:13:41.508Z"
 }
