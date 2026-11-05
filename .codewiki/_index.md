@@ -144,7 +144,6 @@
 - [[learnings/webview-minimize-timer-throttle-stale-panel|NetworkPanel 网络适配器与出站管理面板]]
 - [[modules/android-backend-tauri|android_backend_tauri — 安卓端 Tauri 后端]]
 - [[modules/android-frontend-hooks|android_frontend_hooks（安卓前端 Hook 与状态管理层）]]
-- [[modules/hooks_core|hooks_core (app module)]]
 - [[learnings/ipconfig-failure-exit-code-zero|subnet 模块：子网计算、SSID 处理与网关可达性检查]]
 - [[modules/android-frontend-settings-use-settings|使用设置 Hook（useSettings）]]
 - [[modules/build-deployment-configuration-release|发布版本管理与版本配置（Release / Version Configuration）]]
