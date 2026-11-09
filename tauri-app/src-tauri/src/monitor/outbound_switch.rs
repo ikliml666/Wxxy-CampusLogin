@@ -1,5 +1,5 @@
 //! 夜间出站切换的桌面侧动作层：目标卡选择、逐卡校园网判定、快照序列化。
-//! 判定规则与 campus_check 同源但按适配器粒度：/18 网段匹配 || 绑该卡源 IP 的
+//! 判定规则与 campus_check 同源但按适配器粒度：/16 校园大网匹配 || 绑该卡源 IP 的
 //! 网关可达 || 绑该卡源 IP 的 portal 主机可达（check_gateway_reachable_from；
 //! 不绑源会多卡归因错位）。SSID 不参与
 //! 逐卡判定——netsh wlan 只报当前连接的单个 SSID，多无线卡下归因不可靠。
@@ -11,8 +11,8 @@
 use crate::network::discovery::Adapter;
 
 /// 逐卡判定该适配器是否处于校园网内：
-/// IP 与校园网关同 /18 网段，或绑该卡源 IP 可达校园网关/portal 主机（经 probe 注入）。
-/// IP 为空直接判否；campus_gateway 为空时 is_same_subnet_18 解析失败返回 false、
+/// IP 与校园网关同 /16 校园大网，或绑该卡源 IP 可达校园网关/portal 主机（经 probe 注入）。
+/// IP 为空直接判否；campus_gateway 为空时 is_same_campus_subnet 解析失败返回 false、
 /// probe 传空网关也判否，行为安全。
 pub fn is_campus_adapter(
     ip: &str,
@@ -24,13 +24,13 @@ pub fn is_campus_adapter(
     if ip.is_empty() {
         return false;
     }
-    if crate::network::is_same_subnet_18(ip, campus_gateway) {
+    if crate::network::is_same_campus_subnet(ip, campus_gateway) {
         return true;
     }
     // 绑源探测做两次尝试：单发 ICMP 丢包会把在网校园卡误判成非校园——禁用步骤
     // 静默跳过、整夜只切一半。任一次可达即判校园，容忍瞬时抖动。
     // 校园网关之外再加 portal 主机（portal_probe_host 保证仅私网 IPv4 非空）：
-    // 宿舍路由器 NAT 下的卡不在校园 /18、网关也常禁 ICMP（10.2.127.254 实测
+    // 宿舍路由器 NAT 下的卡不在校园大网、网关也常禁 ICMP（10.2.127.254 实测
     // 三源全丢包），但 portal 可达同样是「流量从校园侧出」的证据。
     (!gateway.is_empty()
         && (gateway_probe(campus_gateway, ip) || gateway_probe(campus_gateway, ip)))
@@ -344,19 +344,19 @@ mod tests {
 
     #[test]
     fn campus_adapter_by_subnet() {
-        // 10.64.1.2 与 10.64.60.1 同 /18（10.64.0.0 - 10.64.63.255）→ 校园网卡
+        // 10.64.1.2 与 10.64.60.1 同属 10.64.0.0/16→ 校园网卡
         assert!(is_campus_adapter("10.64.1.2", "10.64.60.1", "10.64.60.1", "", no_probe()));
     }
 
     #[test]
     fn campus_adapter_off_subnet_probe_reachable() {
-        // 不同 /18，但校园网关从该卡源 IP 可达（probe 注入 true）→ 仍判校园
+        // 不同网段，但校园网关从该卡源 IP 可达（probe 注入 true）→ 仍判校园
         assert!(is_campus_adapter("192.168.43.10", "192.168.43.1", "10.64.60.1", "", |_, _| true));
     }
 
     #[test]
     fn campus_adapter_off_subnet_probe_unreachable() {
-        // 不同 /18 且 probe 判不可达 → 非校园
+        // 不同网段 且 probe 判不可达 → 非校园
         assert!(!is_campus_adapter("192.168.43.10", "192.168.43.1", "10.64.60.1", "", |_, _| false));
     }
 
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn select_campus_to_disable_probe_reachable_counts_and_dedups() {
-        // 不同 /18 但绑源可达校园网关 → 视为校园入选；重复名只取第一张
+        // 不同网段 但绑源可达校园网关 → 视为校园入选；重复名只取第一张
         let a1 = (adapter("以太网", "{G1}", "192.168.6.109", false), "192.168.6.1".to_string());
         let priority = vec!["以太网".to_string(), "以太网".to_string()];
         let rows = select_campus_to_disable(
@@ -609,7 +609,7 @@ mod tests {
 
     #[test]
     fn campus_adapter_portal_probe_reachable() {
-        // 宿舍路由器 NAT 场景：不同 /18、绑源网关不可达，但绑源 portal 可达 → 校园
+        // 宿舍路由器 NAT 场景：不同网段、绑源网关不可达，但绑源 portal 可达 → 校园
         // （2026-10-03 实测：10.2.127.254 三源全丢包，portal 10.1.99.100 绑源可达）
         let probe = |target: &str, _: &str| target == "10.1.99.100";
         assert!(is_campus_adapter(

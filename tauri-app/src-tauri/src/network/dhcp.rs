@@ -13,7 +13,7 @@ use crate::network::adapter_cache::{
     get_adapters_cached, get_adapters_force, validate_adapter_name,
 };
 #[cfg(target_os = "windows")]
-use crate::network::subnet::is_same_subnet_18;
+use crate::network::subnet::is_same_campus_subnet;
 #[cfg(target_os = "windows")]
 use crate::network::discovery::is_blacklisted;
 use crate::network::discovery::{Adapter, new_command};
@@ -336,7 +336,7 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
             "reason": "虚拟适配器，跳过 MAC 重置"
         });
     }
-    if !adapter.ip.is_empty() && !is_same_subnet_18(&adapter.ip, campus_gateway) {
+    if !adapter.ip.is_empty() && !is_same_campus_subnet(&adapter.ip, campus_gateway) {
         return serde_json::json!({
             "name": adapter.name,
             "wireless": adapter.wireless,

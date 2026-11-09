@@ -478,7 +478,7 @@ fn warm_probe_cache(pairs: &[(String, String)]) -> ProbeCache {
 }
 
 /// 收集判定阶段会查询的 (目标, 绑源) 组合，口径与 [`is_campus_adapter`] /
-/// [`select_outbound_candidate`] 一致：同 /18 段直接判校园不走探测；候选自身网关
+/// [`select_outbound_candidate`] 一致：同 /16 校园大网直接判校园不走探测；候选自身网关
 /// 与外网探测目标一并预热。多收只是多探一次，漏收会退化成串行探测。
 fn collect_probe_targets(
     priority: &[String],
@@ -492,11 +492,11 @@ fn collect_probe_targets(
             continue;
         };
         // 判定阶段对这些卡根本不发探测：无 IP 不参与、无网关出不了站、
-        // 与校园网关同 /18 由 is_campus_adapter 直接判校园
+        // 与校园网关同 /16 大网由 is_campus_adapter 直接判校园
         if adapter.ip.is_empty() || gateway.is_empty() {
             continue;
         }
-        if crate::network::is_same_subnet_18(&adapter.ip, campus_gateway) {
+        if crate::network::is_same_campus_subnet(&adapter.ip, campus_gateway) {
             continue;
         }
         if !campus_gateway.is_empty() {
@@ -1685,7 +1685,7 @@ mod tests {
     /// 多收只是多探一次。校园同段卡按 is_campus_adapter 的短路顺序不再探校园目标。
     #[test]
     fn 探测预热_只收判定会查询的组合() {
-        // 校园网关 10.2.127.254 属 10.2.64.0/18，10.2.100.5 与之同段
+        // 校园网关 10.2.127.254 属 10.2.64.0/16，10.2.100.5 与之同段
         let campus = (adapter("以太网", "10.2.100.5", false), "10.2.127.254".to_string());
         let hotspot = (adapter("WLAN", "192.168.6.119", true), "192.168.6.1".to_string());
         let no_gw = (adapter("以太网 2", "192.168.6.115", false), String::new());
@@ -1698,7 +1698,7 @@ mod tests {
         let has = |dest: &str, src: &str| {
             pairs.contains(&(dest.to_string(), src.to_string()))
         };
-        // 校园卡 IP 与校园网关同 /18：判定直接命中，不探测也不会成为候选
+        // 校园卡 IP 与校园网关同 /16 校园大网：判定直接命中，不探测也不会成为候选
         assert!(!has("10.2.127.254", "10.2.100.5"));
         assert!(!has("10.1.99.100", "10.2.100.5"));
         assert!(!has(OUTBOUND_PROBE_HOST, "10.2.100.5"));

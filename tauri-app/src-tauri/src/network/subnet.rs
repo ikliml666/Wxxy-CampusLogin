@@ -199,8 +199,14 @@ pub fn check_gateway_reachable_from(gateway: &str, source_ip: Option<&str>) -> b
     crate::infra::async_util::block_on_sync(gateway_reachable_async(gateway, source_ip))
 }
 
-/// 判断 IP 与网关是否在同一 /18 子网（掩码 255.255.192.0）
-pub fn is_same_subnet_18(ip_str: &str, gateway_str: &str) -> bool {
+/// 判断 IP 与校园网关是否同属学校大网（/16）。
+///
+/// 2026-11-09 实测：学校按 /23 划分接入子网（本机 `10.2.38.4/23`、网关 `10.2.127.254`），
+/// 两者在 /18 掩码下分属 `10.2.0.0/18` 与 `10.2.64.0/18`，原 /18 判定会把校园卡直接
+/// 判成非校园网（禁用名单漏卡、夜间出站切换整夜不生效）。判定口径统一放宽到 /16
+/// 大网边界：只要与 `campus_gateway` 同属一个 `10.x.0.0/16` 就视为同一校园网段，
+/// 不再依赖学校内部怎么切接入子网。
+pub fn is_same_campus_subnet(ip_str: &str, gateway_str: &str) -> bool {
     let ip: u32 = match ip_str.parse::<std::net::Ipv4Addr>() {
         Ok(addr) => u32::from(addr),
         Err(_) => return false,
@@ -209,7 +215,7 @@ pub fn is_same_subnet_18(ip_str: &str, gateway_str: &str) -> bool {
         Ok(addr) => u32::from(addr),
         Err(_) => return false,
     };
-    let mask: u32 = 0xFFFF_C000;
+    let mask: u32 = 0xFFFF_0000; // 255.255.0.0
     (ip & mask) == (gw & mask)
 }
 
@@ -218,34 +224,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn is_same_subnet_18_same_subnet_returns_true() {
-        // 10.2.0.0/18 范围：10.2.0.0 - 10.2.63.255
-        assert!(is_same_subnet_18("10.2.0.1", "10.2.63.254"));
-        assert!(is_same_subnet_18("10.2.0.0", "10.2.0.1"));
-        assert!(is_same_subnet_18("10.2.63.255", "10.2.0.0"));
+    fn is_same_campus_subnet_same_subnet_returns_true() {
+        // 10.2.0.0/16 是学校接入大网，跨 /23 与 /18 的划分都算同一网段
+        assert!(is_same_campus_subnet("10.2.0.1", "10.2.63.254"));
+        // 本次核心场景：本机 /23 与网关 /18 同属 10.2.0.0/16
+        assert!(is_same_campus_subnet("10.2.38.4", "10.2.127.254"));
+        assert!(is_same_campus_subnet("10.2.0.0", "10.2.0.1"));
+        assert!(is_same_campus_subnet("10.2.63.255", "10.2.0.0"));
     }
 
     #[test]
-    fn is_same_subnet_18_different_subnet_returns_false() {
-        // 10.2.0.0/18 与 10.2.64.0/18 不同子网
-        assert!(!is_same_subnet_18("10.2.0.1", "10.2.64.1"));
-        // 10.2.63.255 与 10.2.64.0 跨子网边界
-        assert!(!is_same_subnet_18("10.2.63.255", "10.2.64.0"));
+    fn is_same_campus_subnet_different_subnet_returns_false() {
+        // 跨 /16 边界：10.2 接入网与 10.3、10.1 核心网分属不同大网
+        assert!(!is_same_campus_subnet("10.2.0.1", "10.3.0.1"));
+        assert!(!is_same_campus_subnet("10.2.38.4", "10.1.1.1"));
         // 完全不同的网段
-        assert!(!is_same_subnet_18("192.168.1.1", "10.2.0.1"));
+        assert!(!is_same_campus_subnet("192.168.1.1", "10.2.0.1"));
     }
 
     #[test]
-    fn is_same_subnet_18_invalid_ip_returns_false() {
-        assert!(!is_same_subnet_18("invalid", "10.2.0.1"));
-        assert!(!is_same_subnet_18("", "10.2.0.1"));
-        assert!(!is_same_subnet_18("10.2.0", "10.2.0.1"));
+    fn is_same_campus_subnet_invalid_ip_returns_false() {
+        assert!(!is_same_campus_subnet("invalid", "10.2.0.1"));
+        assert!(!is_same_campus_subnet("", "10.2.0.1"));
+        assert!(!is_same_campus_subnet("10.2.0", "10.2.0.1"));
     }
 
     #[test]
-    fn is_same_subnet_18_invalid_gateway_returns_false() {
-        assert!(!is_same_subnet_18("10.2.0.1", "invalid"));
-        assert!(!is_same_subnet_18("10.2.0.1", ""));
-        assert!(!is_same_subnet_18("10.2.0.1", "10.2.0"));
+    fn is_same_campus_subnet_invalid_gateway_returns_false() {
+        assert!(!is_same_campus_subnet("10.2.0.1", "invalid"));
+        assert!(!is_same_campus_subnet("10.2.0.1", ""));
+        assert!(!is_same_campus_subnet("10.2.0.1", "10.2.0"));
     }
 }

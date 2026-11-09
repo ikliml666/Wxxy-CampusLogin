@@ -127,11 +127,11 @@ where
     }
 
     // 2. 网段（纯位运算，零 IO）
-    if crate::network::is_same_subnet_18(&adapter.ip, ctx.campus_gw) {
+    if crate::network::is_same_campus_subnet(&adapter.ip, ctx.campus_gw) {
         return build(
             true,
             Some("subnet"),
-            format!("{}与网关{}在同一/18网段", adapter.ip, ctx.campus_gw),
+            format!("{}与网关{}在同一校园网段", adapter.ip, ctx.campus_gw),
         );
     }
 
@@ -350,8 +350,8 @@ mod tests {
         let wifi = judge_adapter(&adapter("WLAN", "10.2.1.5", true), &c, &mut probe);
         assert!(wifi.on_campus);
         assert_eq!(wifi.matched_by.as_deref(), Some("name"));
-        // SSID 是无线信号，不套用到有线卡
-        let wired = judge_adapter(&adapter("以太网", "10.2.1.6", false), &c, &mut probe);
+        // SSID 是无线信号，不套用到有线卡；用非校园大网的地址，让它继续走网关/Portal
+        let wired = judge_adapter(&adapter("以太网", "192.168.6.115", false), &c, &mut probe);
         assert!(!wired.on_campus);
         assert_eq!(wired.matched_by, None);
         assert!(probes >= 1, "有线卡应继续往下走网关/Portal 探测");
@@ -365,10 +365,14 @@ mod tests {
             probes += 1;
             false
         };
-        // 10.2.39.163 与 10.2.127.254 不同 /18；10.2.100.5 与 10.2.127.254 同属 10.2.64.0/18
+        // 10.2.39.163（学校 /23 接入子网）与 10.2.127.254 同属 10.2.0.0/16，网段腿直接命中；
+        // 10.2.100.5 同理。这是 2026-11-09 学校重划网段后的核心场景
         let hit = judge_adapter(&adapter("以太网", "10.2.100.5", false), &c, &mut probe);
         assert!(hit.on_campus);
         assert_eq!(hit.matched_by.as_deref(), Some("subnet"));
+        let hit23 = judge_adapter(&adapter("以太网", "10.2.39.163", false), &c, &mut probe);
+        assert!(hit23.on_campus, "学校 /23 接入子网应与 /16 网关同属 10.2.0.0/16");
+        assert_eq!(hit23.matched_by.as_deref(), Some("subnet"));
         assert_eq!(probes, 0);
     }
 

@@ -1,4 +1,4 @@
-//! 安卓侧校园网探针:本机 IPv4 枚举 + /18 子网判定(复用桌面纯函数)+ Portal TCP 可达
+//! 安卓侧校园网探针:本机 IPv4 枚举 + /16 大网判定(复用桌面纯函数)+ Portal TCP 可达
 //! + WiFi SSID 判定(network-bind 插件经 WifiManager 读取,2026-09-20 起)。
 //! ICMP 原始 socket 在安卓被 SELinux 禁止(surge-ping 不可用),网关可达改用 Portal TCP 可达表达。
 
@@ -93,15 +93,15 @@ pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<Camp
     }
 
     let on_campus_by_subnet = source
-        .map(|ip| campus_login_lib::network::is_same_subnet_18(&ip.to_string(), campus_gateway))
+        .map(|ip| campus_login_lib::network::is_same_campus_subnet(&ip.to_string(), campus_gateway))
         .unwrap_or(false);
 
     let portal_host = portal_host_of(portal_url);
 
     // 对齐桌面 campus_check 三层判定的安卓版(2026-09-09 真机反馈:能到达网关
-    // 却被判非校园网)。桌面三层=SSID→/18 子网→网关 ICMP;安卓无 SSID 通道且
+    // 却被判非校园网)。桌面三层=SSID→/16 大网→网关 ICMP;安卓无 SSID 通道且
     // 非 root 无 ICMP,兜底层改 TCP:
-    // ①网关 TCP(campus_gateway 必为内网地址,跨 /18 的 AP 区段靠它救回);
+    // ①网关 TCP(campus_gateway 必为内网地址,跨网段的 AP 区段靠它救回);
     // ②Portal TCP(配置公网 portal 域名时家宽也可能连通,属已知边界——
     //   建议保持 portal_url 为内网地址;放最后作为网关误配时的最后兜底)
     // 子网不命中时网关与 Portal 探测并行(2026-09-14:串行最坏 6s,拉长断开场景
