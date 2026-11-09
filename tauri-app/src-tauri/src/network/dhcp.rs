@@ -510,12 +510,20 @@ fn renew_with_conflict_retry(adapter: &Adapter, campus_gateway: &str) -> serde_j
         .ok()
         .and_then(|list| crate::network::find_by_name(&list, &adapter.name).cloned());
     let Some(retry_adapter) = refreshed else {
-        return first;
+        // 拿不到刷新后的适配器（卡被拔出/重命名、枚举瞬时失败）时没法重试。
+        // 冲突事实要保留，但必须标明「未重试」——否则前端会提示「已自动重新
+        // 获取 IP」，而实际什么都没发生，用户会以为已经处理过了。
+        let mut value = first;
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("ipConflictRetried".to_string(), serde_json::Value::Bool(false));
+        }
+        return value;
     };
     let mut merged = renew_adapter_with_mac(&retry_adapter, campus_gateway);
     if let Some(obj) = merged.as_object_mut() {
         // 保留冲突事实供前端提示（重试是否成功由 success/ip 字段表达）
         obj.insert("ipConflict".to_string(), serde_json::Value::Bool(true));
+        obj.insert("ipConflictRetried".to_string(), serde_json::Value::Bool(true));
     }
     merged
 }

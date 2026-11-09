@@ -360,6 +360,7 @@
     "getNewIpFailed": "Failed to get new IP: {{details}}",
     "getNewIpFailedShort": "Failed to get new IP",
     "ipConflictRetried": "IP conflict detected, re-acquiring IP automatically: {{names}}",
+    "ipConflictManual": "IP conflict detected, please re-acquire IP: {{names}}",
     "dnsFamilyLabel": "Target",
     "dnsFamilyBoth": "IPv4 + IPv6",
     "dnsAdapterLabel": "Target adapters",

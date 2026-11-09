@@ -55,7 +55,7 @@ export interface DhcpRenewResult {
 
 export interface DhcpReleaseRenewResult {
   success: boolean
-  results: { name: string; wireless: boolean; ip: string; regOk: boolean; success: boolean; skipped: boolean; ipConflict?: boolean; reason: string | null }[]
+  results: { name: string; wireless: boolean; ip: string; regOk: boolean; success: boolean; skipped: boolean; ipConflict?: boolean; ipConflictRetried?: boolean; reason: string | null }[]
 }
 
 export interface DnsSetupResult {

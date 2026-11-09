@@ -25,8 +25,15 @@ export function announceDhcpResults(results: DhcpResultItem[], addToast: AddToas
   const skipped = results.filter((r) => r.skipped)
   const failed = results.filter((r) => !r.success && !r.skipped)
   const conflicted = results.filter((r) => r.ipConflict)
-  if (conflicted.length > 0) {
-    addToast(i18next.t('network.ipConflictRetried', { names: conflicted.map((r) => r.name).join(', ') }), 'warning')
+  // ipConflictRetried=false 表示后端因适配器查询失败没有真正重试，此时不能提示
+  // 「已自动重新获取」，否则用户会以为已处理而实际网络没动
+  const autoRetried = conflicted.filter((r) => r.ipConflictRetried !== false)
+  const needManualRetry = conflicted.filter((r) => r.ipConflictRetried === false)
+  if (autoRetried.length > 0) {
+    addToast(i18next.t('network.ipConflictRetried', { names: autoRetried.map((r) => r.name).join(', ') }), 'warning')
+  }
+  if (needManualRetry.length > 0) {
+    addToast(i18next.t('network.ipConflictManual', { names: needManualRetry.map((r) => r.name).join(', ') }), 'warning')
   }
   if (succeeded.length > 0) {
     addToast(i18next.t('network.gotNewIp', { names: succeeded.map((r) => r.name).join(', ') }), 'success')
