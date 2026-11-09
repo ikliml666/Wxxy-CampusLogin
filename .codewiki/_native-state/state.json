@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "8cb4a712fe8caa557e9faa1e8d66af3cb1ee0b2d",
-    "headCommit": "b1074e3343a369d303f461a6141f7b662bd53327"
+    "headCommit": "9f44de965fac6474a73d5c02b866cabdbf85db4d"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "8cb4a712fe8caa557e9faa1e8d66af3cb1ee0b2d",
-    "headCommit": "b1074e3343a369d303f461a6141f7b662bd53327",
+    "headCommit": "9f44de965fac6474a73d5c02b866cabdbf85db4d",
     "committed": [
       "android/frontend/src/i18n/locales/en.json",
       "android/frontend/src/i18n/locales/zh.json",
@@ -20,6 +20,7 @@
       "tauri-app/frontend/src/settings/OnboardingWizard.tsx",
       "tauri-app/src-tauri/src/monitor/background_task.rs",
       "tauri-app/src-tauri/src/monitor/outbound_night.rs",
+      "tauri-app/src-tauri/src/network/subnet.rs",
       "version.json"
     ],
     "staged": [],
@@ -37,7 +38,7 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw9ad2wr-2-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw9afrz3-6-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-09T13:17:59.306Z"
+  "updatedAt": "2026-11-09T13:34:32.198Z"
 }
