@@ -345,6 +345,7 @@
     "skipNonCampus": "{{name}}({{ip}}) is not on campus subnet, skipped",
     "getNewIpFailed": "Failed to get new IP: {{details}}",
     "getNewIpFailedShort": "Failed to get new IP",
+    "ipConflictRetried": "IP conflict detected, re-acquiring IP automatically: {{names}}",
     "dnsFamilyLabel": "Target",
     "dnsFamilyBoth": "IPv4 + IPv6",
     "dhcpRenewFailed": "DHCP renew failed",

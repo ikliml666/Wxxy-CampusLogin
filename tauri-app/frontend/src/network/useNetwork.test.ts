@@ -8,7 +8,7 @@ beforeAll(async () => {
   await i18next.init({
     lng: 'zh',
     resources: {
-      zh: { translation: { network: { getNewIpFailed: '获取新IP失败: {{details}}' } } },
+      zh: { translation: { network: { getNewIpFailed: '获取新IP失败: {{details}}', ipConflictRetried: '检测到IP冲突，已自动重新获取IP: {{names}}' } } },
     },
   })
 })
@@ -63,5 +63,12 @@ describe('announceDhcpResults', () => {
     announceDhcpResults([item({ name: 'wlan0', skipped: true })], addToast)
     expect(toasts).toHaveLength(1)
     expect(toasts[0].type).toBe('info')
+  })
+  it('IP 冲突先发 warning 提示，再发成功结果', () => {
+    const { toasts, addToast } = capture()
+    announceDhcpResults([item({ name: 'eth0', success: true, ipConflict: true })], addToast)
+    expect(toasts.map((t) => t.type)).toEqual(['warning', 'success'])
+    expect(toasts[0].title).toContain('eth0')
+    expect(toasts[0].title).toContain('IP冲突')
   })
 })

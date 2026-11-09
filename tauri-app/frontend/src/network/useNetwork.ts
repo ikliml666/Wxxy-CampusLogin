@@ -24,6 +24,10 @@ export function announceDhcpResults(results: DhcpResultItem[], addToast: AddToas
   const succeeded = results.filter((r) => r.success)
   const skipped = results.filter((r) => r.skipped)
   const failed = results.filter((r) => !r.success && !r.skipped)
+  const conflicted = results.filter((r) => r.ipConflict)
+  if (conflicted.length > 0) {
+    addToast(i18next.t('network.ipConflictRetried', { names: conflicted.map((r) => r.name).join(', ') }), 'warning')
+  }
   if (succeeded.length > 0) {
     addToast(i18next.t('network.gotNewIp', { names: succeeded.map((r) => r.name).join(', ') }), 'success')
   }

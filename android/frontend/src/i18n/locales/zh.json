@@ -345,6 +345,7 @@
     "skipNonCampus": "{{name}}({{ip}})非校园网子网，已跳过",
     "getNewIpFailed": "获取新IP失败: {{details}}",
     "getNewIpFailedShort": "获取新IP失败",
+    "ipConflictRetried": "检测到IP冲突，已自动重新获取IP: {{names}}",
     "dnsFamilyLabel": "优化目标",
     "dnsFamilyBoth": "IPv4 + IPv6",
     "dhcpRenewFailed": "DHCP 续租失败",

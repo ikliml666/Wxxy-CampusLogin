@@ -190,6 +190,48 @@ pub fn remove_mac_from_registry(adapter_guid: &str) -> Result<(), String> {
     Err("未找到适配器注册表项".to_string())
 }
 
+/// 清空该接口残留的 DHCP 租约值。
+///
+/// 改 MAC 后必须清：Windows 把 DHCP 租约缓存在接口注册表项里，`ipconfig /release`
+/// 只清运行时租约，网卡重新启用时系统可能把旧租约从注册表恢复，表现就是
+/// 「改了 MAC 还是旧 IP」或「拿不到地址」。只删 DHCP 相关值，静态配置
+/// （IPAddress/SubnetMask/DefaultGateway）一律不动。
+#[cfg(target_os = "windows")]
+pub fn clear_dhcp_lease(adapter_guid: &str) -> Result<(), String> {
+    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, KEY_READ, KEY_WRITE};
+    const DHCP_VALUES: &[&str] = &[
+        "DhcpIPAddress",
+        "DhcpSubnetMask",
+        "DhcpServer",
+        "DhcpNameServer",
+        "DhcpDefaultGateway",
+        "DhcpDomain",
+        "DhcpInterfaceOptions",
+        "LeaseObtainedTime",
+        "LeaseTerminatesTime",
+        "T1",
+        "T2",
+        "DhcpConnForceBroadcastFlag",
+    ];
+    let path = format!(r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{adapter_guid}");
+    let hklm = winreg::RegKey::predef(HKEY_LOCAL_MACHINE);
+    let key = hklm
+        .open_subkey_with_flags(&path, KEY_ALL_ACCESS)
+        .or_else(|_| hklm.open_subkey_with_flags(&path, KEY_READ | KEY_WRITE))
+        .map_err(|e| {
+            if is_access_denied(&e) {
+                "清理DHCP租约需要管理员权限".to_string()
+            } else {
+                format!("打开接口注册表失败: {e}")
+            }
+        })?;
+    for name in DHCP_VALUES {
+        // 值不存在属正常（静态地址 / 首次获取），不算失败
+        let _ = key.delete_value(name);
+    }
+    Ok(())
+}
+
 pub fn netsh_disable(adapter_name: &str) -> bool {
     if validate_adapter_name(adapter_name).is_err() {
         return false;
@@ -256,6 +298,9 @@ pub fn apply_mac_change_via_registry(
 ) -> Result<(), String> {
     set_mac_via_registry(adapter_guid, mac_no_dash)?;
     let _ = dhcp_release(adapter_name);
+    // 清注册表里的旧租约：否则网卡重新启用时系统会把旧租约恢复，DHCP 客户端
+    // 带着旧绑定去续租，服务器按旧记录返回同一个地址（或直接不响应）
+    let _ = clear_dhcp_lease(adapter_guid);
     let disable_ok = netsh_disable(adapter_name);
     if disable_ok {
         std::thread::sleep(std::time::Duration::from_millis(500));
@@ -381,6 +426,7 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
             message = Some("提权脚本已执行但IP未变更，可能网卡驱动不支持MAC伪装".to_string());
         }
     } else {
+        let _ = clear_dhcp_lease(&adapter.guid);
         if let Err(e) = dhcp_release(&adapter.name) {
             crate::log_warn!("adapter", "DHCP释放失败({}): {}", adapter.name, e);
         }
@@ -404,7 +450,7 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
             }
         };
         if renew_ok {
-            if let Some(changed_ip) = poll_ip_change(&adapter.name, &old_ip, 5000) {
+            if let Some(changed_ip) = poll_ip_change(&adapter.name, &old_ip, 10_000) {
                 new_ip = changed_ip;
                 ip_changed = true;
             } else if let Ok(refreshed) = get_adapters_force() {
@@ -424,6 +470,17 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
         }
     }
 
+    // IP 冲突：系统 DAD（ARP 探测）已确认同网段有另一台主机占用该地址，
+    // 此时流量会被交换机按后到的 ARP 应答改写，表现为时通时断
+    let ip_conflict = !new_ip.is_empty() && crate::network::ip_conflict::is_ip_conflicted(&new_ip);
+    if ip_conflict {
+        crate::log_warn!(
+            "adapter",
+            "检测到IP冲突({}): 同网段有另一台主机占用该地址，将换新MAC重新获取",
+            new_ip
+        );
+    }
+
     serde_json::json!({
         "name": adapter.name,
         "wireless": adapter.wireless,
@@ -431,6 +488,7 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
         "regOk": reg_ok,
         "success": ip_changed,
         "skipped": false,
+        "ipConflict": ip_conflict,
         "reason": message
     })
 }
@@ -438,6 +496,30 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
 /// 对目标适配器（resolve 后的主/副适配器）执行 MAC 修改 + DHCP 释放/续租，
 /// `targets` 为空时返回空结果——不触碰名单外的适配器（renew_adapter_with_mac
 /// 内部仍有虚拟网卡黑名单与非校园网子网跳过两层保护）
+/// 执行一次 MAC 重置 + DHCP 续租；若拿到的地址被系统判定为冲突（DAD=Duplicate），
+/// 换一个新 MAC 自动重试一次——继续用冲突地址会时通时断，比拿不到地址更难排查。
+#[cfg(target_os = "windows")]
+fn renew_with_conflict_retry(adapter: &Adapter, campus_gateway: &str) -> serde_json::Value {
+    let first = renew_adapter_with_mac(adapter, campus_gateway);
+    let conflicted = first.get("ipConflict").and_then(|v| v.as_bool()).unwrap_or(false);
+    if !conflicted {
+        return first;
+    }
+    crate::log_warn!("adapter", "IP 冲突：换新 MAC 重新获取（{}）", adapter.name);
+    let refreshed = get_adapters_force()
+        .ok()
+        .and_then(|list| crate::network::find_by_name(&list, &adapter.name).cloned());
+    let Some(retry_adapter) = refreshed else {
+        return first;
+    };
+    let mut merged = renew_adapter_with_mac(&retry_adapter, campus_gateway);
+    if let Some(obj) = merged.as_object_mut() {
+        // 保留冲突事实供前端提示（重试是否成功由 success/ip 字段表达）
+        obj.insert("ipConflict".to_string(), serde_json::Value::Bool(true));
+    }
+    merged
+}
+
 #[cfg(target_os = "windows")]
 pub fn dhcp_release_renew_all(campus_gateway: &str, targets: &[String]) -> Result<Vec<serde_json::Value>, String> {
     if campus_gateway.is_empty() {
@@ -451,7 +533,7 @@ pub fn dhcp_release_renew_all(campus_gateway: &str, targets: &[String]) -> Resul
 
     let mut results = Vec::new();
     for adapter in &targets {
-        results.push(renew_adapter_with_mac(adapter, campus_gateway));
+        results.push(renew_with_conflict_retry(adapter, campus_gateway));
     }
     Ok(results)
 }
@@ -461,7 +543,7 @@ pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Re
     let adapters = get_adapters_cached()?;
     let adapter = crate::network::find_by_name(&adapters, adapter_name)
         .ok_or_else(|| format!("未找到适配器: {adapter_name}"))?;
-    Ok(renew_adapter_with_mac(adapter, campus_gateway))
+    Ok(renew_with_conflict_retry(adapter, campus_gateway))
 }
 
 // 非桌面无注册表 MAC 重置能力:返回 skipped 语义,保持 failure_tracker 调用点跨平台可用
