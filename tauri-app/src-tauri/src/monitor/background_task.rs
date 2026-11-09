@@ -110,7 +110,10 @@ pub fn spawn_background_check_once(app_handle: &AppHandle) {
 /// 日志；轻量化下限 300s 意味着下一拍巡检最早落在 08:16。还原动作本身不带
 /// 「还原后立即评估」的钩子，只能等周期巡检，这是缺口所在。
 const POST_RESTORE_IP_WAIT_MAX_MS: u64 = 45_000;
-const POST_RESTORE_IP_POLL_MS: u64 = 3_000;
+/// IP 就绪轮询粒度：还原启用网卡后 DHCP 就绪时刻在数秒内浮动（2026-11-09 实测
+/// 第 3 拍才读到 IP、等待 9000ms）。3s 粒度会让补检在最坏情况下白白晚 2s，
+/// 1s 粒度把这段发现延迟压到 1s 内，代价是这段时间多枚举几次适配器。
+const POST_RESTORE_IP_POLL_MS: u64 = 1_000;
 
 /// 补检等待是否还应继续（纯函数，便于单测边界）。
 ///

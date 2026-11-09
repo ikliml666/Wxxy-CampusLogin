@@ -411,11 +411,104 @@ pub(super) const OUTBOUND_PROBE_HOST: &str = "223.5.5.5";
 /// - 候选筛选已保证目标卡 IP/网关齐备且判为非校园网（自身网关可达已实证）；
 /// - 运营商拦 ICMP 到公网是常态，把探测失败当阻断条件会重演"恒假条件整夜不切"。
 /// 因此只在不可达时记一次日志 + 每日一次提醒，切换照做。
-fn probe_target_internet(target: &Adapter) -> bool {
+/// 探测本身并入 [`warm_probe_cache`] 的并行批次，此处只查结果。
+fn probe_target_internet(target: &Adapter, cache: &ProbeCache) -> bool {
     if target.ip.is_empty() {
         return false;
     }
-    crate::network::subnet::check_gateway_reachable_from(OUTBOUND_PROBE_HOST, Some(&target.ip))
+    cache.get(OUTBOUND_PROBE_HOST, &target.ip)
+}
+
+/// 一次并行预热的绑源探测结果：key = (目标主机, 绑源 IP)，value = 是否可达。
+///
+/// 逐卡判定原先对每张卡串行发探测（`is_campus_adapter` 最多 4 次 + 候选自身网关 1 次，
+/// 单次超时 2000ms）。校园网 23:00 断网后这些探测全部走到超时，切换因此被拖到 10s 以上
+/// （2026-11-08 实测：目标卡探测完成到快照落盘之间空转 7.96s，其间无任何日志）。
+/// 判定所需的目标集合在选卡前就能算出来，所以先并行全部探完，判定阶段只查表。
+struct ProbeCache(std::collections::HashMap<(String, String), bool>);
+
+impl ProbeCache {
+    fn get(&self, dest: &str, source: &str) -> bool {
+        match self.0.get(&(dest.to_string(), source.to_string())) {
+            Some(ok) => *ok,
+            // 判定范围外的组合（理论上不会出现）回落真实探测，宁可慢也不改判定语义
+            None => crate::network::check_gateway_reachable_from(dest, Some(source)),
+        }
+    }
+}
+
+/// 并行探测全部 (目标, 绑源) 组合。同一组合发两次、任一可达即判可达——与原
+/// `probe(..) || probe(..)` 的抗丢包语义一致，但两次同时发出，最坏只等一个超时。
+fn warm_probe_cache(pairs: &[(String, String)]) -> ProbeCache {
+    use std::collections::HashMap;
+    if pairs.is_empty() {
+        return ProbeCache(HashMap::new());
+    }
+    let tasks: Vec<(String, String)> = pairs
+        .iter()
+        .flat_map(|(dest, source)| {
+            [(dest.clone(), source.clone()), (dest.clone(), source.clone())]
+        })
+        .collect();
+    let started = std::time::Instant::now();
+    let results: Vec<((String, String), bool)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = tasks
+            .into_iter()
+            .map(|(dest, source)| {
+                scope.spawn(move || {
+                    let ok =
+                        crate::network::check_gateway_reachable_from(&dest, Some(&source));
+                    ((dest, source), ok)
+                })
+            })
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    });
+    let mut map: HashMap<(String, String), bool> = HashMap::new();
+    for (key, ok) in results {
+        map.entry(key).and_modify(|v| *v |= ok).or_insert(ok);
+    }
+    crate::log_info!(
+        "outbound",
+        "夜间出站切换: 并行绑源探测 {} 组完成，耗时 {}ms",
+        pairs.len(),
+        started.elapsed().as_millis()
+    );
+    ProbeCache(map)
+}
+
+/// 收集判定阶段会查询的 (目标, 绑源) 组合，口径与 [`is_campus_adapter`] /
+/// [`select_outbound_candidate`] 一致：同 /18 段直接判校园不走探测；候选自身网关
+/// 与外网探测目标一并预热。多收只是多探一次，漏收会退化成串行探测。
+fn collect_probe_targets(
+    priority: &[String],
+    details: &[(Adapter, String)],
+    campus_gateway: &str,
+    portal_host: &str,
+) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for name in priority {
+        let Some((adapter, gateway)) = details.iter().find(|(a, _)| a.name == *name) else {
+            continue;
+        };
+        // 判定阶段对这些卡根本不发探测：无 IP 不参与、无网关出不了站、
+        // 与校园网关同 /18 由 is_campus_adapter 直接判校园
+        if adapter.ip.is_empty() || gateway.is_empty() {
+            continue;
+        }
+        if crate::network::is_same_subnet_18(&adapter.ip, campus_gateway) {
+            continue;
+        }
+        if !campus_gateway.is_empty() {
+            pairs.push((campus_gateway.to_string(), adapter.ip.clone()));
+        }
+        if !portal_host.is_empty() {
+            pairs.push((portal_host.to_string(), adapter.ip.clone()));
+        }
+        pairs.push((gateway.clone(), adapter.ip.clone()));
+        pairs.push((OUTBOUND_PROBE_HOST.to_string(), adapter.ip.clone()));
+    }
+    pairs
 }
 
 /// 改单份本机状态配置并落盘+广播+store（排程 30s 一拍，逐拍重写同值既写盘又
@@ -567,12 +660,20 @@ fn build_outbound_plan(
     // 见 effective_outbound_priority），且必须有 IP 且判定为非校园网
     let portal_host = portal_probe_host(&config.portal_url);
     let priority = effective_outbound_priority(&config.outbound_priority, &candidates);
+    // 并行预热本轮判定的全部绑源探测（逐卡串行探测是切换耗时主体，见 ProbeCache）
+    let probe_cache = warm_probe_cache(&collect_probe_targets(
+        &priority,
+        &candidates,
+        &config.campus_gateway,
+        &portal_host,
+    ));
+    let probe = |gateway: &str, source_ip: &str| probe_cache.get(gateway, source_ip);
     let Some(target) = select_outbound_candidate(
         &priority,
         &candidates,
         &config.campus_gateway,
         &portal_host,
-        |gateway, source_ip| crate::network::check_gateway_reachable_from(gateway, Some(source_ip)),
+        probe,
     ) else {
         // 无可用候选（候选都是校园网卡 / 没有 IP / 自身网关不可达）：不进退避，
         // 30s 后自然重试。选不出候选多半是判定或环境问题（如绑源探测把热点
@@ -596,7 +697,7 @@ fn build_outbound_plan(
     // 旧实现在此处挂一道「目标卡必须已在校园 Portal 在线」的登录闸，语义方向相反
     // （夜间切换的目的正是切离已断的校园网），热点出口恒不满足 → 整夜不切。
     // 这是预判定阶段最耗时的一步，也是提前一分钟重算的主要目标；告警留到执行阶段发
-    let probe_ok = probe_target_internet(&target);
+    let probe_ok = probe_target_internet(&target, &probe_cache);
     if probe_ok {
         crate::log_info!(
             "outbound",
@@ -640,7 +741,7 @@ fn build_outbound_plan(
         &config.campus_gateway,
         &portal_host,
         &target.guid,
-        |gateway, source_ip| crate::network::check_gateway_reachable_from(gateway, Some(source_ip)),
+        probe,
         bus_guard,
     );
     // 空禁用名单告警：有目标卡但没识别到任何可禁用的校园网卡——多半是绑源探测
@@ -699,6 +800,7 @@ pub(super) fn prepare_outbound_switch(app_handle: &AppHandle, config: &crate::co
 }
 
 pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) -> Result<(), String> {
+    let started = std::time::Instant::now();
     let Some(_busy) = OutboundActionGuard::try_acquire() else {
         crate::log_debug!("outbound", "夜间出站切换: 另一出站动作进行中，本拍跳过");
         return Err("另一出站动作进行中，请稍后再试".to_string());
@@ -863,6 +965,11 @@ pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::conf
         }
     }
     if all_ok {
+        crate::log_info!(
+            "outbound",
+            "夜间出站切换: 动作完成，总耗时 {}ms",
+            started.elapsed().as_millis()
+        );
         Ok(())
     } else {
         Err(if fail_reasons.is_empty() { "切换未完成".to_string() } else { fail_reasons.join("；") })
@@ -1560,6 +1667,65 @@ pub(super) fn reconcile_outbound_on_startup(app_handle: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn adapter(name: &str, ip: &str, wireless: bool) -> Adapter {
+        Adapter {
+            name: name.to_string(),
+            ip: ip.to_string(),
+            wireless,
+            guid: format!("{{{name}}}"),
+            mac: String::new(),
+            if_index: 0,
+            status: crate::network::discovery::AdapterStatus::Connected,
+            link_speed: 0,
+        }
+    }
+
+    /// 预热集合必须覆盖判定阶段会查询的组合：漏收会退化成串行探测（耗时回退），
+    /// 多收只是多探一次。校园同段卡按 is_campus_adapter 的短路顺序不再探校园目标。
+    #[test]
+    fn 探测预热_只收判定会查询的组合() {
+        // 校园网关 10.2.127.254 属 10.2.64.0/18，10.2.100.5 与之同段
+        let campus = (adapter("以太网", "10.2.100.5", false), "10.2.127.254".to_string());
+        let hotspot = (adapter("WLAN", "192.168.6.119", true), "192.168.6.1".to_string());
+        let no_gw = (adapter("以太网 2", "192.168.6.115", false), String::new());
+        let pairs = collect_probe_targets(
+            &["以太网".to_string(), "WLAN".to_string(), "以太网 2".to_string()],
+            &[campus, hotspot, no_gw],
+            "10.2.127.254",
+            "10.1.99.100",
+        );
+        let has = |dest: &str, src: &str| {
+            pairs.contains(&(dest.to_string(), src.to_string()))
+        };
+        // 校园卡 IP 与校园网关同 /18：判定直接命中，不探测也不会成为候选
+        assert!(!has("10.2.127.254", "10.2.100.5"));
+        assert!(!has("10.1.99.100", "10.2.100.5"));
+        assert!(!has(OUTBOUND_PROBE_HOST, "10.2.100.5"));
+        // 非校园卡：校园网关与 portal 都要探
+        assert!(has("10.2.127.254", "192.168.6.119"));
+        assert!(has("10.1.99.100", "192.168.6.119"));
+        // 自身网关（候选门槛）与外网探测（诊断信号）一并预热
+        assert!(has("192.168.6.1", "192.168.6.119"));
+        assert!(has(OUTBOUND_PROBE_HOST, "192.168.6.119"));
+        // 无网关的卡出不了站，判定阶段不查它
+        assert!(!has("10.2.127.254", "192.168.6.115"));
+        assert!(!has(OUTBOUND_PROBE_HOST, "192.168.6.115"));
+    }
+
+    /// 无 IP / 不在优先级内的卡不进预热集合（判定阶段也不会查它们）。
+    #[test]
+    fn 探测预热_跳过无ip与名单外的卡() {
+        let ipless = (adapter("以太网", "", false), "10.2.127.254".to_string());
+        let outside = (adapter("WLAN", "192.168.6.119", true), "192.168.6.1".to_string());
+        let pairs = collect_probe_targets(
+            &["以太网".to_string()],
+            &[ipless, outside],
+            "10.2.127.254",
+            "",
+        );
+        assert!(pairs.is_empty(), "只收优先级内且有 IP 的卡: {pairs:?}");
+    }
 
     #[test]
     fn 还原失败告警_首达阈值触发_此后周期重复() {
