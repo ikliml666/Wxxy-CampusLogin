@@ -334,6 +334,8 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       })
       if (result.success) {
         setBindState('success')
+        // 首次绑定的用户此前没有登录线路：绑定成功后直接用它作为登录运营商
+        if (!operator) onUpdateConfig({ operator: bindOperatorValue })
         // 绑定成功后刷新状态面板，让「已绑定」提示与该运营商一致
         setBindRefreshTick((v) => v + 1)
         if (bindTimerRef.current) clearTimeout(bindTimerRef.current)
@@ -349,7 +351,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       setBindError(extractErrorMessage(err) || t('onboarding.bindFailed'))
       setBindState('error')
     }
-  }, [bindState, username, password, bindOperatorValue, phone, smsPassword, ensureBindHello, t, advance])
+  }, [bindState, username, password, bindOperatorValue, phone, smsPassword, ensureBindHello, t, advance, operator, onUpdateConfig])
 
   useEffect(() => {
     return () => {
@@ -785,6 +787,21 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                                 )}
                               </>
                             )}
+                          </div>
+
+                          {/* 运营商下拉：状态胶囊只表达绑定状态，未绑定用户需要明确的选择控件 */}
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-medium">{t('onboarding.bindIsp')}</Label>
+                            <Select value={bindOperatorValue} onValueChange={setBindOperatorValue}>
+                              <SelectTrigger aria-label={t('onboarding.bindIsp')}>
+                                <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
+                                  <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
 
                           <div className="space-y-1.5">

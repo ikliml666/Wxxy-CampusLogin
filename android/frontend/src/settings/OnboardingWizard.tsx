@@ -476,6 +476,21 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                             )}
                           </div>
 
+                          {/* 运营商下拉：状态胶囊只表达绑定状态，未绑定用户需要明确的选择控件 */}
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-medium">{t('onboarding.bindIsp')}</Label>
+                            <Select value={bindOperatorValue} onValueChange={setBindOperatorValue}>
+                              <SelectTrigger aria-label={t('onboarding.bindIsp')}>
+                                <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
+                                  <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
                           <div className="space-y-1.5">
                             <Label htmlFor="bind-phone" className="text-xs font-medium">{t('onboarding.bindPhone')}</Label>
                             <Input

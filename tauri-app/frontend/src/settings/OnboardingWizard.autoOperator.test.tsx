@@ -5,11 +5,12 @@ import { render, fireEvent, waitFor, cleanup, screen } from '@testing-library/re
 // query_bind_status 返回已绑定 → 自动选中该运营商并跳过绑定步骤；
 // 返回未绑定 → 照常进入绑定步骤。
 const getBindStatus = vi.fn()
+const bindOperator = vi.fn()
 vi.mock('@/hooks/tauriApi', () => ({
   tauriApiWithRetry: {
     getBindStatus: (...args: unknown[]) => getBindStatus(...args),
     verifyWindowsIdentity: vi.fn(),
-    bindOperator: vi.fn(),
+    bindOperator: (...args: unknown[]) => bindOperator(...args),
     revealOperatorCredential: vi.fn(),
   },
 }))
@@ -75,6 +76,7 @@ const baseProps = {
 describe('OnboardingWizard 账号步自动识别运营商', () => {
   beforeEach(() => {
     getBindStatus.mockReset()
+    bindOperator.mockReset()
     cleanup()
   })
 
@@ -139,5 +141,33 @@ describe('OnboardingWizard 账号步自动识别运营商', () => {
     // 未选择时 Radix Select 展示 placeholder 而非首个选项（无锡学院）
     expect(screen.getByText('onboarding.selectOperatorAuto')).toBeInTheDocument()
     expect(screen.queryByText(ISP_OPTIONS[0].labelKey)).toBeNull()
+  })
+
+  it('首次未绑定时可在绑定步骤选择运营商，绑定成功后写入登录线路', async () => {
+    getBindStatus.mockResolvedValue(okStatus({ cmcc: null, telecom: null, unicom: null }))
+    bindOperator.mockResolvedValue({ success: true, message: null, data: null })
+    const onUpdateConfig = vi.fn()
+    render(<OnboardingWizard {...baseProps} onUpdateConfig={onUpdateConfig} />)
+
+    fireEvent.click(topNextButton())
+    await waitFor(() => expect(cardOf('onboarding.fillLoginInfoDesc').hasAttribute('inert')).toBe(false))
+    fireEvent.change(document.getElementById('username')!, { target: { value: '24385214' } })
+    fireEvent.change(document.getElementById('password')!, { target: { value: 'abc123' } })
+    fireEvent.click(topNextButton())
+    await waitFor(() => expect(cardOf('onboarding.bindOperatorDesc').hasAttribute('inert')).toBe(false))
+
+    // 绑定步骤有明确的运营商下拉（状态胶囊之外的选择入口）
+    expect(screen.getByLabelText('onboarding.bindIsp')).toBeInTheDocument()
+
+    // 点状态胶囊选中中国电信，下拉与绑定前提同步
+    fireEvent.click(screen.getByText('settings.isp.telecom').closest('button')!)
+    fireEvent.change(screen.getByPlaceholderText('onboarding.bindPhonePlaceholder'), { target: { value: '18912345678' } })
+    fireEvent.change(screen.getByPlaceholderText('onboarding.bindSmsPasswordPlaceholder'), { target: { value: 'sms-pass' } })
+    fireEvent.click(screen.getByText('onboarding.bindAction'))
+
+    await waitFor(() => expect(bindOperator).toHaveBeenCalled())
+    await waitFor(() => {
+      expect(onUpdateConfig).toHaveBeenCalledWith(expect.objectContaining({ operator: '@telecom' }))
+    })
   })
 })

@@ -174,6 +174,8 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
       })
       if (result.success) {
         setBindState('success')
+        // 首次绑定的用户此前没有登录线路：绑定成功后直接用它作为登录运营商
+        if (!operator) onUpdateConfig({ operator: bindOperatorValue })
         // 绑定成功会改变该运营商的绑定状态，让检测面板与事实一致
         setBindRefreshTick((v) => v + 1)
         if (bindTimerRef.current) clearTimeout(bindTimerRef.current)
@@ -194,7 +196,7 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
       setBindError(extractErrorMessage(err) || t('onboarding.bindFailed'))
       setBindState('error')
     }
-  }, [bindState, username, password, bindOperatorValue, phone, smsPassword, ensureBindHello, onAutoAdvance, t])
+  }, [bindState, username, password, bindOperatorValue, phone, smsPassword, ensureBindHello, onAutoAdvance, t, operator, onUpdateConfig])
 
   const canProceedAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
 
