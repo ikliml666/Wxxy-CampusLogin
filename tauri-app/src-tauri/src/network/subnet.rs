@@ -132,9 +132,17 @@ fn get_wired_network_profile_uncached() -> Result<Option<String>, String> {
     Ok(None)
 }
 
+/// 绑源可达性探测的单次超时（毫秒）。
+///
+/// 探测目标都是本机所在局域网/校园网的内网地址（网关、portal），正常 RTT 远小于 10ms。
+/// 2000ms 是为慢网络留的保守余量，但断网时这段超时会被逐卡多次探测累加进夜间出站
+/// 切换耗时（2026-11-08 实测切换 9.8s，主体就是这些超时），故取 1000ms：既容得下
+/// 拥塞/首包丢包，又不会把切点推迟两秒。
+pub const GATEWAY_PROBE_TIMEOUT_MS: u32 = 1000;
+
 /// 网关 ICMP 可达性探测（surge_ping 异步实现，替代 spawn `ping` 子进程）。
 /// 需要绑定源 IP 时通过 Config::bind 绑定（对应原 `ping -S <src>`）。
-/// 返回 true 表示可达，语义与原 `ping -n 1 -w 2000` 一致。
+/// 返回 true 表示可达，语义等价原 `ping -n 1 -w <GATEWAY_PROBE_TIMEOUT_MS>`。
 async fn gateway_reachable_async(gateway: &str, source_ip: Option<&str>) -> bool {
     let target: std::net::IpAddr = match gateway.parse() {
         Ok(ip) => ip,
@@ -160,11 +168,11 @@ async fn gateway_reachable_async(gateway: &str, source_ip: Option<&str>) -> bool
         .unwrap_or_default()
         .subsec_nanos() & 0xFFFF) as u16;
     let mut pinger = client.pinger(target, surge_ping::PingIdentifier(ident)).await;
-    pinger.timeout(std::time::Duration::from_millis(2000));
+    pinger.timeout(std::time::Duration::from_millis(GATEWAY_PROBE_TIMEOUT_MS as u64));
     // pinger.ping 内部已按 timeout 等待，外层 tokio timeout 仅作硬上限兜底
     matches!(
         tokio::time::timeout(
-            std::time::Duration::from_millis(2000),
+            std::time::Duration::from_millis(GATEWAY_PROBE_TIMEOUT_MS as u64),
             pinger.ping(surge_ping::PingSequence(0), &[]),
         )
         .await,
@@ -183,7 +191,7 @@ pub fn check_gateway_reachable_from(gateway: &str, source_ip: Option<&str>) -> b
     #[cfg(target_os = "windows")]
     if let Ok(dest) = gateway.parse::<std::net::Ipv4Addr>() {
         let source = source_ip.and_then(|s| s.parse::<std::net::Ipv4Addr>().ok());
-        return crate::platform::icmp_probe::icmp_probe_v4(dest, source, 2000);
+        return crate::platform::icmp_probe::icmp_probe_v4(dest, source, GATEWAY_PROBE_TIMEOUT_MS);
     }
     // 调用链（campus_check / failure_tracker / background_check）均运行在
     // spawn_blocking 线程内：block_on_sync 用 Handle::block_on 驱动 async 探测，

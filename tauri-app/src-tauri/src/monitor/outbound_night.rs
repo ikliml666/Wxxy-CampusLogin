@@ -422,7 +422,7 @@ fn probe_target_internet(target: &Adapter, cache: &ProbeCache) -> bool {
 /// 一次并行预热的绑源探测结果：key = (目标主机, 绑源 IP)，value = 是否可达。
 ///
 /// 逐卡判定原先对每张卡串行发探测（`is_campus_adapter` 最多 4 次 + 候选自身网关 1 次，
-/// 单次超时 2000ms）。校园网 23:00 断网后这些探测全部走到超时，切换因此被拖到 10s 以上
+/// 单次超时 1000ms）。校园网 23:00 断网后这些探测全部走到超时，切换因此被拖到 10s 以上
 /// （2026-11-08 实测：目标卡探测完成到快照落盘之间空转 7.96s，其间无任何日志）。
 /// 判定所需的目标集合在选卡前就能算出来，所以先并行全部探完，判定阶段只查表。
 struct ProbeCache(std::collections::HashMap<(String, String), bool>);
