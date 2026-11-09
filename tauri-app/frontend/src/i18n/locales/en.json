@@ -359,7 +359,7 @@
     "skipNonCampus": "{{name}}({{ip}}) is not on campus subnet, skipped",
     "getNewIpFailed": "Failed to get new IP: {{details}}",
     "getNewIpFailedShort": "Failed to get new IP",
-    "ipConflictRetried": "IP conflict detected, re-acquiring IP automatically: {{names}}",
+    "ipConflictRetried": "IP conflict detected, retried acquiring a new IP: {{names}}",
     "ipConflictManual": "IP conflict detected, please re-acquire IP: {{names}}",
     "dnsFamilyLabel": "Target",
     "dnsFamilyBoth": "IPv4 + IPv6",

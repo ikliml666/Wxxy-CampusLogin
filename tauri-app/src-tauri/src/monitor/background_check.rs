@@ -326,41 +326,6 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     let login_available = primary_result.login_available();
     let a1_has_ip = a1.is_some();
 
-    // IP 冲突兜底：有地址但服务不可达，且系统 DAD 已判定该地址冲突（同网段有另一台
-    // 主机也在用）→ 提示并自动换 MAC 重新获取。每天最多一次，避免后台反复改 MAC
-    // 把网卡断成碎片；冲突时继续用该地址会时通时断，比直接没网更难排查。
-    if a1_has_ip && !reachable {
-        if let Some(ad) = a1 {
-            if crate::network::ip_conflict::is_ip_conflicted(&ad.ip) {
-                let today = chrono::Local::now().date_naive().num_days_from_ce();
-                if CONFLICT_FIX_DAY.swap(today, std::sync::atomic::Ordering::AcqRel) != today {
-                    crate::log_warn!(
-                        "background",
-                        "检测到IP冲突({})：同网段另一台主机占用该地址，自动重新获取IP",
-                        ad.ip
-                    );
-                    crate::infra::notification::emit_notification(
-                        app_handle,
-                        "IP 地址冲突",
-                        &format!("{} 与同网段另一台主机地址冲突，正在自动重新获取 IP", ad.ip),
-                        "mascot-alert",
-                    );
-                    let campus_gateway = config.campus_gateway.clone();
-                    let name = adapter1_name.clone();
-                    match crate::network::dhcp_release_renew_single(&name, &campus_gateway) {
-                        Ok(v) => crate::log_info!(
-                            "background",
-                            "IP冲突自动处理完成: {} -> {}",
-                            ad.ip,
-                            v.get("ip").and_then(|x| x.as_str()).unwrap_or("?")
-                        ),
-                        Err(e) => crate::log_warn!("background", "IP冲突自动处理失败: {e}"),
-                    }
-                }
-            }
-        }
-    }
-
     let message: String = if a1_has_ip {
         primary_result.message().to_string()
     } else {
@@ -500,6 +465,46 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     };
     if outcome == CheckOutcome::OnlineButPortalUnreachable {
         trigger_fast_quality_check(app_handle, state, &adapters, &config);
+    }
+
+    // IP 冲突兜底：有地址但服务不可达，且系统 DAD 已判定该地址冲突（同网段有另一台
+    // 主机也在用）→ 提示并自动换 MAC 重新获取。每天最多一次，避免后台反复改 MAC
+    // 把网卡断成碎片；冲突时继续用该地址会时通时断，比直接没网更难排查。
+    //
+    // 放在本轮判定与状态广播之后执行：修复要换 MAC、重启网卡并等 DHCP（helper 路径
+    // 可达数十秒），期间断网；若插在判定之前，handle_status_change / 联动质量检测会
+    // 拿修复前的探测结论继续判，修复完成后本轮结论与实际状态不符。放末尾既保留
+    // 「修复前真实状态」的本轮结论，又让下一拍自动重新探测。
+    if a1_has_ip && !reachable {
+        if let Some(ad) = a1 {
+            if crate::network::ip_conflict::is_ip_conflicted(&ad.ip) {
+                let today = chrono::Local::now().date_naive().num_days_from_ce();
+                if CONFLICT_FIX_DAY.swap(today, std::sync::atomic::Ordering::AcqRel) != today {
+                    crate::log_warn!(
+                        "background",
+                        "检测到IP冲突({})：同网段另一台主机占用该地址，自动重新获取IP",
+                        ad.ip
+                    );
+                    crate::infra::notification::emit_notification(
+                        app_handle,
+                        "IP 地址冲突",
+                        &format!("{} 与同网段另一台主机地址冲突，正在自动重新获取 IP", ad.ip),
+                        "mascot-alert",
+                    );
+                    let campus_gateway = config.campus_gateway.clone();
+                    let name = adapter1_name.clone();
+                    match crate::network::dhcp_release_renew_single(&name, &campus_gateway) {
+                        Ok(v) => crate::log_info!(
+                            "background",
+                            "IP冲突自动处理完成: {} -> {}",
+                            ad.ip,
+                            v.get("ip").and_then(|x| x.as_str()).unwrap_or("?")
+                        ),
+                        Err(e) => crate::log_warn!("background", "IP冲突自动处理失败: {e}"),
+                    }
+                }
+            }
+        }
     }
 
     crate::log_debug!("background", "后台检测周期完成, 总耗时{}ms", t_total.elapsed().as_millis());

@@ -8,7 +8,7 @@ beforeAll(async () => {
   await i18next.init({
     lng: 'zh',
     resources: {
-      zh: { translation: { network: { getNewIpFailed: '获取新IP失败: {{details}}', ipConflictRetried: '检测到IP冲突，已自动重新获取IP: {{names}}', ipConflictManual: '检测到IP冲突，请重新获取IP: {{names}}' } } },
+      zh: { translation: { network: { getNewIpFailed: '获取新IP失败: {{details}}', ipConflictRetried: '检测到IP冲突，已自动重试获取 IP: {{names}}', ipConflictManual: '检测到IP冲突，请重新获取IP: {{names}}' } } },
     },
   })
 })
@@ -69,7 +69,7 @@ describe('announceDhcpResults', () => {
     announceDhcpResults([item({ name: 'eth0', success: true, ipConflict: true, ipConflictRetried: true })], addToast)
     expect(toasts.map((t) => t.type)).toEqual(['warning', 'success'])
     expect(toasts[0].title).toContain('eth0')
-    expect(toasts[0].title).toContain('已自动重新获取')
+    expect(toasts[0].title).toContain('已自动重试获取')
   })
   it('冲突但后端未重试时提示用户手动重新获取', () => {
     const { toasts, addToast } = capture()
