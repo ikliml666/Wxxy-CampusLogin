@@ -135,9 +135,13 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   // 使 App 外壳不再因任意 config 字段变化而级联重渲染
   const config = useConfigStore(useShallow((s) => s.config))
   const [step, setStep] = useState(0)
+  // 异步识别返回时用来确认仍停在账号步（期间用户可能已点「上一步」离开）
+  const stepRef = useRef(step)
+  stepRef.current = step
   const [username, setUsername] = useState(config.user || '')
   const [password, setPassword] = useState(config.password === PASSWORD_MASK ? '' : (config.password || ''))
-  const [operator, setOperator] = useState(config.operator || '__default__')
+  // 运营商默认留空（显示占位文案），点「下一步」时按绑定状态自动选中，不再默认学校线路
+  const [operator, setOperator] = useState(config.operator || '')
   const [adapter1, setAdapter1] = useState(config.adapter1 || AUTO_DETECT_ADAPTER)
   const [adapter2, setAdapter2] = useState(config.adapter2 || AUTO_DETECT_ADAPTER)
   const [dualAdapter, setDualAdapter] = useState(!!config.dualAdapter)
@@ -170,6 +174,11 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   const [statusQuerying, setStatusQuerying] = useState(false)
   const [statusError, setStatusError] = useState('')
   const [bindRefreshTick, setBindRefreshTick] = useState(0)
+
+  // 账号步「下一步」的运营商自动识别：已绑定则自动选中并跳过绑定步骤；
+  // unbound/error 都放行到绑定步骤，由用户手动选择与绑定
+  const [detectState, setDetectState] = useState<'idle' | 'querying' | 'bound' | 'unbound' | 'error'>('idle')
+  const [detectedOperator, setDetectedOperator] = useState<OperatorKey | null>(null)
 
   // 卡片统一高度 = 各步内容自然高度里的最大值（取「内容最多的那步」为统一值）：
   // 短内容步靠底部留白填平，切步时卡高不跳。
@@ -207,14 +216,14 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
     // 首帧 Portal 里的卡片 ref 可能还没挂上（量到 0），下一帧补测一次
     const raf = requestAnimationFrame(measureDeck)
     return () => cancelAnimationFrame(raf)
-  }, [open, step, measureDeck, bindStatuses, statusQuerying, statusError, dualAdapter, operator, language, adapters.length])
+  }, [open, step, measureDeck, bindStatuses, statusQuerying, statusError, detectState, dualAdapter, operator, language, adapters.length])
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
       setStep(0)
       setUsername(config.user || '')
       setPassword(config.password === PASSWORD_MASK ? '' : (config.password || ''))
-      setOperator(config.operator || '__default__')
+      setOperator(config.operator || '')
       setAdapter1(config.adapter1 || AUTO_DETECT_ADAPTER)
       setAdapter2(config.adapter2 || AUTO_DETECT_ADAPTER)
       setDualAdapter(!!config.dualAdapter)
@@ -227,6 +236,8 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       setBindStatuses(null)
       setStatusError('')
       setStatusQuerying(false)
+      setDetectState('idle')
+      setDetectedOperator(null)
     }
     prevOpenRef.current = open
   }, [open, config.user, config.password, config.operator, config.adapter1, config.adapter2, config.dualAdapter])
@@ -248,6 +259,9 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   // 自动查询不挂 Hello 验证门：后端该命令本身无验证门，且进步骤就弹 Hello 会打断引导。
   useEffect(() => {
     if (!open || step !== 2 || !canQueryBindStatus) return
+    // 账号步「下一步」已查过（结果已在 bindStatuses），进入本步不重复登录自助服务；
+    // 手动「重新检测」通过 bindRefreshTick 触发。
+    if (bindStatuses && bindRefreshTick === 0) return
     let cancelled = false
     setStatusQuerying(true)
     setStatusError('')
@@ -275,7 +289,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
     return () => {
       cancelled = true
     }
-  }, [open, step, canQueryBindStatus, bindRefreshTick, username, password, config.password, bindCredPassword, t])
+  }, [open, step, canQueryBindStatus, bindStatuses, bindRefreshTick, username, password, config.password, bindCredPassword, t])
 
   // 前进：顶卡先竖直飞起并微旋（swap 的 50% 关键帧），260ms 后清出场标记并切步——
   // 同一渲染批次里它的层位变成队尾最深档，transition 让它从上方平滑落回队尾（100% 帧）。
@@ -345,18 +359,52 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
 
   const canProceedAccount = username.trim().length > 0 && (password.trim().length > 0 || config.password === PASSWORD_MASK)
 
+  // 账号落盘：运营商为空即校园网默认线路（''），学校默认项映射成空串
+  const saveAccount = useCallback((operatorOverride?: string) => {
+    const op = operatorOverride ?? operator
+    const updateData: Partial<Config> = {
+      user: username.trim(),
+      operator: op === '__default__' ? '' : op,
+    }
+    // 仅当用户输入了新密码时才更新 password 字段，避免空密码覆盖已保存的密码
+    if (password.trim()) {
+      updateData.password = password.trim()
+    }
+    onUpdateConfig(updateData)
+  }, [username, password, operator, onUpdateConfig])
+
+  // 账号步「下一步」触发的运营商识别（一次 query_bind_status 返回全部运营商）；
+  // 失败返回 null，调用方放行到绑定步骤由用户手动处理
+  const fetchBindStatuses = useCallback(async (): Promise<BindStatuses | null> => {
+    try {
+      const result = await tauriApiWithRetry.getBindStatus({
+        account: username.trim(),
+        password: bindCredPassword,
+      })
+      if (!result.success || !result.data) return null
+      const d = result.data as Record<string, OperatorBindingInfo | null>
+      return {
+        cmcc: d.cmcc ?? null,
+        telecom: d.telecom ?? null,
+        unicom: d.unicom ?? null,
+      }
+    } catch {
+      return null
+    }
+  }, [username, bindCredPassword])
+
+  // 凭据变化后旧的识别结果与自动选中的运营商都不再可信
+  const resetDetect = useCallback(() => {
+    setDetectState('idle')
+    setDetectedOperator(null)
+    setBindStatuses(null)
+    if (detectedOperator) setOperator('')
+  }, [detectedOperator])
+
   const handleNext = useCallback(() => {
     if (step === 1) {
       if (!canProceedAccount) return false
-      const updateData: Partial<Config> = {
-        user: username.trim(),
-        operator: operator === '__default__' ? '' : operator,
-      }
-      // 仅当用户输入了新密码时才更新 password 字段，避免空密码覆盖已保存的密码
-      if (password.trim()) {
-        updateData.password = password.trim()
-      }
-      onUpdateConfig(updateData)
+      saveAccount()
     }
     if (step === 3) {
       onUpdateConfig({
@@ -366,7 +414,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       })
     }
     return true
-  }, [step, username, password, operator, adapter1, adapter2, dualAdapter, canProceedAccount, onUpdateConfig])
+  }, [step, saveAccount, canProceedAccount, adapter1, adapter2, dualAdapter, onUpdateConfig])
 
   const finishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -428,7 +476,38 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
     }
   }, [username, password, operator, adapter1, adapter2, dualAdapter, config.password, onUpdateConfig, onLogin, onClose])
 
-  const goNext = () => {
+  // 账号步点「下一步」先识别绑定状态：已绑定运营商则自动选中并跳过绑定步骤，
+  // 未绑定/识别失败照常进入绑定步骤手动处理
+  const goNext = async () => {
+    if (step === 1) {
+      if (!canProceedAccount || detectState === 'querying') return
+      setDetectState('querying')
+      setDetectedOperator(null)
+      const statuses = await fetchBindStatuses()
+      // 识别期间用户可能已离开账号步，此时丢弃结果，不驱动切步
+      if (stepRef.current !== 1) { setDetectState('idle'); return }
+      if (statuses) {
+        // 结果交给绑定步骤复用，避免进入后再登录一次自助服务
+        setBindStatuses(statuses)
+        const boundKey = OPERATOR_STATUS_ORDER.find((k) => statuses[k])
+        if (boundKey) {
+          const value = OPERATOR_VALUE_BY_KEY[boundKey]
+          setOperator(value)
+          setBindOperatorValue(value)
+          setDetectedOperator(boundKey)
+          setDetectState('bound')
+          saveAccount(value)
+          advance(step + 2)
+          return
+        }
+        setDetectState('unbound')
+      } else {
+        setDetectState('error')
+      }
+      saveAccount()
+      advance(step + 1)
+      return
+    }
     if (handleNext()) advance(step + 1)
   }
   const goPrev = () => advance(step - 1)
@@ -547,7 +626,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                               autoComplete="username"
                               spellCheck={false}
                               value={username}
-                              onChange={e => setUsername(e.target.value)}
+                              onChange={e => { setUsername(e.target.value); resetDetect() }}
                               placeholder={t('onboarding.usernamePlaceholder')}
                               icon={<UserCircle className="h-4 w-4" />}
                               className={cn(!username.trim() && 'border-destructive/50 focus-visible:ring-destructive/30')}
@@ -565,7 +644,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                                 autoComplete="current-password"
                                 type={showPassword ? 'text' : 'password'}
                                 value={password}
-                                onChange={e => setPassword(e.target.value)}
+                                onChange={e => { setPassword(e.target.value); resetDetect() }}
                                 placeholder={t('onboarding.passwordPlaceholder')}
                                 icon={<KeyRound className="h-4 w-4" />}
                                 className={cn('[&::-ms-reveal]:hidden pr-10', !password.trim() && 'border-destructive/50 focus-visible:ring-destructive/30')}
@@ -585,9 +664,12 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                           </div>
                           <div className="space-y-1.5">
                             <Label className="text-xs font-medium">{t('onboarding.operatorOptional')}</Label>
-                            <Select value={operator} onValueChange={setOperator}>
+                            <Select
+                              value={operator}
+                              onValueChange={(v) => { setOperator(v); setDetectedOperator(null); setDetectState('idle') }}
+                            >
                               <SelectTrigger>
-                                <SelectValue placeholder={t('onboarding.selectOperatorOptional')} />
+                                <SelectValue placeholder={t('onboarding.selectOperatorAuto')} />
                               </SelectTrigger>
                               <SelectContent>
                                 {ISP_OPTIONS.map(o => (
@@ -595,6 +677,26 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                                 ))}
                               </SelectContent>
                             </Select>
+                            {detectState === 'querying' && (
+                              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                {t('onboarding.detectOperatorChecking')}
+                              </p>
+                            )}
+                            {detectState === 'bound' && detectedOperator && (
+                              <p className="flex items-start gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                {t('onboarding.detectOperatorBound', { name: t(`settings.isp.${detectedOperator}`) })}
+                              </p>
+                            )}
+                            {(detectState === 'unbound' || detectState === 'error') && (
+                              <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                {detectState === 'error'
+                                  ? t('onboarding.detectOperatorError')
+                                  : t('onboarding.detectOperatorUnbound')}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -849,7 +951,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                               <Zap className="h-3.5 w-3.5" />{t('onboarding.operatorOptional')}
                             </span>
                             <span className="ml-2 max-w-[200px] truncate font-medium text-foreground">
-                              {t(ISP_OPTIONS.find(o => o.value === operator)?.labelKey ?? 'onboarding.default')}
+                              {t(ISP_OPTIONS.find(o => o.value === operator)?.labelKey ?? 'onboarding.defaultOperator')}
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-sm">
@@ -904,7 +1006,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                       </span>
                       <DeckArrow
                         dir="next"
-                        disabled={!isTop || i === STEP_COUNT - 1 || (i === 1 && !canProceedAccount)}
+                        disabled={!isTop || i === STEP_COUNT - 1 || (i === 1 && (!canProceedAccount || detectState === 'querying'))}
                         label={t('onboarding.next')}
                         onClick={goNext}
                       />

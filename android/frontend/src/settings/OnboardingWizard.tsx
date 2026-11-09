@@ -29,6 +29,7 @@ import {
   useOnboardingFlow,
   OPERATOR_KEY_BY_VALUE,
   OPERATOR_STATUS_ORDER,
+  OPERATOR_VALUE_BY_KEY,
 } from './useOnboardingFlow'
 
 interface OnboardingWizardProps {
@@ -41,13 +42,6 @@ interface OnboardingWizardProps {
 
 const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.accountInfo', 'onboarding.bindOperatorTitle', 'onboarding.setupComplete'] as const
 const STEP_COUNT = STEP_TITLE_KEYS.length
-
-/** query_bind_status 的运营商键 → 下拉值（用于取 ISP_OPTIONS 的展示文案） */
-const OPERATOR_VALUE_BY_KEY: Record<string, string> = {
-  telecom: '@telecom',
-  unicom: '@unicom',
-  cmcc: '@cmcc',
-}
 
 // 卡片堆层位姿（与桌面端、参考实现一致）：当前卡最大且最靠下（scale 1.05 / +15px），
 // 越往后的卡上移并缩小，第 4 层起共用最深一档。所有卡以容器中心对齐，
@@ -121,6 +115,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
     language, setLanguage,
     loginSuccess, showCloseConfirm, setShowCloseConfirm,
     canProceedAccount, canBind,
+    detectState, detectedOperator, resolveAccountNext,
   } = f
 
   // 卡片堆动画状态：exitingStep 为正在飞起的当前卡
@@ -165,7 +160,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
     // 首帧 Portal 里的卡片 ref 可能还没挂上（量到 0），下一帧补测一次
     const raf = requestAnimationFrame(measureDeck)
     return () => cancelAnimationFrame(raf)
-  }, [open, step, measureDeck, bindStatuses, statusQuerying, statusError, language, password])
+  }, [open, step, measureDeck, bindStatuses, statusQuerying, statusError, detectState, language, password])
 
   useEffect(() => {
     return () => {
@@ -195,11 +190,18 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
 
   deckAdvanceRef.current = deckAdvance
 
-  const deckGoNext = () => {
+  const deckGoNext = async () => {
     // 必须走 deckAdvance（带出场飞起 + 入场浮起），不能直接调 goNext——
     // goNext 内部是 hook 的 advance（只有 setStep），会绕过全部切步动画，
     // 导致前进与后退看起来是同一个层位过渡。
-    // 账号步校验不通过时留在原地：先 handleNext 落盘并拿到放行结果，再驱动动画。
+    // 账号步先识别绑定状态：已绑定运营商时跳过绑定步骤（step+2）；
+    // 校验不通过返回 null，留在原地。
+    if (step === 1) {
+      const next = await resolveAccountNext()
+      if (next === null) return
+      deckAdvance(next)
+      return
+    }
     if (!handleNext()) return
     deckAdvance(step + 1)
   }
@@ -356,7 +358,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                             <Label className="text-xs font-medium">{t('onboarding.operatorOptional')}</Label>
                             <Select value={operator} onValueChange={setOperator}>
                               <SelectTrigger>
-                                <SelectValue placeholder={t('onboarding.selectOperatorOptional')} />
+                                <SelectValue placeholder={t('onboarding.selectOperatorAuto')} />
                               </SelectTrigger>
                               <SelectContent>
                                 {ISP_OPTIONS.map(o => (
@@ -364,6 +366,26 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                                 ))}
                               </SelectContent>
                             </Select>
+                            {detectState === 'querying' && (
+                              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                {t('onboarding.detectOperatorChecking')}
+                              </p>
+                            )}
+                            {detectState === 'bound' && detectedOperator && (
+                              <p className="flex items-start gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                {t('onboarding.detectOperatorBound', { name: t(`settings.isp.${detectedOperator}`) })}
+                              </p>
+                            )}
+                            {(detectState === 'unbound' || detectState === 'error') && (
+                              <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                {detectState === 'error'
+                                  ? t('onboarding.detectOperatorError')
+                                  : t('onboarding.detectOperatorUnbound')}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -532,7 +554,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                               <Zap className="h-3.5 w-3.5" />{t('onboarding.operatorOptional')}
                             </span>
                             <span className="ml-2 max-w-[200px] truncate font-medium text-foreground">
-                              {t(ISP_OPTIONS.find(o => o.value === operator)?.labelKey ?? 'onboarding.default')}
+                              {t(ISP_OPTIONS.find(o => o.value === operator)?.labelKey ?? 'onboarding.defaultOperator')}
                             </span>
                           </div>
                         </div>
@@ -568,7 +590,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                       </span>
                       <DeckArrow
                         dir="next"
-                        disabled={!isTop || i === STEP_COUNT - 1 || (i === 1 && !canProceedAccount)}
+                        disabled={!isTop || i === STEP_COUNT - 1 || (i === 1 && (!canProceedAccount || detectState === 'querying'))}
                         label={t('onboarding.next')}
                         onClick={deckGoNext}
                       />

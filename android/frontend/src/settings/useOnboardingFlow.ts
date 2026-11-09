@@ -51,6 +51,12 @@ export const OPERATOR_KEY_BY_VALUE: Record<string, OperatorKey> = {
 }
 /** 展示顺序与运营商下拉一致（ISP_OPTIONS 剔除学校默认项后的顺序） */
 export const OPERATOR_STATUS_ORDER: OperatorKey[] = ['telecom', 'unicom', 'cmcc']
+/** 点选状态胶囊 / 自动识别时反查回 ISP 值 */
+export const OPERATOR_VALUE_BY_KEY: Record<OperatorKey, string> = {
+  telecom: '@telecom',
+  unicom: '@unicom',
+  cmcc: '@cmcc',
+}
 
 export interface OnboardingFlowOptions {
   /** 向导是否可见；false → true 时重置全部状态为当前配置 */
@@ -74,9 +80,12 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
   const config = useConfigStore(useShallow((s) => s.config))
 
   const [step, setStep] = useState(0)
+  // 异步识别返回时用来确认仍停在账号步（期间用户可能已离开）
+  const stepRef = useRef(step)
+  stepRef.current = step
   const [username, setUsername] = useState(config.user || '')
   const [password, setPassword] = useState(config.password === PASSWORD_MASK ? '' : (config.password || ''))
-  const [operator, setOperator] = useState(config.operator || DEFAULT_OPERATOR)
+  const [operator, setOperator] = useState(config.operator || '')
   const [showPassword, setShowPassword] = useState(false)
   const [loginSuccess, setLoginSuccess] = useState(false)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
@@ -96,6 +105,11 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
   const [statusError, setStatusError] = useState('')
   const [bindRefreshTick, setBindRefreshTick] = useState(0)
 
+  // 账号步「下一步」的运营商自动识别：已绑定则自动选中并跳过绑定步骤；
+  // unbound/error 都放行到绑定步骤，由用户手动选择与绑定
+  const [detectState, setDetectState] = useState<'idle' | 'querying' | 'bound' | 'unbound' | 'error'>('idle')
+  const [detectedOperator, setDetectedOperator] = useState<OperatorKey | null>(null)
+
   // 绑定步骤的 Hello 验证门（与账户面板绑定卡同款）：绑定会改绑运营商账号，
   // 后端命令有验证门（Hello 开启时要求 TTL 内已验证），前端先行验证保证一次通过
   const ensureBindHello = useHelloGate()
@@ -110,7 +124,7 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
       setStep(0)
       setUsername(config.user || '')
       setPassword(config.password === PASSWORD_MASK ? '' : (config.password || ''))
-      setOperator(config.operator || DEFAULT_OPERATOR)
+      setOperator(config.operator || '')
       setLoginSuccess(false)
       setBindOperatorValue(BIND_OPERATOR_NONE)
       setPhone('')
@@ -119,6 +133,9 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
       setBindError('')
       setBindStatuses(null)
       setStatusError('')
+      setStatusQuerying(false)
+      setDetectState('idle')
+      setDetectedOperator(null)
     }
     prevOpenRef.current = open
   }, [open, config.user, config.password, config.operator])
@@ -187,6 +204,9 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
 
   useEffect(() => {
     if (!open || step !== 2 || !canProceedAccount) return
+    // 账号步「下一步」已查过（结果在 bindStatuses），进入本步不重复登录自助服务；
+    // 手动「重新检测」通过 bindRefreshTick 触发。
+    if (bindStatuses && bindRefreshTick === 0) return
     let cancelled = false
     setStatusQuerying(true)
     setStatusError('')
@@ -211,28 +231,94 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
         if (!cancelled) setStatusQuerying(false)
       })
     return () => { cancelled = true }
-  }, [open, step, canProceedAccount, bindRefreshTick, username, bindCredPassword, t])
+  }, [open, step, canProceedAccount, bindStatuses, bindRefreshTick, username, bindCredPassword, t])
+
+  /** 账号落盘：运营商为空即校园网默认线路（''），学校默认项映射成空串 */
+  const saveAccount = useCallback((operatorOverride?: string) => {
+    const op = operatorOverride ?? operator
+    const updateData: Partial<Config> = {
+      user: username.trim(),
+      operator: op === DEFAULT_OPERATOR ? '' : op,
+    }
+    // 仅当用户输入了新密码时才更新 password 字段，避免空密码覆盖已保存的密码
+    if (password.trim()) {
+      updateData.password = password.trim()
+    }
+    onUpdateConfig(updateData)
+  }, [username, password, operator, onUpdateConfig])
+
+  /** 凭据变化后旧的识别结果与自动选中的运营商都不再可信 */
+  const resetDetect = useCallback(() => {
+    setDetectState('idle')
+    setDetectedOperator(null)
+    setBindStatuses(null)
+    if (detectedOperator) setOperator('')
+  }, [detectedOperator])
 
   /** 账号步骤的"下一步"落盘；返回是否放行（账号步骤不满足则留在原地） */
   const handleNext = useCallback(() => {
     if (step === 1) {
       if (!canProceedAccount) return false
-      const updateData: Partial<Config> = {
-        user: username.trim(),
-        operator: operator === DEFAULT_OPERATOR ? '' : operator,
-      }
-      // 仅当用户输入了新密码时才更新 password 字段，避免空密码覆盖已保存的密码
-      if (password.trim()) {
-        updateData.password = password.trim()
-      }
-      onUpdateConfig(updateData)
+      saveAccount()
     }
     return true
-  }, [step, username, password, operator, canProceedAccount, onUpdateConfig])
+  }, [step, saveAccount, canProceedAccount])
 
-  const goNext = useCallback(() => {
+  /**
+   * 账号步「下一步」先识别绑定状态：已绑定运营商则自动选中并跳过绑定步骤；
+   * 未绑定/识别失败照常进入绑定步骤手动处理。
+   * 返回目标步骤（null 表示账号校验不通过，留在原地）。
+   */
+  const resolveAccountNext = useCallback(async (): Promise<number | null> => {
+    if (!canProceedAccount || detectState === 'querying') return null
+    setDetectState('querying')
+    setDetectedOperator(null)
+    let statuses: BindStatuses | null = null
+    try {
+      const result = await tauriApiWithRetry.getBindStatus({ account: username.trim(), password: bindCredPassword })
+      if (result.success && result.data) {
+        const data = result.data as Record<string, OperatorBindingInfo | null>
+        statuses = {
+          cmcc: data.cmcc ?? null,
+          telecom: data.telecom ?? null,
+          unicom: data.unicom ?? null,
+        }
+      }
+    } catch {
+      statuses = null
+    }
+    // 识别期间用户可能已离开账号步，此时丢弃结果
+    if (stepRef.current !== 1) { setDetectState('idle'); return null }
+    if (statuses) {
+      // 结果交给绑定步骤复用，避免进入后再登录一次自助服务
+      setBindStatuses(statuses)
+      const boundKey = OPERATOR_STATUS_ORDER.find((k) => statuses?.[k])
+      if (boundKey) {
+        const value = OPERATOR_VALUE_BY_KEY[boundKey]
+        setOperator(value)
+        setBindOperatorValue(value)
+        setDetectedOperator(boundKey)
+        setDetectState('bound')
+        saveAccount(value)
+        return step + 2
+      }
+      setDetectState('unbound')
+    } else {
+      setDetectState('error')
+    }
+    saveAccount()
+    return step + 1
+  }, [canProceedAccount, detectState, username, bindCredPassword, saveAccount, step])
+
+  const goNext = useCallback(async () => {
+    if (step === 1) {
+      const next = await resolveAccountNext()
+      if (next === null) return
+      advance(next)
+      return
+    }
     if (handleNext()) advance(step + 1)
-  }, [handleNext, advance, step])
+  }, [step, resolveAccountNext, handleNext, advance])
 
   const handleSkip = useCallback(() => {
     if (finishTimerRef.current) {
@@ -278,13 +364,23 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
   /** 密码是否已保存（后端掩码态）：完成页用它决定显示 •••••••• 还是 "-" */
   const passwordSaved = !!password || config.password === PASSWORD_MASK
 
+  // 输入变化即作废上一次识别结果（自动选中的运营商也一并清掉）
+  const updateUsername = useCallback((v: string) => { setUsername(v); resetDetect() }, [resetDetect])
+  const updatePassword = useCallback((v: string) => { setPassword(v); resetDetect() }, [resetDetect])
+  // 用户手动选择运营商：作废自动识别结果（用户选择优先）
+  const selectOperator = useCallback((v: string) => {
+    setOperator(v)
+    setDetectedOperator(null)
+    setDetectState('idle')
+  }, [])
+
   return {
     // 派生
     step, direction, canProceedAccount, canBind, passwordSaved,
     // 表单字段
-    username, setUsername,
-    password, setPassword, showPassword, setShowPassword,
-    operator, setOperator,
+    username, setUsername: updateUsername,
+    password, setPassword: updatePassword, showPassword, setShowPassword,
+    operator, setOperator: selectOperator,
     // 绑定步骤
     bindOperatorValue, setBindOperatorValue,
     phone, setPhone,
@@ -293,10 +389,12 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
     // 绑定状态检测
     bindStatuses, statusQuerying, statusError,
     setBindRefreshTick,
+    // 账号步运营商自动识别
+    detectState, detectedOperator,
     // 流程
     language, setLanguage,
     loginSuccess, showCloseConfirm, setShowCloseConfirm,
-    advance, goNext, handleNext, handleSkip, handleLoginAndFinish,
+    advance, goNext, handleNext, resolveAccountNext, handleSkip, handleLoginAndFinish,
   }
 }
 
