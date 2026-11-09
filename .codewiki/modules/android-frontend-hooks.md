@@ -17,6 +17,29 @@ source_files:
   - android/frontend/src/hooks/useQualityStore.ts
   - android/frontend/src/hooks/useReducedMotion.ts
   - android/frontend/src/hooks/useThemeStore.ts
+  - android/frontend/src/hooks/useAnimationProfile.ts
+  - android/frontend/src/hooks/useAppStore.ts
+  - android/frontend/src/hooks/useAsyncLock.ts
+  - android/frontend/src/hooks/useDeviceProfile.ts
+  - android/frontend/src/hooks/useEventListeners.ts
+  - android/frontend/src/hooks/useGlobalShortcut.ts
+  - android/frontend/src/hooks/useHeartbeat.ts
+  - android/frontend/src/hooks/useInitialDataLoad.ts
+  - tauri-app/frontend/src/shared/AnimatedNumber.tsx
+  - tauri-app/frontend/src/shared/ConfirmDialog.tsx
+  - tauri-app/frontend/src/shared/ErrorBoundary.tsx
+  - tauri-app/frontend/src/shared/FluidBackground.tsx
+  - tauri-app/frontend/src/shared/IspMark.tsx
+  - tauri-app/frontend/src/shared/LogPanel.tsx
+  - tauri-app/frontend/src/shared/MascotFigure.tsx
+  - tauri-app/frontend/src/shared/RefreshButton.tsx
+  - tauri-app/frontend/src/shared/SegmentTabs.tsx
+  - tauri-app/frontend/src/shared/SponsorCard.tsx
+  - tauri-app/frontend/src/shared/ToastContainer.tsx
+  - tauri-app/frontend/src/shared/index.ts
+  - tauri-app/frontend/src/shared/types.ts
+  - tauri-app/frontend/src/shared/ui-constants.ts
+  - tauri-app/frontend/src/shared/ui-types.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_hooks.md

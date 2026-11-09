@@ -7,6 +7,35 @@ source_files:
   - android/src-tauri/src/login_history.rs
   - android/src-tauri/src/quality_history.rs
   - android/src-tauri/src/identity_gate.rs
+  - tauri-app/src-tauri/src/bin/campus-login-core.rs
+  - tauri-app/src-tauri/src/commands/account.rs
+  - tauri-app/src-tauri/src/commands/background.rs
+  - tauri-app/src-tauri/src/commands/config_cmd.rs
+  - tauri-app/src-tauri/src/commands/login.rs
+  - tauri-app/src-tauri/src/commands/mod.rs
+  - tauri-app/src-tauri/src/commands/network_cmd.rs
+  - tauri-app/src-tauri/src/commands/self_service.rs
+  - tauri-app/src-tauri/src/commands/system.rs
+  - tauri-app/src-tauri/src/commands/updater.rs
+  - tauri-app/src-tauri/src/commands/vpn.rs
+  - tauri-app/src-tauri/src/platform/autostart.rs
+  - tauri-app/src-tauri/src/platform/best_route.rs
+  - tauri-app/src-tauri/src/platform/console_output.rs
+  - tauri-app/src-tauri/src/platform/core_autostart.rs
+  - tauri-app/src-tauri/src/platform/dns_config.rs
+  - tauri-app/src-tauri/src/platform/ecoqos.rs
+  - tauri-app/src-tauri/src/platform/elevation.rs
+  - tauri-app/src-tauri/src/platform/gpu.rs
+  - tauri-app/src-tauri/src/platform/helper_spawn.rs
+  - tauri-app/src-tauri/src/platform/icmp_probe.rs
+  - tauri-app/src-tauri/src/platform/identity.rs
+  - tauri-app/src-tauri/src/platform/metric.rs
+  - tauri-app/src-tauri/src/platform/mod.rs
+  - tauri-app/src-tauri/src/platform/route_table.rs
+  - tauri-app/src-tauri/src/platform/rtss_compat.rs
+  - tauri-app/src-tauri/src/platform/task_proxy.rs
+  - tauri-app/src-tauri/src/platform/toast.rs
+  - tauri-app/src-tauri/src/self_service/mod.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_backend_tauri/android_backend_tauri_state_storage.md

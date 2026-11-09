@@ -11,6 +11,9 @@ source_files:
   - android/frontend/src/lib/utils.ts
   - android/frontend/src/lib/vendor/hyalite.d.ts
   - android/frontend/src/lib/vendor/hyalite.js
+  - android/frontend/src/lib/easing-config.ts
+  - android/frontend/src/lib/notificationPermission.ts
+  - android/frontend/src/lib/renderLiveness.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_utilities_libraries.md

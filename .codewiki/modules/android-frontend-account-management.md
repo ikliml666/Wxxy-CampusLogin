@@ -11,6 +11,15 @@ source_files:
   - android/frontend/src/account/selfServiceTypes.ts
   - android/frontend/src/account/useOperatorBind.ts
   - android/frontend/src/account/validators.ts
+  - android/frontend/src/account/AccountPanel.tsx
+  - android/frontend/src/account/BindOperatorDialog.tsx
+  - android/frontend/src/account/ChangePasswordDialog.tsx
+  - android/frontend/src/account/DeviceAliasDialog.tsx
+  - android/frontend/src/account/VpnCredentialDialog.tsx
+  - android/frontend/src/account/VpnManageDialog.tsx
+  - android/frontend/src/account/index.ts
+  - android/frontend/src/account/types.ts
+  - android/frontend/src/account/useAccount.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_account_management.md

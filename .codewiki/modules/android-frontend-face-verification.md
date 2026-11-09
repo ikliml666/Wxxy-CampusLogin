@@ -4,6 +4,18 @@ type: module
 source_files:
   - android/frontend/src/face/faceService.ts
   - android/frontend/src/face/faceVerifyStore.ts
+  - android/frontend/src/face/FaceCaptureDialog.tsx
+  - tauri-app/src-tauri/src/vpn/cache.rs
+  - tauri-app/src-tauri/src/vpn/captcha.rs
+  - tauri-app/src-tauri/src/vpn/cas.rs
+  - tauri-app/src-tauri/src/vpn/crypto.rs
+  - tauri-app/src-tauri/src/vpn/error.rs
+  - tauri-app/src-tauri/src/vpn/jar.rs
+  - tauri-app/src-tauri/src/vpn/mod.rs
+  - tauri-app/src-tauri/src/vpn/route.rs
+  - tauri-app/src-tauri/src/vpn/rsa.rs
+  - tauri-app/src-tauri/src/vpn/session.rs
+  - tauri-app/src-tauri/src/vpn/wrap.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_face_verification.md

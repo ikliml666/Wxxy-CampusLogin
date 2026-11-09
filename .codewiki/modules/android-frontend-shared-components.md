@@ -8,6 +8,41 @@ source_files:
   - android/frontend/src/shared/IspMark.tsx
   - android/frontend/src/shared/MascotFigure.tsx
   - android/frontend/src/shared/dailyMascot.ts
+  - android/frontend/src/shared/ConfirmDialog.tsx
+  - android/frontend/src/shared/LogPanel.tsx
+  - android/frontend/src/shared/RefreshButton.tsx
+  - android/frontend/src/shared/SegmentTabs.tsx
+  - android/frontend/src/shared/SponsorCard.tsx
+  - android/frontend/src/shared/ToastContainer.tsx
+  - android/frontend/src/shared/UpdateAvailableDialog.tsx
+  - android/frontend/src/shared/index.ts
+  - android/frontend/src/shared/types.ts
+  - android/frontend/src/shared/ui-constants.ts
+  - android/frontend/src/shared/ui-types.ts
+  - tauri-app/frontend/src/account/AccountPanel.helloGate.test.tsx
+  - tauri-app/frontend/src/account/AccountPanel.rename.test.tsx
+  - tauri-app/frontend/src/account/AccountPanel.tsx
+  - tauri-app/frontend/src/account/BindOperatorDialog.tsx
+  - tauri-app/frontend/src/account/ChangePasswordDialog.tsx
+  - tauri-app/frontend/src/account/DeviceAliasDialog.tsx
+  - tauri-app/frontend/src/account/LoginInfoDialog.tsx
+  - tauri-app/frontend/src/account/SelfOnlineCards.test.tsx
+  - tauri-app/frontend/src/account/SelfOnlineCards.tsx
+  - tauri-app/frontend/src/account/SelfOnlineRecords.test.tsx
+  - tauri-app/frontend/src/account/SelfOnlineRecords.tsx
+  - tauri-app/frontend/src/account/SelfServicePanel.test.tsx
+  - tauri-app/frontend/src/account/SelfServicePanel.tsx
+  - tauri-app/frontend/src/account/VpnCredentialDialog.tsx
+  - tauri-app/frontend/src/account/VpnManageDialog.tsx
+  - tauri-app/frontend/src/account/index.ts
+  - tauri-app/frontend/src/account/operatorChip.ts
+  - tauri-app/frontend/src/account/selfServiceState.ts
+  - tauri-app/frontend/src/account/selfServiceTypes.ts
+  - tauri-app/frontend/src/account/types.ts
+  - tauri-app/frontend/src/account/useAccount.test.tsx
+  - tauri-app/frontend/src/account/useAccount.ts
+  - tauri-app/frontend/src/account/useOperatorBind.ts
+  - tauri-app/frontend/src/account/validators.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_shared_components.md

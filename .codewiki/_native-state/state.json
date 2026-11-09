@@ -2,14 +2,24 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "6a8cab28d7d959ce65a3a13ede7167d834cddd3f",
-    "headCommit": "8cb4a712fe8caa557e9faa1e8d66af3cb1ee0b2d"
+    "baseCommit": "8cb4a712fe8caa557e9faa1e8d66af3cb1ee0b2d",
+    "headCommit": "a2867cf66d54a55b25783034279cd3d654bfe26a"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "6a8cab28d7d959ce65a3a13ede7167d834cddd3f",
-    "headCommit": "8cb4a712fe8caa557e9faa1e8d66af3cb1ee0b2d",
-    "committed": [],
+    "baseCommit": "8cb4a712fe8caa557e9faa1e8d66af3cb1ee0b2d",
+    "headCommit": "a2867cf66d54a55b25783034279cd3d654bfe26a",
+    "committed": [
+      "android/frontend/src/i18n/locales/en.json",
+      "android/frontend/src/i18n/locales/zh.json",
+      "android/frontend/src/settings/OnboardingWizard.tsx",
+      "android/frontend/src/settings/useOnboardingFlow.ts",
+      "tauri-app/frontend/src/i18n/locales/en.json",
+      "tauri-app/frontend/src/i18n/locales/zh.json",
+      "tauri-app/frontend/src/settings/OnboardingWizard.autoOperator.test.tsx",
+      "tauri-app/frontend/src/settings/OnboardingWizard.tsx",
+      "version.json"
+    ],
     "staged": [],
     "unstaged": [],
     "untracked": [],
@@ -17,24 +27,17 @@
     "renamed": [],
     "reason": ""
   },
-  "unconsumed": [
-    ".dsh-ops/dock-lens-browser.cjs",
-    ".dsh-ops/dock-lens-far.png",
-    ".dsh-ops/dock-lens-initial.png",
-    ".dsh-ops/dock-lens-near.png",
-    "android/build-apk.ps1.lnk",
-    "build-apk.ps1.lnk",
-    "nul"
-  ],
+  "unconsumed": [],
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 0450193 与本次 cw 基线 6a8cab2 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw4eaxte-1-native（66 个文件）"
+    "丢弃 7 条已不存在且从未提交的旧账（.dsh-ops/dock-lens-browser.cjs、.dsh-ops/dock-lens-far.png、.dsh-ops/dock-lens-initial.png 等）——只有 committed 才算消化的规则会让它们被永久携带，白跑整轮",
+    "持久化基线 6a8cab2 与本次 cw 基线 8cb4a71 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mw989qqv-0-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-06T03:11:17.646Z"
+  "updatedAt": "2026-11-09T13:00:50.870Z"
 }

@@ -31,6 +31,33 @@ source_files:
   - android/src-tauri/gen/android/buildSrc/build.gradle.kts
   - android/src-tauri/gen/android/settings.gradle
   - android/frontend/vite.mock.config.ts
+  - tauri-app/src-tauri/src/account/crypto.rs
+  - tauri-app/src-tauri/src/account/mod.rs
+  - tauri-app/src-tauri/src/app/heartbeat.rs
+  - tauri-app/src-tauri/src/app/lightweight.rs
+  - tauri-app/src-tauri/src/app/mod.rs
+  - tauri-app/src-tauri/src/app/shortcut.rs
+  - tauri-app/src-tauri/src/app/shutdown.rs
+  - tauri-app/src-tauri/src/app/startup.rs
+  - tauri-app/src-tauri/src/app/tray.rs
+  - tauri-app/src-tauri/src/app/webview_recovery.rs
+  - tauri-app/src-tauri/src/app/window.rs
+  - tauri-app/src-tauri/src/config/mod.rs
+  - tauri-app/src-tauri/src/config/model.rs
+  - tauri-app/src-tauri/src/config/night_switch.rs
+  - tauri-app/src-tauri/src/config/outbound_switch.rs
+  - tauri-app/src-tauri/src/config/persist.rs
+  - tauri-app/src-tauri/src/config/schedule.rs
+  - tauri-app/src-tauri/src/config/scheduled_tick.rs
+  - tauri-app/src-tauri/src/config/validate.rs
+  - tauri-app/src-tauri/src/infra/state/exit.rs
+  - tauri-app/src-tauri/src/infra/state/mod.rs
+  - tauri-app/src-tauri/src/infra/state/network.rs
+  - tauri-app/src-tauri/src/infra/state/store.rs
+  - tauri-app/src-tauri/src/lib.rs
+  - tauri-app/src-tauri/src/main.rs
+  - tauri-app/src-tauri/src/update/mod.rs
+  - tauri-app/src-tauri/src/update/updater.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: build_deployment_configuration.md

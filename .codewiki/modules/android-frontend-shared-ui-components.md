@@ -8,6 +8,20 @@ source_files:
   - android/frontend/src/components/ui/button.tsx
   - android/frontend/src/components/ui/card.tsx
   - android/frontend/src/components/ui/input.tsx
+  - android/frontend/src/components/layout/BottomNav.tsx
+  - android/frontend/src/components/layout/DockNav.tsx
+  - android/frontend/src/components/layout/RightPanel.tsx
+  - android/frontend/src/components/layout/TitleBar.tsx
+  - android/frontend/src/components/mobile/MobileDashboard.tsx
+  - android/frontend/src/components/mobile/MobileMore.tsx
+  - android/frontend/src/components/tablet/TabletShell.tsx
+  - android/frontend/src/components/ui/dialog.tsx
+  - android/frontend/src/components/ui/empty-state.tsx
+  - android/frontend/src/components/ui/label.tsx
+  - android/frontend/src/components/ui/select.tsx
+  - android/frontend/src/components/ui/separator.tsx
+  - android/frontend/src/components/ui/switch.tsx
+  - android/frontend/src/components/ui/tooltip.tsx
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_shared_ui_components.md

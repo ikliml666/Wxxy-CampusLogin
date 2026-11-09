@@ -4,6 +4,8 @@ type: module
 source_files:
   - android/frontend/src/main.tsx
   - android/frontend/tauri-mock.js
+  - android/frontend/src/App.tsx
+  - android/frontend/src/vite-env.d.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_entrypoint_mocks.md

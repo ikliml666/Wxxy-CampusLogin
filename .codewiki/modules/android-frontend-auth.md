@@ -4,6 +4,61 @@ type: module
 source_files:
   - android/frontend/src/auth/DashboardPanel.tsx
   - android/frontend/src/auth/useAuth.ts
+  - android/frontend/postcss.config.js
+  - android/frontend/src/auth/AboutDialog.tsx
+  - android/frontend/src/auth/AboutDialogMobile.tsx
+  - android/frontend/src/auth/index.ts
+  - android/frontend/src/auth/types.ts
+  - android/frontend/src/i18n/index.ts
+  - android/frontend/tailwind.config.js
+  - android/frontend/vite.config.ts
+  - android/frontend/vite.mock.config.ts
+  - tauri-app/src-tauri/src/auth/dual_adapter_executor.rs
+  - tauri-app/src-tauri/src/auth/failure_tracker.rs
+  - tauri-app/src-tauri/src/auth/mod.rs
+  - tauri-app/src-tauri/src/auth/portal.rs
+  - tauri-app/src-tauri/src/auth/protocol.rs
+  - tauri-app/src-tauri/src/auth/service.rs
+  - tauri-app/src-tauri/src/auth/session.rs
+  - tauri-app/src-tauri/src/helper/mod.rs
+  - tauri-app/src-tauri/src/infra/async_util.rs
+  - tauri-app/src-tauri/src/infra/command_context.rs
+  - tauri-app/src-tauri/src/infra/events.rs
+  - tauri-app/src-tauri/src/infra/lifecycle.rs
+  - tauri-app/src-tauri/src/infra/logger.rs
+  - tauri-app/src-tauri/src/infra/mod.rs
+  - tauri-app/src-tauri/src/infra/notification.rs
+  - tauri-app/src-tauri/src/infra/task_manager.rs
+  - tauri-app/src-tauri/src/monitor/adapter_watch.rs
+  - tauri-app/src-tauri/src/monitor/auto_auth.rs
+  - tauri-app/src-tauri/src/monitor/background_check.rs
+  - tauri-app/src-tauri/src/monitor/background_emit.rs
+  - tauri-app/src-tauri/src/monitor/background_task.rs
+  - tauri-app/src-tauri/src/monitor/campus_check.rs
+  - tauri-app/src-tauri/src/monitor/dynamic_interval.rs
+  - tauri-app/src-tauri/src/monitor/latency.rs
+  - tauri-app/src-tauri/src/monitor/mod.rs
+  - tauri-app/src-tauri/src/monitor/outbound_night.rs
+  - tauri-app/src-tauri/src/monitor/outbound_switch.rs
+  - tauri-app/src-tauri/src/monitor/portal_check.rs
+  - tauri-app/src-tauri/src/monitor/quality_scheduler.rs
+  - tauri-app/src-tauri/src/monitor/scheduled.rs
+  - tauri-app/src-tauri/src/monitor/watcher.rs
+  - tauri-app/src-tauri/src/network/adapter.rs
+  - tauri-app/src-tauri/src/network/adapter_cache.rs
+  - tauri-app/src-tauri/src/network/bound_socket.rs
+  - tauri-app/src-tauri/src/network/client.rs
+  - tauri-app/src-tauri/src/network/dhcp.rs
+  - tauri-app/src-tauri/src/network/discovery/devnode.rs
+  - tauri-app/src-tauri/src/network/discovery/mod.rs
+  - tauri-app/src-tauri/src/network/discovery/registry.rs
+  - tauri-app/src-tauri/src/network/discovery/windows.rs
+  - tauri-app/src-tauri/src/network/dns.rs
+  - tauri-app/src-tauri/src/network/dns_setup.rs
+  - tauri-app/src-tauri/src/network/mod.rs
+  - tauri-app/src-tauri/src/network/quality.rs
+  - tauri-app/src-tauri/src/network/subnet.rs
+  - tauri-app/src-tauri/src/network/timing.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_auth.md

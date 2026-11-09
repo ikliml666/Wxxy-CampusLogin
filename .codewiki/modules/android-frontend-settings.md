@@ -5,6 +5,12 @@ source_files:
   - android/frontend/src/settings/constants.ts
   - android/frontend/src/settings/useOnboardingFlow.ts
   - android/frontend/src/settings/useSettings.ts
+  - android/frontend/src/settings/KeepAliveSettingsCard.tsx
+  - android/frontend/src/settings/OnboardingWizard.tsx
+  - android/frontend/src/settings/SettingsPanel.tsx
+  - android/frontend/src/settings/ThemeDialog.tsx
+  - android/frontend/src/settings/index.ts
+  - android/frontend/src/settings/types.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_settings.md

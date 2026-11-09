@@ -3,6 +3,8 @@ title: Android 后端监控与定时编排（android_backend_tauri_monitoring）
 type: module
 source_files:
   - android/src-tauri/src/monitor_loop.rs
+  - android/src-tauri/src/battery_cmds.rs
+  - android/src-tauri/src/cpu_affinity.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_backend_tauri/android_backend_tauri_monitoring.md

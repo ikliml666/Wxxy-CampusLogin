@@ -4,6 +4,20 @@ type: module
 source_files:
   - android/frontend/src/monitor/useMonitor.ts
   - android/frontend/src/network/useDnsSetup.ts
+  - android/frontend/src/monitor/LatencyComponents.tsx
+  - android/frontend/src/monitor/LatencyTimeline.tsx
+  - android/frontend/src/monitor/MonitorPanel.tsx
+  - android/frontend/src/monitor/NetworkQualityCapsule.tsx
+  - android/frontend/src/monitor/QualityPanel.tsx
+  - android/frontend/src/monitor/SpeedTestPanel.tsx
+  - android/frontend/src/monitor/StatusBar.tsx
+  - android/frontend/src/monitor/index.ts
+  - android/frontend/src/monitor/types.ts
+  - android/frontend/src/network/DnsAdapterCard.tsx
+  - android/frontend/src/network/NetworkPanel.tsx
+  - android/frontend/src/network/constants.ts
+  - android/frontend/src/network/index.ts
+  - android/frontend/src/network/types.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_monitoring_network.md
