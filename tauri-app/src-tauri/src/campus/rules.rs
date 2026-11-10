@@ -1,0 +1,203 @@
+//! 校园网判定的跨平台纯规则层：双端（桌面 `monitor::campus_check` /
+//! `monitor::outbound_switch`，安卓 `campus_detect`）共用的判定口径，不含任何
+//! 网络 IO 与平台 API——探测方式（桌面绑源 ICMP、安卓 TCP）由调用方经闭包注入。
+//!
+//! 抽出的起因（2026-11-10）：同一套判定在仓库里有 4 份各自演化的实现，
+//! 名称名单解析、portal 主机提取、去抖次数三处口径已经不一致，
+//! 其中安卓 `ssid_matches` 对三值默认名单整体比较字符串，名称腿恒假。
+
+/// 单腿探测的去抖次数：单发丢包会把在网校园卡误判成非校园，导致禁用步骤静默
+/// 跳过、整夜只切一半。任一发可达即判该腿命中，容忍瞬时抖动。
+pub const CAMPUS_PROBE_ATTEMPTS: usize = 2;
+
+/// 校园网名称名单解析：配置值支持顿号/全半角逗号/分号/空白分隔多个名称
+/// （默认 `i-wxxy、iwxxy-2、iwxxy-3`），空项忽略。
+pub fn campus_name_list(value: &str) -> Vec<&str> {
+    value
+        .split(['、', '，', ',', '；', ';', ' ', '\t'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// 名称是否命中配置的校园网名单（大小写不敏感，逐项比较）。
+pub fn matches_campus_name(name: &str, configured: &str) -> bool {
+    !name.is_empty()
+        && campus_name_list(configured)
+            .iter()
+            .any(|n| name.eq_ignore_ascii_case(n))
+}
+
+/// 从 portal_url 提取可作绑源探测目标的私网 IPv4 主机（`http://10.1.99.100` →
+/// `10.1.99.100`）。域名、公网地址、IPv6、空值一律返回空串：portal 可达性是
+/// 「从校园侧出口」的证据，公网 portal 会把任意外网网卡都误判成校园。
+pub fn portal_probe_host(portal_url: &str) -> String {
+    let rest = portal_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(portal_url);
+    let host_port = rest.split('/').next().unwrap_or("");
+    let host = host_port.rsplit_once(':').map(|(h, _)| h).unwrap_or(host_port);
+    if host.parse::<std::net::Ipv4Addr>().is_ok() && is_nat_private_ip(host) {
+        host.to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// 私网/特殊用途 IPv4 判定（RFC1918 三段 + 链路本地 + CGNAT）。
+/// 原本只在 `auth::portal` 内部使用，2026-11-10 上移为共用规则，
+/// `auth::portal` 转导出本函数以免两份实现漂移。
+pub fn is_nat_private_ip(ip: &str) -> bool {
+    if ip.starts_with("10.") {
+        return true;
+    }
+    if ip.starts_with("192.168.") || ip.starts_with("169.254.") {
+        return true;
+    }
+    if let Some(rest) = ip.strip_prefix("172.") {
+        if let Some(second) = rest.split('.').next() {
+            if let Ok(o) = second.parse::<u8>() {
+                return (16..=31).contains(&o);
+            }
+        }
+    }
+    if let Some(rest) = ip.strip_prefix("100.") {
+        if let Some(second) = rest.split('.').next() {
+            if let Ok(o) = second.parse::<u8>() {
+                return (64..=127).contains(&o);
+            }
+        }
+    }
+    false
+}
+
+/// 单腿探测：去抖 [`CAMPUS_PROBE_ATTEMPTS`] 次，任一发可达即命中。
+/// `probe` 由调用方注入（桌面绑源 ICMP / 安卓 TCP），空目标直接判否。
+pub fn probe_with_retry(target: &str, mut probe: impl FnMut(&str) -> bool) -> bool {
+    if target.is_empty() {
+        return false;
+    }
+    (0..CAMPUS_PROBE_ATTEMPTS).any(|_| probe(target))
+}
+
+/// 命中的判定腿。UI 文案与 `matchedBy` 字段需要区分「靠网关命中」还是
+/// 「靠 Portal 命中」，故判定函数把腿一起返回。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CampusLeg {
+    Gateway,
+    Portal,
+}
+
+/// 判定要探的目标与所属腿，按优先级排列（网关在前、Portal 在后）。
+///
+/// 空目标腿整体跳过：`campus_gateway` 未配置时只剩 Portal 腿；`portal_host`
+/// 为空（公网/域名 portal）时只剩网关腿。
+///
+/// 双端都从这里取「探哪些目标、优先级如何」：桌面逐腿同步探测（成本低者优先
+/// 短路），安卓把同一批目标并行发 TCP（无 ICMP，串行会拉长通知翻转），
+/// 但腿的定义与优先级只有这一份。
+pub fn campus_probe_targets<'a>(
+    gateway: &'a str,
+    portal_host: &'a str,
+) -> Vec<(&'a str, CampusLeg)> {
+    let mut targets = Vec::with_capacity(2);
+    if !gateway.is_empty() {
+        targets.push((gateway, CampusLeg::Gateway));
+    }
+    if !portal_host.is_empty() {
+        targets.push((portal_host, CampusLeg::Portal));
+    }
+    targets
+}
+
+/// 按 [`campus_probe_targets`] 的优先级逐腿探测，返回首个命中的腿。
+/// 每腿去抖 [`CAMPUS_PROBE_ATTEMPTS`] 次，任一发可达即算该腿命中。
+/// 桌面（绑源 ICMP）与安卓（TCP，结果先并行探好再查表）共用此函数。
+pub fn judge_campus_leg(
+    gateway: &str,
+    portal_host: &str,
+    mut probe: impl FnMut(&str) -> bool,
+) -> Option<CampusLeg> {
+    campus_probe_targets(gateway, portal_host)
+        .into_iter()
+        .find(|(target, _)| probe_with_retry(target, &mut probe))
+        .map(|(_, leg)| leg)
+}
+
+/// [`judge_campus_leg`] 的布尔版：只关心是否在校园网。
+pub fn judge_campus(gateway: &str, portal_host: &str, probe: impl FnMut(&str) -> bool) -> bool {
+    judge_campus_leg(gateway, portal_host, probe).is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn campus_name_list_splits_all_separators() {
+        assert_eq!(
+            campus_name_list("i-wxxy、iwxxy-2、iwxxy-3"),
+            vec!["i-wxxy", "iwxxy-2", "iwxxy-3"]
+        );
+        assert_eq!(campus_name_list("a, b；c\td"), vec!["a", "b", "c", "d"]);
+        assert_eq!(campus_name_list("  、，; "), Vec::<&str>::new());
+        assert_eq!(campus_name_list("i-wxxy"), vec!["i-wxxy"]);
+    }
+
+    #[test]
+    fn matches_campus_name_accepts_any_listed_name() {
+        let configured = "i-wxxy、iwxxy-2、iwxxy-3";
+        assert!(matches_campus_name("i-wxxy", configured));
+        assert!(matches_campus_name("I-WXXY", configured));
+        assert!(matches_campus_name("iwxxy-2", configured));
+        assert!(matches_campus_name("IWXXY-3", configured));
+        assert!(!matches_campus_name("home-wifi", configured));
+        assert!(!matches_campus_name("i-wxx", configured));
+        assert!(!matches_campus_name("", configured));
+        // 单值配置不能被当成整串比较（安卓旧实现的缺陷）
+        assert!(matches_campus_name("i-wxxy", "i-wxxy"));
+        assert!(!matches_campus_name("iwxxy-2", "i-wxxy"));
+    }
+
+    #[test]
+    fn portal_probe_host_extracts_private_ipv4_only() {
+        assert_eq!(portal_probe_host("http://10.1.99.100"), "10.1.99.100");
+        assert_eq!(portal_probe_host("http://10.1.99.100:801/eportal/"), "10.1.99.100");
+        assert_eq!(portal_probe_host("10.1.99.100"), "10.1.99.100");
+        // 域名/公网地址/空值不产生探测目标（公网 portal 会把任意外网卡误判成校园）
+        assert_eq!(portal_probe_host("http://portal.wxu.edu.cn"), "");
+        assert_eq!(portal_probe_host("http://8.8.8.8"), "");
+        assert_eq!(portal_probe_host(""), "");
+    }
+
+    #[test]
+    fn probe_with_retry_tolerates_single_loss() {
+        // 首发不可达、次发可达 → 命中
+        let mut n = 0;
+        assert!(probe_with_retry("10.1.1.1", |_| {
+            n += 1;
+            n >= 2
+        }));
+        // 全部不可达 → 不命中
+        assert!(!probe_with_retry("10.1.1.1", |_| false));
+        // 空目标不发探测
+        assert!(!probe_with_retry("", |_| panic!("空目标不应发起探测")));
+    }
+
+    #[test]
+    fn judge_campus_gateway_and_portal_each_hit() {
+        assert!(judge_campus("10.1.1.1", "10.1.99.100", |t| t == "10.1.1.1"));
+        assert!(judge_campus("10.1.1.1", "10.1.99.100", |t| t == "10.1.99.100"));
+        assert!(!judge_campus("10.1.1.1", "10.1.99.100", |_| false));
+    }
+
+    #[test]
+    fn judge_campus_skips_empty_target_legs() {
+        // 网关未配置 → 只剩 Portal 腿，不向空目标发探测
+        assert!(judge_campus("", "10.1.99.100", |t| t == "10.1.99.100"));
+        // portal 主机不产生（公网/域名）→ 只剩网关腿
+        assert!(judge_campus("10.1.1.1", "", |t| t == "10.1.1.1"));
+        assert!(!judge_campus("", "", |_| panic!("两腿都空不应发起探测")));
+    }
+}

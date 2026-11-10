@@ -394,7 +394,7 @@
     "campusNetworkVerificationDesc": "Only authenticate when specified campus Wi-Fi or gateway is detected",
     "campusNetworkName": "Campus Network Name",
     "campusNetworkNamePlaceholder": "i-wxxy (default; also matches iwxxy-2, iwxxy-3)",
-    "campusNetworkNameTip": "Fixed to i-wxxy (iwxxy-2 and iwxxy-3 are also matched)",
+    "campusNetworkNameTip": "Any of these names counts as the campus network",
     "campusGateway": "Campus Gateway Address",
     "campusGatewayPlaceholder": "10.1.1.1 (default)",
     "campusGatewayTip": "Fixed to gateway 10.1.1.1",

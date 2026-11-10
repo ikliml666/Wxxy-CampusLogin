@@ -174,29 +174,7 @@ fn build_request_failed_status() -> PortalStatus {
     }
 }
 
-pub(crate) fn is_nat_private_ip(ip: &str) -> bool {
-    if ip.starts_with("10.") {
-        return true;
-    }
-    if ip.starts_with("192.168.") || ip.starts_with("169.254.") {
-        return true;
-    }
-    if let Some(rest) = ip.strip_prefix("172.") {
-        if let Some(second) = rest.split('.').next() {
-            if let Ok(o) = second.parse::<u8>() {
-                return (16..=31).contains(&o);
-            }
-        }
-    }
-    if let Some(rest) = ip.strip_prefix("100.") {
-        if let Some(second) = rest.split('.').next() {
-            if let Ok(o) = second.parse::<u8>() {
-                return (64..=127).contains(&o);
-            }
-        }
-    }
-    false
-}
+pub(crate) use crate::campus::rules::is_nat_private_ip;
 
 enum PageCheckResult {
     /// (是否在线, 页面携带的 uid——完整在线账号=账号+运营商后缀)

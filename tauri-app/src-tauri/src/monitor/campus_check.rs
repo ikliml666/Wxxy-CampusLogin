@@ -52,21 +52,12 @@ pub(super) fn adapter_campus_message(adapter_name: &str, adapters: &[Adapter], c
     adapter_campus_status(adapter_name, adapters, campus_result).map(|s| s.message.clone())
 }
 
-/// 校园网名称名单解析：配置值支持顿号/全半角逗号/分号/空白分隔多个名称
-/// （默认 "i-wxxy、iwxxy-2、iwxxy-3"），空项忽略
-fn campus_name_list(value: &str) -> Vec<&str> {
-    value
-        .split(['、', '，', ',', '；', ';', ' ', '\t'])
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
 /// 判定上下文：一次检测内共享的只读输入（名称名单、网关、Portal 主机、全局名称信号）。
 struct CampusContext<'a> {
     /// 名称检查开关；关闭时「名称」腿整体不参与判定
     enable_name_check: bool,
-    name_list: Vec<&'a str>,
+    /// 原始配置串（顿号/逗号分隔的名单），匹配时经共享规则层逐项拆分比较
+    required_network_name: &'a str,
     campus_gw: &'a str,
     portal_host: String,
     /// 无线侧全局名称信号（netsh wlan 只报当前连接的一个 SSID）
@@ -78,21 +69,19 @@ struct CampusContext<'a> {
 impl CampusContext<'_> {
     /// 名称腿（成本最低，netsh 结果有缓存）：按卡类型套用——
     /// SSID 只对无线卡生效、有线 profile 只对有线卡生效，其余卡继续往下走。
+    /// 匹配口径走共享规则层 [`crate::campus::rules::matches_campus_name`]，
+    /// 与安卓 `ssid_matches` 同一份实现。
     fn name_hit(&self, adapter: &Adapter) -> Option<String> {
         if !self.enable_name_check {
             return None;
         }
         if adapter.wireless {
             let ssid = self.wifi_ssid.as_ref()?;
-            self.name_list
-                .iter()
-                .any(|n| ssid.eq_ignore_ascii_case(n))
+            crate::campus::rules::matches_campus_name(ssid, self.required_network_name)
                 .then(|| format!("已连接到校园WiFi({ssid})"))
         } else {
             let profile = self.wired_profile.as_ref()?;
-            self.name_list
-                .iter()
-                .any(|n| profile.eq_ignore_ascii_case(n))
+            crate::campus::rules::matches_campus_name(profile, self.required_network_name)
                 .then(|| format!("已连接到校园有线网络({profile})"))
         }
     }
@@ -126,30 +115,26 @@ where
         return build(true, Some("name"), msg);
     }
 
-    // 2. 网关（绑该卡源的一次 ICMP，超时 2s）
-    if probe(ctx.campus_gw, &adapter.ip) {
-        return build(
+    // 2/3. 网关与 Portal（绑该卡源；判定腿与去抖口径由共享规则层统一）。
+    match crate::campus::rules::judge_campus_leg(ctx.campus_gw, &ctx.portal_host, |target| {
+        probe(target, &adapter.ip)
+    }) {
+        Some(crate::campus::rules::CampusLeg::Gateway) => build(
             true,
             Some("gateway"),
             format!("通过网关{}连接校园网", ctx.campus_gw),
-        );
-    }
-
-    // 3. Portal（绑该卡源；portal_url 无私网 IPv4 主机时该腿恒为否）
-    if !ctx.portal_host.is_empty() && probe(&ctx.portal_host, &adapter.ip) {
-        return build(
+        ),
+        Some(crate::campus::rules::CampusLeg::Portal) => build(
             true,
             Some("portal"),
             format!("通过 portal {} 连接校园网", ctx.portal_host),
-        );
+        ),
+        None => build(
+            false,
+            None,
+            format!("{}未连接校园网(名称/网关/Portal 均未命中)", adapter.ip),
+        ),
     }
-
-    // 名称/网关/Portal 全部未命中
-    build(
-        false,
-        None,
-        format!("{}未连接校园网(名称/网关/Portal 均未命中)", adapter.ip),
-    )
 }
 
 /// 按卡类型聚合出 `wifi`/`wired` 兼容状态（IPC 旧字段，前端仍读）。
@@ -180,7 +165,6 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
     crate::log_debug!("campus", "[校园网检测] enable_network_name_check={}, required_network_name='{}', campus_gateway='{}', 适配器数={}",
         config.enable_network_name_check, config.required_network_name, config.campus_gateway, adapters.len());
 
-    let name_list = campus_name_list(&config.required_network_name);
     let portal_host = portal_probe_host(&config.portal_url);
     // 名称检查禁用时名称腿不参与判定，也就不必付 netsh 的调用成本
     let (wifi_ssid, wired_profile) = if config.enable_network_name_check {
@@ -196,7 +180,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
 
     let ctx = CampusContext {
         enable_name_check: config.enable_network_name_check,
-        name_list,
+        required_network_name: &config.required_network_name,
         campus_gw: &config.campus_gateway,
         portal_host,
         wifi_ssid: wifi_ssid.clone(),
@@ -293,10 +277,10 @@ mod tests {
         }
     }
 
-    fn ctx<'a>(name_list: Vec<&'a str>, gw: &'a str, portal: &str) -> CampusContext<'a> {
+    fn ctx<'a>(required_network_name: &'a str, gw: &'a str, portal: &str) -> CampusContext<'a> {
         CampusContext {
             enable_name_check: true,
-            name_list,
+            required_network_name,
             campus_gw: gw,
             portal_host: portal.to_string(),
             wifi_ssid: None,
@@ -306,6 +290,7 @@ mod tests {
 
     #[test]
     fn 名称名单_解析多分隔符与空项() {
+        use crate::campus::rules::campus_name_list;
         assert_eq!(
             campus_name_list("i-wxxy、iwxxy-2、iwxxy-3"),
             vec!["i-wxxy", "iwxxy-2", "iwxxy-3"]
@@ -317,7 +302,7 @@ mod tests {
 
     #[test]
     fn 无ip的卡_直接判非校园且不探测() {
-        let c = ctx(vec!["i-wxxy"], "10.2.127.254", "");
+        let c = ctx("i-wxxy", "10.2.127.254", "");
         let mut probes = 0;
         let mut probe = |_t: &str, _s: &str| {
             probes += 1;
@@ -331,7 +316,7 @@ mod tests {
 
     #[test]
     fn 名称命中_按卡类型套用且短路不探测() {
-        let mut c = ctx(vec!["i-wxxy"], "10.2.127.254", "10.1.99.100");
+        let mut c = ctx("i-wxxy", "10.2.127.254", "10.1.99.100");
         c.wifi_ssid = Some("i-wxxy".to_string());
         let mut probes = 0;
         let mut probe = |_t: &str, _s: &str| {
@@ -351,7 +336,7 @@ mod tests {
     #[test]
     fn 网关命中_绑源探测判校园() {
         // 2026-11-10 起取消网段腿：同段与否不再参与判定，校园卡一律靠绑源探测
-        let c = ctx(vec![], "10.1.1.1", "");
+        let c = ctx("", "10.1.1.1", "");
         let mut seen: Vec<(String, String)> = Vec::new();
         let mut probe = |t: &str, s: &str| {
             seen.push((t.to_string(), s.to_string()));
@@ -366,7 +351,7 @@ mod tests {
     #[test]
     fn 网关不可达_即使同段也判非校园() {
         // 取消网段腿的语义边界：IP 落在 10.x 也不算校园网，必须探测通过
-        let c = ctx(vec![], "10.1.1.1", "");
+        let c = ctx("", "10.1.1.1", "");
         let mut probe = |_t: &str, _s: &str| false;
         let status = judge_adapter(&adapter("以太网", "10.2.38.176", false), &c, &mut probe);
         assert!(!status.on_campus);
@@ -375,7 +360,7 @@ mod tests {
 
     #[test]
     fn 路由器私网_网关腿绑源命中() {
-        let c = ctx(vec!["i-wxxy"], "10.2.127.254", "");
+        let c = ctx("i-wxxy", "10.2.127.254", "");
         let mut seen: Vec<(String, String)> = Vec::new();
         let mut probe = |t: &str, s: &str| {
             seen.push((t.to_string(), s.to_string()));
@@ -390,7 +375,7 @@ mod tests {
 
     #[test]
     fn 网关失败但portal命中_判校园() {
-        let c = ctx(vec![], "10.2.127.254", "10.1.99.100");
+        let c = ctx("", "10.2.127.254", "10.1.99.100");
         let mut probe = |t: &str, _s: &str| t == "10.1.99.100";
         let status = judge_adapter(&adapter("以太网", "192.168.6.114", false), &c, &mut probe);
         assert!(status.on_campus);
@@ -399,7 +384,7 @@ mod tests {
 
     #[test]
     fn 网关与portal都失败_判非校园() {
-        let c = ctx(vec![], "10.2.127.254", "10.1.99.100");
+        let c = ctx("", "10.2.127.254", "10.1.99.100");
         let mut probe = |_t: &str, _s: &str| false;
         let status = judge_adapter(&adapter("以太网", "192.168.6.114", false), &c, &mut probe);
         assert!(!status.on_campus);
@@ -409,7 +394,7 @@ mod tests {
 
     #[test]
     fn 名称检查禁用时_名称腿不参与() {
-        let mut c = ctx(vec!["i-wxxy"], "10.2.127.254", "");
+        let mut c = ctx("i-wxxy", "10.2.127.254", "");
         c.enable_name_check = false;
         c.wired_profile = Some("i-wxxy".to_string());
         let mut probe = |_t: &str, _s: &str| false;

@@ -5,6 +5,7 @@ mod commands;
 mod config;
 mod network;
 mod auth;
+mod campus;
 mod monitor;
 mod account;
 mod platform;

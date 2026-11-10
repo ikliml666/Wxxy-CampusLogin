@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Play, Square, Clock, Radar, Settings2, Rocket, Wifi, RefreshCw, LogIn, LogOut, AlarmClock, HelpCircle, AlertTriangle } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { campusNameList } from '@/lib/campus'
 import { getRefreshIconClass } from '@/shared/RefreshButton'
 import React, { memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -262,9 +263,10 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                 <div className="space-y-3 ml-[42px]">
                   <div className="space-y-1.5">
                     <Label className="text-xs font-medium text-muted-foreground">{t('monitor.campusNetworkName')}</Label>
-                    {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
-                    <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground">
-                      {config.requiredNetworkName || 'i-wxxy'}
+                    {/* 固定匹配（2026-09-20）：不再提供手填入口；名单按配置逐项展示，
+                        与后端 campus_name_list 同一拆分口径（2026-11-10 与桌面同步去掉 i-wxxy 特判） */}
+                    <div className="h-8 flex items-center gap-1.5 px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground flex-wrap overflow-hidden">
+                      {campusNameList(config.requiredNetworkName || 'i-wxxy、iwxxy-2、iwxxy-3').join('、')}
                     </div>
                     <p className="text-[10px] text-muted-foreground">{t('monitor.campusNetworkNameTip')}</p>
                   </div>

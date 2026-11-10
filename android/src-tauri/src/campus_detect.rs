@@ -94,18 +94,37 @@ pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<Camp
 
     let portal_host = portal_host_of(portal_url);
 
-    // 对齐桌面 campus_check 判定的安卓版(2026-09-09 真机反馈:能到达网关
-    // 却被判非校园网)。安卓非 root 无 ICMP,探测改 TCP:
-    // ①网关 TCP(2026-11-10 起取消网段腿:网关基准是核心出口 10.1.1.1、接入网在
-    //   10.2.x,按网关划网段已无判定价值,全部靠绑源 TCP 探测承担);
-    // ②Portal TCP(配置公网 portal 域名时家宽也可能连通,属已知边界——
-    //   建议保持 portal_url 为内网地址;放最后作为网关误配时的最后兜底)
-    // 两项并行(2026-09-14:串行最坏 6s,拉长断开场景通知翻转;join 后最坏 3s)。
-    let (portal_ok, gateway_ok) = tokio::join!(
-        portal_reachable(&portal_host, PORTAL_PORT, TCP_TIMEOUT),
-        portal_reachable(campus_gateway, PORTAL_PORT, TCP_TIMEOUT),
+    // 判定腿(探哪些目标、优先级)与去抖次数由跨平台规则层统一给出：安卓非 root
+    // 无 ICMP，探测手段换成 TCP 并行发出，但「哪几腿」「各发几次」「任一发可达
+    // 即算命中」与桌面同一份实现，不再各写一套。
+    // 2026-11-10 起取消网段腿：网关基准是核心出口 10.1.1.1、接入网在 10.2.x，
+    // 按网关划网段已无判定价值，全部靠绑源 TCP 探测承担。
+    // 两腿并行(2026-09-14：串行最坏 6s，拉长断开场景通知翻转；并行最坏 3s)；
+    // 每腿发 CAMPUS_PROBE_ATTEMPTS 次去抖，同样的探测并行发出，最坏只等一个超时。
+    let targets = campus_login_lib::campus::rules::campus_probe_targets(campus_gateway, &portal_host);
+    let attempts = campus_login_lib::campus::rules::CAMPUS_PROBE_ATTEMPTS;
+    let probes: Vec<_> = targets
+        .iter()
+        .flat_map(|(target, _)| (0..attempts).map(move |_| *target))
+        .collect();
+    let results =
+        futures_util::future::join_all(probes.iter().map(|t| portal_reachable(t, PORTAL_PORT, TCP_TIMEOUT)))
+            .await;
+
+    // 汇总每腿结果后交给共享判定函数查表：probe 闭包只回答「该目标是否至少一发可达」。
+    let mut reachable: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for (target, ok) in probes.iter().zip(results) {
+        if ok {
+            reachable.insert(target);
+        }
+    }
+    let leg = campus_login_lib::campus::rules::judge_campus_leg(
+        campus_gateway,
+        &portal_host,
+        |target| reachable.contains(target),
     );
-    let on_campus = gateway_ok || portal_ok;
+    let on_campus = leg.is_some();
+    let portal_ok = !portal_host.is_empty() && reachable.contains(portal_host.as_str());
 
     Ok(CampusProbe {
         source,
@@ -127,24 +146,19 @@ pub fn campus_status_message(wifi_off: bool, on_campus: bool) -> &'static str {
     }
 }
 
-/// "http://10.1.99.100" -> "10.1.99.100"(去掉 scheme/端口/路径;解析失败回退原串)
-pub fn portal_host_of(url: &str) -> String {
-    let after_scheme = url.split("://").nth(1).unwrap_or(url);
-    let host_port = after_scheme.split('/').next().unwrap_or(after_scheme);
-    match host_port.rsplit_once(':') {
-        Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) && !host.is_empty() => {
-            host.to_string()
-        }
-        _ => host_port.to_string(),
-    }
-}
+/// "http://10.1.99.100" -> "10.1.99.100"(去掉 scheme/端口/路径;解析失败回退原串)。
+/// 判定目标提取已下沉到跨平台规则层，此处转导出以保持既有调用点。
+pub use campus_login_lib::campus::rules::portal_probe_host as portal_host_of;
 
-/// SSID 是否命中配置的校园网名称(对齐桌面 campus_check 名称匹配语义):
-/// 相等即命中;required 为默认值 "i-wxxy" 时特判历史同源 SSID iwxxy-2/iwxxy-3。
+/// SSID 是否命中配置的校园网名称名单。
+///
+/// 2026-11-10 修复：旧实现把整个配置串与 SSID 整体比较、再对单值 "i-wxxy" 做
+/// iwxxy-2/3 特判——而默认配置是顿号分隔的三值名单 "i-wxxy、iwxxy-2、iwxxy-3"，
+/// 整体比较恒为 false，名称腿在默认配置下完全失效。现按名单逐项匹配，与桌面
+/// `campus_check` 的 `campus_name_list` 同源（同一份
+/// [`campus_login_lib::campus::rules::matches_campus_name`]）。
 pub fn ssid_matches(ssid: &str, required: &str) -> bool {
-    ssid.eq_ignore_ascii_case(required)
-        || (required.eq_ignore_ascii_case("i-wxxy")
-            && (ssid.eq_ignore_ascii_case("iwxxy-2") || ssid.eq_ignore_ascii_case("iwxxy-3")))
+    campus_login_lib::campus::rules::matches_campus_name(ssid, required)
 }
 
 /// 当前 WiFi SSID(经 network-bind 插件 Kotlin 侧 WifiManager 读取):
@@ -282,7 +296,11 @@ mod tests {
         assert_eq!(portal_host_of("http://10.1.99.100"), "10.1.99.100");
         assert_eq!(portal_host_of("http://10.1.99.100:8080/x"), "10.1.99.100");
         assert_eq!(portal_host_of("10.1.99.100"), "10.1.99.100");
-        assert_eq!(portal_host_of("http://portal.example.com/"), "portal.example.com");
+        // 2026-11-10 起与桌面同一份规则：域名/公网地址不产生探测目标
+        // (公网 portal 会把任意网络都判成校园网)
+        assert_eq!(portal_host_of("http://portal.example.com/"), "");
+        assert_eq!(portal_host_of("http://8.8.8.8"), "");
+        assert_eq!(portal_host_of(""), "");
     }
 
     #[test]
@@ -299,14 +317,25 @@ mod tests {
         // 精确匹配(大小写不敏感)
         assert!(ssid_matches("i-wxxy", "i-wxxy"));
         assert!(ssid_matches("I-WXXY", "i-wxxy"));
-        // 默认名称特判历史同源 SSID(对齐桌面 campus_check)
-        assert!(ssid_matches("iwxxy-2", "i-wxxy"));
-        assert!(ssid_matches("IWXXY-3", "i-wxxy"));
-        // 非默认名称不做特判
-        assert!(!ssid_matches("iwxxy-2", "other-net"));
         // 不相关 SSID / 前缀不算命中
         assert!(!ssid_matches("home-wifi", "i-wxxy"));
         assert!(!ssid_matches("i-wxx", "i-wxxy"));
         assert!(!ssid_matches("", "i-wxxy"));
+        // 单值配置不再特判同源 SSID(旧实现的硬编码已删除,名单由用户配置决定)
+        assert!(!ssid_matches("iwxxy-2", "i-wxxy"));
+    }
+
+    #[test]
+    fn ssid_默认三值名单逐项命中() {
+        // 回归(2026-11-10 缺陷):默认配置是顿号分隔的三值名单,旧实现整体比较
+        // 恒为 false,安卓名称腿在默认配置下完全失效。
+        let default_list = "i-wxxy、iwxxy-2、iwxxy-3";
+        assert!(ssid_matches("i-wxxy", default_list));
+        assert!(ssid_matches("I-WXXY", default_list));
+        assert!(ssid_matches("iwxxy-2", default_list));
+        assert!(ssid_matches("IWXXY-3", default_list));
+        assert!(!ssid_matches("home-wifi", default_list));
+        assert!(!ssid_matches("i-wxx", default_list));
+        assert!(!ssid_matches("", default_list));
     }
 }

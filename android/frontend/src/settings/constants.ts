@@ -41,7 +41,7 @@ export const DEFAULT_CONFIG: Config = {
   skipContentInLatency: true,
   portalUrl: 'http://10.1.99.100',
   fixedGateway: '10.1.1.1',
-  requiredNetworkName: 'i-wxxy',
+  requiredNetworkName: 'i-wxxy、iwxxy-2、iwxxy-3',
   enableNetworkNameCheck: true,
   campusGateway: '10.1.1.1',
   updateSource: 'mirror',

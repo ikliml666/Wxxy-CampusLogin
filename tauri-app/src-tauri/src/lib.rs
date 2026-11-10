@@ -1,6 +1,7 @@
 // 跨平台协议核心:安卓端(path 依赖)唯一可见面,保持无桌面依赖
 pub mod account; // 仅 crypto 子模块,内部 cfg(windows) 分支;config/persist 引用所需
 pub mod auth;
+pub mod campus; // 校园网判定纯规则层,双端(桌面 monitor / 安卓 campus_detect)共用
 pub mod config;
 pub mod infra;
 pub mod network;

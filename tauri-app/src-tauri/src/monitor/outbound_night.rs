@@ -437,8 +437,9 @@ impl ProbeCache {
     }
 }
 
-/// 并行探测全部 (目标, 绑源) 组合。同一组合发两次、任一可达即判可达——与原
-/// `probe(..) || probe(..)` 的抗丢包语义一致，但两次同时发出，最坏只等一个超时。
+/// 并行探测全部 (目标, 绑源) 组合。同一组合发 [`CAMPUS_PROBE_ATTEMPTS`] 次、
+/// 任一可达即判可达——与 [`crate::campus::rules::probe_with_retry`] 的抗丢包语义
+/// 同源（去抖次数由共享层统一规定），但各发同时发出，最坏只等一个超时。
 fn warm_probe_cache(pairs: &[(String, String)]) -> ProbeCache {
     use std::collections::HashMap;
     if pairs.is_empty() {
@@ -447,7 +448,8 @@ fn warm_probe_cache(pairs: &[(String, String)]) -> ProbeCache {
     let tasks: Vec<(String, String)> = pairs
         .iter()
         .flat_map(|(dest, source)| {
-            [(dest.clone(), source.clone()), (dest.clone(), source.clone())]
+            std::iter::repeat((dest.clone(), source.clone()))
+                .take(crate::campus::rules::CAMPUS_PROBE_ATTEMPTS)
         })
         .collect();
     let started = std::time::Instant::now();

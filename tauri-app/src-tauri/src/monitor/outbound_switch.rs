@@ -10,10 +10,11 @@
 
 use crate::network::discovery::Adapter;
 
-/// 逐卡判定该适配器是否处于校园网内：
-/// 绑该卡源 IP 可达校园网关/portal 主机（经 probe 注入）。2026-11-10 起取消网段腿：
-/// 网关基准落在核心出口（10.1.x）而接入网在 10.2.x，不同 /16，网段匹配已无意义。
-/// IP 为空直接判否；campus_gateway 为空时 probe 传空网关也判否，行为安全。
+/// 逐卡判定该适配器是否处于校园网内：绑该卡源 IP 可达校园网关/portal 主机
+/// （经 probe 注入）。判定腿与去抖口径由 [`crate::campus::rules::judge_campus`]
+/// 统一提供，与 `campus_check` 完全同源。2026-11-10 起取消网段腿：网关基准落在
+/// 核心出口（10.1.x）而接入网在 10.2.x，不同 /16，网段匹配已无意义。
+/// IP 为空直接判否；campus_gateway 为空时该腿跳过，行为安全。
 pub fn is_campus_adapter(
     ip: &str,
     gateway: &str,
@@ -24,33 +25,22 @@ pub fn is_campus_adapter(
     if ip.is_empty() {
         return false;
     }
-    // 绑源探测做两次尝试：单发 ICMP 丢包会把在网校园卡误判成非校园——禁用步骤
-    // 静默跳过、整夜只切一半。任一次可达即判校园，容忍瞬时抖动。
-    // 校园网关之外再加 portal 主机（portal_probe_host 保证仅私网 IPv4 非空）：
-    // 宿舍路由器 NAT 下的卡不在校园大网、网关也常禁 ICMP（10.2.127.254 实测
-    // 三源全丢包），但 portal 可达同样是「流量从校园侧出」的证据。
-    (!gateway.is_empty()
-        && (gateway_probe(campus_gateway, ip) || gateway_probe(campus_gateway, ip)))
-        || (!portal_host.is_empty()
-            && (gateway_probe(portal_host, ip) || gateway_probe(portal_host, ip)))
+    // 绑源探测去抖两次：单发 ICMP 丢包会把在网校园卡误判成非校园——禁用步骤
+    // 静默跳过、整夜只切一半。校园网关之外再加 portal 主机（portal_probe_host
+    // 保证仅私网 IPv4 非空）：宿舍路由器 NAT 下的卡不在校园大网、网关也常禁
+    // ICMP（10.2.127.254 实测三源全丢包），但 portal 可达同样是「流量从校园侧出」
+    // 的证据。
+    // 网关腿以**该卡自身网关**非空为前提：无网关的卡（APIPA/未完成 DHCP）本就
+    // 出不了站，绑源探校园网关必失败，省掉这两发探测。
+    let gateway_target = if gateway.is_empty() { "" } else { campus_gateway };
+    crate::campus::rules::judge_campus(gateway_target, portal_host, |target| {
+        gateway_probe(target, ip)
+    })
 }
 
-/// 从 portal_url 提取可作绑源探测目标的私网 IPv4 主机（`http://10.1.99.100` →
-/// `10.1.99.100`）。域名、公网地址、IPv6、空值一律返回空串：portal 可达性是
-/// 「从校园侧出口」的证据，公网 portal 会把任意外网网卡都误判成校园。
-pub fn portal_probe_host(portal_url: &str) -> String {
-    let rest = portal_url
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .unwrap_or(portal_url);
-    let host_port = rest.split('/').next().unwrap_or("");
-    let host = host_port.rsplit_once(':').map(|(h, _)| h).unwrap_or(host_port);
-    if host.parse::<std::net::Ipv4Addr>().is_ok() && crate::auth::portal::is_nat_private_ip(host) {
-        host.to_string()
-    } else {
-        String::new()
-    }
-}
+/// portal 探测主机提取已下沉到跨平台规则层 [`crate::campus::rules::portal_probe_host`]，
+/// 此处转导出以保持既有调用点（campus_check / outbound_night）。
+pub use crate::campus::rules::portal_probe_host;
 
 /// 出站优先级的生效列表：用户已排序（非空）按原序透传；未排序（空）默认
 /// 「无线卡优先、有线卡随后」，组内保持发现顺序——未拖动排序时夜间切换目标
@@ -477,13 +467,45 @@ mod tests {
 
     #[test]
     fn campus_probe_single_loss_still_counts_as_campus() {
-        // 绑源探测两发去抖：首发丢包、次发可达 → 仍判校园（降瞬时抖动误判）
+        // 绑源探测去抖：首发丢包、次发可达 → 仍判校园（降瞬时抖动误判）。
+        // 去抖次数由共享层 CAMPUS_PROBE_ATTEMPTS 统一规定，此处顺带固定口径。
         let tried = std::sync::atomic::AtomicBool::new(false);
         let flaky = move |_: &str, _: &str| {
             !tried.swap(true, std::sync::atomic::Ordering::SeqCst) // 首发 false
                 || true // 次发 true
         };
         assert!(is_campus_adapter("192.168.43.10", "192.168.43.1", "10.64.60.1", "", flaky));
+    }
+
+    #[test]
+    fn campus_probe_short_circuits_on_first_hit() {
+        // 首发命中即停（成本优先），与 probe_with_retry 的 any 语义一致
+        let calls = std::cell::Cell::new(0usize);
+        assert!(is_campus_adapter("10.2.38.176", "10.2.38.1", "10.1.1.1", "", |_, _| {
+            calls.set(calls.get() + 1);
+            true
+        }));
+        assert_eq!(calls.get(), 1, "首发命中不应继续重试");
+
+        // 全部不可达时才用满共享层的去抖次数
+        let misses = std::cell::Cell::new(0usize);
+        assert!(!is_campus_adapter("10.2.38.176", "10.2.38.1", "10.1.1.1", "", |_, _| {
+            misses.set(misses.get() + 1);
+            false
+        }));
+        assert_eq!(misses.get(), crate::campus::rules::CAMPUS_PROBE_ATTEMPTS);
+    }
+
+    #[test]
+    fn campus_adapter_gateway_leg_skipped_when_card_has_no_gateway() {
+        // 无网关的卡（APIPA/未完成 DHCP）出不了站：网关腿整体跳过，只剩 portal 腿。
+        // 十条腿都不该被探——portal_host 为空时判定直接返回 false。
+        assert!(!is_campus_adapter("169.254.1.5", "", "10.1.1.1", "", no_probe()));
+        // 有 portal 主机时，无网关卡仍可靠 portal 命中
+        assert!(is_campus_adapter("169.254.1.5", "", "10.1.1.1", "10.1.99.100", |t, _| {
+            assert_eq!(t, "10.1.99.100", "无网关卡不应探校园网关");
+            true
+        }));
     }
 
     #[test]

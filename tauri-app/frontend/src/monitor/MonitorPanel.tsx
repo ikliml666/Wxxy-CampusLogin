@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { SettingRow } from '@/components/ui/setting-row'
 import { Play, Square, Clock, Radar, Settings2, Rocket, DoorOpen, Wifi, Cable, CheckCircle2, XCircle, RefreshCw, LogIn, LogOut, PowerOff, AlarmClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { campusNameList } from '@/lib/campus'
 import { getRefreshIconClass } from '@/shared/RefreshButton'
 import React, { memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -321,9 +322,10 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                   <SettingRow
                     label={t('monitor.campusNetworkName')}
                   >
-                    {/* 固定匹配（2026-09-20）：不再提供手填入口；额外 SSID 与后端 campus_check 同步，仅默认名 i-wxxy 时追加 */}
+                    {/* 固定匹配（2026-09-20）：不再提供手填入口；名单按配置逐项展示，
+                        与后端 campus_name_list 同一拆分口径（2026-11-10 去掉 i-wxxy 特判） */}
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      {[config.requiredNetworkName || 'i-wxxy', ...(config.requiredNetworkName || 'i-wxxy') === 'i-wxxy' ? ['iwxxy-2', 'iwxxy-3'] : []].map(name => (
+                      {campusNameList(config.requiredNetworkName || 'i-wxxy、iwxxy-2、iwxxy-3').map(name => (
                         <span
                           key={name}
                           className="h-7 flex items-center px-2.5 text-xs font-mono bg-primary/8 border border-primary/20 rounded-lg text-primary"
