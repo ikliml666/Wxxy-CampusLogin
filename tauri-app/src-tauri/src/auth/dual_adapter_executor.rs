@@ -37,12 +37,9 @@ impl DualAdapterResult {
     }
 }
 
-/// 并行执行双适配器操作，适配器2延迟1s错峰启动。
-///
-/// 使用 `tokio::task::spawn_blocking` + `tokio::time::sleep` 实现并发与可中断延迟，
-/// 替代原有的 `std::thread::scope` 方案。退出时适配器2不再发起操作。
-///
-/// 使用泛型静态分发替代 `Box<dyn FnOnce>`，消除堆分配与虚函数调用。
+/// 串行执行双适配器操作：主适配器完成并等待 1s 错峰后，才启动副适配器。
+/// 两次操作各自进入 blocking 线程，但任意时刻最多只有一个协议动作在执行。
+/// 退出时副适配器不再发起操作；泛型静态分发避免堆分配与虚函数调用。
 pub fn execute_dual<F1, F2>(
     a1_action: F1,
     a2_action: F2,
@@ -53,8 +50,18 @@ where
     F2: FnOnce() -> Option<CommandResult> + Send + 'static,
 {
     crate::infra::async_util::block_on_sync(async {
-        // 适配器1立即执行
-        let r1 = tokio::task::spawn_blocking(a1_action);
+        // spawn_blocking 内 panic 不能静默吞掉（unwrap_or(None) 会变成"无结果"，
+        // 合并消息为空串，用户看不到任何错误），转为失败的 CommandResult
+        let join_to_result = |r: Result<Option<CommandResult>, tokio::task::JoinError>| match r {
+            Ok(v) => v,
+            Err(e) => {
+                crate::log_error!("auth", "双适配器操作任务异常退出: {}", e);
+                Some(CommandResult::err("适配器操作任务异常退出"))
+            }
+        };
+
+        // 必须等主适配器完整结束，不能提前 spawn 副适配器形成重叠请求。
+        let primary = join_to_result(tokio::task::spawn_blocking(a1_action).await);
 
         // 适配器2延迟1s，拆分为 10×100ms 可中断等待
         let mut cancelled = false;
@@ -66,23 +73,11 @@ where
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
-        // spawn_blocking 内 panic 不能静默吞掉（unwrap_or(None) 会变成"无结果"，
-        // 合并消息为空串，用户看不到任何错误），转为失败的 CommandResult
-        let join_to_result = |r: Result<Option<CommandResult>, tokio::task::JoinError>| match r {
-            Ok(v) => v,
-            Err(e) => {
-                crate::log_error!("auth", "双适配器操作任务异常退出: {}", e);
-                Some(CommandResult::err("适配器操作任务异常退出"))
-            }
-        };
-
         let secondary = if cancelled {
             None
         } else {
             join_to_result(tokio::task::spawn_blocking(a2_action).await)
         };
-
-        let primary = join_to_result(r1.await);
 
         DualAdapterResult { primary, secondary }
     })
@@ -152,6 +147,32 @@ mod tests {
         assert!(result.success());
         assert_eq!(result.primary.unwrap().message, Some("a1".into()));
         assert_eq!(result.secondary.unwrap().message, Some("a2".into()));
+    }
+
+    #[test]
+    fn execute_dual_actions_are_serial() {
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let primary_events = Arc::clone(&events);
+        let secondary_events = Arc::clone(&events);
+        let result = execute_dual(
+            move || {
+                primary_events.lock().unwrap().push("a1-start");
+                std::thread::sleep(Duration::from_millis(20));
+                primary_events.lock().unwrap().push("a1-end");
+                Some(CommandResult::ok())
+            },
+            move || {
+                secondary_events.lock().unwrap().push("a2-start");
+                secondary_events.lock().unwrap().push("a2-end");
+                Some(CommandResult::ok())
+            },
+            Arc::new(AtomicBool::new(false)),
+        );
+        assert!(result.success());
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec!["a1-start", "a1-end", "a2-start", "a2-end"]
+        );
     }
 
     #[test]

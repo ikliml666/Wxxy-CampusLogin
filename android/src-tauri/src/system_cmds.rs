@@ -7,7 +7,11 @@ pub async fn get_init_data(app: tauri::AppHandle) -> Result<serde_json::Value, S
     let settings = crate::config_state::current_settings(&app).await?;
     let dir = crate::account_cmds::accounts_dir(&app)?;
     // AccountItem[](id + displayName,空显示名已兜底为 id);activeAccount 语义不变(账号 id)
-    let accounts = crate::account_cmds::list_account_items_sync(&dir);
+    let accounts = tauri::async_runtime::spawn_blocking(move || {
+        crate::account_cmds::list_account_items_sync(&dir)
+    })
+    .await
+    .map_err(|e| format!("账号列表读取任务失败: {e}"))?;
 
     Ok(serde_json::json!({
         "config": crate::config_state::masked_for_display(&settings),

@@ -5,6 +5,10 @@
 use std::sync::atomic::AtomicBool;
 use tauri::Manager;
 
+/// 所有登录入口（手动、启动、定时、夜间切换、掉线重登）共用的协议串行闸。
+/// monitor_loop 的 LOGIN_ATTEMPT_LOCK 只保护自动登录状态机，不能替代这里的执行层互斥。
+static LOGIN_PROTOCOL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// 兼容桌面契约:前端 invoke('do_login', {adapterName}) 仅传适配器,凭据由后端配置回退
 #[tauri::command]
 pub async fn do_login(
@@ -19,15 +23,18 @@ pub async fn do_login(
     // 手动登录此前漏了 ensure_wifi_bound（只有启动自动登录与 monitor 每拍有）——
     // WiFi+流量同开时默认路由落蜂窝，用户手动点登录必然失败
     ensure_wifi_bound(&app).await;
+    // 同一次登录只取一份配置快照：三个回退字段不得分别克隆整份 Settings，
+    // 也避免读取之间配置切换造成用户名、密码、运营商来自不同账号。
+    let saved = crate::config_state::current_settings(&app).await?;
     // 用户名/密码为空时都回退已保存配置(总览一键登录免输凭据;与桌面取配置语义一致)
     let user = match user {
         Some(u) if !u.trim().is_empty() => u.trim().to_string(),
-        _ => crate::config_state::current_settings(&app).await?.user,
+        _ => saved.user,
     };
     let operator = operator.unwrap_or_default();
     let password = match password {
         Some(p) if !p.is_empty() => p,
-        _ => crate::config_state::current_settings(&app).await?.password,
+        _ => saved.password,
     };
     if user.is_empty() || password.is_empty() {
         eprintln!("[do_login][v2] reject: user_empty={} password_empty={}", user.is_empty(), password.is_empty());
@@ -36,7 +43,7 @@ pub async fn do_login(
     // 运营商名不落日志:运营商归属可反推用户线路/宿舍区等敏感关联,只打长度
     eprintln!("[do_login] start: user_len={} operator_len={}", user.len(), operator.len());
     let operator = if operator.is_empty() {
-        crate::config_state::current_settings(&app).await?.operator
+        saved.operator
     } else {
         operator
     };
@@ -44,9 +51,17 @@ pub async fn do_login(
     let result = run_login(&user, &password, &operator, &state).await?;
     // 登录历史落盘(桌面 session.rs 同构;此处为手动登录)
     if let Ok(dir) = app.path().app_data_dir() {
-        let message = result["message"].as_str().unwrap_or("");
+        let message = result["message"].as_str().unwrap_or("").to_string();
         let success = result["success"].as_bool().unwrap_or(false);
-        if let Err(e) = crate::login_history::append(&dir, success, message, &user, "manual") {
+        if let Err(e) = crate::login_history::append_async(
+            dir,
+            success,
+            message,
+            user,
+            "manual".to_string(),
+        )
+        .await
+        {
             campus_login_lib::log_warn!("protocol", "手动登录历史记录失败: {e}");
         }
     }
@@ -69,6 +84,7 @@ pub async fn run_login(
     operator: &str,
     state: &tauri::State<'_, crate::android_state::AndroidState>,
 ) -> Result<serde_json::Value, String> {
+    let _login_guard = LOGIN_PROTOCOL_LOCK.lock().await;
     let adapter_ip = cached_adapter_ip(state);
     let user = user.to_string();
     let password = password.to_string();
@@ -123,9 +139,17 @@ pub async fn do_logout(
     .map_err(|e| format!("注销任务执行失败: {e}"))??;
 
     if let Ok(dir) = app.path().app_data_dir() {
-        let message = inner["message"].as_str().unwrap_or("");
+        let message = inner["message"].as_str().unwrap_or("").to_string();
         let success = inner["success"].as_bool().unwrap_or(false);
-        if let Err(e) = crate::login_history::append(&dir, success, message, &user_for_history, "manual") {
+        if let Err(e) = crate::login_history::append_async(
+            dir,
+            success,
+            message,
+            user_for_history,
+            "manual".to_string(),
+        )
+        .await
+        {
             campus_login_lib::log_warn!("protocol", "注销历史记录失败: {e}");
         }
     }

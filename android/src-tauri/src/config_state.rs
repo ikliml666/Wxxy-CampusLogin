@@ -279,17 +279,11 @@ pub async fn load_file(path: &Path, bridge: &CryptoBridge) -> Result<Settings, S
     Ok(s)
 }
 
-/// 账号卡"密码是否已保存"判据(账号档案清单展示字段)。
-/// 必须落在 disk 形态的密文位上：`save_file` 落盘时刻意把外露
-/// `Settings.password` 清空、只留 `passwordCipher`（见 EncodedSettings），
-/// 照档案 JSON 的 `settings.password` 判空会永远得到"未保存"。
-/// 读取/解析失败返回 false（与清单展示字段兜底口径一致）。
-pub fn password_saved_at(path: &Path) -> bool {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<EncodedSettings>(&raw).ok())
-        .map(|e| !e.password_cipher.trim().is_empty())
-        .unwrap_or(false)
+/// 从已解析的落盘 JSON 判断账号卡"密码是否已保存"，避免清单读取同一文件两次。
+pub fn password_saved_in_json(encoded: &serde_json::Value) -> bool {
+    encoded["passwordCipher"]
+        .as_str()
+        .is_some_and(|cipher| !cipher.trim().is_empty())
 }
 
 pub async fn save_file(path: &Path, bridge: &CryptoBridge, s: &Settings) -> Result<(), String> {
@@ -540,7 +534,6 @@ pub async fn save_config(
 }
 
 /// 取当前配置(缓存优先,未命中读盘);供登录/自助服务等命令回退已存凭据。
-#[allow(dead_code)] // Task 2 协议命令面接线
 pub async fn current_settings(app: &tauri::AppHandle) -> Result<Settings, String> {
     let state = app.state::<crate::android_state::AndroidState>();
     if let Ok(cache) = state.config.lock() {
@@ -929,17 +922,18 @@ mod tests {
         let dir = tmp_dir("savedpwdjudge");
         let bridge = fake_bridge();
         save_to(&dir, &bridge, &sample_settings()).await.unwrap();
-        let path = dir.join(CONFIG_FILE);
-        assert!(password_saved_at(&path), "带密码落盘后判据必须为已保存");
-        // 外露字段确实为空（说明判据不能取它）
-        let raw = std::fs::read_to_string(&path).unwrap();
+        let raw = std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap();
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert!(password_saved_in_json(&v), "带密码落盘后判据必须为已保存");
+        // 外露字段确实为空（说明判据不能取它）
         assert_eq!(v["settings"]["password"], "", "外露 password 应恒空");
 
         let mut empty = sample_settings();
         empty.password.clear();
         save_to(&dir, &bridge, &empty).await.unwrap();
-        assert!(!password_saved_at(&path), "空密码落盘后判据必须为未保存");
+        let raw = std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert!(!password_saved_in_json(&v), "空密码落盘后判据必须为未保存");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

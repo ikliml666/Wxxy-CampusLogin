@@ -103,13 +103,16 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
         return CommandResult::err("未找到可用网络适配器");
     }
 
-    ensure_ethernet_ip_for_login(app_handle, &adapters, &config, state.exit.is_quitting.as_ref());
+    let renewed = ensure_ethernet_ip_for_login(app_handle, &adapters, &config, state.exit.is_quitting.as_ref());
 
-    // DHCP 续租可能改变了适配器 IP，绕过缓存重新获取，
-    // 避免后续 find 仍用续租前的旧快照（IP 为空）导致登录失败
-    let adapters = match crate::network::get_adapters_force() {
-        Ok(a) => a,
-        Err(_) => adapters,
+    // 续租后必须重查；快照中主适配器还没有 IP 时也重查，避免缓存掩盖刚完成的 DHCP 分配。
+    let adapters = if crate::network::adapter::should_refresh_adapter_snapshot(&adapters, &config, renewed) {
+        match crate::network::get_adapters_force() {
+            Ok(a) => a,
+            Err(_) => adapters,
+        }
+    } else {
+        adapters
     };
 
     if let Some(name) = adapter_name {
@@ -141,8 +144,8 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
     if let Some(a2_ref) = a2_opt {
         let a1_ref = a1;
 
-        // 双适配器错峰并行登录：适配器2延迟1s启动，避免同时登录触发系统封禁
-        // 使用 DualAdapterExecutor 统一并发执行与结果合并
+        // 双适配器串行登录：主适配器完成后，副适配器再延迟1s启动，避免并发认证触发系统封禁
+        // 使用 DualAdapterExecutor 统一串行执行与结果合并
         // BE-A-09: Config 以 Arc 共享给两个闭包，替代完整 clone 两份
         //（spawn_blocking 要求 'static，闭包需持有所有权；Arc 仅复制引用计数）
         let a1_clone = a1_ref.clone();
@@ -262,8 +265,8 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
     if let Some(a2_ref) = a2_opt {
         let a1_ref = a1;
 
-        // 双适配器注销并行，适配器2延迟1s错峰（与登录侧策略一致）
-        // 使用 DualAdapterExecutor 统一并发执行与结果合并，修复原 logout 不可中断 bug
+        // 双适配器串行注销：主适配器完成后，副适配器再延迟1s启动（与登录侧策略一致）
+        // 使用 DualAdapterExecutor 统一串行执行与结果合并，保留可中断等待
         // BE-A-09: Config 以 Arc 共享给两个闭包，替代完整 clone 两份
         let a1_clone = a1_ref.clone();
         let a2_clone = a2_ref.clone();

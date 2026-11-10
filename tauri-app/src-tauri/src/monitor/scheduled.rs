@@ -28,6 +28,7 @@ use chrono::Datelike;
 use tauri::{AppHandle, Manager};
 use crate::config::night_switch::{parse_chkstatus, uid_matches, NightSwitchAction};
 use crate::config::outbound_switch::{outbound_restore_active, NightOutboundAction};
+use crate::campus::rules::{expected_operator_display, portal_origin};
 use crate::config::scheduled_tick::{
     evaluate_night_switch_gated_with_restore, evaluate_outbound_action_with_restore,
     evaluate_outbound_prep_with_restore, evaluate_scheduled_actions,
@@ -551,28 +552,9 @@ async fn night_switch_check_once(
     }
 }
 
-/// portal_url 的 origin（chkstatus 与 portal 同源，eportal 按请求源 IP 判定本机）；
-/// 空值回退默认 portal 地址（config::model 的既有默认值）
-pub(crate) fn portal_origin(portal_url: &str) -> String {
-    let url = if portal_url.is_empty() {
-        crate::config::model::default_portal_url()
-    } else {
-        portal_url.to_string()
-    };
-    match url.split_once("://") {
-        Some((scheme, rest)) => format!("{scheme}://{}", rest.split('/').next().unwrap_or("")),
-        None => url.split('/').next().unwrap_or("").to_string(),
-    }
-}
-
-/// 期望运营商的展示名：空串=无锡学院，其余原样（@telecom 等）
-fn expected_operator_display(expected_operator: &str) -> &str {
-    if expected_operator.is_empty() {
-        "无锡学院"
-    } else {
-        expected_operator
-    }
-}
+// portal_origin 与 expected_operator_display 已上移跨平台规则层 `campus::rules`，
+// 与安卓 `monitor_loop` 共用同一份（chkstatus URL 与不符文案两端拼接口径一致），
+// 导入见文件顶部。
 
 #[cfg(test)]
 mod tests {

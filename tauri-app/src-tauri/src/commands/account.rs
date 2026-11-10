@@ -1,5 +1,6 @@
 use std::path::Path;
 use tauri::{AppHandle, Manager, State};
+use crate::account::identity::validate_display_name;
 use crate::config::model::Config;
 use crate::config::persist;
 use crate::infra::state::{AppState, AccountItem, AccountResult};
@@ -447,24 +448,6 @@ fn rename_account_core(data_dir: &Path, account_id: &str, display_name: &str) ->
     config.display_name = new_name.clone();
     persist::save_account_config(data_dir, &account_id, &config)?;
     Ok(new_name)
-}
-
-/// 显示名校验（R3）：trim 后按字符数 1..=32；不得含控制字符或换行；
-/// 允许空格与 emoji。注意：不复用 validate_account_name 的文件名字符集校验
-///（显示名与内部 id 分离，任意可见字符合法）。返回 trim 后的名称用于落盘。
-fn validate_display_name(name: &str) -> Result<String, String> {
-    let trimmed = name.trim();
-    let count = trimmed.chars().count();
-    if count == 0 {
-        return Err("显示名称不能为空".to_string());
-    }
-    if count > 32 {
-        return Err("显示名称长度需在1-32之间".to_string());
-    }
-    if trimmed.chars().any(char::is_control) {
-        return Err("显示名称不得包含控制字符或换行".to_string());
-    }
-    Ok(trimmed.to_string())
 }
 
 /// R2 自动建号入口：save_config 落盘成功后调用（不经命令层，避免事件/递归）。

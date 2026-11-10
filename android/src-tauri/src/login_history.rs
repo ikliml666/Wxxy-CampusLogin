@@ -76,6 +76,21 @@ pub fn append(dir: &Path, success: bool, message: &str, user: &str, login_type: 
     Ok(())
 }
 
+/// 异步命令边界的追加入口：同步文件 IO 与互斥锁统一放到阻塞线程，避免卡住 async worker。
+pub async fn append_async(
+    dir: PathBuf,
+    success: bool,
+    message: String,
+    user: String,
+    login_type: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        append(&dir, success, &message, &user, &login_type)
+    })
+    .await
+    .map_err(|e| format!("登录历史任务失败: {e}"))?
+}
+
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {

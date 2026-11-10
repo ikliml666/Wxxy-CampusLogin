@@ -10,8 +10,21 @@ pub fn random_v() -> String {
     format!("{v}")
 }
 
-/// HTTP 响应体读取上限（1MB）：read_bounded_body / read_bounded_body_async 共用
+/// HTTP 响应体读取上限（1MB）：所有响应体读取路径共用
 const MAX_HTTP_BODY: u64 = 1024 * 1024;
+
+/// 校验响应体字节不超过 [`MAX_HTTP_BODY`] 并按 Content-Type charset 解码。
+///
+/// 三条读取路径（[`read_bounded_body`] 同步版、[`read_bounded_body_async`]、
+/// [`do_login_request`] 内联读取）共用的最后一步，上限只有这一个来源：
+/// 将来调整上限不会再漏掉某条路径。超限返回 Err（文案含实际字节数），
+/// 由调用方决定是"告警后当空内容"还是"向上报错"。
+fn bounded_body_from_bytes(bytes: &[u8], charset: Option<&str>, label: &str) -> Result<String, String> {
+    if bytes.len() as u64 > MAX_HTTP_BODY {
+        return Err(format!("{label}响应体超限（{}B > 1MB）", bytes.len()));
+    }
+    Ok(crate::platform::console_output::decode_charset_bytes(bytes, charset))
+}
 
 /// 读取 HTTP 响应体并限制 1MB 上限（无 Content-Length 的 chunked/流式响应也受限）。
 /// 读取失败返回空串（调用方按"无可解析内容"处理），超限同样返回空串并告警。
@@ -25,14 +38,13 @@ pub(crate) fn read_bounded_body(resp: reqwest::Response, label: &str) -> String 
     }
     let charset = content_type_charset(&resp);
     match crate::infra::async_util::block_on_sync(resp.bytes()) {
-        Ok(b) => {
-            if b.len() as u64 > MAX_HTTP_BODY {
+        Ok(b) => match bounded_body_from_bytes(&b, charset.as_deref(), label) {
+            Ok(body) => body,
+            Err(_) => {
                 crate::log_warn!("logout", "{label}响应体超限({}B)，忽略", b.len());
                 String::new()
-            } else {
-                crate::platform::console_output::decode_charset_bytes(&b, charset.as_deref())
             }
-        }
+        },
         Err(e) => {
             crate::log_warn!("logout", "{label}响应体读取失败: {}", e);
             String::new()
@@ -53,11 +65,11 @@ pub(crate) async fn read_bounded_body_async(
     }
     let charset = content_type_charset(&resp);
     match resp.bytes().await {
-        Ok(b) if b.len() as u64 > MAX_HTTP_BODY => {
-            crate::log_warn!("self", "{label}响应体超限({}B)，拒绝读取", b.len());
-            Err(format!("{label}响应体超限（{}B > 1MB），已拒绝读取", b.len()))
-        }
-        Ok(b) => Ok(crate::platform::console_output::decode_charset_bytes(&b, charset.as_deref())),
+        Ok(b) => bounded_body_from_bytes(&b, charset.as_deref(), label)
+            .map_err(|e| {
+                crate::log_warn!("self", "{label}响应体超限({}B)，拒绝读取", b.len());
+                format!("{e}，已拒绝读取")
+            }),
         Err(e) => Err(format!("{label}响应体读取失败: {e}")),
     }
 }
@@ -173,17 +185,15 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     let status_code = resp.status();
     // 历史缺陷：content_length() 缺失（chunked/流式响应）时不设上限，恶意/异常
     // Portal 可耗尽内存。改为无论是否带 Content-Length 都硬限制 1MB。
-    const MAX_BODY: u64 = 1024 * 1024;
-    if resp.content_length().map(|len| len > MAX_BODY).unwrap_or(false) {
+    if resp.content_length().map(|len| len > MAX_HTTP_BODY).unwrap_or(false) {
         return Err("登录响应体过大".to_string());
     }
     let charset = content_type_charset(&resp);
     let body_bytes = crate::infra::async_util::block_on_sync(resp.bytes())
         .map_err(|e| format!("读取登录响应失败: {e}"))?;
-    if body_bytes.len() as u64 > MAX_BODY {
-        return Err("登录响应体过大".to_string());
-    }
-    let body = crate::platform::console_output::decode_charset_bytes(&body_bytes, charset.as_deref());
+    // 限长与解码走共用实现：上限只有 MAX_HTTP_BODY 一个来源
+    let body = bounded_body_from_bytes(&body_bytes, charset.as_deref(), "登录")
+        .map_err(|_| "登录响应体过大".to_string())?;
     let req_elapsed = t_req.elapsed();
 
     crate::log_info!("login", "登录请求完成({}ms): URL={}, status={:?}, bodyLen={}",
@@ -676,6 +686,28 @@ mod tests {
         // ePortal 前端 ip_to_int 的大端序数值语义（Eportalcutdown/cqu-net-auth 同款）
         assert_eq!(ip_to_eportal_int("10.2.1.3"), Some(0x0A02_0103));
         assert_eq!(ip_to_eportal_int("172.16.5.254"), Some(0xAC10_05FE));
+    }
+
+    #[test]
+    fn restricted_body_rejects_oversized_bytes() {
+        // 上限的唯一来源：略超 1MB 必须被拒，且错误文案带上实际字节数
+        let too_big = vec![b'a'; (MAX_HTTP_BODY + 1) as usize];
+        let err = bounded_body_from_bytes(&too_big, None, "登录").unwrap_err();
+        assert!(err.contains("超限"), "错误文案应说明超限: {err}");
+        assert!(err.contains(&(MAX_HTTP_BODY + 1).to_string()), "应含实际字节数: {err}");
+        // 恰好等于上限不算超限
+        let at_limit = vec![b'a'; MAX_HTTP_BODY as usize];
+        assert_eq!(bounded_body_from_bytes(&at_limit, None, "登录").unwrap().len(), MAX_HTTP_BODY as usize);
+    }
+
+    #[test]
+    fn restricted_body_decodes_charset() {
+        // 纯 UTF-8：任何 charset 声明下都得原样解码（含中文成败关键词）
+        let body = "登录成功".as_bytes();
+        assert_eq!(bounded_body_from_bytes(body, None, "登录").unwrap(), "登录成功");
+        assert_eq!(bounded_body_from_bytes(body, Some("utf-8"), "登录").unwrap(), "登录成功");
+        // 空响应体：解码为空串而非报错（调用方据此判"无可解析内容"）
+        assert_eq!(bounded_body_from_bytes(b"", None, "注销").unwrap(), "");
     }
 
     #[test]

@@ -41,7 +41,8 @@ async fn run_quality_once(app: &tauri::AppHandle) -> NetworkQualityResult {
     .await;
     // 质量历史落盘：命令与定时循环都汇聚于此函数，每次真实检测记一条，供趋势回溯
     if let Ok(dir) = app.path().app_data_dir() {
-        if let Err(e) = crate::quality_history::append(&dir, &result) {
+        let entry = crate::quality_history::QualityHistoryEntry::from_result(&result);
+        if let Err(e) = crate::quality_history::append_async(dir, entry).await {
             campus_login_lib::log_warn!("quality", "写入网络质量历史失败: {e}");
         }
     }

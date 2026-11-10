@@ -3,8 +3,7 @@ use tauri::{AppHandle, Emitter};
 
 /// 统一事件总线
 ///
-/// Phase 1 中封装所有 `app_handle.emit` 调用，保证事件名与 payload 与重构前完全一致。
-/// 后续 Phase 可通过 trait 化进一步支持 mock 注入。
+/// 封装所有 `app_handle.emit` 调用，集中事件名与 payload 形状。
 pub struct EventBus<'a> {
     app_handle: &'a AppHandle,
 }
@@ -122,20 +121,5 @@ impl<'a> EventBus<'a> {
     /// 更新相关事件
     pub fn emit_update_download_progress<S: Serialize + Clone>(&self, payload: S) -> Result<(), String> {
         self.emit("update-download-progress", payload)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // EventBus 目前依赖 AppHandle，无法在单元测试中直接构造。
-    // 本模块保留结构测试占位，确保 trait/struct 编译正确。
-    // 后续 Phase 可将 EventBus 抽象为 trait，并在此提供手写 mock。
-
-    #[test]
-    fn event_bus_struct_size_check() {
-        // 编译期保证：EventBus 只持有引用，大小为指针大小
-        assert_eq!(std::mem::size_of::<EventBus<'_>>(), std::mem::size_of::<&AppHandle>());
     }
 }

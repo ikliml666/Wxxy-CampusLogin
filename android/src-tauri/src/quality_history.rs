@@ -48,21 +48,23 @@ fn epoch_millis() -> u128 {
         .unwrap_or(0)
 }
 
-/// 追加一条质量历史(头插法,上限 100),原子写(tmp+rename)。
-pub fn append(dir: &Path, result: &NetworkQualityResult) -> Result<(), String> {
-    let _guard = QUALITY_HISTORY_LOCK
-        .lock()
-        .map_err(|_| "质量历史锁损坏".to_string())?;
-    let mut entries = read(dir);
-    entries.insert(
-        0,
-        QualityHistoryEntry {
+impl QualityHistoryEntry {
+    pub fn from_result(result: &NetworkQualityResult) -> Self {
+        Self {
             timestamp: result.timestamp,
             gateway_latency: (result.gateway_latency >= 0).then_some(result.gateway_latency),
             external_latency: (result.external_latency >= 0).then_some(result.external_latency),
             quality: result.quality.clone(),
-        },
-    );
+        }
+    }
+}
+
+fn append_entry(dir: &Path, entry: QualityHistoryEntry) -> Result<(), String> {
+    let _guard = QUALITY_HISTORY_LOCK
+        .lock()
+        .map_err(|_| "质量历史锁损坏".to_string())?;
+    let mut entries = read(dir);
+    entries.insert(0, entry);
     entries.truncate(QUALITY_HISTORY_MAX);
 
     std::fs::create_dir_all(dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
@@ -72,6 +74,19 @@ pub fn append(dir: &Path, result: &NetworkQualityResult) -> Result<(), String> {
     std::fs::write(&tmp, json).map_err(|e| format!("写质量历史失败: {e}"))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("替换质量历史失败: {e}"))?;
     Ok(())
+}
+
+/// 同步追加入口供测试与离线工具复用；生产异步命令走 append_async，避免 worker 上同步 IO。
+#[cfg(test)]
+pub fn append(dir: &Path, result: &NetworkQualityResult) -> Result<(), String> {
+    append_entry(dir, QualityHistoryEntry::from_result(result))
+}
+
+/// 异步命令边界的追加入口：只移动轻量历史条目，不克隆完整质量检测明细。
+pub async fn append_async(dir: PathBuf, entry: QualityHistoryEntry) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || append_entry(&dir, entry))
+        .await
+        .map_err(|e| format!("质量历史任务失败: {e}"))?
 }
 
 #[cfg(test)]
