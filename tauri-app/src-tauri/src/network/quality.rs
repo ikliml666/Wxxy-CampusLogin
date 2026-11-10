@@ -458,7 +458,7 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
     let gateway = if !fixed_gateway.is_empty() {
         Some(fixed_gateway.to_string())
     } else {
-        Some("10.2.127.254".to_string())
+        Some(crate::config::model::default_fixed_gateway())
     };
 
     let gateway_str = gateway.as_deref().unwrap_or("");

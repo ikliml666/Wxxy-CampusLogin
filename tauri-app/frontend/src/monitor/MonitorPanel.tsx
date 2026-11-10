@@ -338,7 +338,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                   >
                     {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
                     <div className="h-7 flex items-center px-2.5 text-xs font-mono bg-muted/50 border border-border/50 rounded-lg text-muted-foreground max-w-[200px]">
-                      {config.campusGateway || '10.2.127.254'}
+                      {config.campusGateway || '10.1.1.1'}
                     </div>
                   </SettingRow>
                 </div>

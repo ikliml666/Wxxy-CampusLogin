@@ -199,24 +199,21 @@ pub fn check_gateway_reachable_from(gateway: &str, source_ip: Option<&str>) -> b
     crate::infra::async_util::block_on_sync(gateway_reachable_async(gateway, source_ip))
 }
 
-/// 判断 IP 与校园网关是否同属学校大网（/16）。
+/// 判断 IP 是否落在校园私网 `10.0.0.0/8`。
 ///
-/// 2026-11-09 实测：学校按 /23 划分接入子网（本机 `10.2.38.4/23`、网关 `10.2.127.254`），
-/// 两者在 /18 掩码下分属 `10.2.0.0/18` 与 `10.2.64.0/18`，原 /18 判定会把校园卡直接
-/// 判成非校园网（禁用名单漏卡、夜间出站切换整夜不生效）。判定口径统一放宽到 /16
-/// 大网边界：只要与 `campus_gateway` 同属一个 `10.x.0.0/16` 就视为同一校园网段，
-/// 不再依赖学校内部怎么切接入子网。
-pub fn is_same_campus_subnet(ip_str: &str, gateway_str: &str) -> bool {
+/// 2026-11-10：校园网**判定**已取消网段腿（网关基准落在核心出口 `10.1.1.1`，
+/// 而接入网在 `10.2.x`，两者不同 /16，按网关划网段已无判定价值；判定改由绑源
+/// 网关/Portal 探测承担，见 `monitor/campus_check.rs` 与 `monitor/outbound_switch.rs`）。
+/// 本函数仅服务于一处**取舍**：`network/dhcp.rs` 判断「换本机 MAC 是否有意义」——
+/// 本机 IP 不在校园私网（如路由器后的 `192.168.x`）时换本机 MAC 无用，需到路由器侧换。
+/// 因此这里用整张校园私网 /8，与「是否校园网」解耦。
+pub fn is_private_campus_range(ip_str: &str) -> bool {
     let ip: u32 = match ip_str.parse::<std::net::Ipv4Addr>() {
         Ok(addr) => u32::from(addr),
         Err(_) => return false,
     };
-    let gw: u32 = match gateway_str.parse::<std::net::Ipv4Addr>() {
-        Ok(addr) => u32::from(addr),
-        Err(_) => return false,
-    };
-    let mask: u32 = 0xFFFF_0000; // 255.255.0.0
-    (ip & mask) == (gw & mask)
+    let mask: u32 = 0xFF00_0000; // 255.0.0.0
+    (ip & mask) == (10u32 << 24)
 }
 
 #[cfg(test)]
@@ -224,35 +221,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn is_same_campus_subnet_same_subnet_returns_true() {
-        // 10.2.0.0/16 是学校接入大网，跨 /23 与 /18 的划分都算同一网段
-        assert!(is_same_campus_subnet("10.2.0.1", "10.2.63.254"));
-        // 本次核心场景：本机 /23 与网关 /18 同属 10.2.0.0/16
-        assert!(is_same_campus_subnet("10.2.38.4", "10.2.127.254"));
-        assert!(is_same_campus_subnet("10.2.0.0", "10.2.0.1"));
-        assert!(is_same_campus_subnet("10.2.63.255", "10.2.0.0"));
+    fn is_private_campus_range_accepts_campus_private_ranges() {
+        // 校园私网 10.0.0.0/8：接入网 10.2、核心出口 10.1、业务 10.3 都算
+        assert!(is_private_campus_range("10.2.38.176"));
+        assert!(is_private_campus_range("10.1.1.1"));
+        assert!(is_private_campus_range("10.1.99.100"));
+        assert!(is_private_campus_range("10.3.100.110"));
+        assert!(is_private_campus_range("10.0.0.1"));
+        assert!(is_private_campus_range("10.255.255.255"));
     }
 
     #[test]
-    fn is_same_campus_subnet_different_subnet_returns_false() {
-        // 跨 /16 边界：10.2 接入网与 10.3、10.1 核心网分属不同大网
-        assert!(!is_same_campus_subnet("10.2.0.1", "10.3.0.1"));
-        assert!(!is_same_campus_subnet("10.2.38.4", "10.1.1.1"));
-        // 完全不同的网段
-        assert!(!is_same_campus_subnet("192.168.1.1", "10.2.0.1"));
+    fn is_private_campus_range_rejects_other_ranges() {
+        // 家用/热点私网与链路本地地址都不是校园私网
+        assert!(!is_private_campus_range("192.168.6.106"));
+        assert!(!is_private_campus_range("172.16.0.1"));
+        assert!(!is_private_campus_range("169.254.60.55"));
+        assert!(!is_private_campus_range("223.5.5.5"));
+        assert!(!is_private_campus_range("11.0.0.1"));
     }
 
     #[test]
-    fn is_same_campus_subnet_invalid_ip_returns_false() {
-        assert!(!is_same_campus_subnet("invalid", "10.2.0.1"));
-        assert!(!is_same_campus_subnet("", "10.2.0.1"));
-        assert!(!is_same_campus_subnet("10.2.0", "10.2.0.1"));
-    }
-
-    #[test]
-    fn is_same_campus_subnet_invalid_gateway_returns_false() {
-        assert!(!is_same_campus_subnet("10.2.0.1", "invalid"));
-        assert!(!is_same_campus_subnet("10.2.0.1", ""));
-        assert!(!is_same_campus_subnet("10.2.0.1", "10.2.0"));
+    fn is_private_campus_range_invalid_returns_false() {
+        assert!(!is_private_campus_range("invalid"));
+        assert!(!is_private_campus_range(""));
+        assert!(!is_private_campus_range("10.2.0"));
     }
 }

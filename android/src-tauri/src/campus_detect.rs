@@ -92,29 +92,20 @@ pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<Camp
         });
     }
 
-    let on_campus_by_subnet = source
-        .map(|ip| campus_login_lib::network::is_same_campus_subnet(&ip.to_string(), campus_gateway))
-        .unwrap_or(false);
-
     let portal_host = portal_host_of(portal_url);
 
-    // 对齐桌面 campus_check 三层判定的安卓版(2026-09-09 真机反馈:能到达网关
-    // 却被判非校园网)。桌面三层=SSID→/16 大网→网关 ICMP;安卓无 SSID 通道且
-    // 非 root 无 ICMP,兜底层改 TCP:
-    // ①网关 TCP(campus_gateway 必为内网地址,跨网段的 AP 区段靠它救回);
+    // 对齐桌面 campus_check 判定的安卓版(2026-09-09 真机反馈:能到达网关
+    // 却被判非校园网)。安卓非 root 无 ICMP,探测改 TCP:
+    // ①网关 TCP(2026-11-10 起取消网段腿:网关基准是核心出口 10.1.1.1、接入网在
+    //   10.2.x,按网关划网段已无判定价值,全部靠绑源 TCP 探测承担);
     // ②Portal TCP(配置公网 portal 域名时家宽也可能连通,属已知边界——
     //   建议保持 portal_url 为内网地址;放最后作为网关误配时的最后兜底)
-    // 子网不命中时网关与 Portal 探测并行(2026-09-14:串行最坏 6s,拉长断开场景
-    // 通知翻转;join 后最坏 3s)。
-    let (portal_ok, gateway_ok) = if on_campus_by_subnet {
-        (portal_reachable(&portal_host, PORTAL_PORT, TCP_TIMEOUT).await, true)
-    } else {
-        tokio::join!(
-            portal_reachable(&portal_host, PORTAL_PORT, TCP_TIMEOUT),
-            portal_reachable(campus_gateway, PORTAL_PORT, TCP_TIMEOUT),
-        )
-    };
-    let on_campus = on_campus_by_subnet || gateway_ok || portal_ok;
+    // 两项并行(2026-09-14:串行最坏 6s,拉长断开场景通知翻转;join 后最坏 3s)。
+    let (portal_ok, gateway_ok) = tokio::join!(
+        portal_reachable(&portal_host, PORTAL_PORT, TCP_TIMEOUT),
+        portal_reachable(campus_gateway, PORTAL_PORT, TCP_TIMEOUT),
+    );
+    let on_campus = gateway_ok || portal_ok;
 
     Ok(CampusProbe {
         source,

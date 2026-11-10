@@ -1,6 +1,6 @@
 use regex::Regex;
 use lazy_static::lazy_static;
-use super::model::{Config, PASSWORD_MASK, default_campus_gateway, default_required_network_name};
+use super::model::{Config, PASSWORD_MASK, default_campus_gateway, default_fixed_gateway, default_required_network_name};
 
 lazy_static! {
     static ref USERNAME_RE: Regex = Regex::new(r"^[a-zA-Z0-9._-]+$").expect("USERNAME_RE compilation failed");
@@ -171,6 +171,18 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
             config.scheduled_logout_minutes = 1440;
         }
         config.config_version = 5;
+    }
+    // v5→v6（2026-11-10）：校园网关与质量检测固定网关的默认值由 10.2.127.254
+    // 改为 10.1.1.1（学校核心设备，实测各卡绑源均可达）。存量文件里等于旧默认
+    // 的值一并刷为新默认；用户手填过的其他地址保持不动
+    if config.config_version < 6 {
+        if config.campus_gateway == "10.2.127.254" {
+            config.campus_gateway = default_campus_gateway();
+        }
+        if config.fixed_gateway == "10.2.127.254" {
+            config.fixed_gateway = default_fixed_gateway();
+        }
+        config.config_version = 6;
     }
     config.campus_check_start_minutes = config.campus_check_start_minutes.min(1439);
     config.campus_check_end_minutes = config.campus_check_end_minutes.min(1439);
@@ -580,7 +592,7 @@ mod tests {
         config.campus_check_start_minutes = 8; // 8 hours → 480 minutes
         let result = validate_config(config).unwrap();
         assert_eq!(result.campus_check_start_minutes, 480);
-        assert_eq!(result.config_version, 5);
+        assert_eq!(result.config_version, 6);
         assert_eq!(result.campus_check_end_minutes, 1380, "v1 旧配置 end=0 应随 v2→v3 迁移刷新");
     }
 
@@ -592,7 +604,7 @@ mod tests {
         config.campus_check_end_minutes = 0;
         let result = validate_config(config).unwrap();
         assert_eq!(result.campus_check_end_minutes, 1380);
-        assert_eq!(result.config_version, 5);
+        assert_eq!(result.config_version, 6);
         // 用户显式设过的非 0 值保持不动
         let mut custom = Config::default();
         custom.config_version = 2;
@@ -611,7 +623,7 @@ mod tests {
         let result = validate_config(config).unwrap();
         assert_eq!(result.background_check_interval, 60000);
         assert_eq!(result.latency_test_interval, 600000);
-        assert_eq!(result.config_version, 5);
+        assert_eq!(result.config_version, 6);
         // 用户显式设置的其他值不动
         let mut custom = Config::default();
         custom.config_version = 3;
@@ -632,13 +644,34 @@ mod tests {
         let result = validate_config(config).unwrap();
         assert!(result.auto_exit_after_login);
         assert!(result.auto_exit_on_online);
-        assert_eq!(result.config_version, 5);
+        assert_eq!(result.config_version, 6);
     }
 
     #[test]
-    fn validate_config_new_defaults_are_v5() {
+    fn 迁移_v5旧网关默认刷10_1_1_1() {
+        // v5→v6：等于旧默认 10.2.127.254 的网关刷为新默认 10.1.1.1
+        let mut config = Config::default();
+        config.config_version = 5;
+        config.campus_gateway = "10.2.127.254".to_string();
+        config.fixed_gateway = "10.2.127.254".to_string();
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.campus_gateway, "10.1.1.1");
+        assert_eq!(result.fixed_gateway, "10.1.1.1");
+        assert_eq!(result.config_version, 6);
+        // 用户手填过的其他地址保持不动
+        let mut custom = Config::default();
+        custom.config_version = 5;
+        custom.campus_gateway = "10.2.38.1".to_string();
+        custom.fixed_gateway = "10.2.38.1".to_string();
+        let result = validate_config(custom).unwrap();
+        assert_eq!(result.campus_gateway, "10.2.38.1", "非旧默认值不迁移");
+        assert_eq!(result.fixed_gateway, "10.2.38.1", "非旧默认值不迁移");
+    }
+
+    #[test]
+    fn validate_config_new_defaults_are_v6() {
         let config = Config::default();
-        assert_eq!(config.config_version, 5);
+        assert_eq!(config.config_version, 6);
         assert!(!config.auto_exit_after_login);
         assert!(!config.auto_exit_on_online);
         assert!(!config.minimize_to_tray);
@@ -661,7 +694,7 @@ mod tests {
         assert!(result.enable_night_operator_switch, "v5 迁移夜切换默认开");
         assert_eq!(result.scheduled_login_minutes, 1440);
         assert_eq!(result.scheduled_logout_minutes, 1440);
-        assert_eq!(result.config_version, 5);
+        assert_eq!(result.config_version, 6);
         // 用户显式设过的其他值不动
         let mut custom = Config::default();
         custom.config_version = 4;
@@ -720,7 +753,7 @@ mod tests {
         let mut config = Config::default();
         config.campus_gateway = String::new();
         let result = validate_config(config).unwrap();
-        assert_eq!(result.campus_gateway, "10.2.127.254");
+        assert_eq!(result.campus_gateway, "10.1.1.1");
     }
 
     #[test]
@@ -816,7 +849,7 @@ mod tests {
         let mut config = Config::default();
         config.campus_gateway = String::new();
         let result = validate_config_lenient(config);
-        assert_eq!(result.campus_gateway, "10.2.127.254");
+        assert_eq!(result.campus_gateway, "10.1.1.1");
     }
 
     #[test]

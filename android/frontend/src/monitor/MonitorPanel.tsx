@@ -272,7 +272,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                     <Label className="text-xs font-medium text-muted-foreground">{t('monitor.campusGateway')}</Label>
                     {/* 固定匹配（2026-09-20）：不再提供手填入口，展示具体值；后端字段与兜底逻辑保留 */}
                     <div className="h-8 flex items-center px-3 text-sm font-mono bg-muted/50 border border-border/50 rounded-md text-muted-foreground">
-                      {config.campusGateway || '10.2.127.254'}
+                      {config.campusGateway || '10.1.1.1'}
                     </div>
                     <p className="text-[10px] text-muted-foreground">{t('monitor.campusGatewayTip')}</p>
                   </div>

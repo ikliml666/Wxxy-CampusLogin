@@ -227,7 +227,7 @@ pub fn handle_portal_request_failure(
     let _ = event_bus.emit_mac_reset_cycle();
 
     if let Some(adapter) = adapter_ref {
-        match crate::network::dhcp_release_renew_single(&adapter.name, campus_gw) {
+        match crate::network::dhcp_release_renew_single(&adapter.name) {
             Ok(r) => {
                 let skipped = r.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
                 let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);

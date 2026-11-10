@@ -13,7 +13,7 @@ use crate::network::adapter_cache::{
     get_adapters_cached, get_adapters_force, validate_adapter_name,
 };
 #[cfg(target_os = "windows")]
-use crate::network::subnet::is_same_campus_subnet;
+use crate::network::subnet::is_private_campus_range;
 #[cfg(target_os = "windows")]
 use crate::network::discovery::is_blacklisted;
 use crate::network::discovery::{Adapter, new_command};
@@ -369,7 +369,7 @@ fn try_modify_mac(adapter: &Adapter, fake_mac: &str, _mac_dashed: &str) -> (bool
 
 /// 对单个适配器执行 MAC 修改 + DHCP 释放/续租流程，返回结果 JSON
 #[cfg(target_os = "windows")]
-fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json::Value {
+fn renew_adapter_with_mac(adapter: &Adapter) -> serde_json::Value {
     // T4.4.1: 虚拟适配器白名单过滤，跳过虚拟/软件网卡避免误操作
     if is_blacklisted(&adapter.name) {
         return serde_json::json!({
@@ -381,7 +381,10 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
             "reason": "虚拟适配器，跳过 MAC 重置"
         });
     }
-    if !adapter.ip.is_empty() && !is_same_campus_subnet(&adapter.ip, campus_gateway) {
+    // 本机 IP 不在校园私网 10.0.0.0/8（如路由器后的 192.168.x）时换本机 MAC 无意义，
+    // 需用户到路由器侧换 MAC，由 failure_tracker 发通知。此处只做「值不值得换」的取舍，
+    // 不参与校园网判定（判定已取消网段腿，见 monitor/campus_check 与 outbound_switch）。
+    if !adapter.ip.is_empty() && !is_private_campus_range(&adapter.ip) {
         return serde_json::json!({
             "name": adapter.name,
             "wireless": adapter.wireless,
@@ -499,8 +502,8 @@ fn renew_adapter_with_mac(adapter: &Adapter, campus_gateway: &str) -> serde_json
 /// 执行一次 MAC 重置 + DHCP 续租；若拿到的地址被系统判定为冲突（DAD=Duplicate），
 /// 换一个新 MAC 自动重试一次——继续用冲突地址会时通时断，比拿不到地址更难排查。
 #[cfg(target_os = "windows")]
-fn renew_with_conflict_retry(adapter: &Adapter, campus_gateway: &str) -> serde_json::Value {
-    let first = renew_adapter_with_mac(adapter, campus_gateway);
+fn renew_with_conflict_retry(adapter: &Adapter) -> serde_json::Value {
+    let first = renew_adapter_with_mac(adapter);
     let conflicted = first.get("ipConflict").and_then(|v| v.as_bool()).unwrap_or(false);
     if !conflicted {
         return first;
@@ -519,7 +522,7 @@ fn renew_with_conflict_retry(adapter: &Adapter, campus_gateway: &str) -> serde_j
         }
         return value;
     };
-    let mut merged = renew_adapter_with_mac(&retry_adapter, campus_gateway);
+    let mut merged = renew_adapter_with_mac(&retry_adapter);
     if let Some(obj) = merged.as_object_mut() {
         // 保留冲突事实供前端提示（重试是否成功由 success/ip 字段表达）
         obj.insert("ipConflict".to_string(), serde_json::Value::Bool(true));
@@ -529,10 +532,7 @@ fn renew_with_conflict_retry(adapter: &Adapter, campus_gateway: &str) -> serde_j
 }
 
 #[cfg(target_os = "windows")]
-pub fn dhcp_release_renew_all(campus_gateway: &str, targets: &[String]) -> Result<Vec<serde_json::Value>, String> {
-    if campus_gateway.is_empty() {
-        return Err("校园网网关为空，无法判断子网".to_string());
-    }
+pub fn dhcp_release_renew_all(targets: &[String]) -> Result<Vec<serde_json::Value>, String> {
     let adapters = get_adapters_cached()?;
     let targets: Vec<&Adapter> = adapters.iter()
         .filter(|a| targets.iter().any(|t| t == &a.name))
@@ -541,22 +541,22 @@ pub fn dhcp_release_renew_all(campus_gateway: &str, targets: &[String]) -> Resul
 
     let mut results = Vec::new();
     for adapter in &targets {
-        results.push(renew_with_conflict_retry(adapter, campus_gateway));
+        results.push(renew_with_conflict_retry(adapter));
     }
     Ok(results)
 }
 
 #[cfg(target_os = "windows")]
-pub fn dhcp_release_renew_single(adapter_name: &str, campus_gateway: &str) -> Result<serde_json::Value, String> {
+pub fn dhcp_release_renew_single(adapter_name: &str) -> Result<serde_json::Value, String> {
     let adapters = get_adapters_cached()?;
     let adapter = crate::network::find_by_name(&adapters, adapter_name)
         .ok_or_else(|| format!("未找到适配器: {adapter_name}"))?;
-    Ok(renew_with_conflict_retry(adapter, campus_gateway))
+    Ok(renew_with_conflict_retry(adapter))
 }
 
 // 非桌面无注册表 MAC 重置能力:返回 skipped 语义,保持 failure_tracker 调用点跨平台可用
 #[cfg(not(target_os = "windows"))]
-pub fn dhcp_release_renew_single(_adapter_name: &str, _campus_gateway: &str) -> Result<serde_json::Value, String> {
+pub fn dhcp_release_renew_single(_adapter_name: &str) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
         "name": _adapter_name,
         "success": false,

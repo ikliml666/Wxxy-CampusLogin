@@ -1,5 +1,5 @@
 //! 夜间出站切换的桌面侧动作层：目标卡选择、逐卡校园网判定、快照序列化。
-//! 判定规则与 campus_check 同源但按适配器粒度：/16 校园大网匹配 || 绑该卡源 IP 的
+//! 判定规则与 campus_check 同源但按适配器粒度：绑该卡源 IP 的
 //! 网关可达 || 绑该卡源 IP 的 portal 主机可达（check_gateway_reachable_from；
 //! 不绑源会多卡归因错位）。SSID 不参与
 //! 逐卡判定——netsh wlan 只报当前连接的单个 SSID，多无线卡下归因不可靠。
@@ -11,9 +11,9 @@
 use crate::network::discovery::Adapter;
 
 /// 逐卡判定该适配器是否处于校园网内：
-/// IP 与校园网关同 /16 校园大网，或绑该卡源 IP 可达校园网关/portal 主机（经 probe 注入）。
-/// IP 为空直接判否；campus_gateway 为空时 is_same_campus_subnet 解析失败返回 false、
-/// probe 传空网关也判否，行为安全。
+/// 绑该卡源 IP 可达校园网关/portal 主机（经 probe 注入）。2026-11-10 起取消网段腿：
+/// 网关基准落在核心出口（10.1.x）而接入网在 10.2.x，不同 /16，网段匹配已无意义。
+/// IP 为空直接判否；campus_gateway 为空时 probe 传空网关也判否，行为安全。
 pub fn is_campus_adapter(
     ip: &str,
     gateway: &str,
@@ -23,9 +23,6 @@ pub fn is_campus_adapter(
 ) -> bool {
     if ip.is_empty() {
         return false;
-    }
-    if crate::network::is_same_campus_subnet(ip, campus_gateway) {
-        return true;
     }
     // 绑源探测做两次尝试：单发 ICMP 丢包会把在网校园卡误判成非校园——禁用步骤
     // 静默跳过、整夜只切一半。任一次可达即判校园，容忍瞬时抖动。
@@ -337,15 +334,16 @@ mod tests {
         }
     }
 
-    /// panic 闭包：验证同段/无 IP/无网关分支短路后不会触达网关探测
+    /// panic 闭包：验证无 IP/无网关分支短路后不会触达网关探测
     fn no_probe() -> impl Fn(&str, &str) -> bool {
         |gw, ip| panic!("不应触达网关探测: gw={gw} ip={ip}")
     }
 
     #[test]
-    fn campus_adapter_by_subnet() {
-        // 10.64.1.2 与 10.64.60.1 同属 10.64.0.0/16→ 校园网卡
-        assert!(is_campus_adapter("10.64.1.2", "10.64.60.1", "10.64.60.1", "", no_probe()));
+    fn campus_adapter_same_subnet_still_requires_probe() {
+        // 2026-11-10 取消网段腿后：与网关同段的卡也必须探测通过才算校园网
+        assert!(!is_campus_adapter("10.64.1.2", "10.64.60.1", "10.64.60.1", "", |_, _| false));
+        assert!(is_campus_adapter("10.64.1.2", "10.64.60.1", "10.64.60.1", "", |_, _| true));
     }
 
     #[test]
@@ -566,7 +564,9 @@ mod tests {
             "10.64.60.1",
             "",
             "{GT}",
-            |_, _| false, // 非同段卡绑源探测不可达 → 非校园
+            // 取消网段腿后校园卡靠绑源探测命中：10.64.x 两张校园卡可达，
+            // 目标是热点卡、以太网 3 是普通私网卡，均不可达
+            |_, src| src.starts_with("10.64."),
             |g| g == "{G2}", // bus guard：{G2} 视为总线不可判定
         );
         assert_eq!(rows.len(), 1, "只应选中非目标的在网校园卡: {rows:?}");

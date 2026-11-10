@@ -11,7 +11,7 @@ pub struct ConnectionCampusStatus {
     pub message: String,
 }
 
-/// 逐卡判定结果：每张适配器独立走「名称 → 网段 → 网关 → Portal」成本顺序短路，
+/// 逐卡判定结果：每张适配器独立走「名称 → 网关 → Portal」成本顺序短路，
 /// 各自携带 `on_campus` 与 `message`。
 ///
 /// 2026-10-26 改造背景：此前 `wifi`/`wired` 是**整类聚合**状态，只要该类里有一张卡
@@ -25,7 +25,7 @@ pub struct AdapterCampusStatus {
     pub name: String,
     pub wireless: bool,
     pub on_campus: bool,
-    /// 命中的判定腿：`name` / `subnet` / `gateway` / `portal`；全部失败为 None
+    /// 命中的判定腿：`name` / `gateway` / `portal`；全部失败为 None
     pub matched_by: Option<String>,
     pub message: String,
 }
@@ -126,16 +126,7 @@ where
         return build(true, Some("name"), msg);
     }
 
-    // 2. 网段（纯位运算，零 IO）
-    if crate::network::is_same_campus_subnet(&adapter.ip, ctx.campus_gw) {
-        return build(
-            true,
-            Some("subnet"),
-            format!("{}与网关{}在同一校园网段", adapter.ip, ctx.campus_gw),
-        );
-    }
-
-    // 3. 网关（绑该卡源的一次 ICMP，超时 2s）
+    // 2. 网关（绑该卡源的一次 ICMP，超时 2s）
     if probe(ctx.campus_gw, &adapter.ip) {
         return build(
             true,
@@ -144,7 +135,7 @@ where
         );
     }
 
-    // 4. Portal（绑该卡源；portal_url 无私网 IPv4 主机时该腿恒为否）
+    // 3. Portal（绑该卡源；portal_url 无私网 IPv4 主机时该腿恒为否）
     if !ctx.portal_host.is_empty() && probe(&ctx.portal_host, &adapter.ip) {
         return build(
             true,
@@ -153,11 +144,11 @@ where
         );
     }
 
-    // 名称/网段/网关/Portal 全部未命中
+    // 名称/网关/Portal 全部未命中
     build(
         false,
         None,
-        format!("{}未连接校园网(名称/网段/网关/Portal 均未命中)", adapter.ip),
+        format!("{}未连接校园网(名称/网关/Portal 均未命中)", adapter.ip),
     )
 }
 
@@ -358,22 +349,28 @@ mod tests {
     }
 
     #[test]
-    fn 网段命中_零探测短路() {
-        let c = ctx(vec![], "10.2.127.254", "");
-        let mut probes = 0;
-        let mut probe = |_t: &str, _s: &str| {
-            probes += 1;
-            false
+    fn 网关命中_绑源探测判校园() {
+        // 2026-11-10 起取消网段腿：同段与否不再参与判定，校园卡一律靠绑源探测
+        let c = ctx(vec![], "10.1.1.1", "");
+        let mut seen: Vec<(String, String)> = Vec::new();
+        let mut probe = |t: &str, s: &str| {
+            seen.push((t.to_string(), s.to_string()));
+            true
         };
-        // 10.2.39.163（学校 /23 接入子网）与 10.2.127.254 同属 10.2.0.0/16，网段腿直接命中；
-        // 10.2.100.5 同理。这是 2026-11-09 学校重划网段后的核心场景
-        let hit = judge_adapter(&adapter("以太网", "10.2.100.5", false), &c, &mut probe);
+        let hit = judge_adapter(&adapter("以太网", "10.2.38.176", false), &c, &mut probe);
         assert!(hit.on_campus);
-        assert_eq!(hit.matched_by.as_deref(), Some("subnet"));
-        let hit23 = judge_adapter(&adapter("以太网", "10.2.39.163", false), &c, &mut probe);
-        assert!(hit23.on_campus, "学校 /23 接入子网应与 /16 网关同属 10.2.0.0/16");
-        assert_eq!(hit23.matched_by.as_deref(), Some("subnet"));
-        assert_eq!(probes, 0);
+        assert_eq!(hit.matched_by.as_deref(), Some("gateway"));
+        assert_eq!(seen, vec![("10.1.1.1".to_string(), "10.2.38.176".to_string())]);
+    }
+
+    #[test]
+    fn 网关不可达_即使同段也判非校园() {
+        // 取消网段腿的语义边界：IP 落在 10.x 也不算校园网，必须探测通过
+        let c = ctx(vec![], "10.1.1.1", "");
+        let mut probe = |_t: &str, _s: &str| false;
+        let status = judge_adapter(&adapter("以太网", "10.2.38.176", false), &c, &mut probe);
+        assert!(!status.on_campus);
+        assert_eq!(status.matched_by, None);
     }
 
     #[test]

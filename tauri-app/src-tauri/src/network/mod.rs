@@ -27,7 +27,6 @@ pub use dhcp::{dhcp_release_renew_all, dhcp_release_renew_single};
 pub use dhcp::dhcp_release_renew_single;
 pub use subnet::{
     check_gateway_reachable_from,
-    is_same_campus_subnet,
     get_wireless_ssid, get_wired_network_profile,
 };
 

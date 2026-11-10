@@ -40,10 +40,10 @@ export const DEFAULT_CONFIG: Config = {
   skipTtfbInLatency: true,
   skipContentInLatency: true,
   portalUrl: 'http://10.1.99.100',
-  fixedGateway: '10.2.127.254',
+  fixedGateway: '10.1.1.1',
   requiredNetworkName: 'i-wxxy',
   enableNetworkNameCheck: true,
-  campusGateway: '10.2.127.254',
+  campusGateway: '10.1.1.1',
   updateSource: 'mirror',
   campusCheckStartMinutes: 460,
   // 2026-09-13 起 1380=23:00(旧默认 0=仅开始时间限制),存量配置由 v4→v5 schema 迁移一次性刷新

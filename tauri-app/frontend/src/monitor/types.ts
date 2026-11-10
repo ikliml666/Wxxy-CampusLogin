@@ -17,7 +17,7 @@ export interface AdapterCampusStatus {
   name: string
   wireless: boolean
   onCampus: boolean
-  /** 命中的判定腿：name / subnet / gateway / portal；全未命中为 null */
+  /** 命中的判定腿：name / gateway / portal；全未命中为 null */
   matchedBy: string | null
   message: string
 }

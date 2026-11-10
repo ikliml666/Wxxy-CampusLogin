@@ -136,12 +136,6 @@ pub async fn check_portal_status(adapter_ip: String, app_handle: tauri::AppHandl
     }).await.map_err(|e| e.to_string())?
 }
 
-fn get_campus_gateway(state: &AppState) -> String {
-    let config = state.config.load();
-    let gw = config.campus_gateway.clone();
-    if gw.is_empty() { crate::config::model::default_campus_gateway() } else { gw }
-}
-
 fn wrap_dhcp_result(results: Vec<serde_json::Value>) -> serde_json::Value {
     serde_json::json!({ "success": true, "results": results })
 }
@@ -168,10 +162,6 @@ pub async fn dhcp_renew_all(app_handle: AppHandle) -> Result<serde_json::Value, 
 #[tauri::command]
 pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Value, String> {
     crate::log_info!("network", "开始DHCP续租");
-    let campus_gateway = {
-        let ctx = CommandContext::from_app(&app_handle);
-        get_campus_gateway(ctx.state)
-    };
     tauri::async_runtime::spawn_blocking(move || {
         // MAC 重置 + 释放/续租范围只限 resolve 后的主/副适配器
         let adapters = get_adapters_cached().unwrap_or_default();
@@ -179,7 +169,7 @@ pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Val
         let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
         let targets: Vec<String> = crate::network::filter_operation_adapters(&adapters, &a1_name, &a2_name)
             .iter().map(|a| a.name.clone()).collect();
-        let results = dhcp_release_renew_all(&campus_gateway, &targets).map_err(|e| {
+        let results = dhcp_release_renew_all(&targets).map_err(|e| {
             crate::log_error!("network", "DHCP续租失败: {}", e);
             e
         })?;
@@ -189,15 +179,11 @@ pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Val
 }
 
 #[tauri::command]
-pub async fn dhcp_release_renew_adapter(adapter_name: String, app_handle: AppHandle) -> Result<serde_json::Value, String> {
+pub async fn dhcp_release_renew_adapter(adapter_name: String) -> Result<serde_json::Value, String> {
     crate::log_info!("network", "开始DHCP续租");
     crate::network::adapter_cache::validate_adapter_name(&adapter_name)?;
-    let campus_gateway = {
-        let ctx = CommandContext::from_app(&app_handle);
-        get_campus_gateway(ctx.state)
-    };
     tauri::async_runtime::spawn_blocking(move || {
-        let result = dhcp_release_renew_single(&adapter_name, &campus_gateway)?;
+        let result = dhcp_release_renew_single(&adapter_name)?;
         crate::log_info!("network", "DHCP续租完成");
         Ok(wrap_dhcp_result(vec![result]))
     }).await.map_err(|e| {

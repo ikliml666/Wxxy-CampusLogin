@@ -189,12 +189,12 @@ impl Default for Settings {
             skip_ttfb_in_latency: true,
             skip_content_in_latency: true,
             portal_url: "http://10.1.99.100".to_string(),
-            fixed_gateway: "10.2.127.254".to_string(),
+            fixed_gateway: "10.1.1.1".to_string(),
             // 2026-10-01 对齐桌面三 SSID 名单(桌面 model default_required_network_name):
         // iwxxy-2/3 曾在代码内硬编码额外匹配,并入名单字段
         required_network_name: "i-wxxy、iwxxy-2、iwxxy-3".to_string(),
             enable_network_name_check: true,
-            campus_gateway: "10.2.127.254".to_string(),
+            campus_gateway: "10.1.1.1".to_string(),
             // 与桌面 default_campus_check_start_minutes 同值(07:40)
             campus_check_start_minutes: 460,
             // 与桌面默认同值(2026-09-13 起 1380=23:00;旧默认 0=仅开始时间限制,
@@ -211,7 +211,7 @@ impl Default for Settings {
             vpn_password_enc: String::new(),
             self_service_via_vpn: true,
             // 新装即当前版本,跳过迁移;旧文件缺字段反序列化为 0 触发迁移
-            config_schema_version: 7,
+            config_schema_version: 8,
         }
     }
 }
@@ -427,6 +427,20 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
             s.scheduled_logout_minutes = 1440;
         }
         s.config_schema_version = 7;
+        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
+            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
+        }
+    }
+    // v7→v8(2026-11-10):校园网关与质量检测固定网关默认值由 10.2.127.254 改为
+    // 10.1.1.1(学校核心设备,实测各卡绑源均可达);存量等于旧默认的值一并刷新
+    if s.config_schema_version < 8 {
+        if s.campus_gateway == "10.2.127.254" {
+            s.campus_gateway = "10.1.1.1".to_string();
+        }
+        if s.fixed_gateway == "10.2.127.254" {
+            s.fixed_gateway = "10.1.1.1".to_string();
+        }
+        s.config_schema_version = 8;
         if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
             campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
         }
@@ -660,7 +674,7 @@ mod tests {
     fn 默认值_业务语义() {
         let s = Settings::default();
         assert_eq!(s.portal_url, "http://10.1.99.100");
-        assert_eq!(s.campus_gateway, "10.2.127.254");
+        assert_eq!(s.campus_gateway, "10.1.1.1");
         assert_eq!(
             s.required_network_name,
             "i-wxxy、iwxxy-2、iwxxy-3",
@@ -670,7 +684,7 @@ mod tests {
         assert_eq!(s.background_check_interval, 60_000);
         assert_eq!(s.background_check_idle_interval, 300_000, "闲时巡检默认 5min");
         assert_eq!(s.latency_test_interval, 600_000, "质量间隔默认 600s(2026-09-20)");
-        assert_eq!(s.config_schema_version, 7, "新装即当前版本,不触发迁移");
+        assert_eq!(s.config_schema_version, 8, "新装即当前版本,不触发迁移");
         assert!(!s.enable_night_operator_switch, "夜切默认关闭(2026-10-02)");
         assert_eq!(s.scheduled_login_minutes, 1440, "定时动作默认禁用哨兵 1440");
         assert_eq!(s.scheduled_logout_minutes, 1440);
@@ -725,7 +739,7 @@ mod tests {
         assert!(back.enable_night_operator_switch, "v7 迁移应夜切换默认开");
         assert_eq!(back.scheduled_login_minutes, 1440, "v7 迁移应把禁用值 0 刷为哨兵 1440");
         assert_eq!(back.scheduled_logout_minutes, 1440);
-        assert_eq!(back.config_schema_version, 7);
+        assert_eq!(back.config_schema_version, 8);
         // 迁移已落盘:此后用户主动设回 15s/开质量检测是明确意图,不再被覆盖
         let mut manual = back.clone();
         manual.background_check_interval = 15_000;
@@ -751,7 +765,7 @@ mod tests {
         save_to(&dir, &bridge, &old).await.unwrap();
         let back = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back.background_check_interval, 30_000, "非旧默认值不迁移");
-        assert_eq!(back.config_schema_version, 7);
+        assert_eq!(back.config_schema_version, 8);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -766,14 +780,14 @@ mod tests {
         save_to(&dir, &bridge, &old).await.unwrap();
         let back = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back.latency_test_interval, 600_000, "v6 迁移应刷质量间隔旧默认");
-        assert_eq!(back.config_schema_version, 7);
+        assert_eq!(back.config_schema_version, 8);
         // 迁移已落盘:用户主动设回 60s 是明确意图,不再被覆盖
         let mut manual = back.clone();
         manual.latency_test_interval = 60_000;
         save_to(&dir, &bridge, &manual).await.unwrap();
         let back2 = load_from(&dir, &bridge).await.unwrap();
         assert_eq!(back2.latency_test_interval, 60_000, "迁移后用户主动设回 60s 不被覆盖");
-        assert_eq!(back2.config_schema_version, 7);
+        assert_eq!(back2.config_schema_version, 8);
         // 用户显式设过的其他值(300s)迁移时保持不动
         let dir2 = tmp_dir("migrate-v6-keep");
         let mut custom = sample_settings();
@@ -782,6 +796,34 @@ mod tests {
         save_to(&dir2, &bridge, &custom).await.unwrap();
         let back3 = load_from(&dir2, &bridge).await.unwrap();
         assert_eq!(back3.latency_test_interval, 300_000, "非旧默认值不迁移");
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&dir2).ok();
+    }
+
+    #[tokio::test]
+    async fn 迁移_v7旧网关默认刷10_1_1_1() {
+        let dir = tmp_dir("migrate-v8");
+        let bridge = fake_bridge();
+        // 构造 v7 旧配置:网关仍是旧默认 10.2.127.254
+        let mut old = sample_settings();
+        old.config_schema_version = 7;
+        old.campus_gateway = "10.2.127.254".to_string();
+        old.fixed_gateway = "10.2.127.254".to_string();
+        save_to(&dir, &bridge, &old).await.unwrap();
+        let back = load_from(&dir, &bridge).await.unwrap();
+        assert_eq!(back.campus_gateway, "10.1.1.1", "v8 迁移应刷校园网关旧默认");
+        assert_eq!(back.fixed_gateway, "10.1.1.1", "v8 迁移应刷固定网关旧默认");
+        assert_eq!(back.config_schema_version, 8);
+        // 用户手填过的其他地址不被迁移覆盖
+        let dir2 = tmp_dir("migrate-v8-keep");
+        let mut custom = sample_settings();
+        custom.config_schema_version = 7;
+        custom.campus_gateway = "10.2.38.1".to_string();
+        custom.fixed_gateway = "10.2.38.1".to_string();
+        save_to(&dir2, &bridge, &custom).await.unwrap();
+        let back2 = load_from(&dir2, &bridge).await.unwrap();
+        assert_eq!(back2.campus_gateway, "10.2.38.1", "非旧默认值不迁移");
+        assert_eq!(back2.fixed_gateway, "10.2.38.1", "非旧默认值不迁移");
         std::fs::remove_dir_all(&dir).ok();
         std::fs::remove_dir_all(&dir2).ok();
     }

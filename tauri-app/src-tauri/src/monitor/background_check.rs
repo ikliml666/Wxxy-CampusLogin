@@ -491,9 +491,8 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
                         &format!("{} 与同网段另一台主机地址冲突，正在自动重新获取 IP", ad.ip),
                         "mascot-alert",
                     );
-                    let campus_gateway = config.campus_gateway.clone();
                     let name = adapter1_name.clone();
-                    match crate::network::dhcp_release_renew_single(&name, &campus_gateway) {
+                    match crate::network::dhcp_release_renew_single(&name) {
                         Ok(v) => crate::log_info!(
                             "background",
                             "IP冲突自动处理完成: {} -> {}",

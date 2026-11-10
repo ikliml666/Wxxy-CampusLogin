@@ -238,7 +238,7 @@ fn default_campus_exit_start_minutes() -> u16 { 480 }
 fn default_campus_exit_end_minutes() -> u16 { 1380 }
 
 pub fn default_fixed_gateway() -> String {
-    "10.2.127.254".to_string()
+    "10.1.1.1".to_string()
 }
 
 pub fn default_log_retention_days() -> u32 { 7 }
@@ -256,7 +256,7 @@ pub fn default_required_network_name() -> String {
 }
 
 pub fn default_campus_gateway() -> String {
-    "10.2.127.254".to_string()
+    "10.1.1.1".to_string()
 }
 
 impl Default for Config {
@@ -315,10 +315,10 @@ impl Default for Config {
             skip_ttfb_in_latency: true,
             skip_content_in_latency: true,
             portal_url: "http://10.1.99.100".to_string(),
-            fixed_gateway: "10.2.127.254".to_string(),
+            fixed_gateway: "10.1.1.1".to_string(),
             required_network_name: default_required_network_name(),
             enable_network_name_check: true,
-            campus_gateway: "10.2.127.254".to_string(),
+            campus_gateway: "10.1.1.1".to_string(),
             update_source: "mirror".to_string(),
             campus_exit_on_fail: true,
             campus_exit_start_minutes: 480,
@@ -338,7 +338,7 @@ impl Default for Config {
             // 2026-10-25 起自助服务校外自动回退 WebVPN（已保存凭据时），默认开启
             self_service_via_vpn: true,
             // 2026-09-20 起 v5（夜切默认开启 + 定时动作禁用哨兵），见 validate.rs
-            config_version: 5,
+            config_version: 6,
         }
     }
 }
