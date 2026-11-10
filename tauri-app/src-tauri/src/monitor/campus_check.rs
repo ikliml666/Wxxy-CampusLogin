@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use serde::Serialize;
 use crate::network::Adapter;
 use super::outbound_switch::portal_probe_host;
@@ -161,6 +160,68 @@ fn join_messages(cards: &[&AdapterCampusStatus]) -> String {
     cards.iter().map(|s| s.message.as_str()).collect::<Vec<_>>().join("；")
 }
 
+/// 一次并行预热的绑源探测结果：key = (目标, 绑源 IP)，value = 是否可达。
+///
+/// 与 `monitor/outbound_night.rs::ProbeCache` 同一结构，但刻意不复用：那边 `get`
+/// 在缓存未命中时回落真实探测（判定范围外组合也要能判），此处目标集合判定前完全
+/// 可知，`get` 未命中返回 false、绝不发 IO——「判定阶段纯查表」正是本次修复的
+/// 前提，加了回落就等于把去抖重新打回原形。
+struct ProbeCache(std::collections::HashMap<(String, String), bool>);
+
+impl ProbeCache {
+    fn get(&self, target: &str, source: &str) -> bool {
+        self.0
+            .get(&(target.to_string(), source.to_string()))
+            .copied()
+            .unwrap_or(false)
+    }
+}
+
+/// 并行探测全部 (目标, 绑源) 组合：每组合发
+/// [`crate::campus::rules::CAMPUS_PROBE_ATTEMPTS`] 份，任一发可达即判可达——
+/// 这与 [`crate::campus::rules::probe_with_retry`] 的抗丢包语义同源，但各发同时
+/// 发出，最坏只等一个超时而非串行累积。
+///
+/// 必须运行在阻塞线程上（`check_gateway_reachable_from` 内部同步等待超时）；
+/// `check_campus_network` 的全部生产调用方都在 `spawn_blocking` 内。
+fn warm_probe_cache(pairs: &[(String, String)]) -> ProbeCache {
+    use std::collections::HashMap;
+    if pairs.is_empty() {
+        return ProbeCache(HashMap::new());
+    }
+    let tasks: Vec<(String, String)> = pairs
+        .iter()
+        .flat_map(|(target, source)| {
+            std::iter::repeat((target.clone(), source.clone()))
+                .take(crate::campus::rules::CAMPUS_PROBE_ATTEMPTS)
+        })
+        .collect();
+    let started = std::time::Instant::now();
+    let results: Vec<((String, String), bool)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = tasks
+            .into_iter()
+            .map(|(target, source)| {
+                scope.spawn(move || {
+                    let ok = crate::network::check_gateway_reachable_from(&target, Some(&source));
+                    ((target, source), ok)
+                })
+            })
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    });
+    let mut map: HashMap<(String, String), bool> = HashMap::new();
+    for (key, ok) in results {
+        map.entry(key).and_modify(|v| *v |= ok).or_insert(ok);
+    }
+    crate::log_debug!(
+        "campus",
+        "[校园网检测] 并行绑源探测 {} 组完成，耗时 {}ms",
+        pairs.len(),
+        started.elapsed().as_millis()
+    );
+    ProbeCache(map)
+}
+
 pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[crate::network::Adapter]) -> CampusCheckResult {
     crate::log_debug!("campus", "[校园网检测] enable_network_name_check={}, required_network_name='{}', campus_gateway='{}', 适配器数={}",
         config.enable_network_name_check, config.required_network_name, config.campus_gateway, adapters.len());
@@ -182,35 +243,47 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
         enable_name_check: config.enable_network_name_check,
         required_network_name: &config.required_network_name,
         campus_gw: &config.campus_gateway,
-        portal_host,
+        portal_host: portal_host.clone(),
         wifi_ssid: wifi_ssid.clone(),
         wired_profile: wired_profile.clone(),
     };
 
-    // (target, source) → 可达性，避免同一张卡对同一目标重复探测
-    let mut cache: HashMap<(String, String), bool> = HashMap::new();
-    let mut probe = |target: &str, source: &str| -> bool {
+    // (target, source) → 可达性。2026-11-10：改为「先并行探完、判定阶段只查表」，
+    // 与 monitor/outbound_night.rs 的 warm_probe_cache 同一结构。
+    //
+    // 之前这里是惰性缓存：probe 被调用时才探、结果回填 cache。这与
+    // probe_with_retry 的去抖互相抵消——第二次探测传同一个 (target, source)，
+    // 直接命中刚写入的缓存，等于从未重试过。改成预热后去抖才真正生效：
+    // 每腿 CAMPUS_PROBE_ATTEMPTS 份探测在预热阶段**并行**发出，最坏仍只等一个
+    // 超时（而非串行 2 倍），判定阶段取「任一发可达」。
+    //
+    // 探测目标集合在判定前完全可知：judge_adapter 只会探 (campus_gw, 该卡IP) 与
+    // (portal_host, 该卡IP) 两对，无 IP 的卡不发探测（见 judge_adapter 步骤 0）。
+    let pairs: Vec<(String, String)> = adapters
+        .iter()
+        .filter(|a| !a.ip.is_empty())
+        .flat_map(|a| {
+            let mut v = Vec::with_capacity(2);
+            if !config.campus_gateway.is_empty() {
+                v.push((config.campus_gateway.clone(), a.ip.clone()));
+            }
+            if !portal_host.is_empty() {
+                v.push((portal_host.clone(), a.ip.clone()));
+            }
+            v
+        })
+        .collect();
+    let cache = warm_probe_cache(&pairs);
+    let probe = |target: &str, source: &str| -> bool {
         if target.is_empty() || source.is_empty() {
             return false;
         }
-        let key = (target.to_string(), source.to_string());
-        if let Some(&hit) = cache.get(&key) {
-            crate::log_debug!("campus", "[校园网检测] 复用探测缓存: {} → {} = {}", source, target, hit);
-            return hit;
-        }
-        let ok = crate::network::check_gateway_reachable_from(target, Some(source));
-        cache.insert(key, ok);
-        if ok {
-            crate::log_debug!("campus", "[校园网检测] 绑源探测可达: {} → {}", source, target);
-        } else {
-            crate::log_warn!("campus", "[校园网检测] 绑源探测不可达: {} → {}", source, target);
-        }
-        ok
+        cache.get(target, source)
     };
 
     let per_adapter: Vec<AdapterCampusStatus> = adapters
         .iter()
-        .map(|a| judge_adapter(a, &ctx, &mut probe))
+        .map(|a| judge_adapter(a, &ctx, &mut { probe }))
         .collect();
 
     let wireless_cards: Vec<&AdapterCampusStatus> = per_adapter.iter().filter(|s| s.wireless).collect();
@@ -400,6 +473,49 @@ mod tests {
         let mut probe = |_t: &str, _s: &str| false;
         let status = judge_adapter(&adapter("以太网", "192.168.6.114", false), &c, &mut probe);
         assert!(!status.on_campus, "禁用名称检查时不能靠 profile 名称判校园");
+    }
+
+    #[test]
+    fn 预热缓存_去抖不被打折() {
+        // 回归（2026-11-10 缺陷）：惰性缓存会把 probe_with_retry 的第二次探测
+        // 变成命中刚写入的缓存，去抖实际只有 1 次尝试。预热后每腿发
+        // CAMPUS_PROBE_ATTEMPTS 份、判定阶段只查表，去抖才真正生效。
+        let pairs = vec![("10.1.1.1".to_string(), "10.2.38.176".to_string())];
+        let cache = warm_probe_cache(&pairs);
+        // 同一组合查询任意多次，结果稳定（纯查表，不触发新探测）
+        let first = cache.get("10.1.1.1", "10.2.38.176");
+        assert_eq!(cache.get("10.1.1.1", "10.2.38.176"), first);
+        // 未预热过的组合返回 false（不回落真实探测，避免判定阶段被 IO 拖慢）
+        assert!(!cache.get("10.1.1.1", "10.2.38.999"));
+        assert!(!cache.get("", "10.2.38.176"));
+    }
+
+    #[test]
+    fn 预热目标集合_只收有ip的卡且跳过空目标() {
+        // 与 judge_adapter 的探测口径一致：无 IP 的卡不发探测、空目标腿不收
+        let adapters = vec![
+            adapter("以太网", "10.2.38.176", false),
+            adapter("以太网 2", "", false),
+        ];
+        let portal_host = "10.1.99.100".to_string();
+        let campus_gw = "10.1.1.1".to_string();
+        let pairs: Vec<(String, String)> = adapters
+            .iter()
+            .filter(|a| !a.ip.is_empty())
+            .flat_map(|a| {
+                let mut v = Vec::new();
+                if !campus_gw.is_empty() {
+                    v.push((campus_gw.clone(), a.ip.clone()));
+                }
+                if !portal_host.is_empty() {
+                    v.push((portal_host.clone(), a.ip.clone()));
+                }
+                v
+            })
+            .collect();
+        assert_eq!(pairs.len(), 2, "只有一张卡有 IP，两条腿 -> 2 组");
+        assert!(pairs.contains(&("10.1.1.1".to_string(), "10.2.38.176".to_string())));
+        assert!(pairs.contains(&("10.1.99.100".to_string(), "10.2.38.176".to_string())));
     }
 
     #[test]

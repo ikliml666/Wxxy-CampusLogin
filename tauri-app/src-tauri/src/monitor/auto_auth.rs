@@ -428,8 +428,23 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                     if !a1_has_ip && !a2_has_ip {
                         crate::log_info!("auto_login", "配置的适配器均无IP地址，跳过校园网退出，等待网络恢复");
                     } else {
-                        // 校园网验证不通过：触发最小化+退出流程
-                        start_campus_exit(&app_h, &s);
+                        // 开机这一拍判定失败不立刻退出：此时网卡/路由/DHCP 往往刚就绪，
+                        // 单拍探测失败的概率远高于稳态巡检。与后台巡检共用同一个
+                        // 连续失败闸门（should_start_campus_exit）。
+                        let streak = s.network.update_with_result(|st| {
+                            st.campus_fail_streak = st.campus_fail_streak.saturating_add(1);
+                            st.campus_fail_streak
+                        });
+                        if crate::monitor::background_check::should_start_campus_exit(streak, true) {
+                            start_campus_exit(&app_h, &s);
+                        } else {
+                            crate::log_info!(
+                                "auto_login",
+                                "开机自启: 校园网检测未通过（连续 {}/{} 拍），暂不退出，交由后台巡检复核",
+                                streak,
+                                crate::monitor::background_check::CAMPUS_FAIL_EXIT_THRESHOLD
+                            );
+                        }
                     }
                     return;
                 }

@@ -8,6 +8,12 @@
 
 /// 单腿探测的去抖次数：单发丢包会把在网校园卡误判成非校园，导致禁用步骤静默
 /// 跳过、整夜只切一半。任一发可达即判该腿命中，容忍瞬时抖动。
+///
+/// 调用方必须让这 N 次探测**真的发出**：若 probe 闭包带惰性缓存（同一 (target,
+/// source) 第二次直接命中上一次结果），去抖会被静默退回成 1 次尝试。生产调用方
+/// 一律先经预热批次并行把 N 份探测发完，判定阶段只查表——
+/// 见 `monitor/campus_check.rs::warm_probe_cache` 与
+/// `monitor/outbound_night.rs::warm_probe_cache`。
 pub const CAMPUS_PROBE_ATTEMPTS: usize = 2;
 
 /// 校园网名称名单解析：配置值支持顿号/全半角逗号/分号/空白分隔多个名称

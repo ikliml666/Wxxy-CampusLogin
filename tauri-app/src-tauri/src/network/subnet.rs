@@ -40,7 +40,7 @@ static SSID_QUERY_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 
 fn warn_ssid_query_failed(reason: &str) {
     if !SSID_QUERY_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        crate::log_warn!("campus", "[校园网检测] WiFi SSID 查询失败（{}）：WiFi 名称匹配判定腿失效，仅剩子网/网关/Portal 探测。Win11 需在系统设置→隐私和安全性→位置中开启位置服务", reason);
+        crate::log_warn!("campus", "[校园网检测] WiFi SSID 查询失败（{}）：无线卡名称匹配判定腿失效，无线卡仅剩网关/Portal 探测（2026-11-10 起已无网段腿）。Win11 需在系统设置→隐私和安全性→位置中开启位置服务", reason);
     }
 }
 

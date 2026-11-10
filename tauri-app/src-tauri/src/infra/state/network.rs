@@ -18,6 +18,16 @@ pub struct NetworkSnapshot {
     pub last_network_quality: Option<Arc<str>>,
     pub current_ssid: Option<Arc<str>>,
     pub on_campus_network: bool,
+    /// 连续「校园网检测未通过」的轮数。
+    ///
+    /// 存在的理由（2026-11-10）：单拍判定失败会直接触发最小化+退出（60s 倒计时），
+    /// 而判定依赖绑源 ICMP/TCP 探测——单发丢包、TUN 抢占、Portal 瞬时不可达都会让
+    /// 一拍判错。Win11 关闭位置服务后名称腿还会整体失效（见
+    /// `network/subnet.rs::warn_ssid_query_failed`），此时只剩网关/Portal 两腿，
+    /// 误判概率进一步升高。用连续轮数做闸门，把「一次探测失败」与「真的离开校园网」
+    /// 区分开：只有连续 `CAMPUS_FAIL_EXIT_THRESHOLD` 拍都失败才启动退出流程。
+    /// 判定成功即清零。
+    pub campus_fail_streak: u32,
     pub logout_protected_until: Instant,
     pub portal_failure_count: u32,
     pub a1_auth_failure_count: u32,
@@ -48,6 +58,7 @@ impl Default for NetworkSnapshot {
             last_network_quality: None,
             current_ssid: None,
             on_campus_network: false,
+            campus_fail_streak: 0,
             logout_protected_until: now,
             portal_failure_count: 0,
             a1_auth_failure_count: 0,

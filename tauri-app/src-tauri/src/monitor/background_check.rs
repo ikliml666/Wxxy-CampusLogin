@@ -13,6 +13,18 @@ use super::portal_check::{PortalCheckResult, check_adapter_portal};
 /// IP 冲突自动修复的日期闸（num_days_from_ce）：同一天只自动改一次 MAC，
 /// 避免后台反复断网。
 static CONFLICT_FIX_DAY: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// 连续多少拍「校园网检测未通过」才启动最小化+退出流程。
+///
+/// 存在的理由（2026-11-10）：单拍判定失败原本会立刻启动 60s 退出倒计时，而判定依赖
+/// 绑源 ICMP/TCP 探测。单发丢包、TUN 抢占、Portal 瞬时不可达、以及 Win11 关闭位置
+/// 服务后名称腿整体失效（只剩网关/Portal 两腿，见 `network/subnet.rs::
+/// warn_ssid_query_failed`），都会让一拍判错。误判的代价是用户被踢出应用。
+///
+/// 取 2 而非更大的值：退避会让失败后的下一拍拉长到 2 倍基础间隔（默认 120s），
+/// 阈值再大就等于让「真的离开校园网」的用户干等数分钟。2 拍 = 至少两次独立探测
+/// 结论一致才动手，足以滤掉瞬时抖动，又不至于让真实离开的响应变钝。
+pub(crate) const CAMPUS_FAIL_EXIT_THRESHOLD: u32 = 2;
 use crate::auth::failure_tracker::handle_portal_request_failure;
 use super::dynamic_interval::{portal_reset_window_open, CheckOutcome};
 use super::background_emit::{handle_status_change, emit_background_check_result, update_network_state, BackgroundCheckResult};
@@ -126,6 +138,9 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         state.network.update(|s| {
             s.current_ssid = None;
             s.on_campus_network = true;
+            // 静默期不判定，也就没有「连续失败」可言：清零避免静默期结束后
+            // 第一拍就带着静默期之前残留的计数直接触发退出。
+            s.campus_fail_streak = 0;
         });
         crate::log_debug!("background", "校园网检测静默期，跳过本轮巡检（Portal 检测/自动登录/断连重连均不执行）");
         return CheckOutcome::Skipped;
@@ -142,10 +157,13 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     // 始终更新 on_campus_network，确保 emit 字段一致
     // 合并条件分支内的 any_adapter_online/last_a1_online 重置，减少 CAS 循环次数
     let campus_check_failed = config.enable_network_name_check && !campus_result.on_campus;
-    state.network.update(|s| {
+    // 连续失败计数：判定未通过累加、通过清零。退出流程只在达到阈值时才启动，
+    // 避免单拍探测抖动把用户踢出（见 CAMPUS_FAIL_EXIT_THRESHOLD）。
+    let fail_streak = state.network.update_with_result(|s| {
         s.current_ssid = campus_result.current_ssid.as_deref().map(Arc::from);
         s.on_campus_network = campus_result.on_campus;
         if campus_check_failed {
+            s.campus_fail_streak = s.campus_fail_streak.saturating_add(1);
             s.any_adapter_online = false;
             s.last_a1_online = false;
             // 历史缺陷：has_logged_online 仅在登录成功时置位、永不重置，
@@ -153,7 +171,10 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             // has_logged_online 永久拦截，必须手动登录。此处随离线一并重置，
             // 使重新进入校园网后自动登录恢复生效。
             s.has_logged_online = false;
+        } else {
+            s.campus_fail_streak = 0;
         }
+        s.campus_fail_streak
     });
 
     if campus_check_failed {
@@ -192,8 +213,16 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         let no_configured_ip = a1.is_none() && a2.is_none();
         if no_configured_ip {
             crate::log_info!("background", "配置的适配器均无IP地址，跳过校园网退出，等待网络恢复");
+        } else if !should_start_campus_exit(fail_streak, true) {
+            // 首次失败先观察一拍：单发探测丢包/TUN 抢占/Portal 瞬时不可达都会
+            // 造成单拍误判，直接退出会误踢用户。下一拍判定通过即清零，不再退出。
+            crate::log_info!(
+                "background",
+                "校园网检测未通过（连续 {}/{} 拍），暂不退出，等待下一拍复核",
+                fail_streak, CAMPUS_FAIL_EXIT_THRESHOLD
+            );
         } else {
-            // 校园网验证不通过：触发最小化+退出流程
+            // 连续多拍未通过：确认离开校园网，触发最小化+退出流程
             start_campus_exit(app_handle, state);
         }
         crate::log_debug!("background", "后台检测周期完成(校园网检测未通过), 总耗时{}ms", t_total.elapsed().as_millis());
@@ -598,9 +627,42 @@ pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::syn
     })
 }
 
+/// 校园网检测未通过时是否启动退出流程（纯函数，便于单测）。
+///
+/// 两个条件缺一不可：
+/// - `has_configured_ip`：主/副适配器至少一张有 IP。全都没 IP 说明完全无网络
+///   （网线拔了/适配器被禁用），这属于「等网络恢复」而不是「离开校园网」，
+///   退出只会让用户回来后还得手动开应用。
+/// - `fail_streak >= CAMPUS_FAIL_EXIT_THRESHOLD`：连续多拍判定一致才动手。
+pub(crate) fn should_start_campus_exit(fail_streak: u32, has_configured_ip: bool) -> bool {
+    has_configured_ip && fail_streak >= CAMPUS_FAIL_EXIT_THRESHOLD
+}
+
 #[cfg(test)]
 mod tests {
-    use super::should_reset_logged_online;
+    use super::{should_reset_logged_online, should_start_campus_exit, CAMPUS_FAIL_EXIT_THRESHOLD};
+
+    /// 单拍失败不退出：首拍必须被闸门拦住（2026-11-10 防误踢）
+    #[test]
+    fn 校园网失败首拍不退出() {
+        assert_eq!(CAMPUS_FAIL_EXIT_THRESHOLD, 2, "闸门至少两拍，否则等于没有");
+        assert!(!should_start_campus_exit(1, true), "首拍失败不得触发退出");
+        assert!(!should_start_campus_exit(0, true));
+    }
+
+    /// 连续达到阈值才退出
+    #[test]
+    fn 校园网连续失败达标才退出() {
+        assert!(should_start_campus_exit(CAMPUS_FAIL_EXIT_THRESHOLD, true));
+        assert!(should_start_campus_exit(CAMPUS_FAIL_EXIT_THRESHOLD + 5, true));
+    }
+
+    /// 无 IP 时不退出，无论连续失败多少拍
+    #[test]
+    fn 无ip时不退出等待网络恢复() {
+        assert!(!should_start_campus_exit(1, false));
+        assert!(!should_start_campus_exit(100, false));
+    }
 
     /// 在线时不重置：任何一张卡在线都说明会话有效
     #[test]
