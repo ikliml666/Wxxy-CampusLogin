@@ -2,13 +2,13 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "7b0ce309c42f5616506f9e6a2b2568391c0ac10f",
-    "headCommit": "54aed315982c7a9dc82678cdda79b75f7edcafc6"
+    "baseCommit": "54aed315982c7a9dc82678cdda79b75f7edcafc6",
+    "headCommit": "b58dd2f1a3e1751ffb133aebf4fe66860f97bf6e"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "7b0ce309c42f5616506f9e6a2b2568391c0ac10f",
-    "headCommit": "54aed315982c7a9dc82678cdda79b75f7edcafc6",
+    "baseCommit": "54aed315982c7a9dc82678cdda79b75f7edcafc6",
+    "headCommit": "b58dd2f1a3e1751ffb133aebf4fe66860f97bf6e",
     "committed": [],
     "staged": [],
     "unstaged": [
@@ -29,10 +29,10 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 8cb4a71 与本次 cw 基线 7b0ce30 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "工作区未提交改动已合成临时 commit f5761a1e29ad（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwabljkn-1-native（66 个文件）",
-    "本轮把 1 个未提交源码改动一并写进产物（快照 f5761a1e29ad）：tauri-app/frontend/index.html"
+    "持久化基线 7b0ce30 与本次 cw 基线 54aed31 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "工作区未提交改动已合成临时 commit ccacc833e288（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwaf7n8a-1-native（66 个文件）",
+    "本轮把 1 个未提交源码改动一并写进产物（快照 ccacc833e288）：tauri-app/frontend/index.html"
   ],
-  "updatedAt": "2026-11-10T06:41:56.423Z"
+  "updatedAt": "2026-11-10T08:23:07.282Z"
 }
