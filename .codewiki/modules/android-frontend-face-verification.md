@@ -16,6 +16,8 @@ source_files:
   - tauri-app/src-tauri/src/vpn/rsa.rs
   - tauri-app/src-tauri/src/vpn/session.rs
   - tauri-app/src-tauri/src/vpn/wrap.rs
+  - tauri-app/src-tauri/src/campus/mod.rs
+  - tauri-app/src-tauri/src/campus/rules.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_face_verification.md

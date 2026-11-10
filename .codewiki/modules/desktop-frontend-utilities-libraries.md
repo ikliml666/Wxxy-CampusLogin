@@ -110,6 +110,7 @@ source_files:
   - tauri-app/frontend/vite.config.ts
   - tauri-app/frontend/vite.mock.config.ts
   - tauri-app/frontend/vitest.config.ts
+  - tauri-app/frontend/src/lib/campus.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: desktop_frontend_utilities_libraries.md

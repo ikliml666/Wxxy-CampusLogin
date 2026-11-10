@@ -14,6 +14,7 @@ source_files:
   - android/frontend/src/lib/easing-config.ts
   - android/frontend/src/lib/notificationPermission.ts
   - android/frontend/src/lib/renderLiveness.ts
+  - android/frontend/src/lib/campus.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_utilities_libraries.md
