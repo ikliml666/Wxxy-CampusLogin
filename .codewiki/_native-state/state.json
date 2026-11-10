@@ -2,21 +2,14 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "63deaeb794c3c9d0d0082163c87fb886bf9b2228",
-    "headCommit": "f4d4f0f6b3fd77fc3f32127d6f4fe23a5eb1e62e"
+    "baseCommit": "f4d4f0f6b3fd77fc3f32127d6f4fe23a5eb1e62e",
+    "headCommit": "a12ab16c894d7fc492d8a742c1762791fb6be8f2"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "63deaeb794c3c9d0d0082163c87fb886bf9b2228",
-    "headCommit": "f4d4f0f6b3fd77fc3f32127d6f4fe23a5eb1e62e",
-    "committed": [
-      "tauri-app/src-tauri/src/campus/rules.rs",
-      "tauri-app/src-tauri/src/infra/state/network.rs",
-      "tauri-app/src-tauri/src/monitor/auto_auth.rs",
-      "tauri-app/src-tauri/src/monitor/background_check.rs",
-      "tauri-app/src-tauri/src/monitor/campus_check.rs",
-      "tauri-app/src-tauri/src/network/subnet.rs"
-    ],
+    "baseCommit": "f4d4f0f6b3fd77fc3f32127d6f4fe23a5eb1e62e",
+    "headCommit": "a12ab16c894d7fc492d8a742c1762791fb6be8f2",
+    "committed": [],
     "staged": [],
     "unstaged": [
       "tauri-app/frontend/index.html"
@@ -36,9 +29,10 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "工作区未提交改动已合成临时 commit 76ca57ef783e（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwaozt70-1-native（66 个文件）",
-    "本轮把 1 个未提交源码改动一并写进产物（快照 76ca57ef783e）：tauri-app/frontend/index.html"
+    "持久化基线 63deaeb 与本次 cw 基线 f4d4f0f 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "工作区未提交改动已合成临时 commit ca95d8185f8a（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwapx08t-1-native（66 个文件）",
+    "本轮把 1 个未提交源码改动一并写进产物（快照 ca95d8185f8a）：tauri-app/frontend/index.html"
   ],
-  "updatedAt": "2026-11-10T12:57:00.749Z"
+  "updatedAt": "2026-11-10T13:22:59.071Z"
 }
