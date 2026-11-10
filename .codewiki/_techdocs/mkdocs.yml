@@ -1,0 +1,78 @@
+site_name: Wxxy-CampusLogin
+site_description: Wxxy-CampusLogin 是武汉学院校园网自动登录客户端，基于 Tauri 2.0 框架同时支持 桌面端（Windows/macOS/Linux）与 Android 移动端。项目通过内置的认证协议实现校园网 Portal 自动登录、断线重连、网速监控、账号管理与 VPN 集成，避免学生每次连接校园…
+repo_url: https://github.com/ikliml666/Wxxy-CampusLogin
+edit_uri: ''
+docs_dir: docs
+nav:
+- Wxxy-CampusLogin 仓库概览: index.md
+- 构建与部署配置（build_deployment_configuration）:
+  - 构建与部署配置（build_deployment_configuration）: build_deployment_configuration.md
+  - 发布版本管理与版本配置（Release / Version Configuration）: build_deployment_configuration/build_deployment_configuration_release.md
+  - 桌面端前端构建配置: build_deployment_configuration/build_deployment_configuration_desktop_build.md
+  - Android 构建配置（build_deployment_configuration_android_build）: build_deployment_configuration/build_deployment_configuration_android_build.md
+  - Android 插件构建配置: build_deployment_configuration/build_deployment_configuration_android_plugins.md
+- 桌面端账号管理模块（desktop_frontend_account_management）: desktop_frontend_account_management.md
+- 桌面端前端认证模块（desktop_frontend_auth）: desktop_frontend_auth.md
+- 桌面端共享 UI 组件库（desktop_frontend_shared_ui_components）: desktop_frontend_shared_ui_components.md
+- 桌面前端 Hooks 层（desktop_frontend_hooks）: desktop_frontend_hooks.md
+- 桌面端前端工具库（desktop_frontend_utilities_libraries）: desktop_frontend_utilities_libraries.md
+- 桌面端前端监控模块（desktop_frontend_monitoring）: desktop_frontend_monitoring.md
+- 桌面前端网络管理模块（desktop_frontend_network_management）: desktop_frontend_network_management.md
+- 桌面端前端设置模块（desktop_frontend_settings）: desktop_frontend_settings.md
+- 桌面端共享组件与类型定义模块（desktop_frontend_shared_components_types）: desktop_frontend_shared_components_types.md
+- 桌面端前端入口与浏览器 Mock 环境: desktop_frontend_entrypoint_mocks.md
+- 桌面端后端账号管理模块（desktop_backend_account_management）: desktop_backend_account_management.md
+- 桌面端应用生命周期（desktop_backend_app_lifecycle）: desktop_backend_app_lifecycle.md
+- 桌面后端认证协议模块: desktop_backend_auth_protocol.md
+- 桌面端后端命令模块（desktop_backend_commands）: desktop_backend_commands.md
+- 桌面端后端配置模块（desktop_backend_configuration）: desktop_backend_configuration.md
+- 桌面后端基础设施（desktop_backend_infrastructure）: desktop_backend_infrastructure.md
+- 桌面后端监控模块（desktop_backend_monitoring）: desktop_backend_monitoring.md
+- 桌面后端网络模块（desktop_backend_networking）: desktop_backend_networking.md
+- 平台特定层（desktop_backend_platform_specific）: desktop_backend_platform_specific.md
+- 桌面后端更新模块（desktop_backend_update）: desktop_backend_update.md
+- 桌面端后端 VPN 集成模块（desktop_backend_vpn_integration）: desktop_backend_vpn_integration.md
+- Android 前端账号管理模块:
+  - Android 前端账号管理模块: android_frontend_account_management.md
+  - 安卓前端账号管理 · 登录信息弹窗: android_frontend_account_management/android_frontend_account_management_login_dialog.md
+  - 安卓自助服务面板（SelfServicePanel）: android_frontend_account_management/android_frontend_account_management_self_service_panel.md
+  - 运营商绑定与身份验证门（Android 前端）: android_frontend_account_management/android_frontend_account_management_operator_binding.md
+- Android 前端认证与总览面板模块（android_frontend_auth）: android_frontend_auth.md
+- Android 前端共享 UI 组件: android_frontend_shared_ui_components.md
+- Android 前端 2D 人脸验证模块（android_frontend_face_verification）: android_frontend_face_verification.md
+- android_frontend_hooks（安卓前端 Hook 与状态管理层）:
+  - android_frontend_hooks（安卓前端 Hook 与状态管理层）: android_frontend_hooks.md
+  - 安卓前端 Hooks · 状态存储（Zustand Stores）: android_frontend_hooks/android_frontend_hooks_state_stores.md
+  - 安卓前端启动编排: android_frontend_hooks/android_frontend_hooks_startup_orchestration.md
+  - Android 前端 Hook 层 · 动画运行时: android_frontend_hooks/android_frontend_hooks_animation_runtime.md
+  - Android 前端 Hooks 状态存储（State Stores）: android_frontend_hooks/android_frontend_hooks_android_frontend_hooks_state_stores.md
+- Android 前端工具与库层（android_frontend_utilities_libraries）:
+  - Android 前端工具与库层（android_frontend_utilities_libraries）: android_frontend_utilities_libraries.md
+  - 悬浮栏弹簧物理引擎（dock-spring）: android_frontend_utilities_libraries/android_frontend_utilities_libraries_dock_physics.md
+  - 安卓前端工具库 · 悬浮栏镜头系统: android_frontend_utilities_libraries/android_frontend_utilities_libraries_lens.md
+  - Hyalite 液体玻璃折射引擎: android_frontend_utilities_libraries/android_frontend_utilities_libraries_hyalite.md
+  - 网络质量展示工具（latency.ts）: android_frontend_utilities_libraries/android_frontend_utilities_libraries_quality_display.md
+- Android 前端网络监控与 DNS 优化: android_frontend_monitoring_network.md
+- 安卓前端设置模块（android_frontend_settings）:
+  - 安卓前端设置模块（android_frontend_settings）: android_frontend_settings.md
+  - 安卓前端设置常量（android_frontend_settings_constants）: android_frontend_settings/android_frontend_settings_constants.md
+  - Android 前端设置 · 新手引导流程（useOnboardingFlow）: android_frontend_settings/android_frontend_settings_onboarding_flow.md
+  - 使用设置 Hook（useSettings）: android_frontend_settings/android_frontend_settings_use_settings.md
+- Android 前端共享组件（android_frontend_shared_components）: android_frontend_shared_components.md
+- 安卓前端入口与浏览器 Mock 环境: android_frontend_entrypoint_mocks.md
+- Android 前台服务保活插件(foreground-service): android_plugins_foreground_service.md
+- Android Keystore 插件: android_plugins_keystore.md
+- Android network-bind 插件（android_plugins_network_bind）: android_plugins_network_bind.md
+- android_backend_tauri — 安卓端 Tauri 后端:
+  - android_backend_tauri — 安卓端 Tauri 后端: android_backend_tauri.md
+  - Android 后端 Tauri 命令面: android_backend_tauri/android_backend_tauri_commands.md
+  - Android 后端监控与定时编排（android_backend_tauri_monitoring）: android_backend_tauri/android_backend_tauri_monitoring.md
+  - 安卓端 Tauri 状态与持久化存储（android_backend_tauri_state_storage）: android_backend_tauri/android_backend_tauri_state_storage.md
+plugins:
+- techdocs-core
+markdown_extensions:
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
