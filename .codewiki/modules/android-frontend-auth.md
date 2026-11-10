@@ -59,6 +59,7 @@ source_files:
   - tauri-app/src-tauri/src/network/quality.rs
   - tauri-app/src-tauri/src/network/subnet.rs
   - tauri-app/src-tauri/src/network/timing.rs
+  - tauri-app/src-tauri/src/network/ip_conflict.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_auth.md
