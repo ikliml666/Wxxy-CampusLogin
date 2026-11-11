@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "82ae432503aa2bf85c71c78319efa0747be0081b",
-    "headCommit": "4695274b21b63b36e7f9a8e32f4524de055a0ab0"
+    "headCommit": "9fb192df16d4d5d7c0c1ff34757e20ff85017f4a"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "82ae432503aa2bf85c71c78319efa0747be0081b",
-    "headCommit": "4695274b21b63b36e7f9a8e32f4524de055a0ab0",
+    "headCommit": "9fb192df16d4d5d7c0c1ff34757e20ff85017f4a",
     "committed": [
       "android/frontend/src/auth/types.ts",
       "android/frontend/src/hooks/useAuthStore.ts",
@@ -17,9 +17,11 @@
       "android/src-tauri/src/protocol_cmds.rs",
       "android/src-tauri/src/quality_cmds.rs",
       "android/src-tauri/src/vpn_cmds.rs",
+      "tauri-app/src-tauri/src/auth/service.rs",
       "tauri-app/src-tauri/src/commands/account.rs",
       "tauri-app/src-tauri/src/commands/background.rs",
       "tauri-app/src-tauri/src/commands/config_cmd.rs",
+      "tauri-app/src-tauri/src/commands/login.rs",
       "tauri-app/src-tauri/src/commands/network_cmd.rs",
       "tauri-app/src-tauri/src/commands/system.rs",
       "tauri-app/src-tauri/src/commands/vpn.rs",
@@ -27,12 +29,14 @@
       "tauri-app/src-tauri/src/config/persist.rs",
       "tauri-app/src-tauri/src/infra/state/mod.rs",
       "tauri-app/src-tauri/src/infra/state/store.rs",
+      "tauri-app/src-tauri/src/monitor/auto_auth.rs",
       "tauri-app/src-tauri/src/monitor/background_task.rs",
       "tauri-app/src-tauri/src/monitor/outbound_night.rs",
       "tauri-app/src-tauri/src/monitor/quality_scheduler.rs",
       "tauri-app/src-tauri/src/monitor/scheduled.rs",
       "tauri-app/src-tauri/src/network/adapter_cache.rs",
-      "tauri-app/src-tauri/src/network/quality.rs"
+      "tauri-app/src-tauri/src/network/quality.rs",
+      "tauri-app/src-tauri/tests/repro_logout_panic.rs"
     ],
     "staged": [],
     "unstaged": [
@@ -53,8 +57,8 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "工作区未提交改动已合成临时 commit ec063b046d64（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbxjt3r-8-native（66 个文件）"
+    "工作区未提交改动已合成临时 commit 36d4b0966102（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbyhevq-9-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-11T09:42:40.562Z"
+  "updatedAt": "2026-11-11T10:09:08.330Z"
 }
