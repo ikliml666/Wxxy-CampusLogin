@@ -17,8 +17,11 @@ static EXPECT_LIGHTWEIGHT_EXIT: AtomicBool = AtomicBool::new(false);
 /// 销毁前记录的窗口几何，重建时应用
 static GEOMETRY: Mutex<Option<WindowGeometry>> = Mutex::new(None);
 
-/// 窗口几何：全部为**物理像素**（`outer_position`/`outer_size` 原始值）。
+/// 窗口几何：位置为**物理像素**外框左上角（`outer_position`），尺寸为
+/// **物理像素客户区**（`inner_size`，与恢复端 `set_size` 同一口径）。
 ///
+/// 不要用 `outer_size`：decorations:false + shadow:true 时外框含阴影边框，
+/// 与 `set_size` 的客户区口径不一致，每轮恢复都会把窗口放大一点。
 /// 恢复端必须用 `PhysicalPosition`/`PhysicalSize`，不要再乘/除 `scale_factor`；
 /// builder 的 `position`/`inner_size` 是逻辑像素，高 DPI 下混用会偏移。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -27,6 +30,11 @@ pub struct WindowGeometry {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    /// 上次退出/销毁时窗口处于最大化。恢复时先还原普通几何，show 后再 maximize
+    /// （show 前 maximize 会让窗口提前显示，show 后 set_size 又会清掉最大化）。
+    /// 旧版落盘文件无此字段，按 false 处理。
+    #[serde(default)]
+    pub maximized: bool,
 }
 
 pub fn is_lightweight_active() -> bool {
@@ -51,22 +59,73 @@ pub fn should_prevent_exit(expecting: bool, is_quitting: bool) -> bool {
     expecting && !is_quitting
 }
 
+/// 记录窗口几何（物理像素：`outer_position` + `inner_size`）。
+///
+/// 最小化时 Win32 的窗口矩形是 (-32000,-32000)/异常尺寸，直接捕获会污染记忆值，
+/// 因此保留上一次好值；最大化时只置状态位、几何沿用最大化前的普通窗口值
+/// （最大化尺寸不能当作还原尺寸，否则退出最大化后窗口会变成全屏大小）。
 pub fn capture_geometry(window: &tauri::WebviewWindow) {
-    if let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) {
-        let geo = WindowGeometry {
+    if window.is_minimized().unwrap_or(false) {
+        return;
+    }
+    let Ok(pos) = window.outer_position() else { return; };
+    let Ok(size) = window.inner_size() else { return; };
+    let maximized = window.is_maximized().unwrap_or(false);
+    if let Ok(mut g) = GEOMETRY.lock() {
+        if maximized {
+            if let Some(prev) = g.as_mut() {
+                prev.maximized = true;
+                return;
+            }
+        }
+        *g = Some(WindowGeometry {
             x: pos.x as f64,
             y: pos.y as f64,
             width: size.width as f64,
             height: size.height as f64,
-        };
-        if let Ok(mut g) = GEOMETRY.lock() {
-            *g = Some(geo);
-        }
+            maximized,
+        });
     }
 }
 
 pub fn take_geometry() -> Option<WindowGeometry> {
     GEOMETRY.lock().ok().and_then(|mut g| g.take())
+}
+
+/// 待办的最大化：恢复几何时置位，窗口首次 show 后由 `apply_pending_maximize`
+/// 消费（单次语义）。
+static PENDING_MAXIMIZE: AtomicBool = AtomicBool::new(false);
+
+pub fn request_maximize_on_show() {
+    PENDING_MAXIMIZE.store(true, Ordering::Release);
+}
+
+/// show 之后调用：有待办最大化则执行。
+pub fn apply_pending_maximize(window: &tauri::WebviewWindow) {
+    if PENDING_MAXIMIZE.swap(false, Ordering::AcqRel) {
+        if let Err(e) = window.maximize() {
+            crate::log_warn!("lightweight", "恢复最大化失败: {}", e);
+        }
+    }
+}
+
+/// 把几何应用到窗口（物理像素口径）。返回 `Ok(maximized)` 表示已应用；
+/// `Err` 表示未应用（离屏或 set_position/set_size 失败），调用方保持配置默认。
+pub fn restore_geometry(
+    window: &tauri::WebviewWindow,
+    geo: &WindowGeometry,
+    monitors: &[(i32, i32, u32, u32)],
+) -> Result<bool, String> {
+    if !geometry_is_on_screen(geo, monitors) {
+        return Err("几何已不在任何显示器上".to_string());
+    }
+    window
+        .set_position(tauri::PhysicalPosition::new(geo.x as i32, geo.y as i32))
+        .map_err(|e| format!("set_position 失败: {e}"))?;
+    window
+        .set_size(tauri::PhysicalSize::new(geo.width as u32, geo.height as u32))
+        .map_err(|e| format!("set_size 失败: {e}"))?;
+    Ok(geo.maximized)
 }
 
 /// 窗口几何落盘文件名（数据目录下，与 config.json 同级）
@@ -147,6 +206,15 @@ fn take_window_ready(label: &str) -> bool {
     false
 }
 
+/// 清掉某个 label 的既有就绪信号。首次启动的 notify_window_ready 会一直留在
+/// READY_SIGNALS 里，重建窗口若不清理，ready 门会立刻消费这条旧信号、在前端
+/// 挂载完成前显示窗口（白闪）。
+pub fn clear_window_ready(label: &str) {
+    if let Ok(mut v) = READY_SIGNALS.lock() {
+        v.retain(|(l, _)| l != label);
+    }
+}
+
 /// 等 ready 信号或 5s 超时后显示窗口（500ms 轮询；信号早到立即显示）。
 /// 防重建白闪：WebviewWindowBuilder 以 visible(false) 起步，前端挂载完成后
 /// invoke notify_window_ready，收到即显示；超时兜底防止前端异常时永远黑窗
@@ -197,8 +265,8 @@ mod tests {
     #[test]
     fn 几何离屏校验_与任一显示器相交即有效() {
         let monitors = vec![(0i32, 0i32, 1920u32, 1080u32), (1920, 0, 1920, 1080)];
-        let on = WindowGeometry { x: 100.0, y: 100.0, width: 1360.0, height: 768.0 };
-        let off = WindowGeometry { x: 5000.0, y: 100.0, width: 1360.0, height: 768.0 };
+        let on = WindowGeometry { x: 100.0, y: 100.0, width: 1360.0, height: 768.0, maximized: false };
+        let off = WindowGeometry { x: 5000.0, y: 100.0, width: 1360.0, height: 768.0, maximized: false };
         assert!(geometry_is_on_screen(&on, &monitors));
         assert!(!geometry_is_on_screen(&off, &monitors));
     }
@@ -212,10 +280,28 @@ mod tests {
 
     #[test]
     fn 几何序列化_物理像素往返() {
-        let geo = WindowGeometry { x: 120.0, y: 80.0, width: 2040.0, height: 1152.0 };
+        let geo = WindowGeometry { x: 120.0, y: 80.0, width: 2040.0, height: 1152.0, maximized: false };
         let body = serde_json::to_string(&geo).unwrap();
         let back: WindowGeometry = serde_json::from_str(&body).unwrap();
         assert_eq!(back, geo);
+    }
+
+    #[test]
+    fn 几何序列化_最大化状态往返() {
+        let geo = WindowGeometry { x: 120.0, y: 80.0, width: 2040.0, height: 1152.0, maximized: true };
+        let body = serde_json::to_string(&geo).unwrap();
+        let back: WindowGeometry = serde_json::from_str(&body).unwrap();
+        assert_eq!(back, geo);
+        assert!(back.maximized);
+    }
+
+    #[test]
+    fn 几何序列化_旧文件缺maximized字段按false() {
+        // 上一版落盘文件没有 maximized 字段，升级后不能反序列化失败
+        let geo: WindowGeometry =
+            serde_json::from_str(r#"{"x":10.0,"y":20.0,"width":800.0,"height":600.0}"#).unwrap();
+        assert!(!geo.maximized);
+        assert_eq!((geo.x, geo.y, geo.width, geo.height), (10.0, 20.0, 800.0, 600.0));
     }
 
     #[test]
@@ -223,9 +309,9 @@ mod tests {
         // 150% DPI：显示器物理 1920 宽；窗口物理 x=2000 已在屏外，
         // 若按旧口径存逻辑值（x≈1333）会被误判为在屏。
         let monitors = vec![(0i32, 0i32, 1920u32, 1080u32)];
-        let physical = WindowGeometry { x: 2000.0, y: 100.0, width: 2040.0, height: 1536.0 };
+        let physical = WindowGeometry { x: 2000.0, y: 100.0, width: 2040.0, height: 1536.0, maximized: false };
         assert!(!geometry_is_on_screen(&physical, &monitors));
-        let logical_would_be = WindowGeometry { x: 1333.0, y: 66.0, width: 1360.0, height: 1024.0 };
+        let logical_would_be = WindowGeometry { x: 1333.0, y: 66.0, width: 1360.0, height: 1024.0, maximized: false };
         assert!(
             geometry_is_on_screen(&logical_would_be, &monitors),
             "逻辑口径会误判在屏，本断言锁定恢复端必须按物理像素判断"
@@ -235,9 +321,9 @@ mod tests {
     #[test]
     fn 几何离屏校验_副屏负坐标() {
         let monitors = vec![(-1920i32, 0i32, 1920u32, 1080u32), (0, 0, 1920, 1080)];
-        let on_left = WindowGeometry { x: -1800.0, y: 50.0, width: 1360.0, height: 768.0 };
+        let on_left = WindowGeometry { x: -1800.0, y: 50.0, width: 1360.0, height: 768.0, maximized: false };
         assert!(geometry_is_on_screen(&on_left, &monitors));
-        let far_left = WindowGeometry { x: -4000.0, y: 50.0, width: 1360.0, height: 768.0 };
+        let far_left = WindowGeometry { x: -4000.0, y: 50.0, width: 1360.0, height: 768.0, maximized: false };
         assert!(!geometry_is_on_screen(&far_left, &monitors));
     }
 
@@ -245,5 +331,17 @@ mod tests {
     fn 几何文件_固定在数据目录() {
         let path = geometry_path(std::path::Path::new("data"));
         assert!(path.ends_with(GEOMETRY_FILE));
+    }
+
+    #[test]
+    fn 就绪信号_清理后不消费首次启动的旧信号() {
+        // 用独立 label，避免与并行测试互扰
+        signal_window_ready("stale-ready-test");
+        clear_window_ready("stale-ready-test");
+        assert!(!take_window_ready("stale-ready-test"), "清理后旧信号不得被消费");
+        // 清理只作用于指定 label
+        signal_window_ready("other-ready-test");
+        clear_window_ready("stale-ready-test");
+        assert!(take_window_ready("other-ready-test"));
     }
 }

@@ -199,6 +199,9 @@ pub fn show_and_focus_main<M: tauri::Manager<tauri::Wry>>(app: &M) {
         let _ = window.show();
         // show 之后再置可见，避免 WebView 在不可见窗口里恢复时被渲染进程忽略
         set_main_webview_suspended(&window.app_handle(), false);
+        // 恢复的最大化必须在 show 之后：show 前 maximize 会让窗口提前显示，
+        // show 后再 set_size 又会清掉最大化状态
+        crate::app::lightweight::apply_pending_maximize(&window);
         let _ = window.set_focus();
     }
 }
@@ -232,9 +235,17 @@ fn rebuild_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error:
         .ok_or("tauri.conf.json 中未找到 main 窗口配置")?;
 
     let builder = tauri::WebviewWindowBuilder::from_config(app, &window_config)?;
-    // 几何恢复：离屏（拔显示器）则回退配置默认（center）
-    let mut restored = None;
-    if let Some(geo) = crate::app::lightweight::take_geometry() {
+    // 同进程重建优先用内存几何；take 为空（关闭时没捕获到有效值）回退上次落盘值
+    let geometry = crate::app::lightweight::take_geometry()
+        .or_else(|| crate::app::lightweight::load_geometry(app));
+    // 新 WebView 是全新的 controller/进程：进程级挂起标志必须归零，否则旧窗口
+    // 残留的 LAST_MINIMIZED=true 会吞掉新窗口首个 Resized 恢复事件
+    reset_suspend_state_for_new_webview();
+    // 清掉首次启动遗留的就绪信号，否则 ready 门会立刻消费旧信号、在前端挂载前显示
+    crate::app::lightweight::clear_window_ready("main");
+    let window = builder.build()?;
+    // 统一物理像素口径：builder 的 position/inner_size 是逻辑像素，构建后按物理值设置
+    if let Some(geo) = geometry {
         let monitors: Vec<(i32, i32, u32, u32)> = app
             .available_monitors()
             .map(|list| {
@@ -247,20 +258,16 @@ fn rebuild_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error:
                     .collect()
             })
             .unwrap_or_default();
-        if crate::app::lightweight::geometry_is_on_screen(&geo, &monitors) {
-            restored = Some(geo);
-        } else {
-            crate::log_warn!("lightweight", "记忆的窗口几何已不在任何显示器上，回退居中默认");
+        match crate::app::lightweight::restore_geometry(&window, &geo, &monitors) {
+            Ok(maximized) => {
+                if maximized {
+                    crate::app::lightweight::request_maximize_on_show();
+                }
+            }
+            Err(reason) => {
+                crate::log_warn!("lightweight", "未恢复窗口几何（{}），保持配置默认", reason)
+            }
         }
-    }
-    // 新 WebView 是全新的 controller/进程：进程级挂起标志必须归零，否则旧窗口
-    // 残留的 LAST_MINIMIZED=true 会吞掉新窗口首个 Resized 恢复事件
-    reset_suspend_state_for_new_webview();
-    let window = builder.build()?;
-    // 统一物理像素口径：builder 的 position/inner_size 是逻辑像素，构建后按物理值设置
-    if let Some(geo) = restored {
-        let _ = window.set_position(tauri::PhysicalPosition::new(geo.x as i32, geo.y as i32));
-        let _ = window.set_size(tauri::PhysicalSize::new(geo.width as u32, geo.height as u32));
     }
     crate::log_info!("lightweight", "主窗口已重建，等待前端就绪后显示");
 

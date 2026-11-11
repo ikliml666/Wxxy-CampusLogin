@@ -153,6 +153,13 @@ pub fn run(core_count: usize) {
             if crate::app::lightweight::should_prevent_exit(expecting, is_quitting) {
                 api.prevent_exit();
                 crate::log_info!("lightweight", "已拦截最后一个窗口销毁触发的进程退出，轻量化常驻");
+            } else {
+                // 系统关机/注销路径不经过 shutdown_and_exit：窗口还在时补抓一次几何，
+                // 窗口已销毁（轻量化常驻后被系统关闭）则沿用上次落盘值
+                if let Some(ww) = _app.get_webview_window("main") {
+                    crate::app::lightweight::capture_geometry(&ww);
+                }
+                crate::app::lightweight::save_geometry(_app);
             }
         }
     });
@@ -233,23 +240,27 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
                         .collect()
                 })
                 .unwrap_or_default();
-            if crate::app::lightweight::geometry_is_on_screen(&geo, &monitors) {
-                let _ = window
-                    .set_position(tauri::PhysicalPosition::new(geo.x as i32, geo.y as i32));
-                let _ = window.set_size(tauri::PhysicalSize::new(
-                    geo.width as u32,
-                    geo.height as u32,
-                ));
-                crate::log_info!(
-                    "startup",
-                    "已恢复上次窗口位置: ({}, {}) {}x{}",
-                    geo.x,
-                    geo.y,
-                    geo.width,
-                    geo.height
-                );
-            } else {
-                crate::log_warn!("lightweight", "上次窗口位置已不在任何显示器上，回退居中默认");
+            match crate::app::lightweight::restore_geometry(&window, &geo, &monitors) {
+                Ok(maximized) => {
+                    crate::log_info!(
+                        "startup",
+                        "已恢复上次窗口位置: ({}, {}) {}x{}{}",
+                        geo.x,
+                        geo.y,
+                        geo.width,
+                        geo.height,
+                        if maximized { "（最大化）" } else { "" }
+                    );
+                    if maximized {
+                        // 窗口尚未显示：show 后再 maximize，避免提前显示或清掉最大化
+                        crate::app::lightweight::request_maximize_on_show();
+                    }
+                }
+                Err(reason) => crate::log_warn!(
+                    "lightweight",
+                    "未恢复上次窗口位置（{}），保持居中默认",
+                    reason
+                ),
             }
         }
     }

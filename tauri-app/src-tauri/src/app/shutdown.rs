@@ -6,12 +6,8 @@ use crate::infra::state::AppState;
 ///
 /// 通过 `shutdown_and_exit` 取消并等待所有后台任务结束后退出进程。
 pub fn graceful_exit(app_handle: &AppHandle, _state: &AppState) {
-    // 托盘退出/真退出不经过轻量化分支，这里补抓窗口几何并落盘，保证下次启动能恢复；
-    // 轻量化态窗口已销毁时沿用上次落盘值（GEOMETRY 为空则不覆盖磁盘）
-    if let Some(ww) = app_handle.get_webview_window("main") {
-        crate::app::lightweight::capture_geometry(&ww);
-    }
-    crate::app::lightweight::save_geometry(app_handle);
+    // 窗口几何的 capture+save 已收口在 lifecycle::shutdown_and_exit 顶部
+    //（覆盖托盘退出/自动退出/校园网退出），此处不重复
     let app_h = app_handle.clone();
     tauri::async_runtime::spawn(async move {
         let s = app_h.state::<AppState>();

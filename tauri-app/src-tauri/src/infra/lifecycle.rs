@@ -317,6 +317,15 @@ fn try_unregister_cancel_exit_shortcut(_app_handle: &AppHandle, _should_unregist
 ///
 /// 设置退出标志、通过 BackgroundTaskManager 取消并等待所有后台任务结束，然后退出进程。
 pub async fn shutdown_and_exit(app_handle: &AppHandle, state: &AppState) {
+    // 退出前记住窗口位置：托盘退出/自动退出/校园网退出/真退出都汇聚到这里，
+    // 覆盖不经过 CloseRequested 轻量化分支的退出路径（窗口已销毁时沿用上次落盘值）
+    #[cfg(desktop)]
+    {
+        if let Some(ww) = app_handle.get_webview_window("main") {
+            crate::app::lightweight::capture_geometry(&ww);
+        }
+        crate::app::lightweight::save_geometry(app_handle);
+    }
     state.exit.is_quitting.store(true, Ordering::Release);
     // 后台任务可能卡在不响应取消的阻塞调用（DHCP 子进程、长 HTTP 等），
     // 整体等待加上限，避免窗口已关但退出流程长时间挂起
