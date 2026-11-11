@@ -11,4 +11,6 @@ export interface CommandResult {
   data?: Record<string, unknown>
 }
 
-export interface LoginResult extends CommandResult {}
+export interface LoginResult extends CommandResult {
+  inProgress?: boolean
+}

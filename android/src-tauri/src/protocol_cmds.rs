@@ -2,8 +2,30 @@
 //! 登录/注销复用桌面协议核心(auth::protocol),源 IP 绑定用检测阶段缓存的 wlan0 地址。
 //! 敏感纪律:任何日志、错误信息、事件 payload 不得携带 password。
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
+
+static LOGIN_ATTEMPT_LOCK: std::sync::LazyLock<campus_login_lib::infra::state::TaskLock> =
+    std::sync::LazyLock::new(campus_login_lib::infra::state::TaskLock::new);
+
+pub(crate) struct LoginAttempt {
+    _guard: campus_login_lib::infra::state::TaskGuard<'static>,
+}
+
+pub(crate) fn try_begin_login() -> Option<LoginAttempt> {
+    LOGIN_ATTEMPT_LOCK.try_acquire().map(|guard| LoginAttempt { _guard: guard })
+}
+
+impl LoginAttempt {
+    pub(crate) fn finish(self, result: &serde_json::Value) {
+        if result["success"].as_bool().unwrap_or(false) {
+            let monitor = &crate::monitor_loop::MONITOR;
+            monitor.was_online.store(true, Ordering::Relaxed);
+            monitor.logout_protected_until_ms.store(0, Ordering::Relaxed);
+            monitor.consecutive_failures.store(0, Ordering::Relaxed);
+        }
+    }
+}
 
 /// 兼容桌面契约:前端 invoke('do_login', {adapterName}) 仅传适配器,凭据由后端配置回退
 #[tauri::command]
@@ -16,6 +38,13 @@ pub async fn do_login(
     state: tauri::State<'_, crate::android_state::AndroidState>,
 ) -> Result<serde_json::Value, String> {
     let _ = adapter;
+    let Some(attempt) = try_begin_login() else {
+        return Ok(serde_json::json!({
+            "success": false,
+            "message": "登录正在进行中",
+            "inProgress": true
+        }));
+    };
     // 手动登录此前漏了 ensure_wifi_bound（只有启动自动登录与 monitor 每拍有）——
     // WiFi+流量同开时默认路由落蜂窝，用户手动点登录必然失败
     ensure_wifi_bound(&app).await;
@@ -49,7 +78,7 @@ pub async fn do_login(
         operator
     };
 
-    let result = run_login(&user, &password, &operator, &state).await?;
+    let result = run_login(&user, &password, &operator, &state, attempt).await?;
     // 登录历史落盘(桌面 session.rs 同构;此处为手动登录)
     if let Ok(dir) = app.path().app_data_dir() {
         let message = result["message"].as_str().unwrap_or("").to_string();
@@ -61,21 +90,6 @@ pub async fn do_login(
             campus_login_lib::log_warn!("protocol", "手动登录历史记录失败: {e}");
         }
     }
-    // 手动登录成功:清除自动登录熔断与注销保护(否则手动救回来后自动重登仍被闸住),
-    // 并置 was_online——手动登录与启动自动登录同为在线的权威证据,漏置位会让夜间出站
-    // 切换的前置在线检查误判离线而跳过注销请求(如 22:50 手动登录后 23:00 到点切换)
-    if result["success"].as_bool().unwrap_or(false) {
-        use crate::monitor_loop::MONITOR;
-        MONITOR
-            .consecutive_failures
-            .store(0, std::sync::atomic::Ordering::Relaxed);
-        MONITOR
-            .logout_protected_until_ms
-            .store(0, std::sync::atomic::Ordering::Relaxed);
-        MONITOR
-            .was_online
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-    }
     Ok(result)
 }
 
@@ -85,13 +99,14 @@ pub async fn run_login(
     password: &str,
     operator: &str,
     state: &tauri::State<'_, crate::android_state::AndroidState>,
+    attempt: LoginAttempt,
 ) -> Result<serde_json::Value, String> {
     let adapter_ip = cached_adapter_ip(state);
     let user = user.to_string();
     let password = password.to_string();
     let operator = operator.to_string();
     // do_login_with_retry 是同步函数(内部 block_on_http 桥接),禁止在 async 上下文直接调用
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let is_quitting = AtomicBool::new(false);
         campus_login_lib::auth::protocol::do_login_with_retry(
             &user,
@@ -103,7 +118,9 @@ pub async fn run_login(
         )
     })
     .await
-    .map_err(|e| format!("登录任务执行失败: {e}"))?
+    .map_err(|e| format!("登录任务执行失败: {e}"))??;
+    attempt.finish(&result);
+    Ok(result)
 }
 
 /// 注销:两步注销(Radius + MAC 解绑)复用桌面协议核心
@@ -412,5 +429,50 @@ pub(crate) async fn accept_campus_wifi(app: &tauri::AppHandle) {
             eprintln!("[wifi-accept] call_failed: {e}");
             campus_login_lib::log_warn!("wifi-accept", "网络接受调用失败: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn 登录尝试单飞并统一成功记账() {
+        struct RestoreMonitor {
+            was_online: bool,
+            logout_protected_until_ms: u64,
+            consecutive_failures: u32,
+        }
+        impl Drop for RestoreMonitor {
+            fn drop(&mut self) {
+                let monitor = &crate::monitor_loop::MONITOR;
+                monitor.was_online.store(self.was_online, Ordering::Relaxed);
+                monitor.logout_protected_until_ms.store(self.logout_protected_until_ms, Ordering::Relaxed);
+                monitor.consecutive_failures.store(self.consecutive_failures, Ordering::Relaxed);
+            }
+        }
+        let monitor = &crate::monitor_loop::MONITOR;
+        let _restore = RestoreMonitor {
+            was_online: monitor.was_online.load(Ordering::Relaxed),
+            logout_protected_until_ms: monitor.logout_protected_until_ms.load(Ordering::Relaxed),
+            consecutive_failures: monitor.consecutive_failures.load(Ordering::Relaxed),
+        };
+
+        let attempt = try_begin_login().expect("首个登录尝试应取得所有权");
+        assert!(try_begin_login().is_none(), "持有期间不得进入第二次登录");
+
+        crate::monitor_loop::MONITOR.was_online.store(false, Ordering::Relaxed);
+        crate::monitor_loop::MONITOR.logout_protected_until_ms.store(123, Ordering::Relaxed);
+        crate::monitor_loop::MONITOR.consecutive_failures.store(4, Ordering::Relaxed);
+        attempt.finish(&serde_json::json!({ "success": true }));
+        assert!(crate::monitor_loop::MONITOR.was_online.load(Ordering::Relaxed));
+        assert_eq!(crate::monitor_loop::MONITOR.logout_protected_until_ms.load(Ordering::Relaxed), 0);
+        assert_eq!(crate::monitor_loop::MONITOR.consecutive_failures.load(Ordering::Relaxed), 0);
+
+        let failed = try_begin_login().expect("成功收尾后应释放登录所有权");
+        failed.finish(&serde_json::json!({ "success": false }));
+        let next = try_begin_login().expect("失败收尾后也应释放登录所有权");
+        drop(next);
     }
 }

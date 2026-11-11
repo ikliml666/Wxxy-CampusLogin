@@ -31,11 +31,6 @@ const OUTBOUND_SWITCH_MAX_FAILS: u32 = 3;
 /// 每拍校验——防 stop→start 竞速下「旧循环退出时误清新循环的 running 标志」
 static MONITOR_GENERATION: AtomicU64 = AtomicU64::new(0);
 
-/// 自动登录读-判-写 attempt 段互斥:tick 循环、WiFi 事件、手动触发三条入口并发
-/// 跑 run_check_once 时,同拍重复探测/重复登录/计数错乱竞态由此串行化
-/// (仅覆盖"判在线→should_attempt_login→run_login→计数"段,探测 IO 不持锁)
-static LOGIN_ATTEMPT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 /// 夜间出站还原后「静默期内持续放行」标记(桌面
 /// `background_check::request_check_after_outbound_restore` 同义)。
 ///
@@ -668,25 +663,23 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
         emit_login_log(app, "启动检测:不在校园网环境,跳过自动登录", "info");
         return;
     }
+    let Some(attempt) = crate::protocol_cmds::try_begin_login() else {
+        emit_login_log(app, "启动自动登录: 已有登录任务进行中,本次跳过", "info");
+        return;
+    };
     emit_login_log(app, "检测到校园网环境,执行启动自动登录", "info");
     match crate::protocol_cmds::run_login(
         &settings.user,
         &settings.password,
         &settings.operator,
         &state,
+        attempt,
     )
     .await
     {
         Ok(v) if v["success"].as_bool().unwrap_or(false) => {
             let msg = v["message"].as_str().unwrap_or("").to_string();
             emit_login_log(app, &format!("启动自动登录成功: {msg}"), "success");
-            // 登录成功是在线的权威证据:预置 was_online,首拍探测 Unknown/Failed
-            // 保持记忆时为"在线"而非初始 false(FGS 通知文案/掉线检测起点正确);
-            // 同时清注销保护期,防止跨会话残留影响本轮掉线重登
-            MONITOR.was_online.store(true, Ordering::Relaxed);
-            MONITOR
-                .logout_protected_until_ms
-                .store(0, Ordering::Relaxed);
             emit_auto_login_result(app, true, &msg);
         }
         Ok(v) => {
@@ -999,7 +992,8 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
         NightOutboundAction::Restore => {
             // 登录当前活跃账号(复用运营商夜切同款内核:无校园网探测闸,与桌面
             // full_login 对齐);成功才清标记
-            if night_switch_login(app, &settings).await {
+            let login_outcome = night_switch_login(app, &settings).await;
+            if matches!(login_outcome, NightLoginOutcome::Succeeded) {
                 OUTBOUND_RESTORE_FAIL_COUNT.store(0, Ordering::Relaxed);
                 let mut restored = latest_settings(app, &settings).await;
                 restored.night_outbound_restore = String::new();
@@ -1014,6 +1008,8 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                     RESTORE_SILENT_PASS.store(true, Ordering::Release);
                     emit_login_log(app, "夜间出站切换: 已恢复校园网登录", "success");
                 }
+            } else if matches!(login_outcome, NightLoginOutcome::Busy) {
+                // 其他入口正在登录:保留切换态且不计失败,下一拍再判断结果。
             } else {
                 // 连续失败上限:夜间每拍都会重试登录,不止住的话标记会永久压住巡检
                 // (热点出站下登录一直失败,自愈希望渺茫)——达上限放弃自动还原并清
@@ -1202,15 +1198,25 @@ async fn persist_settings(app: &tauri::AppHandle, s: &crate::config_state::Setti
 /// 夜切后的登录触发:直接走 run_login 内核(与桌面 full_login 无闸语义对齐)。
 /// 断网窗口内校园网探测可能不通过,auto_login_on_start 的"不在校园网则跳过"闸
 /// 会把登录无声吞掉;此处仅保留账号/密码为空不登的防御判断,失败照实记 error。
-/// 返回是否登录成功:夜间出站切换的还原侧据此决定清不清切换态标记
+/// 夜间登录结果:已有登录进行中不是失败,不得消耗出站还原失败次数。
+enum NightLoginOutcome {
+    Succeeded,
+    Failed,
+    Busy,
+}
+
 async fn night_switch_login(
     app: &tauri::AppHandle,
     settings: &crate::config_state::Settings,
-) -> bool {
+) -> NightLoginOutcome {
     if settings.user.is_empty() || settings.password.is_empty() {
         emit_login_log(app, "晚间断网切换: 账号或密码未配置,跳过登录", "warning");
-        return false;
+        return NightLoginOutcome::Failed;
     }
+    let Some(attempt) = crate::protocol_cmds::try_begin_login() else {
+        emit_login_log(app, "晚间断网切换: 已有登录任务进行中,本次跳过", "info");
+        return NightLoginOutcome::Busy;
+    };
     // 登录前强制绑 WiFi(同 auto_login_on_start;WiFi+流量同开时默认路由可能落蜂窝)
     crate::protocol_cmds::ensure_wifi_bound(app).await;
     let state = app.state::<crate::android_state::AndroidState>();
@@ -1219,6 +1225,7 @@ async fn night_switch_login(
         &settings.password,
         &settings.operator,
         &state,
+        attempt,
     )
     .await
     {
@@ -1230,19 +1237,11 @@ async fn night_switch_login(
                 &format!("晚间断网切换登录: {msg}"),
                 if success { "success" } else { "error" },
             );
-            if success {
-                // 登录成功是在线的权威证据(同 auto_login_on_start):预置 was_online
-                // 并清注销保护期,防止跨会话残留影响本轮掉线重登
-                MONITOR.was_online.store(true, Ordering::Relaxed);
-                MONITOR
-                    .logout_protected_until_ms
-                    .store(0, Ordering::Relaxed);
-            }
-            success
+            if success { NightLoginOutcome::Succeeded } else { NightLoginOutcome::Failed }
         }
         Err(e) => {
             emit_login_log(app, &format!("晚间断网切换登录失败: {e}"), "error");
-            false
+            NightLoginOutcome::Failed
         }
     }
 }
@@ -1691,10 +1690,13 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
             since,
             settings.auto_login_cooldown_secs,
         );
-    if should && !settings.user.is_empty() && !settings.password.is_empty() {
-        // attempt 段互斥:tick/WiFi 事件/手动触发三条入口可能同拍进入,无锁时
-        // 会重复探测+重复登录+计数错乱。锁覆盖「记账→登录→计数收尾」整段
-        let _attempt_guard = LOGIN_ATTEMPT_LOCK.lock().await;
+    // 所有入口共享同一登录所有权；已有尝试时跳过，而不是等待后再登一次。
+    let login_needed = should && !settings.user.is_empty() && !settings.password.is_empty();
+    let attempt = if login_needed { crate::protocol_cmds::try_begin_login() } else { None };
+    if login_needed && attempt.is_none() {
+        emit_login_log(app, "自动重登: 已有登录任务进行中,本次跳过", "info");
+    }
+    if let Some(attempt) = attempt {
         MONITOR.last_login_attempt_ms.store(now, Ordering::Relaxed);
         MONITOR.reconnect_count.fetch_add(1, Ordering::Relaxed);
         let count = MONITOR.reconnect_count.load(Ordering::Relaxed);
@@ -1714,6 +1716,7 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
                 &settings.password,
                 &settings.operator,
                 &state,
+                attempt,
             )
             .await
             {

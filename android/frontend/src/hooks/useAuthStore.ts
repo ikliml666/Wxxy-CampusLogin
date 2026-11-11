@@ -121,9 +121,16 @@ export const useAuthStore = create<AuthStore>((set) => ({
     }
 
     let success = false
+    let loginInProgress = false
     try {
       const result = await withTimeout(api.doLogin(), 60000, i18next.t('auth.loginTimeout'))
-      if (result?.success) {
+      if (result?.inProgress) {
+        loginInProgress = true
+        const message = result.message || i18next.t('auth.loggingInToast')
+        set({ status: { text: message, state: 'loading' } })
+        useLogToastStore.getState().addLog(message, 'info')
+        useLogToastStore.getState().addToast(message, 'info')
+      } else if (result?.success) {
         set({ status: { text: i18next.t('auth.loginSuccess'), state: 'online' } })
         useLogToastStore.getState().addLog(result.message || i18next.t('auth.loginSuccess'), 'success')
         useLogToastStore.getState().addToast(i18next.t('auth.loginSuccess'), 'success', result.message)
@@ -133,7 +140,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
         useLogToastStore.getState().addLog(result?.message || i18next.t('auth.loginFailed'), 'error')
         useLogToastStore.getState().addToast(i18next.t('auth.loginFailed'), 'error', result?.message)
       }
-      if (useConfigStore.getState().config.enableNetworkQuality !== false) {
+      if (!loginInProgress && useConfigStore.getState().config.enableNetworkQuality !== false) {
         // 历史缺陷：登录后无条件手动全量质量探测，与后端 latency loop/后台巡检重复
         // （后端 run_quality_check 的 60s 全局节流只作用于循环路径，手动命令不受限）。
         // 改为节流：最近 60s 内已有任意来源的质量结果则跳过，保留"登录后立即更新质量显示"，
@@ -156,7 +163,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     // 历史缺陷：登录成功置 online 后立即 checkOnline()，Portal 会话尚未传播时
     // 二次查询返回 offline，把"登录成功"瞬间覆盖为"未登录"（状态闪烁）。
     // 修复：登录成功跳过立即复查（登录结果已是权威判定）；仅失败时复查确认状态。
-    if (!success) {
+    if (!success && !loginInProgress) {
       try { await useAuthStore.getState().checkOnline() } catch {}
     }
     set({ isLoggingIn: false })
