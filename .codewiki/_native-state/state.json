@@ -3,21 +3,23 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "82ae432503aa2bf85c71c78319efa0747be0081b",
-    "headCommit": "41c9f9e659e630af87a39305e814535729f33f7c"
+    "headCommit": "cdc1cea7e83f4ecab202a5f99c4b9789e79d9c56"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "82ae432503aa2bf85c71c78319efa0747be0081b",
-    "headCommit": "41c9f9e659e630af87a39305e814535729f33f7c",
+    "headCommit": "cdc1cea7e83f4ecab202a5f99c4b9789e79d9c56",
     "committed": [
+      "android/frontend/src/auth/types.ts",
+      "android/frontend/src/hooks/useAuthStore.ts",
+      "android/src-tauri/src/monitor_loop.rs",
+      "android/src-tauri/src/protocol_cmds.rs",
       "android/src-tauri/src/quality_cmds.rs",
       "tauri-app/src-tauri/src/monitor/quality_scheduler.rs",
       "tauri-app/src-tauri/src/network/quality.rs"
     ],
     "staged": [],
     "unstaged": [
-      "android/src-tauri/src/monitor_loop.rs",
-      "android/src-tauri/src/protocol_cmds.rs",
       "tauri-app/frontend/index.html"
     ],
     "untracked": [],
@@ -26,8 +28,6 @@
     "reason": ""
   },
   "unconsumed": [
-    "android/src-tauri/src/monitor_loop.rs",
-    "android/src-tauri/src/protocol_cmds.rs",
     "tauri-app/frontend/index.html"
   ],
   "engineVersion": "2.0.0",
@@ -37,8 +37,8 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "工作区未提交改动已合成临时 commit 14b460ae25ca（3 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwburs1w-5-native（66 个文件）"
+    "工作区未提交改动已合成临时 commit e0d025666af8（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbvmme3-7-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-11T08:26:52.543Z"
+  "updatedAt": "2026-11-11T08:49:07.418Z"
 }
