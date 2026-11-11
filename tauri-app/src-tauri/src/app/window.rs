@@ -45,6 +45,12 @@ pub fn set_main_webview_suspended(app: &tauri::AppHandle, suspended: bool) {
     }
     #[cfg(not(target_os = "windows"))]
     let _ = (app, suspended);
+
+    // 挂起后再主动归还工作集：SetIsVisible/LOW 只让渲染进程自行收敛（数十秒级），
+    // 这里把本进程与 WebView2 后代进程的工作集换出，页面状态不受影响
+    if suspended {
+        crate::platform::memory_trim::trim_working_sets_async();
+    }
 }
 
 /// 新 WebView 建立/销毁后复位挂起相关静态态：`LAST_MINIMIZED` 是跨窗口生命
@@ -70,15 +76,24 @@ fn apply_webview_suspended(
     let core = unsafe { controller.CoreWebView2() }?;
 
     // 内存目标级别与可见性解耦：隐藏期 LOW（尽快归还），恢复后 NORMAL
-    if let Ok(icw2_19) = core.cast::<ICoreWebView2_19>() {
-        let raw = if suspended {
-            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
-        } else {
-            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
-        };
-        let _ = unsafe {
-            icw2_19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL(raw.0))
-        };
+    match core.cast::<ICoreWebView2_19>() {
+        Ok(icw2_19) => {
+            let raw = if suspended {
+                COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+            } else {
+                COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+            };
+            if let Err(e) = unsafe {
+                icw2_19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL(raw.0))
+            } {
+                crate::log_warn!("webview", "设置内存使用目标级别({})失败: {}", suspended, e);
+            }
+        }
+        // 运行时 < 105 没有 ICoreWebView2_19：LOW 完全不生效，必须留证据
+        Err(_) => crate::log_warn!(
+            "webview",
+            "ICoreWebView2_19 不可用（WebView2 运行时版本过低），内存目标级别未生效"
+        ),
     }
 
     // 只切可见性：渲染进程保持存活，React 调度器与 MessageChannel 都不受影响。
@@ -216,8 +231,9 @@ fn rebuild_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error:
         .cloned()
         .ok_or("tauri.conf.json 中未找到 main 窗口配置")?;
 
-    let mut builder = tauri::WebviewWindowBuilder::from_config(app, &window_config)?;
+    let builder = tauri::WebviewWindowBuilder::from_config(app, &window_config)?;
     // 几何恢复：离屏（拔显示器）则回退配置默认（center）
+    let mut restored = None;
     if let Some(geo) = crate::app::lightweight::take_geometry() {
         let monitors: Vec<(i32, i32, u32, u32)> = app
             .available_monitors()
@@ -232,7 +248,7 @@ fn rebuild_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error:
             })
             .unwrap_or_default();
         if crate::app::lightweight::geometry_is_on_screen(&geo, &monitors) {
-            builder = builder.position(geo.x, geo.y).inner_size(geo.width, geo.height);
+            restored = Some(geo);
         } else {
             crate::log_warn!("lightweight", "记忆的窗口几何已不在任何显示器上，回退居中默认");
         }
@@ -241,6 +257,11 @@ fn rebuild_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error:
     // 残留的 LAST_MINIMIZED=true 会吞掉新窗口首个 Resized 恢复事件
     reset_suspend_state_for_new_webview();
     let window = builder.build()?;
+    // 统一物理像素口径：builder 的 position/inner_size 是逻辑像素，构建后按物理值设置
+    if let Some(geo) = restored {
+        let _ = window.set_position(tauri::PhysicalPosition::new(geo.x as i32, geo.y as i32));
+        let _ = window.set_size(tauri::PhysicalSize::new(geo.width as u32, geo.height as u32));
+    }
     crate::log_info!("lightweight", "主窗口已重建，等待前端就绪后显示");
 
     // 退出轻量化态：间隔恢复、效率模式关闭

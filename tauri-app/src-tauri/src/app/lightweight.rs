@@ -1,10 +1,12 @@
 //! 桌面轻量化模式运行态：状态标志、窗口几何缓存、退出守卫与间隔系数。
 //!
-//! 全部为内存态（不落盘）：轻量化是「关闭按钮的运行期行为」，重启后
-//! 由 `lightweight_mode` 配置决定行为，无需跨进程记忆。
+//! 标志/守卫/就绪信号是内存态；窗口几何额外落盘（`window_geometry.json`，
+//! 物理像素口径），供跨进程重启恢复上次位置。
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+
+use serde::{Deserialize, Serialize};
 
 /// 轻量化生效中：无 WebView 窗口、EcoQoS 已开启、检测间隔延长
 static LIGHTWEIGHT_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -15,7 +17,11 @@ static EXPECT_LIGHTWEIGHT_EXIT: AtomicBool = AtomicBool::new(false);
 /// 销毁前记录的窗口几何，重建时应用
 static GEOMETRY: Mutex<Option<WindowGeometry>> = Mutex::new(None);
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// 窗口几何：全部为**物理像素**（`outer_position`/`outer_size` 原始值）。
+///
+/// 恢复端必须用 `PhysicalPosition`/`PhysicalSize`，不要再乘/除 `scale_factor`；
+/// builder 的 `position`/`inner_size` 是逻辑像素，高 DPI 下混用会偏移。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct WindowGeometry {
     pub x: f64,
     pub y: f64,
@@ -47,12 +53,11 @@ pub fn should_prevent_exit(expecting: bool, is_quitting: bool) -> bool {
 
 pub fn capture_geometry(window: &tauri::WebviewWindow) {
     if let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) {
-        let scale = window.scale_factor().unwrap_or(1.0);
         let geo = WindowGeometry {
             x: pos.x as f64,
             y: pos.y as f64,
-            width: size.width as f64 / scale,
-            height: size.height as f64 / scale,
+            width: size.width as f64,
+            height: size.height as f64,
         };
         if let Ok(mut g) = GEOMETRY.lock() {
             *g = Some(geo);
@@ -62,6 +67,42 @@ pub fn capture_geometry(window: &tauri::WebviewWindow) {
 
 pub fn take_geometry() -> Option<WindowGeometry> {
     GEOMETRY.lock().ok().and_then(|mut g| g.take())
+}
+
+/// 窗口几何落盘文件名（数据目录下，与 config.json 同级）
+const GEOMETRY_FILE: &str = "window_geometry.json";
+
+pub fn geometry_path(dir: &std::path::Path) -> std::path::PathBuf {
+    dir.join(GEOMETRY_FILE)
+}
+
+/// 把最近一次 capture 的几何写入数据目录（物理像素，跨进程恢复用）。
+pub fn save_geometry(app: &tauri::AppHandle) {
+    let Some(geo) = GEOMETRY.lock().ok().and_then(|g| *g) else {
+        return;
+    };
+    let dir = crate::config::persist::get_data_dir(app);
+    match serde_json::to_string(&geo) {
+        Ok(body) => {
+            if let Err(e) = std::fs::write(geometry_path(&dir), body) {
+                crate::log_warn!("lightweight", "保存窗口几何失败: {}", e);
+            }
+        }
+        Err(e) => crate::log_warn!("lightweight", "序列化窗口几何失败: {}", e),
+    }
+}
+
+/// 读取上次落盘的几何。文件不存在（首次启动）返回 None；损坏时告警并回退居中。
+pub fn load_geometry(app: &tauri::AppHandle) -> Option<WindowGeometry> {
+    let dir = crate::config::persist::get_data_dir(app);
+    let body = std::fs::read_to_string(geometry_path(&dir)).ok()?;
+    match serde_json::from_str(&body) {
+        Ok(geo) => Some(geo),
+        Err(e) => {
+            crate::log_warn!("lightweight", "窗口几何文件损坏，回退居中默认: {}", e);
+            None
+        }
+    }
 }
 
 /// 几何与任一显示器矩形相交即认为在屏上（纯函数）
@@ -124,6 +165,10 @@ pub async fn wait_window_ready_and_show(app: &tauri::AppHandle, label: &str) {
     }
     // 复用统一显示路径：会先 show 窗口再 Resume 挂起的渲染、清掉 hidden_by_design 标记
     crate::app::window::show_and_focus_main(app);
+    // 重建出来的是全新 WebView：旧窗口销毁时 ProcessFailed 订阅已随之失效，
+    // 等前端就绪后重新订阅，否则重建后的崩溃即时恢复链路缺失（只剩心跳超时兜底）
+    #[cfg(target_os = "windows")]
+    crate::app::webview_recovery::subscribe_process_failed(app);
 }
 
 #[cfg(test)]
@@ -163,5 +208,42 @@ mod tests {
         arm_lightweight_exit_guard();
         assert!(take_lightweight_exit_guard());
         assert!(!take_lightweight_exit_guard(), "第二次取走应为 false（单次消费）");
+    }
+
+    #[test]
+    fn 几何序列化_物理像素往返() {
+        let geo = WindowGeometry { x: 120.0, y: 80.0, width: 2040.0, height: 1152.0 };
+        let body = serde_json::to_string(&geo).unwrap();
+        let back: WindowGeometry = serde_json::from_str(&body).unwrap();
+        assert_eq!(back, geo);
+    }
+
+    #[test]
+    fn 几何离屏校验_必须用物理值_逻辑值在屏内也不算在屏() {
+        // 150% DPI：显示器物理 1920 宽；窗口物理 x=2000 已在屏外，
+        // 若按旧口径存逻辑值（x≈1333）会被误判为在屏。
+        let monitors = vec![(0i32, 0i32, 1920u32, 1080u32)];
+        let physical = WindowGeometry { x: 2000.0, y: 100.0, width: 2040.0, height: 1536.0 };
+        assert!(!geometry_is_on_screen(&physical, &monitors));
+        let logical_would_be = WindowGeometry { x: 1333.0, y: 66.0, width: 1360.0, height: 1024.0 };
+        assert!(
+            geometry_is_on_screen(&logical_would_be, &monitors),
+            "逻辑口径会误判在屏，本断言锁定恢复端必须按物理像素判断"
+        );
+    }
+
+    #[test]
+    fn 几何离屏校验_副屏负坐标() {
+        let monitors = vec![(-1920i32, 0i32, 1920u32, 1080u32), (0, 0, 1920, 1080)];
+        let on_left = WindowGeometry { x: -1800.0, y: 50.0, width: 1360.0, height: 768.0 };
+        assert!(geometry_is_on_screen(&on_left, &monitors));
+        let far_left = WindowGeometry { x: -4000.0, y: 50.0, width: 1360.0, height: 768.0 };
+        assert!(!geometry_is_on_screen(&far_left, &monitors));
+    }
+
+    #[test]
+    fn 几何文件_固定在数据目录() {
+        let path = geometry_path(std::path::Path::new("data"));
+        assert!(path.ends_with(GEOMETRY_FILE));
     }
 }

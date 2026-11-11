@@ -40,3 +40,6 @@ pub mod icmp_probe;
 pub mod rtss_compat;
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod toast;
+// 隐藏/最小化后的工作集回收（SetProcessWorkingSetSize；非 Windows 空实现）
+#[cfg(desktop)]
+pub mod memory_trim;

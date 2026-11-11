@@ -215,6 +215,45 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
     state.config.store(config.clone());
     crate::network::update_portal_url(&config.portal_url);
 
+    // 恢复上次窗口几何（物理像素口径，轻量化/托盘退出前落盘）；窗口此刻
+    // visible(false)，设置位置不产生可见闪烁。离屏（拔显示器/分辨率变化）
+    // 回退 tauri.conf 的居中默认。
+    if let Some(window) = app.get_webview_window("main") {
+        if let Some(geo) = crate::app::lightweight::load_geometry(app.handle()) {
+            let monitors: Vec<(i32, i32, u32, u32)> = app
+                .handle()
+                .available_monitors()
+                .map(|list| {
+                    list.iter()
+                        .map(|m| {
+                            let p = m.position();
+                            let s = m.size();
+                            (p.x, p.y, s.width, s.height)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if crate::app::lightweight::geometry_is_on_screen(&geo, &monitors) {
+                let _ = window
+                    .set_position(tauri::PhysicalPosition::new(geo.x as i32, geo.y as i32));
+                let _ = window.set_size(tauri::PhysicalSize::new(
+                    geo.width as u32,
+                    geo.height as u32,
+                ));
+                crate::log_info!(
+                    "startup",
+                    "已恢复上次窗口位置: ({}, {}) {}x{}",
+                    geo.x,
+                    geo.y,
+                    geo.width,
+                    geo.height
+                );
+            } else {
+                crate::log_warn!("lightweight", "上次窗口位置已不在任何显示器上，回退居中默认");
+            }
+        }
+    }
+
     // 历史缺陷：logRetentionDays 仅保存不生效，重启后日志保留天数回退默认 7 天，
     // 直到用户再次进入日志面板触发 set_log_retention_days。启动时按配置应用。
     // set 应用时即触发一次按天清理（见 logger），重装/升级后旧日志首次启动即被清。

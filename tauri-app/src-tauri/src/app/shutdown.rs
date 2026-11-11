@@ -6,6 +6,12 @@ use crate::infra::state::AppState;
 ///
 /// 通过 `shutdown_and_exit` 取消并等待所有后台任务结束后退出进程。
 pub fn graceful_exit(app_handle: &AppHandle, _state: &AppState) {
+    // 托盘退出/真退出不经过轻量化分支，这里补抓窗口几何并落盘，保证下次启动能恢复；
+    // 轻量化态窗口已销毁时沿用上次落盘值（GEOMETRY 为空则不覆盖磁盘）
+    if let Some(ww) = app_handle.get_webview_window("main") {
+        crate::app::lightweight::capture_geometry(&ww);
+    }
+    crate::app::lightweight::save_geometry(app_handle);
     let app_h = app_handle.clone();
     tauri::async_runtime::spawn(async move {
         let s = app_h.state::<AppState>();
@@ -31,6 +37,7 @@ pub fn handle_window_close_event(window: &Window, event: &WindowEvent) {
         if let Some(ww) = window.app_handle().get_webview_window("main") {
             crate::app::lightweight::capture_geometry(&ww);
         }
+        crate::app::lightweight::save_geometry(window.app_handle());
         crate::app::lightweight::arm_lightweight_exit_guard();
         crate::app::lightweight::set_lightweight_active(true);
         #[cfg(windows)]
@@ -43,8 +50,10 @@ pub fn handle_window_close_event(window: &Window, event: &WindowEvent) {
         api.prevent_close();
         if let Some(ww) = window.app_handle().get_webview_window("main") {
             // 隐藏前先挂起：hide() 的 SetIsVisible(false) 只停合成，CSS 无限
-            // 动画与脚本定时器仍要等 WebView2 自己判定才睡（实测数秒），
-            // TrySuspend 才是「点下即停」。
+            // 动画与脚本定时器仍要等 WebView2 自己判定才睡（实测数秒），所以这里
+            // 同步挂起（SetIsVisible(false) + 内存级别 LOW + 工作集回收）。绝不使用
+            // TrySuspend——冻结渲染进程会让 React 调度器永久死锁，见 app/window.rs
+            // 与 never_calls_try_suspend 护栏。
             crate::app::window::mark_hidden_by_design(true);
             crate::app::window::set_main_webview_suspended(&window.app_handle(), true);
             let _ = ww.hide(); // [忽略错误] 窗口可能已关闭
