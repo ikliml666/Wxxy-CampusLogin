@@ -1,7 +1,10 @@
 use tauri::AppHandle;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use crate::network::check_network_quality_async;
+use crate::network::{
+    check_network_quality_async,
+    quality::{run_with_cancellation, CancellationToken},
+};
 use crate::infra::command_context::CommandContext;
 use crate::infra::events::EventBus;
 use super::latency::{classify_quality_change, notify_quality_change, record_last_quality, BAD_LEVELS};
@@ -12,11 +15,11 @@ use super::latency::{classify_quality_change, notify_quality_change, record_last
 const SPIKE_CONFIRM_COUNT: usize = 2;
 const SPIKE_CONFIRM_INTERVAL_SECS: u64 = 15;
 
-/// 单次质量检测：互斥抢占 → 执行 → 推送前端。返回 None 表示信号量被占用
-/// （如手动检测进行中）或序列化失败，调用方不得当作有效档位使用。
+/// 单次质量检测：互斥抢占 → 执行 → 推送前端。返回 None 表示已取消/退出、
+/// 信号量被占用（如手动检测进行中）或序列化失败，调用方不得当作有效档位使用。
 /// `lightweight` 透传给 check_network_quality_async：复核轮只测网关 + 1 个
 /// 外网站点（恶化复核只需确认档位持续，无需 19 项全量外网目标）。
-async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapter_ip: &str, lightweight: bool) -> Option<serde_json::Value> {
+async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapter_ip: &str, lightweight: bool, cancel: Option<&CancellationToken>) -> Option<serde_json::Value> {
     let s = CommandContext::from_app(app_handle);
     let (skip_ttfb, skip_content, fixed_gateway) = {
         let cfg = s.config.load();
@@ -26,7 +29,13 @@ async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapt
         Some(g) => g,
         None => return None,
     };
-    let quality = check_network_quality_async(adapter_name, adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone(), Some(app_handle), lightweight).await;
+    let quality = run_with_cancellation(
+        check_network_quality_async(adapter_name, adapter_ip, skip_ttfb, skip_content, &fixed_gateway, s.exit.is_quitting.clone(), Some(app_handle), lightweight),
+        cancel,
+    ).await?;
+    if s.exit.is_quitting.load(Ordering::Acquire) || cancel.is_some_and(|c| c.is_cancelled()) {
+        return None;
+    }
     let quality_val = match serde_json::to_value(&quality) {
         Ok(v) => v,
         Err(e) => {
@@ -34,9 +43,19 @@ async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapt
             return None;
         }
     };
-    // 质量历史落盘：定时循环（含复核轮）每次真实检测记一条，供趋势回溯与事后排障
-    if let Err(e) = crate::config::persist::append_quality_history(app_handle, &quality) {
-        crate::log_warn!("background", "写入网络质量历史失败: {}", e);
+    // 同步读写与刷盘移出 async worker；历史顺序、100 条上限与原子写保持不变。
+    // 已提交的写入允许完成；写盘期间到达的取消只阻止后续事件，不中断刷盘。
+    let history_app = app_handle.clone();
+    let history_quality = quality.clone();
+    match tauri::async_runtime::spawn_blocking(move || {
+        crate::config::persist::append_quality_history(&history_app, &history_quality)
+    }).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => crate::log_warn!("background", "写入网络质量历史失败: {}", e),
+        Err(e) => crate::log_warn!("background", "网络质量历史写入任务失败: {}", e),
+    }
+    if s.exit.is_quitting.load(Ordering::Acquire) || cancel.is_some_and(|c| c.is_cancelled()) {
+        return None;
     }
     if let Err(e) = EventBus::new(app_handle).emit_network_quality_result(&quality_val) {
         crate::log_warn!("background", "发送网络质量结果失败: {}", e);
@@ -53,15 +72,18 @@ async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapt
 /// 返回首轮全量检测结果（serde_json::Value，字段同 NetworkQualityResult 的
 /// camelCase 序列化；未执行或被信号量抢占时为 None），供快排查联动等调用方
 /// 做进一步判定（如"能否访问互联网"）。
-pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str, adapter_ip: &str, cancel: Option<&tokio_util::sync::CancellationToken>) -> Option<serde_json::Value> {
+pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str, adapter_ip: &str, cancel: Option<&CancellationToken>) -> Option<serde_json::Value> {
     let s = CommandContext::from_app(app_handle);
     let enable_notification = s.config.load().enable_notification;
     if cancel.is_some_and(|c| c.is_cancelled()) {
         return None;
     }
-    let Some(first) = perform_quality_check(app_handle, adapter_name, adapter_ip, false).await else {
+    let Some(first) = perform_quality_check(app_handle, adapter_name, adapter_ip, false, cancel).await else {
         return None;
     };
+    if s.exit.is_quitting.load(Ordering::Acquire) || cancel.is_some_and(|c| c.is_cancelled()) {
+        return None;
+    }
     let current = first["quality"].as_str().unwrap_or("unknown").to_string();
     let last = s.network.load().last_network_quality.clone();
     match classify_quality_change(last.as_deref(), &current, enable_notification) {
@@ -71,22 +93,14 @@ pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str
             let mut confirmed = true;
             let mut record: Option<String> = None;
             for _ in 0..SPIKE_CONFIRM_COUNT {
-                // 复核等待可被取消：停止定时测试后不再跑完剩余复核窗口
-                let cancelled = async {
-                    match cancel {
-                        Some(c) => c.cancelled().await,
-                        None => std::future::pending::<()>().await,
-                    }
-                };
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(SPIKE_CONFIRM_INTERVAL_SECS)) => {}
-                    _ = cancelled => return None,
+                if run_with_cancellation(tokio::time::sleep(Duration::from_secs(SPIKE_CONFIRM_INTERVAL_SECS)), cancel).await.is_none() {
+                    return None;
                 }
                 if is_quitting.load(Ordering::Acquire) || cancel.is_some_and(|c| c.is_cancelled()) {
                     return None;
                 }
                 // 复核轮轻量化：只测网关 + 1 个外网站点，15s×2 复核确认语义不变
-                match perform_quality_check(app_handle, adapter_name, adapter_ip, true).await {
+                match perform_quality_check(app_handle, adapter_name, adapter_ip, true, cancel).await {
                     Some(val) => {
                         let q = val["quality"].as_str().unwrap_or("unknown").to_string();
                         let bad = BAD_LEVELS.contains(&q.as_str());
@@ -103,6 +117,9 @@ pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str
                         break;
                     }
                 }
+            }
+            if is_quitting.load(Ordering::Acquire) || cancel.is_some_and(|c| c.is_cancelled()) {
+                return None;
             }
             if confirmed {
                 notify_quality_change(app_handle, "bad");

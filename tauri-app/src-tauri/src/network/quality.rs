@@ -4,6 +4,51 @@ use serde::Serialize;
 use tauri::AppHandle;
 use crate::infra::events::EventBus;
 
+pub use tokio_util::sync::CancellationToken;
+
+/// 取消时直接 drop 操作 future；完成与取消同时发生也不交付结果，调用方不得再基于该结果产生新副作用。
+pub async fn run_with_cancellation<F, T>(operation: F, cancel: Option<&CancellationToken>) -> Option<T>
+where
+    F: std::future::Future<Output = T>,
+{
+    let cancelled = async {
+        match cancel {
+            Some(token) => token.cancelled().await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        result = operation => {
+            if cancel.is_some_and(|token| token.is_cancelled()) {
+                None
+            } else {
+                Some(result)
+            }
+        }
+        _ = cancelled => None,
+    }
+}
+
+/// 质量周期任务代际：取号即失效上一代，避免配置等待期间的旧启动覆盖新启动。
+#[cfg(any(target_os = "android", test))]
+pub struct QualityRunGeneration(std::sync::atomic::AtomicU64);
+
+#[cfg(any(target_os = "android", test))]
+impl QualityRunGeneration {
+    pub const fn new() -> Self {
+        Self(std::sync::atomic::AtomicU64::new(0))
+    }
+
+    /// 返回推进后的新代际，而不是 `fetch_add` 的旧值。
+    pub fn advance(&self) -> u64 {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1
+    }
+
+    pub fn is_current(&self, generation: u64) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire) == generation
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetworkQualityResult {
@@ -667,4 +712,69 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{run_with_cancellation, QualityRunGeneration};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    use tokio_util::sync::CancellationToken;
+
+    struct DropFlag(Arc<AtomicBool>);
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    #[tokio::test]
+    async fn 取消会丢弃在途检测且不交付迟到结果() {
+        let token = CancellationToken::new();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let operation = {
+            let dropped = dropped.clone();
+            async move {
+                let _flag = DropFlag(dropped);
+                std::future::pending::<()>().await
+            }
+        };
+        let mut task = Box::pin(run_with_cancellation(operation, Some(&token)));
+        tokio::select! {
+            _ = &mut task => panic!("在途检测不应在取消前完成"),
+            _ = tokio::task::yield_now() => {}
+        }
+        assert!(!dropped.load(Ordering::Acquire));
+
+        token.cancel();
+        assert!(task.await.is_none());
+        assert!(dropped.load(Ordering::Acquire), "取消必须 drop 检测 future");
+
+        let late_token = CancellationToken::new();
+        let late = run_with_cancellation(
+            async {
+                late_token.cancel();
+                42
+            },
+            Some(&late_token),
+        )
+        .await;
+        assert_eq!(late, None, "完成与取消同时发生时不得交付结果");
+        assert_eq!(run_with_cancellation(async { 42 }, None).await, Some(42));
+    }
+
+    #[test]
+    fn 代际推进作废旧启动且只允许当前代际收尾() {
+        let generation = QualityRunGeneration::new();
+        let first = generation.advance();
+        assert!(generation.is_current(first));
+
+        let second = generation.advance();
+        assert!(second > first);
+        assert!(!generation.is_current(first));
+        assert!(generation.is_current(second));
+    }
 }

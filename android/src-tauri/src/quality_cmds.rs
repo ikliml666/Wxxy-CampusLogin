@@ -2,19 +2,24 @@
 //! surge_ping ICMP 兜底在安卓运行时静默失败,TCP 优先策略下不影响结果)。
 
 use lazy_static::lazy_static;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::Manager;
 
-use campus_login_lib::network::quality::{check_network_quality_async, NetworkQualityResult};
+use campus_login_lib::network::quality::{
+    check_network_quality_async, run_with_cancellation, CancellationToken, NetworkQualityResult,
+    QualityRunGeneration,
+};
 
 lazy_static! {
     static ref LATENCY_RUNNING: AtomicBool = AtomicBool::new(false);
+    static ref LATENCY_CANCEL: std::sync::Mutex<Option<(u64, CancellationToken)>> =
+        std::sync::Mutex::new(None);
 }
 /// 延迟测试代际 token:start/stop 各自 fetch_add 一次,循环持有启动时的代际值,
 /// 每拍校验不一致即退出——防「旧循环误读新启动置位的 RUNNING 标志」的生命周期
 /// 竞态(stop 后立刻 start 时,旧循环可能把新循环的运行标志清掉)
-static LATENCY_GENERATION: AtomicU64 = AtomicU64::new(0);
+static LATENCY_GENERATION: QualityRunGeneration = QualityRunGeneration::new();
 
 async fn run_quality_once(app: &tauri::AppHandle) -> NetworkQualityResult {
     let settings = crate::config_state::current_settings(app)
@@ -60,17 +65,26 @@ pub async fn start_latency_test(app: tauri::AppHandle) -> Result<(), String> {
     if LATENCY_RUNNING.swap(true, Ordering::Relaxed) {
         return Ok(());
     }
+    // 在配置等待前取号；等待期间的 stop 或新启动都会使本次启动失效。
+    let gen = LATENCY_GENERATION.advance();
     let settings = match crate::config_state::current_settings(&app).await {
         Ok(s) => s,
         Err(e) => {
-            // 读取配置失败必须复位标志,否则 LATENCY_RUNNING 永久卡 true,
-            // 之后所有 start_latency_test 都被幂等闸吞掉(标志卡死缺陷)
-            LATENCY_RUNNING.store(false, Ordering::Relaxed);
+            // 只有当前代际失败才复位；旧启动失败不得误清新启动的运行标志。
+            if LATENCY_GENERATION.is_current(gen) {
+                LATENCY_RUNNING.store(false, Ordering::Relaxed);
+            }
             return Err(e);
         }
     };
-    let gen = LATENCY_GENERATION.fetch_add(1, Ordering::Relaxed);
-    tauri::async_runtime::spawn(latency_loop(app, settings, gen));
+    let cancel = CancellationToken::new();
+    let mut cancel_slot = LATENCY_CANCEL.lock().unwrap();
+    // 配置读取期间收到 stop 时不再启动；与 stop 共用槽位锁，保证注册后能被取消。
+    if !LATENCY_RUNNING.load(Ordering::Relaxed) || !LATENCY_GENERATION.is_current(gen) {
+        return Ok(());
+    }
+    *cancel_slot = Some((gen, cancel.clone()));
+    tauri::async_runtime::spawn(latency_loop(app, settings, gen, cancel));
     Ok(())
 }
 
@@ -78,8 +92,11 @@ pub async fn start_latency_test(app: tauri::AppHandle) -> Result<(), String> {
 pub fn stop_latency_test() -> Result<(), String> {
     // 先推进代际再清标志:代际不等会让旧循环的收尾 store(false) 失配跳过,
     // 避免旧循环退出时误清新一轮刚置位的运行标志
-    LATENCY_GENERATION.fetch_add(1, Ordering::Relaxed);
+    LATENCY_GENERATION.advance();
     LATENCY_RUNNING.store(false, Ordering::Relaxed);
+    if let Some((_, cancel)) = LATENCY_CANCEL.lock().unwrap().take() {
+        cancel.cancel();
+    }
     Ok(())
 }
 
@@ -104,7 +121,7 @@ fn next_backoff_interval_ms(current_ms: u64, stable_good_streak: u32, base_ms: u
     }
 }
 
-async fn latency_loop(app: tauri::AppHandle, settings: crate::config_state::Settings, gen: u64) {
+async fn latency_loop(app: tauri::AppHandle, settings: crate::config_state::Settings, gen: u64, cancel: CancellationToken) {
     let base_ms = settings.latency_test_interval.max(10_000);
     let mut current_ms = base_ms;
     let mut stable_good_streak: u32 = 0;
@@ -113,11 +130,14 @@ async fn latency_loop(app: tauri::AppHandle, settings: crate::config_state::Sett
     // 节奏打外网。改用 sleep 放循环尾部,天然支持退避变周期,无首 tick 陷阱
     loop {
         if !LATENCY_RUNNING.load(Ordering::Relaxed)
-            || LATENCY_GENERATION.load(Ordering::Relaxed) != gen
+            || !LATENCY_GENERATION.is_current(gen)
+            || cancel.is_cancelled()
         {
             break;
         }
-        let result = run_quality_once(&app).await; // quality 内部经 EventBus emit network-quality-result
+        let Some(result) = run_with_cancellation(run_quality_once(&app), Some(&cancel)).await else {
+            break;
+        }; // quality 内部经 EventBus emit network-quality-result
                                                    // 退避状态机：good 及以上累计，波动/失败（fair/poor/bad/unknown/busy）清零
         if GOOD_LEVELS.contains(&result.quality.as_str()) {
             stable_good_streak = stable_good_streak.saturating_add(1);
@@ -135,11 +155,21 @@ async fn latency_loop(app: tauri::AppHandle, settings: crate::config_state::Sett
             stable_good_streak = 0;
             current_ms = base_ms;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(current_ms)).await;
+        if run_with_cancellation(
+            tokio::time::sleep(std::time::Duration::from_millis(current_ms)),
+            Some(&cancel),
+        ).await.is_none() {
+            break;
+        }
     }
+    let mut cancel_slot = LATENCY_CANCEL.lock().unwrap();
+    if cancel_slot.as_ref().is_some_and(|(current_gen, _)| *current_gen == gen) {
+        cancel_slot.take();
+    }
+    drop(cancel_slot);
     // 只有启动代际仍匹配才清运行标志:stop 已推进代际(或新一轮已启动)时,
     // 标志归新持有者管理,旧循环不得误清
-    if LATENCY_GENERATION.load(Ordering::Relaxed) == gen {
+    if LATENCY_GENERATION.is_current(gen) {
         LATENCY_RUNNING.store(false, Ordering::Relaxed);
     }
 }
