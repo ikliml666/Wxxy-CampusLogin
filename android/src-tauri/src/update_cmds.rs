@@ -21,7 +21,8 @@ lazy_static! {
     static ref UPDATE_CHECKSUM: Mutex<Option<(String, String)>> = Mutex::new(None);
 }
 
-const VERSION_FILE: &str = "https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json";
+const VERSION_FILE: &str =
+    "https://raw.githubusercontent.com/ikliml666/Wxxy-CampusLogin/main/version.json";
 /// 自动更新检查周期(桌面 updater 同语义):24h
 const AUTO_CHECK_INTERVAL_SECS: u64 = 24 * 3600;
 /// 失败退避重试间隔:5min → 15min → 1h(与 24h 周期互补:每个 24h 周期内
@@ -142,13 +143,15 @@ pub(crate) fn allowed_url(url: &str) -> Result<(), String> {
         .nth(1)
         .and_then(|rest| rest.split('/').next())
         .and_then(|host_port| {
-            host_port.rsplit_once(':').map_or(Some(host_port), |(h, p)| {
-                if p.chars().all(|c| c.is_ascii_digit()) && !h.is_empty() {
-                    Some(h)
-                } else {
-                    None
-                }
-            })
+            host_port
+                .rsplit_once(':')
+                .map_or(Some(host_port), |(h, p)| {
+                    if p.chars().all(|c| c.is_ascii_digit()) && !h.is_empty() {
+                        Some(h)
+                    } else {
+                        None
+                    }
+                })
         })
         .ok_or_else(|| "URL 缺少合法主机名".to_string())?;
     if DOWNLOAD_ALLOWED_HOSTS.contains(&host) {
@@ -210,9 +213,19 @@ async fn check_and_record(app: &tauri::AppHandle) -> Result<UpdateInfo, String> 
 
 fn version_urls(mirror_first: bool) -> Vec<&'static str> {
     if mirror_first {
-        vec![VERSION_MIRRORS[0], VERSION_MIRRORS[1], VERSION_MIRRORS[2], VERSION_FILE]
+        vec![
+            VERSION_MIRRORS[0],
+            VERSION_MIRRORS[1],
+            VERSION_MIRRORS[2],
+            VERSION_FILE,
+        ]
     } else {
-        vec![VERSION_FILE, VERSION_MIRRORS[0], VERSION_MIRRORS[1], VERSION_MIRRORS[2]]
+        vec![
+            VERSION_FILE,
+            VERSION_MIRRORS[0],
+            VERSION_MIRRORS[1],
+            VERSION_MIRRORS[2],
+        ]
     }
 }
 
@@ -234,8 +247,12 @@ struct VersionFile {
 /// 两种不同语义,前者下载端必须拒绝安装,后者降级放行但明示未校验(审计 B5)。
 /// API 失败/限流/无 APK 资产时 assets 为空——前端降级为外链 Releases(与现状一致);
 /// version.json 不含 assets,真实下载地址只能来自 API。
-async fn fetch_apk_assets(client: &reqwest::Client, latest: &str) -> (Vec<ReleaseAsset>, Option<String>, bool) {
-    let url = format!("https://api.github.com/repos/ikliml666/Wxxy-CampusLogin/releases/tags/v{latest}");
+async fn fetch_apk_assets(
+    client: &reqwest::Client,
+    latest: &str,
+) -> (Vec<ReleaseAsset>, Option<String>, bool) {
+    let url =
+        format!("https://api.github.com/repos/ikliml666/Wxxy-CampusLogin/releases/tags/v{latest}");
     let Ok(resp) = client
         .get(&url)
         // 资产列表是 version.json 之后的附加信息,拉不到也应快速降级(前端走外链兜底),
@@ -256,9 +273,22 @@ async fn fetch_apk_assets(client: &reqwest::Client, latest: &str) -> (Vec<Releas
     };
     let mut assets = Vec::new();
     let mut checksum = None;
-    for item in raw.get("assets").and_then(|a| a.as_array()).into_iter().flatten() {
-        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let url = item.get("browser_download_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    for item in raw
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let name = item
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let url = item
+            .get("browser_download_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         if name.is_empty() || url.is_empty() || !name.to_ascii_lowercase().ends_with(".apk") {
             continue;
         }
@@ -288,7 +318,12 @@ async fn check_update_inner(app: &tauri::AppHandle) -> Result<UpdateInfo, String
     let urls = version_urls(mirror_first);
     let mut last_err = String::from("未知错误");
     for url in urls {
-        match client.get(url).timeout(std::time::Duration::from_secs(10)).send().await {
+        match client
+            .get(url)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await
+        {
             Ok(resp) if resp.status().is_success() => {
                 let raw: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
                 let vf: VersionFile = serde_json::from_value(raw).map_err(|e| e.to_string())?;
@@ -301,17 +336,23 @@ async fn check_update_inner(app: &tauri::AppHandle) -> Result<UpdateInfo, String
                 let has_update = has_newer_version(current, &latest_version);
                 // APK 资产与校验值:校验值唯一来源 GitHub API digest(服务端计算),
                 // version.json 无 sha256 字段约定
-                let (assets, checksum, api_ok) = fetch_apk_assets(&client, &latest_version).await;
+                let (assets, checksum, api_ok) = if has_update {
+                    fetch_apk_assets(&client, &latest_version).await
+                } else {
+                    (Vec::new(), None, false)
+                };
                 // digest 记账携带 tag:下载端按下载 URL 的 tag 取用(检查与下载的
                 // 版本可能不同——只记裸 digest 会把 A 版校验值误配到 B 版文件上)。
                 // 三态:有 digest → (tag, digest);API 在线但无 digest → (tag, "") 哨兵,
                 // 下载端据此拒绝;API 不可用 → 不记账,下载端放行但明示未校验
-                if let Ok(mut guard) = UPDATE_CHECKSUM.lock() {
-                    *guard = match &checksum {
-                        Some(d) => Some((latest_version.clone(), d.clone())),
-                        None if api_ok => Some((latest_version.clone(), String::new())),
-                        None => None,
-                    };
+                if has_update {
+                    if let Ok(mut guard) = UPDATE_CHECKSUM.lock() {
+                        *guard = match &checksum {
+                            Some(d) => Some((latest_version.clone(), d.clone())),
+                            None if api_ok => Some((latest_version.clone(), String::new())),
+                            None => None,
+                        };
+                    }
                 }
                 return Ok(UpdateInfo {
                     has_update,
@@ -465,10 +506,19 @@ async fn download_update_inner(app: tauri::AppHandle, url: String) -> Result<Str
             } else {
                 0
             };
-            let percent = if total > 0 { downloaded as f64 / total as f64 * 100.0 } else { 0.0 };
+            let percent = if total > 0 {
+                downloaded as f64 / total as f64 * 100.0
+            } else {
+                0.0
+            };
             let _ = app.emit(
                 "update-download-progress",
-                DownloadProgress { downloaded, total, speed, percent },
+                DownloadProgress {
+                    downloaded,
+                    total,
+                    speed,
+                    percent,
+                },
             );
         }
     }
@@ -478,7 +528,10 @@ async fn download_update_inner(app: tauri::AppHandle, url: String) -> Result<Str
     // ②记账含该 tag 但 digest 为空(API 在线却拿不到校验值) → 拒绝安装;
     // ③无记账或 tag 不匹配(API 不可用降级/手动 URL) → 放行但 emit update-unverified
     //   + log_warn 明示未校验(此前 None 一律静默跳过,用户无从知晓完整性未验证)
-    let expected = match (UPDATE_CHECKSUM.lock().ok().and_then(|g| g.clone()), download_tag(&url)) {
+    let expected = match (
+        UPDATE_CHECKSUM.lock().ok().and_then(|g| g.clone()),
+        download_tag(&url),
+    ) {
         (Some((t, digest)), Some(url_tag)) if t == url_tag && !digest.is_empty() => Some(digest),
         (Some((t, _)), Some(url_tag)) if t == url_tag => {
             let _ = tokio::fs::remove_file(&path).await;
@@ -489,10 +542,15 @@ async fn download_update_inner(app: tauri::AppHandle, url: String) -> Result<Str
     if let Some(expected) = expected {
         if !verify_file_sha256(&path, &expected).await? {
             let _ = tokio::fs::remove_file(&path).await;
-            return Err("下载文件 SHA256 校验不匹配,已删除(下载源可能被篡改,请换镜像重试)".to_string());
+            return Err(
+                "下载文件 SHA256 校验不匹配,已删除(下载源可能被篡改,请换镜像重试)".to_string(),
+            );
         }
     } else {
-        campus_login_lib::log_warn!("updater", "本次下载未取得校验值(检查期 API 不可用或版本不匹配),完整性未验证");
+        campus_login_lib::log_warn!(
+            "updater",
+            "本次下载未取得校验值(检查期 API 不可用或版本不匹配),完整性未验证"
+        );
         let _ = app.emit(
             "update-unverified",
             serde_json::json!({ "url": url, "file": file_name }),
@@ -525,7 +583,9 @@ pub(crate) async fn verify_file_sha256(path: &Path, expected: &str) -> Result<bo
     if clean.len() != 64 || !clean.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(format!("校验值格式非法(非 64 位十六进制): {clean}"));
     }
-    let mut file = tokio::fs::File::open(path).await.map_err(|e| format!("读取下载文件失败: {e}"))?;
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .map_err(|e| format!("读取下载文件失败: {e}"))?;
     use tokio::io::AsyncReadExt;
     let mut hasher = Sha256::new();
     // 必须堆分配(vec)而非栈数组:本函数是 async fn,[0u8; 65536] 会被并入 future
@@ -533,13 +593,20 @@ pub(crate) async fn verify_file_sha256(path: &Path, expected: &str) -> Result<bo
     // 真机实测一进 download_update 即栈溢出闪退(SIGSEGV, 2026-09-20 tombstone)
     let mut buf = vec![0u8; 65536];
     loop {
-        let n = file.read(&mut buf).await.map_err(|e| format!("读取下载文件失败: {e}"))?;
+        let n = file
+            .read(&mut buf)
+            .await
+            .map_err(|e| format!("读取下载文件失败: {e}"))?;
         if n == 0 {
             break;
         }
         hasher.update(&buf[..n]);
     }
-    let actual: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    let actual: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     Ok(actual == clean)
 }
 
@@ -583,7 +650,9 @@ pub async fn cleanup_stale_apks(app: &tauri::AppHandle) {
         return;
     }
     let Ok(dir) = update_dir(app) else { return };
-    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else { return };
+    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
+        return;
+    };
     let now = std::time::SystemTime::now();
     while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
@@ -602,7 +671,10 @@ pub async fn cleanup_stale_apks(app: &tauri::AppHandle) {
             Err(_) => false,
         };
         if stale {
-            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
             let _ = tokio::fs::remove_file(&path).await;
             campus_login_lib::log_info!("updater", "清理残留安装包: {name}");
         }
@@ -622,16 +694,25 @@ mod tests {
         assert!(!has_newer_version("2.3.2", "2.3.2"));
         assert!(!has_newer_version("2.3.3", "2.3.2"));
         assert!(has_newer_version("2.3", "2.3.1"), "短版本按 0 补齐");
-        assert!(!has_newer_version("2.3.2", "2.3.2-beta"), "预发布后缀段解析为 0,不视为更新");
+        assert!(
+            !has_newer_version("2.3.2", "2.3.2-beta"),
+            "预发布后缀段解析为 0,不视为更新"
+        );
     }
 
     #[test]
     fn 白名单域名校验() {
         assert!(allowed_url("https://github.com/a/b.apk").is_ok());
         assert!(allowed_url("https://ghfast.top/https://github.com/x").is_ok());
-        assert!(allowed_url("https://evil.example.com/x.apk").is_err(), "非白名单域名必须拒绝");
+        assert!(
+            allowed_url("https://evil.example.com/x.apk").is_err(),
+            "非白名单域名必须拒绝"
+        );
         assert!(allowed_url("not-a-url").is_err());
-        assert!(allowed_url("http://github.com/x").is_ok(), "host 校验不分协议(下载层强制 https 由 reqwest scheme 保证)");
+        assert!(
+            allowed_url("http://github.com/x").is_ok(),
+            "host 校验不分协议(下载层强制 https 由 reqwest scheme 保证)"
+        );
     }
 
     #[test]
@@ -659,15 +740,15 @@ mod tests {
         // (AppHandle 无法在单测构造,直接校验 update_dir 的拼接语义)
         let data = std::path::PathBuf::from("/data/user/0/com.ikliml666.campuslogin");
         let built = data.join("files").join("update");
-        assert!(built.ends_with("files/update"), "拼接结果必须落在 files/update: {built:?}");
+        assert!(
+            built.ends_with("files/update"),
+            "拼接结果必须落在 files/update: {built:?}"
+        );
     }
 
     #[test]
     fn 清理残留安装包_超龄删_新鲜留_非apk不动() {
-        let dir = std::env::temp_dir().join(format!(
-            "wxxy-apk-cleanup-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("wxxy-apk-cleanup-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -688,30 +769,56 @@ mod tests {
         let now = std::time::SystemTime::now();
         let is_stale = |p: &std::path::Path| {
             let mtime = std::fs::metadata(p).and_then(|m| m.modified()).unwrap();
-            now.duration_since(mtime).map(|a| a.as_secs() > APK_STALE_SECS).unwrap_or(false)
+            now.duration_since(mtime)
+                .map(|a| a.as_secs() > APK_STALE_SECS)
+                .unwrap_or(false)
         };
         assert!(is_stale(&stale), "48h 前的旧包必须判为残留");
         assert!(!is_stale(&fresh), "刚下载的包不得被误删");
-        assert!(!is_stale(&other), "非 apk 文件不参与判定(调用方按扩展名过滤)");
+        assert!(
+            !is_stale(&other),
+            "非 apk 文件不参与判定(调用方按扩展名过滤)"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn 退避间隔_步进后回归24h周期() {
-        assert_eq!(backoff_delay_secs(0), AUTO_CHECK_INTERVAL_SECS, "成功或首轮 → 24h 正常周期");
+        assert_eq!(
+            backoff_delay_secs(0),
+            AUTO_CHECK_INTERVAL_SECS,
+            "成功或首轮 → 24h 正常周期"
+        );
         assert_eq!(backoff_delay_secs(1), 5 * 60, "第 1 次失败 → 5min");
         assert_eq!(backoff_delay_secs(2), 15 * 60, "第 2 次连续失败 → 15min");
         assert_eq!(backoff_delay_secs(3), 3600, "第 3 次连续失败 → 1h");
-        assert_eq!(backoff_delay_secs(4), AUTO_CHECK_INTERVAL_SECS, "退避用尽恢复 24h 周期");
+        assert_eq!(
+            backoff_delay_secs(4),
+            AUTO_CHECK_INTERVAL_SECS,
+            "退避用尽恢复 24h 周期"
+        );
     }
 
     #[test]
     fn 下载url_tag提取() {
         // 审计 B5:下载校验按当前 tag 取用,tag 提取是镜像前缀无关的
-        assert_eq!(download_tag("https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.4.1/app.apk").as_deref(), Some("v2.4.1"));
+        assert_eq!(
+            download_tag(
+                "https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.4.1/app.apk"
+            )
+            .as_deref(),
+            Some("v2.4.1")
+        );
         assert_eq!(download_tag("https://ghfast.top/https://github.com/ikliml666/Wxxy-CampusLogin/releases/download/v2.4.1/app.apk").as_deref(), Some("v2.4.1"), "镜像仅前缀拼接,tag 段不变");
-        assert!(download_tag("https://github.com/ikliml666/Wxxy-CampusLogin/raw/main/version.json").is_none(), "非 release 资产 URL 无 tag");
-        assert!(download_tag("https://github.com/x/releases/download/").is_none(), "tag 段为空不产出空 tag");
+        assert!(
+            download_tag("https://github.com/ikliml666/Wxxy-CampusLogin/raw/main/version.json")
+                .is_none(),
+            "非 release 资产 URL 无 tag"
+        );
+        assert!(
+            download_tag("https://github.com/x/releases/download/").is_none(),
+            "tag 段为空不产出空 tag"
+        );
     }
 
     #[test]
@@ -733,7 +840,8 @@ mod tests {
 
         // notes 可选字段随版本号一起维护时透传 release_notes
         let with_notes: VersionFile =
-            serde_json::from_value(serde_json::json!({ "version": "v2.4.0", "notes": "- 修复" })).unwrap();
+            serde_json::from_value(serde_json::json!({ "version": "v2.4.0", "notes": "- 修复" }))
+                .unwrap();
         assert_eq!(with_notes.notes, "- 修复");
     }
 }

@@ -21,11 +21,12 @@
 //!   补试（SCHEDULED_LOGIN_MAX_RETRIES 次）后才放弃当日额度——原"失败也当日
 //!   不重试"会让登录时段刚开的瞬时拒绝直接吞掉当日登录；注销仍是单次语义。
 
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use std::time::Duration;
-use chrono::Datelike;
-use tauri::{AppHandle, Manager};
+use super::outbound_night::{
+    apply_outbound_restore, apply_outbound_switch, drive_pending_switch, needs_replay,
+    outbound_switch_active, prepare_outbound_switch, reconcile_outbound_on_startup,
+    replay_outbound_switch, run_outbound_blocking, watchdog_re_disable_campus,
+    OUTBOUND_SWITCH_FAIL_COUNT,
+};
 use crate::config::night_switch::{parse_chkstatus, uid_matches, NightSwitchAction};
 use crate::config::outbound_switch::{outbound_restore_active, NightOutboundAction};
 use crate::config::scheduled_tick::{
@@ -34,12 +35,11 @@ use crate::config::scheduled_tick::{
 };
 use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
-use super::outbound_night::{
-    apply_outbound_restore, apply_outbound_switch, drive_pending_switch, needs_replay,
-    outbound_switch_active, prepare_outbound_switch, reconcile_outbound_on_startup,
-    replay_outbound_switch, run_outbound_blocking, watchdog_re_disable_campus,
-    OUTBOUND_SWITCH_FAIL_COUNT,
-};
+use chrono::Datelike;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Duration;
+use tauri::{AppHandle, Manager};
 
 /// 判定拍间隔：分钟粒度判定，30s 保证最多半分钟偏差；错过（休眠/拍间隔）由
 /// 「过点补触发」语义兜底，不会整天静默失效
@@ -53,14 +53,20 @@ const NIGHT_VERIFY_ATTEMPTS: u32 = 3;
 const NIGHT_VERIFY_HTTP_TIMEOUT_SECS: u64 = 15;
 
 /// 循环体：由 watcher::run_startup_tasks 经 task_manager.spawn 拉起并跟踪
-pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std::sync::Arc<tokio_util::sync::CancellationToken>) {
+pub async fn run_scheduled_action_loop(
+    app_handle: &AppHandle,
+    cancel_token: std::sync::Arc<tokio_util::sync::CancellationToken>,
+) {
     let app_h = app_handle.clone();
     // 启动对账（循环启动前一次性）：上次运行残留的切换态先归位——恢复窗口内立即还原；
     // 夜间窗口内目标卡仍可用则重放切换。阻塞动作送阻塞线程池执行：
     // check_gateway_reachable_from 与 helper 结果轮询都要求非 async worker 线程
     // （见 network/subnet.rs 的调用约束）
     let app_h_reconcile = app_h.clone();
-    let _ = tauri::async_runtime::spawn_blocking(move || reconcile_outbound_on_startup(&app_h_reconcile)).await;
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        reconcile_outbound_on_startup(&app_h_reconcile)
+    })
+    .await;
     // 定时注销启动对账：冷启动不补触发注销（见函数注释）
     reconcile_scheduled_logout_on_startup(&app_h);
     let mut tick = tokio::time::interval(Duration::from_millis(SCHEDULED_TICK_MS));
@@ -73,9 +79,8 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
             }
         }
         // AppState 守卫不跨 await 持有：本轮有多个 await 点（见 is_quitting 注释）。
-        // 已知偏差（本轮不治理、不改行为）：apply_night_switch_action 内含同步落盘与托盘
-        // 刷新，仍直接跑在 async worker 线程上（既有实现）；本任务新增的出站动作一律经
-        // run_outbound_blocking 进阻塞线程池
+        // 出站动作经 run_outbound_blocking 进阻塞线程池；运营商夜切仅将配置落盘
+        // 下放阻塞线程池，落盘后的内存更新、登录与复验仍在原调用方按序执行
         if is_quitting(&app_h) {
             break;
         }
@@ -124,19 +129,30 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
             config_snapshot.night_restore_minutes,
         ) {
             NightOutboundAction::Switch => {
-                let switched = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), apply_outbound_switch)
-                    .await
-                    .is_ok();
+                let switched = run_outbound_blocking(
+                    app_h.clone(),
+                    config_snapshot.clone(),
+                    apply_outbound_switch,
+                )
+                .await
+                .is_ok();
                 if switched {
                     crate::log_debug!("outbound", "夜间出站切换已完成，本拍跳过运营商夜切判定");
                 }
             }
             NightOutboundAction::Restore => {
-                let restored = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), apply_outbound_restore)
-                    .await
-                    .is_ok();
+                let restored = run_outbound_blocking(
+                    app_h.clone(),
+                    config_snapshot.clone(),
+                    apply_outbound_restore,
+                )
+                .await
+                .is_ok();
                 if !restored {
-                    crate::log_debug!("outbound", "夜间出站还原未完成(退避重试中)，本拍跳过运营商夜切恢复");
+                    crate::log_debug!(
+                        "outbound",
+                        "夜间出站还原未完成(退避重试中)，本拍跳过运营商夜切恢复"
+                    );
                 }
             }
             NightOutboundAction::None => {
@@ -171,24 +187,33 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
                     &config_snapshot.outbound_standby_route,
                     switch_fails,
                 ) {
-                    let _ = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), |h, c| {
-                        replay_outbound_switch(h, c);
-                        Ok(())
-                    })
-                    .await;
+                    let _ =
+                        run_outbound_blocking(app_h.clone(), config_snapshot.clone(), |h, c| {
+                            replay_outbound_switch(h, c);
+                            Ok(())
+                        })
+                        .await;
                 }
                 // 待切换残留清理：旧版本登录闸写入的 waiting-login 行（2026-10-26 起
                 // 本版本不再产生挂起）。残留会让前端徽标常驻，故每拍清一次；清空后
                 // 该字段恒为空，本分支不再进入。切换态成立时同理已随切换成功清空
                 if !config_snapshot.outbound_pending_switch.is_empty() && !restore_active {
-                    let _ = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), drive_pending_switch).await;
+                    let _ = run_outbound_blocking(
+                        app_h.clone(),
+                        config_snapshot.clone(),
+                        drive_pending_switch,
+                    )
+                    .await;
                 }
                 // 夜间看门狗：guard 窗口 ∧ 切换态下复核禁用名单，名单内校园网卡被
                 // 外部重新启用（用户手动启用/网络重置/驱动重装）时重新禁用（P2-3）。
                 // 提权结果轮询最长 30s/卡，与其他出站动作一样下放阻塞线程池
-                let _ =
-                    run_outbound_blocking(app_h.clone(), config_snapshot.clone(), watchdog_re_disable_campus)
-                        .await;
+                let _ = run_outbound_blocking(
+                    app_h.clone(),
+                    config_snapshot.clone(),
+                    watchdog_re_disable_campus,
+                )
+                .await;
             }
         }
         // 切换态（快照非空）：运营商夜切让位——切侧从热点出站登录校园 portal 必然失败；
@@ -214,7 +239,7 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
             )
         };
         if night_action != NightSwitchAction::None {
-            apply_night_switch_action(&app_h, night_action);
+            apply_night_switch_action(&app_h, night_action).await;
         }
     }
 }
@@ -222,7 +247,11 @@ pub async fn run_scheduled_action_loop(app_handle: &AppHandle, cancel_token: std
 /// App 是否正在退出。抽成独立函数只为让循环体不跨 await 持有 State 守卫
 /// （循环各拍有多个 await 点，而该 future 必须 Send）
 fn is_quitting(app_handle: &AppHandle) -> bool {
-    app_handle.state::<AppState>().exit.is_quitting.load(Ordering::Acquire)
+    app_handle
+        .state::<AppState>()
+        .exit
+        .is_quitting
+        .load(Ordering::Acquire)
 }
 
 /// 启动对账（定时注销防冷启动误触发）：应用启动时若当日注销时刻已过，「过点补触发」
@@ -257,7 +286,12 @@ fn reconcile_scheduled_logout_on_startup(app_handle: &AppHandle) {
 /// （双端单点，含出站切换态互斥），本函数只负责从 AppState 装配输入。
 /// 门控用**拍前**切换态：定时判定先于本拍出站动作（安卓在出站动作之后判定，
 /// 传执行后值——两端时点差异见 config::scheduled_tick 模块文档）。
-fn evaluate_scheduled(state: &AppState, now_minutes: u16, today_day: i32, outbound_active: bool) -> (bool, bool) {
+fn evaluate_scheduled(
+    state: &AppState,
+    now_minutes: u16,
+    today_day: i32,
+    outbound_active: bool,
+) -> (bool, bool) {
     let config = state.config.load_full();
     evaluate_scheduled_actions(
         now_minutes,
@@ -277,10 +311,16 @@ fn evaluate_scheduled(state: &AppState, now_minutes: u16, today_day: i32, outbou
 #[cfg_attr(not(test), allow(dead_code))]
 fn mark_scheduled_day_fired(state: &AppState, fire_login: bool, fire_logout: bool, today_day: i32) {
     if fire_login {
-        state.scheduled.login_day.store(today_day, Ordering::Release);
+        state
+            .scheduled
+            .login_day
+            .store(today_day, Ordering::Release);
     }
     if fire_logout {
-        state.scheduled.logout_day.store(today_day, Ordering::Release);
+        state
+            .scheduled
+            .logout_day
+            .store(today_day, Ordering::Release);
     }
 }
 
@@ -304,7 +344,12 @@ fn run_scheduled_login(app_handle: &AppHandle, target_minutes: u16, today_day: i
 /// 互斥锁，抢不到本拍跳过并对外发 scheduled-action-skipped 事件（审计 A7）；
 /// login_quota_day 传入 Some(当日) 时，抢锁成功后消耗定时登录当日额度
 /// （夜切触发路径传 None，不消耗额度）；日志/通知复用 emit_login_log（"success"/"error"）
-fn spawn_login_action(app_handle: &AppHandle, trigger_log: &str, result_prefix: &str, login_quota_day: Option<i32>) {
+fn spawn_login_action(
+    app_handle: &AppHandle,
+    trigger_log: &str,
+    result_prefix: &str,
+    login_quota_day: Option<i32>,
+) {
     crate::log_info!("scheduled", "{trigger_log}");
     let app_h = app_handle.clone();
     let result_prefix = result_prefix.to_string();
@@ -355,7 +400,8 @@ fn spawn_login_action(app_handle: &AppHandle, trigger_log: &str, result_prefix: 
                 crate::log_info!(
                     "scheduled",
                     "定时登录失败，当日补试 [{}/{}]，下一拍重试",
-                    retries, SCHEDULED_LOGIN_MAX_RETRIES
+                    retries,
+                    SCHEDULED_LOGIN_MAX_RETRIES
                 );
             }
         }
@@ -370,7 +416,7 @@ const SCHEDULED_LOGIN_MAX_RETRIES: u32 = 20;
 /// 晚间断网切换动作：改内存配置 → 落盘（复用 save_config_to_disk_encrypted，
 /// 含 config-changed 事件与托盘刷新）→ 触发登录（复用定时登录的登录路径）。
 /// 切换态由配置自身承载，配置改完下一拍判定即回 None，无需去重标记。
-fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAction) {
+async fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAction) {
     let s = app_handle.state::<AppState>();
     let mut config = (*s.config.load_full()).clone();
     let trigger_log = match action {
@@ -385,17 +431,35 @@ fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAction) 
             "晚间断网切换: 已恢复原运营商".to_string()
         }
     };
-    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &config) {
+    let app_h_save = app_handle.clone();
+    let config_save = config.clone();
+    let save_result = tauri::async_runtime::spawn_blocking(move || {
+        crate::config::persist::save_config_and_broadcast(&app_h_save, &config_save)
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|result| result);
+    if let Err(e) = save_result {
         // 落盘失败不 store 内存（避免"内存已切换、重启后回退"的错位），下拍重试
         crate::log_warn!("scheduled", "晚间断网切换配置落盘失败: {e}");
         return;
     }
     s.config.store(config);
     crate::log_info!("scheduled", "{trigger_log}");
-    spawn_login_action(app_handle, &format!("{trigger_log}, 触发登录"), "晚间断网切换", None);
+    spawn_login_action(
+        app_handle,
+        &format!("{trigger_log}, 触发登录"),
+        "晚间断网切换",
+        None,
+    );
     // 独立 tokio 任务验证切换是否生效，不阻塞监控循环；期望值取落盘后的 config.operator
     // （SwitchToCampus 后为空串=无锡学院，Restore 后为恢复的后缀）
-    let expected_operator = app_handle.state::<AppState>().config.load_full().operator.clone();
+    let expected_operator = app_handle
+        .state::<AppState>()
+        .config
+        .load_full()
+        .operator
+        .clone();
     tauri::async_runtime::spawn(verify_night_switch(app_handle.clone(), expected_operator));
 }
 
@@ -405,9 +469,15 @@ fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAction) 
 /// 掉线重连立即登回（安卓端 do_logout 内置同款保护期语义）。
 /// today_day 用于抢锁成功后消耗当日注销额度（审计 A7）。
 fn run_scheduled_logout(app_handle: &AppHandle, target_minutes: u16, today_day: i32) {
-    crate::log_info!("scheduled", "定时注销触发 (目标 {})", format_minutes(target_minutes));
+    crate::log_info!(
+        "scheduled",
+        "定时注销触发 (目标 {})",
+        format_minutes(target_minutes)
+    );
     let app_h = app_handle.clone();
-    tauri::async_runtime::spawn_blocking(move || perform_logout(&app_h, "定时注销", Some(today_day)));
+    tauri::async_runtime::spawn_blocking(move || {
+        perform_logout(&app_h, "定时注销", Some(today_day))
+    });
 }
 
 /// 注销执行体（定时注销与夜切验证复登前的注销同款）：抢 `is_logging_out` 互斥锁，
@@ -467,13 +537,15 @@ async fn verify_night_switch(app_handle: AppHandle, expected_operator: String) {
     }
     // 未生效：注销 → 再登录 → 复验一轮。复登前复查 operator，用户已手动改走则止步，
     // 避免把用户刚改的配置又注销掉
-    let _ = EventBus::new(&app_handle)
-        .emit_login_log("夜切验证: 未生效, 注销重登后复验", "warning");
+    let _ =
+        EventBus::new(&app_handle).emit_login_log("夜切验证: 未生效, 注销重登后复验", "warning");
     let Some(config) = night_verify_config(&app_handle, &expected_operator) else {
         return;
     };
     let app_h = app_handle.clone();
-    let _ = tauri::async_runtime::spawn_blocking(move || perform_logout(&app_h, "夜切验证注销", None)).await;
+    let _ =
+        tauri::async_runtime::spawn_blocking(move || perform_logout(&app_h, "夜切验证注销", None))
+            .await;
     spawn_login_action(&app_handle, "夜切验证复登", "夜切验证", None);
     tokio::time::sleep(Duration::from_secs(NIGHT_VERIFY_WAIT_SECS)).await;
     match night_switch_verify_round(&config, &expected_operator).await {
@@ -496,7 +568,10 @@ async fn verify_night_switch(app_handle: AppHandle, expected_operator: String) {
 
 /// 读取验证所需的配置快照；operator 已不等于期望值（用户手动改走其他运营商）时
 /// 返回 None 跳过验证——验证前提不成立，继续核对只会误报。
-fn night_verify_config(app_handle: &AppHandle, expected_operator: &str) -> Option<crate::config::model::Config> {
+fn night_verify_config(
+    app_handle: &AppHandle,
+    expected_operator: &str,
+) -> Option<crate::config::model::Config> {
     let s = app_handle.state::<AppState>();
     let config = (*s.config.load_full()).clone();
     (config.operator == expected_operator).then_some(config)
@@ -504,7 +579,10 @@ fn night_verify_config(app_handle: &AppHandle, expected_operator: &str) -> Optio
 
 /// 一轮验证（NIGHT_VERIFY_ATTEMPTS 次重试、间隔 5s）：Ok(uid)=已生效，
 /// Err=最后一轮失败原因。HTTP/解析失败不 panic，收敛为 Err。
-async fn night_switch_verify_round(config: &crate::config::model::Config, expected_operator: &str) -> Result<String, String> {
+async fn night_switch_verify_round(
+    config: &crate::config::model::Config,
+    expected_operator: &str,
+) -> Result<String, String> {
     // 复用桌面既有 reqwest 客户端池构造（超时 15s 作池 key，与 protocol.rs 同款）
     let client = crate::network::client::create_safe_http_client(
         Duration::from_secs(NIGHT_VERIFY_HTTP_TIMEOUT_SECS),
@@ -516,7 +594,9 @@ async fn night_switch_verify_round(config: &crate::config::model::Config, expect
         if attempt > 0 {
             tokio::time::sleep(Duration::from_secs(NIGHT_VERIFY_RETRY_SECS)).await;
         }
-        match night_switch_check_once(&client, &config.portal_url, &config.user, expected_operator).await {
+        match night_switch_check_once(&client, &config.portal_url, &config.user, expected_operator)
+            .await
+        {
             Ok(uid) => return Ok(uid),
             Err(e) => last_err = e,
         }
@@ -531,7 +611,10 @@ async fn night_switch_check_once(
     user: &str,
     expected_operator: &str,
 ) -> Result<String, String> {
-    let url = format!("{}/drcom/chkstatus?callback=dr1003", portal_origin(portal_url));
+    let url = format!(
+        "{}/drcom/chkstatus?callback=dr1003",
+        portal_origin(portal_url)
+    );
     let body = client
         .get(&url)
         .send()
@@ -541,7 +624,9 @@ async fn night_switch_check_once(
         .await
         .map_err(|e| format!("chkstatus 响应读取失败: {e}"))?;
     match parse_chkstatus(&body) {
-        Some(info) if info.online && uid_matches(&info.uid, user, expected_operator) => Ok(info.uid),
+        Some(info) if info.online && uid_matches(&info.uid, user, expected_operator) => {
+            Ok(info.uid)
+        }
         Some(info) => Err(format!(
             "在线账号 {} 与期望 {} 不符",
             info.uid,
@@ -667,7 +752,10 @@ mod tests {
         for _ in 3..SCHEDULED_LOGIN_MAX_RETRIES {
             state.scheduled.bump_login_retry(TODAY);
         }
-        assert_eq!(state.scheduled.bump_login_retry(TODAY), SCHEDULED_LOGIN_MAX_RETRIES);
+        assert_eq!(
+            state.scheduled.bump_login_retry(TODAY),
+            SCHEDULED_LOGIN_MAX_RETRIES
+        );
         // 成功/放弃路径清零后重新计数
         state.scheduled.reset_login_retry();
         assert_eq!(state.scheduled.bump_login_retry(TODAY), 1);
@@ -686,13 +774,22 @@ mod tests {
         // 第一次失败：补试 1/3，回退 login_day → 下一拍仍可 fire
         state.scheduled.login_day.store(TODAY, AOrd::Release);
         state.scheduled.login_day.store(i32::MIN, AOrd::Release);
-        assert!(evaluate_scheduled(&state, 505, TODAY, false).0, "额度回退后过点补触发必须放行");
+        assert!(
+            evaluate_scheduled(&state, 505, TODAY, false).0,
+            "额度回退后过点补触发必须放行"
+        );
         // 三次补试用尽：login_day 保留 TODAY → 当日不再触发
         for _ in 1..SCHEDULED_LOGIN_MAX_RETRIES {
             state.scheduled.bump_login_retry(TODAY);
         }
-        assert_eq!(state.scheduled.bump_login_retry(TODAY), SCHEDULED_LOGIN_MAX_RETRIES);
+        assert_eq!(
+            state.scheduled.bump_login_retry(TODAY),
+            SCHEDULED_LOGIN_MAX_RETRIES
+        );
         state.scheduled.login_day.store(TODAY, AOrd::Release);
-        assert!(!evaluate_scheduled(&state, 600, TODAY, false).0, "补试用尽后当日不得再触发");
+        assert!(
+            !evaluate_scheduled(&state, 600, TODAY, false).0,
+            "补试用尽后当日不得再触发"
+        );
     }
 }

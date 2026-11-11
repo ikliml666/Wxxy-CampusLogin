@@ -9,47 +9,106 @@ use super::rsa::rsa_encrypt_hex;
 use super::session::WebVpnSession;
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
+use std::future::Future;
 use std::sync::Arc;
 
-lazy_static! {
-    static ref VPN_SESSION: RwLock<Option<Arc<WebVpnSession>>> = RwLock::new(None);
+struct SessionCache<T> {
+    session: RwLock<Option<Arc<T>>>,
+    refresh: tokio::sync::Mutex<()>,
 }
 
-/// 取当前缓存会话克隆（不校验活性：活性判断是 async 调用，不得持锁跨 await）。
-pub fn cached() -> Option<Arc<WebVpnSession>> {
-    VPN_SESSION.read().clone()
+impl<T> SessionCache<T> {
+    fn new() -> Self {
+        Self {
+            session: RwLock::new(None),
+            refresh: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    fn cached(&self) -> Option<Arc<T>> {
+        self.session.read().clone()
+    }
+
+    fn reset(&self) {
+        *self.session.write() = None;
+    }
+
+    fn store(&self, session: T) {
+        *self.session.write() = Some(Arc::new(session));
+    }
+
+    async fn ensure_alive_with<Probe, ProbeFuture, Login, LoginFuture>(
+        &self,
+        probe: Probe,
+        login: Login,
+    ) -> Result<Arc<T>, String>
+    where
+        Probe: Fn(Arc<T>) -> ProbeFuture,
+        ProbeFuture: Future<Output = bool>,
+        Login: FnOnce() -> LoginFuture,
+        LoginFuture: Future<Output = Result<T, String>>,
+    {
+        if let Some(session) = self.cached() {
+            if probe(session.clone()).await {
+                return Ok(session);
+            }
+        }
+
+        let _guard = self.refresh.lock().await;
+        // 等待期间其他调用可能已重登；必须复查最新缓存，不能直接沿用此前结果。
+        if let Some(session) = self.cached() {
+            if probe(session.clone()).await {
+                return Ok(session);
+            }
+        }
+        self.reset();
+        let session = Arc::new(login().await?);
+        *self.session.write() = Some(session.clone());
+        Ok(session)
+    }
+}
+
+lazy_static! {
+    static ref SESSION_CACHE: SessionCache<WebVpnSession> = SessionCache::new();
 }
 
 /// 重置缓存（保存/清除凭据、切换总开关、会话失效时调用）。
 pub fn reset() {
-    *VPN_SESSION.write() = None;
+    SESSION_CACHE.reset();
+}
+
+/// 取当前缓存会话克隆（不校验活性：活性判断是 async 调用，不得持锁跨 await）。
+/// 保留给既有库调用方；当前双端命令统一走 ensure_alive。
+#[allow(dead_code)]
+pub fn cached() -> Option<Arc<WebVpnSession>> {
+    SESSION_CACHE.cached()
+}
+
+/// 建立全新会话并存入缓存。保留原有公共入口；命令热路径使用 ensure_alive 的单飞逻辑。
+#[allow(dead_code)]
+pub async fn login_and_cache(account: &str, password: &str) -> Result<Arc<WebVpnSession>, String> {
+    let session = login_new_session(account, password).await?;
+    let arc = Arc::new(session);
+    *SESSION_CACHE.session.write() = Some(arc.clone());
+    Ok(arc)
 }
 
 /// 取有效会话：缓存命中且探活通过直接复用；否则静默重登一次（kaptcha 自动
 /// 解题 → CAS 登录 → TGT 换 ST → 网关 302 链，无人工交互）。`account`/`password`
 /// 为 CAS 明文凭据，由调用方从加密存储解出，仅内存传递。
 pub async fn ensure_alive(account: &str, password: &str) -> Result<Arc<WebVpnSession>, String> {
-    if let Some(session) = cached() {
-        if session.is_alive().await {
-            return Ok(session);
-        }
-        reset();
-    }
-    login_and_cache(account, password).await
-}
-
-/// 建立全新会话并存入缓存。
-pub async fn login_and_cache(account: &str, password: &str) -> Result<Arc<WebVpnSession>, String> {
-    let session = login_new_session(account, password).await?;
-    let arc = Arc::new(session);
-    *VPN_SESSION.write() = Some(arc.clone());
-    Ok(arc)
+    SESSION_CACHE
+        .ensure_alive_with(
+            |session| async move { session.is_alive().await },
+            || login_new_session(account, password),
+        )
+        .await
 }
 
 /// 把外部建立的会话存入缓存（连接测试走完整链路成功后复用其登录态，
 /// 免去紧接着的业务请求再登一次）。
 pub fn store(session: WebVpnSession) {
-    *VPN_SESSION.write() = Some(Arc::new(session));
+    SESSION_CACHE.store(session);
 }
 
 /// 一次性建立全新 WebVPN 会话（不入缓存）：CAS 账密登录拿 TGT → WebVPN 静默
@@ -61,21 +120,93 @@ pub async fn login_new_session(account: &str, password: &str) -> Result<WebVpnSe
         .login_with_captcha(account, &pwd_hex, kaptcha_templates(), 3)
         .await
         .map_err(map_cas_login_error)?;
-    WebVpnSession::login(&cas, &ok.tgt).await.map_err(map_webvpn_error)
+    WebVpnSession::login(&cas, &ok.tgt)
+        .await
+        .map_err(map_webvpn_error)
 }
-
-
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Duration;
 
     #[tokio::test]
     async fn cache_reset_and_relogin_semantics() {
-        // 重置后无缓存；登录成功后缓存可用且 clone 共享（is_alive 属网络调用，
-        // 这里只验证缓存语义，不做真实登录）
         reset();
-        assert!(cached().is_none());
+        assert!(SESSION_CACHE.cached().is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn 无缓存并发只重登一次且共享同一会话() {
+        let cache = Arc::new(SessionCache::<usize>::new());
+        let logins = Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let cache = cache.clone();
+            let logins = logins.clone();
+            tasks.push(tokio::spawn(async move {
+                cache
+                    .ensure_alive_with(
+                        |_| async { true },
+                        || async {
+                            logins.fetch_add(1, Ordering::SeqCst);
+                            tokio::time::sleep(Duration::from_millis(25)).await;
+                            Ok::<_, String>(42)
+                        },
+                    )
+                    .await
+                    .unwrap()
+            }));
+        }
+        let mut sessions = Vec::new();
+        for task in tasks {
+            sessions.push(task.await.unwrap());
+        }
+        assert_eq!(logins.load(Ordering::SeqCst), 1);
+        assert!(sessions
+            .iter()
+            .all(|session| Arc::ptr_eq(session, &sessions[0])));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn 失效并发只重登一次且共享新会话() {
+        let cache = Arc::new(SessionCache::<usize>::new());
+        cache.store(1);
+        let alive = Arc::new(AtomicBool::new(false));
+        let logins = Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let cache = cache.clone();
+            let alive = alive.clone();
+            let logins = logins.clone();
+            tasks.push(tokio::spawn(async move {
+                let probe_alive = alive.clone();
+                cache
+                    .ensure_alive_with(
+                        move |_| {
+                            let alive = probe_alive.clone();
+                            async move { alive.load(Ordering::SeqCst) }
+                        },
+                        || async {
+                            logins.fetch_add(1, Ordering::SeqCst);
+                            tokio::time::sleep(Duration::from_millis(25)).await;
+                            alive.store(true, Ordering::SeqCst);
+                            Ok::<_, String>(2)
+                        },
+                    )
+                    .await
+                    .unwrap()
+            }));
+        }
+        let mut sessions = Vec::new();
+        for task in tasks {
+            sessions.push(task.await.unwrap());
+        }
+        assert_eq!(logins.load(Ordering::SeqCst), 1);
+        assert!(sessions.iter().all(|session| **session == 2));
+        assert!(sessions
+            .iter()
+            .all(|session| Arc::ptr_eq(session, &sessions[0])));
     }
 }

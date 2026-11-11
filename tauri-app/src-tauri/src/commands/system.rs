@@ -198,14 +198,20 @@ pub async fn set_core_autostart(enabled: bool, state: State<'_, AppState>, app_h
 }
 
 #[tauri::command]
-pub fn get_logs(app_handle: AppHandle, lines: Option<usize>) -> Result<String, String> {
+pub async fn get_logs(app_handle: AppHandle, lines: Option<usize>) -> Result<String, String> {
     let n = lines.unwrap_or(200);
-    crate::infra::logger::read_recent_logs(&app_handle, n)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::infra::logger::read_recent_logs(&app_handle, n)
+    })
+    .await
+    .map_err(|e| format!("读取日志任务失败: {e}"))?
 }
 
 #[tauri::command]
-pub fn clear_logs(app_handle: AppHandle) -> Result<bool, String> {
-    crate::infra::logger::clear_logs(&app_handle)?;
+pub async fn clear_logs(app_handle: AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::infra::logger::clear_logs(&app_handle))
+        .await
+        .map_err(|e| format!("清理日志任务失败: {e}"))??;
     Ok(true)
 }
 

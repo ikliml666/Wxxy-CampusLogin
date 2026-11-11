@@ -3,38 +3,63 @@
 //! 提供 TTL 缓存（5 秒）与公共访问函数，避免重复调用 Win32 GetAdaptersAddresses。
 //! 缓存优化（读写锁、后台刷新）将在 T4.3 实施。
 
-use lazy_static::lazy_static;
-use parking_lot::RwLock;
-use std::time::Instant;
-use std::sync::atomic::AtomicBool;
-use crate::network::discovery::{Adapter, AdapterDetail, AdapterQueryResult, DisabledAdapter};
 #[cfg(desktop)]
 use crate::network::discovery::new_command;
+use crate::network::discovery::{Adapter, AdapterDetail, AdapterQueryResult, DisabledAdapter};
+use lazy_static::lazy_static;
+use parking_lot::{Mutex, RwLock};
+use std::sync::atomic::AtomicBool;
+use std::time::Instant;
 
 /// 缓存条目：(adapters, details, disabled, timestamp)
-type AdapterCacheEntry = (Vec<Adapter>, Vec<AdapterDetail>, Vec<DisabledAdapter>, Instant);
+type AdapterCacheEntry = (
+    Vec<Adapter>,
+    Vec<AdapterDetail>,
+    Vec<DisabledAdapter>,
+    Instant,
+);
 
 lazy_static! {
     static ref ADAPTER_CACHE: RwLock<Option<AdapterCacheEntry>> = RwLock::new(None);
+    static ref ADAPTER_QUERY_LOCK: Mutex<()> = Mutex::new(());
 }
 
 const ADAPTER_CACHE_TTL_SECS: u64 = 5;
 
-fn query_adapters_cached_inner() -> AdapterQueryResult {
+fn query_adapters_with<T, F, Q>(query: Q, select: F) -> Result<T, String>
+where
+    F: Fn(&AdapterCacheEntry) -> T,
+    Q: FnOnce() -> AdapterQueryResult,
+{
     {
         let cache = ADAPTER_CACHE.read();
-        if let Some((adapters, details, disabled, ts)) = cache.as_ref() {
+        if let Some(entry @ (_, _, _, ts)) = cache.as_ref() {
             if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
-                return Ok((adapters.clone(), details.clone(), disabled.clone()));
+                return Ok(select(entry));
             }
         }
     }
-    let result = crate::network::discovery::query_adapters_addresses()?;
+    let _query_guard = ADAPTER_QUERY_LOCK.lock();
     {
-        let mut cache = ADAPTER_CACHE.write();
-        *cache = Some((result.0.clone(), result.1.clone(), result.2.clone(), Instant::now()));
+        let cache = ADAPTER_CACHE.read();
+        if let Some(entry @ (_, _, _, ts)) = cache.as_ref() {
+            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
+                return Ok(select(entry));
+            }
+        }
     }
-    Ok(result)
+    let (adapters, details, disabled) = query()?;
+    let entry = (adapters, details, disabled, Instant::now());
+    let selected = select(&entry);
+    *ADAPTER_CACHE.write() = Some(entry);
+    Ok(selected)
+}
+
+fn query_adapters_cached_inner() -> AdapterQueryResult {
+    query_adapters_with(
+        crate::network::discovery::query_adapters_addresses,
+        |(adapters, details, disabled, _)| (adapters.clone(), details.clone(), disabled.clone()),
+    )
 }
 
 /// 读取缓存的三元组（adapters, details, disabled），缓存过期时才触发全量查询。
@@ -48,20 +73,10 @@ pub fn get_all_adapters_cached() -> AdapterQueryResult {
 /// 命中缓存时仅克隆调用方需要的 Vec（BE-B-04：命中路径原 clone 全部三个 Vec）；
 /// 未命中才全量查询并整体写入缓存（未命中路径仅 adapters 需要一次 clone 进缓存）。
 pub fn get_adapters_cached() -> Result<Vec<Adapter>, String> {
-    {
-        let cache = ADAPTER_CACHE.read();
-        if let Some((adapters, _, _, ts)) = cache.as_ref() {
-            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
-                return Ok(adapters.clone());
-            }
-        }
-    }
-    let (adapters, details, disabled) = crate::network::discovery::query_adapters_addresses()?;
-    {
-        let mut cache = ADAPTER_CACHE.write();
-        *cache = Some((adapters.clone(), details, disabled, Instant::now()));
-    }
-    Ok(adapters)
+    query_adapters_with(
+        crate::network::discovery::query_adapters_addresses,
+        |(adapters, _, _, _)| adapters.clone(),
+    )
 }
 
 /// 异步版本的 get_adapters_cached，供 async 上下文调用。
@@ -85,30 +100,103 @@ pub async fn get_adapters_cached_async() -> Result<Vec<Adapter>, String> {
         .map_err(|e| format!("适配器查询任务失败: {e}"))?
 }
 
-pub fn get_adapters_force() -> Result<Vec<Adapter>, String> {
+fn query_adapters_force_with<F>(query: F) -> AdapterQueryResult
+where
+    F: FnOnce() -> AdapterQueryResult,
+{
+    let _query_guard = ADAPTER_QUERY_LOCK.lock();
     ADAPTER_CACHE.write().take();
-    get_adapters_cached()
+    let result = query()?;
+    *ADAPTER_CACHE.write() = Some((
+        result.0.clone(),
+        result.1.clone(),
+        result.2.clone(),
+        Instant::now(),
+    ));
+    Ok(result)
+}
+
+pub fn get_adapters_force() -> Result<Vec<Adapter>, String> {
+    query_adapters_force_with(crate::network::discovery::query_adapters_addresses)
+        .map(|(adapters, _, _)| adapters)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
+
+    lazy_static! {
+        static ref TEST_CACHE_LOCK: Mutex<()> = Mutex::new(());
+    }
+
+    #[test]
+    fn 缓存失效并发查询只执行一次系统发现() {
+        let _test_guard = TEST_CACHE_LOCK.lock();
+        ADAPTER_CACHE.write().take();
+        const READERS: usize = 8;
+        let barrier = Arc::new(Barrier::new(READERS));
+        let queries = Arc::new(AtomicUsize::new(0));
+        std::thread::scope(|scope| {
+            for _ in 0..READERS {
+                let barrier = barrier.clone();
+                let queries = queries.clone();
+                scope.spawn(move || {
+                    barrier.wait();
+                    let result = query_adapters_with(
+                        || {
+                            queries.fetch_add(1, Ordering::SeqCst);
+                            std::thread::sleep(std::time::Duration::from_millis(30));
+                            Ok((Vec::new(), Vec::new(), Vec::new()))
+                        },
+                        |(adapters, _, _, _)| adapters.clone(),
+                    );
+                    assert!(result.is_ok());
+                });
+            }
+        });
+        assert_eq!(queries.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn 强制查询即使缓存新鲜也重新发现() {
+        let _test_guard = TEST_CACHE_LOCK.lock();
+        query_adapters_with(
+            || Ok((Vec::new(), Vec::new(), Vec::new())),
+            |(adapters, _, _, _)| adapters.clone(),
+        )
+        .unwrap();
+        let queries = AtomicUsize::new(0);
+        let result = query_adapters_force_with(|| {
+            queries.fetch_add(1, Ordering::SeqCst);
+            Ok((Vec::new(), Vec::new(), Vec::new()))
+        });
+        assert!(result.is_ok());
+        assert_eq!(queries.load(Ordering::SeqCst), 1);
+    }
 }
 
 pub fn get_adapter_details_cached() -> Result<Vec<AdapterDetail>, String> {
-    // 命中路径仅克隆 details（BE-B-04）
-    {
-        let cache = ADAPTER_CACHE.read();
-        if let Some((_, details, _, ts)) = cache.as_ref() {
-            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
-                return Ok(details.clone());
-            }
-        }
-    }
-    let (_, details, _) = query_adapters_cached_inner()?;
-    Ok(details)
+    query_adapters_with(
+        crate::network::discovery::query_adapters_addresses,
+        |(_, details, _, _)| details.clone(),
+    )
 }
 
 pub fn validate_adapter_name(name: &str) -> Result<(), String> {
-    if name.is_empty() { return Err("适配器名称不能为空".to_string()); }
-    if name.len() > 128 { return Err("适配器名称过长".to_string()); }
-    const FORBIDDEN: &[char] = &['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '/', '\n', '\r', '\0'];
-    if name.chars().any(|c| FORBIDDEN.contains(&c)) { return Err("适配器名称包含非法字符".to_string()); }
+    if name.is_empty() {
+        return Err("适配器名称不能为空".to_string());
+    }
+    if name.len() > 128 {
+        return Err("适配器名称过长".to_string());
+    }
+    const FORBIDDEN: &[char] = &[
+        '&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\'', '/', '\n', '\r', '\0',
+    ];
+    if name.chars().any(|c| FORBIDDEN.contains(&c)) {
+        return Err("适配器名称包含非法字符".to_string());
+    }
     Ok(())
 }
 
@@ -135,7 +223,12 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
         match find_disabled_device(adapter_name)? {
             // 设备管理器式禁用：直接 pnputil 设备级启用
             Some(DeviceState::Disabled(instance_id)) => {
-                crate::log_info!("adapter", "适配器处于设备级禁用(PnP problem 22)，走 pnputil 启用: {} ({})", adapter_name, instance_id);
+                crate::log_info!(
+                    "adapter",
+                    "适配器处于设备级禁用(PnP problem 22)，走 pnputil 启用: {} ({})",
+                    adapter_name,
+                    instance_id
+                );
                 enable_device(&instance_id, allow_uac_prompt)?;
                 crate::log_info!("adapter", "设备级启用复核通过: {}", adapter_name);
                 invalidate_adapter_caches();
@@ -144,13 +237,23 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
             // 设备实例不可定位（USB 端口复位后的幽灵态）：此时 pnputil 无从下手、
             // netsh 找不到接口行，只有重扫总线能把设备拉回来
             Some(DeviceState::Unlocatable(instance_id)) => {
-                crate::log_info!("adapter", "设备实例不可定位(USB 幽灵态)，触发总线重枚举: {} ({})", adapter_name, instance_id);
+                crate::log_info!(
+                    "adapter",
+                    "设备实例不可定位(USB 幽灵态)，触发总线重枚举: {} ({})",
+                    adapter_name,
+                    instance_id
+                );
                 reenumerate_device(&instance_id, allow_uac_prompt)?;
                 // 重枚举后必须复核设备真的回来了且真的启用了。判定逻辑在
                 // classify_post_reenumerate（含假成功缺陷的回归测试）。
-                match classify_post_reenumerate(adapter_name, find_disabled_device(adapter_name)?)? {
+                match classify_post_reenumerate(adapter_name, find_disabled_device(adapter_name)?)?
+                {
                     Some(id) => {
-                        crate::log_info!("adapter", "重枚举后设备仍处禁用态，走 pnputil 启用: {}", adapter_name);
+                        crate::log_info!(
+                            "adapter",
+                            "重枚举后设备仍处禁用态，走 pnputil 启用: {}",
+                            adapter_name
+                        );
                         enable_device(&id, allow_uac_prompt)?;
                     }
                     None => {}
@@ -186,7 +289,11 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
     } else {
         // 非管理员：经 helper 框架（计划任务代理 → CMSTPLUA 静默 → runas 弹 UAC），
         // worker 内双校验（适配器名 + 存在性）后执行 netsh
-        crate::log_info!("adapter", "非管理员运行，经提权通道启用适配器: {}", adapter_name);
+        crate::log_info!(
+            "adapter",
+            "非管理员运行，经提权通道启用适配器: {}",
+            adapter_name
+        );
         let result_name = crate::platform::helper_spawn::new_result_name();
         let v = crate::platform::helper_spawn::spawn_elevated_helper(
             "enable_adapter",
@@ -228,7 +335,10 @@ fn invalidate_adapter_caches() {
     crate::log_info!("adapter", "已清空适配器缓存");
 }
 
-pub fn wait_for_adapter(max_wait_ms: u64, is_quitting: &std::sync::atomic::AtomicBool) -> Result<Vec<Adapter>, String> {
+pub fn wait_for_adapter(
+    max_wait_ms: u64,
+    is_quitting: &std::sync::atomic::AtomicBool,
+) -> Result<Vec<Adapter>, String> {
     let start = std::time::Instant::now();
     let mut delay_ms: u64 = 1000;
 
@@ -249,7 +359,11 @@ pub fn wait_for_adapter(max_wait_ms: u64, is_quitting: &std::sync::atomic::Atomi
     get_adapters_cached()
 }
 
-pub fn poll_adapter_ip_quick(adapter_name: &str, timeout_ms: u64, is_quitting: &AtomicBool) -> bool {
+pub fn poll_adapter_ip_quick(
+    adapter_name: &str,
+    timeout_ms: u64,
+    is_quitting: &AtomicBool,
+) -> bool {
     let start = std::time::Instant::now();
     // BE-A-04: 原为 100ms 轮询，每次 get_adapters_force 强刷 GetAdaptersAddresses，
     // 续租等待期高频系统调用。放宽到 300ms（保持 5s 超时语义，IP 变更检测至多延迟 300ms）。
@@ -258,7 +372,11 @@ pub fn poll_adapter_ip_quick(adapter_name: &str, timeout_ms: u64, is_quitting: &
     // 记录初始 IP，只有 IP 变为非空且与初始值不同时才认为续租成功
     let initial_ip = get_adapters_force()
         .ok()
-        .and_then(|list| list.iter().find(|a| a.name == adapter_name).map(|a| a.ip.clone()))
+        .and_then(|list| {
+            list.iter()
+                .find(|a| a.name == adapter_name)
+                .map(|a| a.ip.clone())
+        })
         .unwrap_or_default();
     while start.elapsed() < timeout {
         if is_quitting.load(std::sync::atomic::Ordering::Acquire) {

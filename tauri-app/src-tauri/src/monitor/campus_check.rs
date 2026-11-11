@@ -1,6 +1,6 @@
-use serde::Serialize;
-use crate::network::Adapter;
 use super::outbound_switch::portal_probe_host;
+use crate::network::Adapter;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,13 +41,24 @@ pub struct CampusCheckResult {
     pub adapters: Vec<AdapterCampusStatus>,
 }
 
-pub(super) fn adapter_campus_status<'a>(adapter_name: &str, adapters: &'a [Adapter], campus_result: &'a CampusCheckResult) -> Option<&'a AdapterCampusStatus> {
+pub(super) fn adapter_campus_status<'a>(
+    adapter_name: &str,
+    adapters: &'a [Adapter],
+    campus_result: &'a CampusCheckResult,
+) -> Option<&'a AdapterCampusStatus> {
     // 以适配器列表为权威：卡已不存在（被禁用/拔线）时不返回任何判定，避免残留结论
     crate::network::find_by_name(adapters, adapter_name)?;
-    campus_result.adapters.iter().find(|s| s.name == adapter_name)
+    campus_result
+        .adapters
+        .iter()
+        .find(|s| s.name == adapter_name)
 }
 
-pub(super) fn adapter_campus_message(adapter_name: &str, adapters: &[Adapter], campus_result: &CampusCheckResult) -> Option<String> {
+pub(super) fn adapter_campus_message(
+    adapter_name: &str,
+    adapters: &[Adapter],
+    campus_result: &CampusCheckResult,
+) -> Option<String> {
     adapter_campus_status(adapter_name, adapters, campus_result).map(|s| s.message.clone())
 }
 
@@ -138,13 +149,20 @@ where
 
 /// 按卡类型聚合出 `wifi`/`wired` 兼容状态（IPC 旧字段，前端仍读）。
 /// 该类无卡时为 None；有卡时 `on_campus` 取该类任一卡命中，`message` 优先取命中卡文案。
-fn aggregate_class(cards: &[&AdapterCampusStatus], name: Option<String>) -> Option<ConnectionCampusStatus> {
+fn aggregate_class(
+    cards: &[&AdapterCampusStatus],
+    name: Option<String>,
+) -> Option<ConnectionCampusStatus> {
     if cards.is_empty() {
         return None;
     }
     let on_campus = cards.iter().any(|s| s.on_campus);
     let message = join_messages(cards);
-    Some(ConnectionCampusStatus { on_campus, name, message })
+    Some(ConnectionCampusStatus {
+        on_campus,
+        name,
+        message,
+    })
 }
 
 /// 命中卡文案优先；全未命中时退化为各卡文案（保持旧字段的可读性）。
@@ -157,7 +175,11 @@ fn join_messages(cards: &[&AdapterCampusStatus]) -> String {
     if !hits.is_empty() {
         return hits.join("；");
     }
-    cards.iter().map(|s| s.message.as_str()).collect::<Vec<_>>().join("；")
+    cards
+        .iter()
+        .map(|s| s.message.as_str())
+        .collect::<Vec<_>>()
+        .join("；")
 }
 
 /// 一次并行预热的绑源探测结果：key = (目标, 绑源 IP)，value = 是否可达。
@@ -222,7 +244,27 @@ fn warm_probe_cache(pairs: &[(String, String)]) -> ProbeCache {
     ProbeCache(map)
 }
 
-pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[crate::network::Adapter]) -> CampusCheckResult {
+fn probe_pairs(adapters: &[Adapter], ctx: &CampusContext) -> Vec<(String, String)> {
+    adapters
+        .iter()
+        .filter(|a| !a.ip.is_empty() && ctx.name_hit(a).is_none())
+        .flat_map(|a| {
+            let mut pairs = Vec::with_capacity(2);
+            if !ctx.campus_gw.is_empty() {
+                pairs.push((ctx.campus_gw.to_string(), a.ip.clone()));
+            }
+            if !ctx.portal_host.is_empty() {
+                pairs.push((ctx.portal_host.clone(), a.ip.clone()));
+            }
+            pairs
+        })
+        .collect()
+}
+
+pub fn check_campus_network(
+    config: &crate::config::model::Config,
+    adapters: &[crate::network::Adapter],
+) -> CampusCheckResult {
     crate::log_debug!("campus", "[校园网检测] enable_network_name_check={}, required_network_name='{}', campus_gateway='{}', 适配器数={}",
         config.enable_network_name_check, config.required_network_name, config.campus_gateway, adapters.len());
 
@@ -237,7 +279,13 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
         (None, None)
     };
 
-    crate::log_debug!("campus", "[校园网检测] wifi_ssid={:?}, wired_profile={:?}, portal_host={:?}", wifi_ssid, wired_profile, portal_host);
+    crate::log_debug!(
+        "campus",
+        "[校园网检测] wifi_ssid={:?}, wired_profile={:?}, portal_host={:?}",
+        wifi_ssid,
+        wired_profile,
+        portal_host
+    );
 
     let ctx = CampusContext {
         enable_name_check: config.enable_network_name_check,
@@ -259,20 +307,7 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
     //
     // 探测目标集合在判定前完全可知：judge_adapter 只会探 (campus_gw, 该卡IP) 与
     // (portal_host, 该卡IP) 两对，无 IP 的卡不发探测（见 judge_adapter 步骤 0）。
-    let pairs: Vec<(String, String)> = adapters
-        .iter()
-        .filter(|a| !a.ip.is_empty())
-        .flat_map(|a| {
-            let mut v = Vec::with_capacity(2);
-            if !config.campus_gateway.is_empty() {
-                v.push((config.campus_gateway.clone(), a.ip.clone()));
-            }
-            if !portal_host.is_empty() {
-                v.push((portal_host.clone(), a.ip.clone()));
-            }
-            v
-        })
-        .collect();
+    let pairs = probe_pairs(adapters, &ctx);
     let cache = warm_probe_cache(&pairs);
     let probe = |target: &str, source: &str| -> bool {
         if target.is_empty() || source.is_empty() {
@@ -286,8 +321,10 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
         .map(|a| judge_adapter(a, &ctx, &mut { probe }))
         .collect();
 
-    let wireless_cards: Vec<&AdapterCampusStatus> = per_adapter.iter().filter(|s| s.wireless).collect();
-    let wired_cards: Vec<&AdapterCampusStatus> = per_adapter.iter().filter(|s| !s.wireless).collect();
+    let wireless_cards: Vec<&AdapterCampusStatus> =
+        per_adapter.iter().filter(|s| s.wireless).collect();
+    let wired_cards: Vec<&AdapterCampusStatus> =
+        per_adapter.iter().filter(|s| !s.wireless).collect();
 
     // 兼容字段：wifi 的 name 沿用 SSID、wired 的 name 沿用有线 profile
     let wifi_status = aggregate_class(&wireless_cards, wifi_ssid.clone());
@@ -300,19 +337,41 @@ pub fn check_campus_network(config: &crate::config::model::Config, adapters: &[c
             .filter(|s| s.on_campus)
             .map(|s| s.message.as_str())
             .collect();
-        if hits.is_empty() { "已连接校园网".to_string() } else { hits.join("；") }
+        if hits.is_empty() {
+            "已连接校园网".to_string()
+        } else {
+            hits.join("；")
+        }
     } else {
         let misses: Vec<&str> = per_adapter.iter().map(|s| s.message.as_str()).collect();
-        if misses.is_empty() { "未连接到校园网络".to_string() } else { misses.join("；") }
+        if misses.is_empty() {
+            "未连接到校园网络".to_string()
+        } else {
+            misses.join("；")
+        }
     };
 
     if on_campus {
-        crate::log_debug!("campus", "[校园网检测] 结果: on_campus=true, 逐卡={:?}, message={}",
-            per_adapter.iter().map(|s| (&s.name, s.on_campus, s.matched_by.as_deref())).collect::<Vec<_>>(), message);
+        crate::log_debug!(
+            "campus",
+            "[校园网检测] 结果: on_campus=true, 逐卡={:?}, message={}",
+            per_adapter
+                .iter()
+                .map(|s| (&s.name, s.on_campus, s.matched_by.as_deref()))
+                .collect::<Vec<_>>(),
+            message
+        );
     } else {
         // 判定异常（未在校园网）：保留 warn 级别便于排障
-        crate::log_warn!("campus", "[校园网检测] 判定未在校园网: 逐卡={:?}, message={}",
-            per_adapter.iter().map(|s| (&s.name, s.on_campus, s.matched_by.as_deref())).collect::<Vec<_>>(), message);
+        crate::log_warn!(
+            "campus",
+            "[校园网检测] 判定未在校园网: 逐卡={:?}, message={}",
+            per_adapter
+                .iter()
+                .map(|s| (&s.name, s.on_campus, s.matched_by.as_deref()))
+                .collect::<Vec<_>>(),
+            message
+        );
     }
 
     CampusCheckResult {
@@ -418,7 +477,10 @@ mod tests {
         let hit = judge_adapter(&adapter("以太网", "10.2.38.176", false), &c, &mut probe);
         assert!(hit.on_campus);
         assert_eq!(hit.matched_by.as_deref(), Some("gateway"));
-        assert_eq!(seen, vec![("10.1.1.1".to_string(), "10.2.38.176".to_string())]);
+        assert_eq!(
+            seen,
+            vec![("10.1.1.1".to_string(), "10.2.38.176".to_string())]
+        );
     }
 
     #[test]
@@ -442,8 +504,11 @@ mod tests {
         let status = judge_adapter(&adapter("以太网 2", "192.168.6.114", false), &c, &mut probe);
         assert!(status.on_campus);
         assert_eq!(status.matched_by.as_deref(), Some("gateway"));
-        assert_eq!(seen, vec![("10.2.127.254".to_string(), "192.168.6.114".to_string())],
-            "探测必须绑定该卡自己的源 IP");
+        assert_eq!(
+            seen,
+            vec![("10.2.127.254".to_string(), "192.168.6.114".to_string())],
+            "探测必须绑定该卡自己的源 IP"
+        );
     }
 
     #[test]
@@ -491,38 +556,46 @@ mod tests {
     }
 
     #[test]
-    fn 预热目标集合_只收有ip的卡且跳过空目标() {
-        // 与 judge_adapter 的探测口径一致：无 IP 的卡不发探测、空目标腿不收
-        let adapters = vec![
-            adapter("以太网", "10.2.38.176", false),
-            adapter("以太网 2", "", false),
-        ];
-        let portal_host = "10.1.99.100".to_string();
-        let campus_gw = "10.1.1.1".to_string();
-        let pairs: Vec<(String, String)> = adapters
-            .iter()
-            .filter(|a| !a.ip.is_empty())
-            .flat_map(|a| {
-                let mut v = Vec::new();
-                if !campus_gw.is_empty() {
-                    v.push((campus_gw.clone(), a.ip.clone()));
-                }
-                if !portal_host.is_empty() {
-                    v.push((portal_host.clone(), a.ip.clone()));
-                }
-                v
-            })
-            .collect();
-        assert_eq!(pairs.len(), 2, "只有一张卡有 IP，两条腿 -> 2 组");
-        assert!(pairs.contains(&("10.1.1.1".to_string(), "10.2.38.176".to_string())));
-        assert!(pairs.contains(&("10.1.99.100".to_string(), "10.2.38.176".to_string())));
+    fn 预热目标集合_名称命中零探测_未命中保持原语义() {
+        let hit = adapter("以太网", "10.2.38.176", false);
+        let miss = adapter("WLAN", "10.2.38.177", true);
+        let no_ip = adapter("以太网 3", "", false);
+        let mut c = ctx("i-wxxy", "10.1.1.1", "10.1.99.100");
+        c.wired_profile = Some("i-wxxy".to_string());
+
+        assert!(
+            probe_pairs(&[hit.clone()], &c).is_empty(),
+            "名称命中后不得预热网关或 Portal"
+        );
+        assert!(warm_probe_cache(&probe_pairs(&[hit], &c)).0.is_empty());
+
+        assert_eq!(
+            probe_pairs(&[miss, no_ip], &c),
+            vec![
+                ("10.1.1.1".to_string(), "10.2.38.177".to_string()),
+                ("10.1.99.100".to_string(), "10.2.38.177".to_string()),
+            ],
+            "名称未命中仍探测两条腿，无 IP 卡仍跳过"
+        );
     }
 
     #[test]
     fn 聚合_命中卡文案优先_无卡返回none() {
         let cards = vec![
-            AdapterCampusStatus { name: "以太网".into(), wireless: false, on_campus: false, matched_by: None, message: "失败A".into() },
-            AdapterCampusStatus { name: "以太网 2".into(), wireless: false, on_campus: true, matched_by: Some("gateway".into()), message: "成功B".into() },
+            AdapterCampusStatus {
+                name: "以太网".into(),
+                wireless: false,
+                on_campus: false,
+                matched_by: None,
+                message: "失败A".into(),
+            },
+            AdapterCampusStatus {
+                name: "以太网 2".into(),
+                wireless: false,
+                on_campus: true,
+                matched_by: Some("gateway".into()),
+                message: "成功B".into(),
+            },
         ];
         let refs: Vec<&AdapterCampusStatus> = cards.iter().collect();
         let agg = aggregate_class(&refs, None).expect("有卡时应返回聚合状态");
