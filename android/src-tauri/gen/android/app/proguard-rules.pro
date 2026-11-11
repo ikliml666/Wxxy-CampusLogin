@@ -19,3 +19,29 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Rust JNI 反向调用普通 Kotlin 方法；R8 不得重命名或移除这些接口。
+-keep class com.campuslogin.plugin.monitorservice.CoreService { *; }
+-keep class com.campuslogin.plugin.monitorservice.CoreEvents { *; }
+-keepclassmembers class com.campuslogin.plugin.monitorservice.CoreService {
+    *** emit(java.lang.String,java.lang.String);
+    *** notifySystem(java.lang.String);
+    *** updateNotification(java.lang.String);
+    *** beginProbeWindow();
+    *** endProbeWindow();
+    *** powerState();
+    *** bindToWifi();
+    *** acceptWifiNetwork();
+    *** wifiSsid();
+    *** reportWifiUnusable();
+    *** ensureAvoidBadWifi();
+    *** restoreAvoidBadWifi();
+    *** startWifiWatcher();
+    *** stopWifiWatcher();
+    *** runIdleStop();
+    *** decrypt(java.lang.String);
+    *** encrypt(java.lang.String);
+}
+-keepclassmembers class com.campuslogin.plugin.monitorservice.CoreEvents {
+    *** nativeEmitToUi(java.lang.String,java.lang.String);
+}

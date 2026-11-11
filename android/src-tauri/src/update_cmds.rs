@@ -396,7 +396,7 @@ pub fn start_update_check_loop(app: tauri::AppHandle) {
                             .await
                             .map(|s| s.enable_notification)
                             .unwrap_or(false);
-                        crate::monitor_loop::notify_system(
+                        crate::core_bridge_cmds::notify_system_local(
                             &app,
                             enabled,
                             "发现新版本",

@@ -76,6 +76,22 @@ impl<R: Runtime> CampusMonitorService<R> {
         self.0.run_mobile_plugin("installApk", serde_json::json!({ "text": file_path }))
     }
 
+    /// UI → :core 命令转发(经 Binder + Messenger,返回 JSON 字符串)
+    pub fn core_command(&self, action: &str, args: &str) -> std::result::Result<String, String> {
+        #[derive(Deserialize)]
+        struct CoreCommandResult {
+            result: String,
+        }
+        let r: CoreCommandResult = self
+            .0
+            .run_mobile_plugin(
+                "coreCommand",
+                serde_json::json!({ "action": action, "args": args }),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(r.result)
+    }
+
     /// 电池优化白名单信息:{ignoring, brand, manufacturer, hasVendorTarget}
     pub fn get_battery_optimization_info(&self) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("getBatteryOptimizationInfo", ())

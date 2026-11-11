@@ -30,6 +30,32 @@
 <tr>
 <td>
 
+`campus-monitor-service:allow-coreCommand`
+
+</td>
+<td>
+
+Enables the coreCommand command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`campus-monitor-service:deny-coreCommand`
+
+</td>
+<td>
+
+Denies the coreCommand command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `campus-monitor-service:allow-installApk`
 
 </td>

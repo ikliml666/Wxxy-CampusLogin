@@ -24,7 +24,7 @@ pub async fn get_init_data(app: tauri::AppHandle) -> Result<serde_json::Value, S
         "logRetentionDays": campus_login_lib::infra::logger::get_log_retention_days(),
         "debugMode": campus_login_lib::infra::logger::get_debug_mode().unwrap_or(false),
         "isAutoStart": settings.enable_boot_autostart,
-        "backgroundStatus": crate::monitor_loop::status_value(),
+        "backgroundStatus": crate::core_bridge_cmds::read_background_status(&app),
     }))
 }
 

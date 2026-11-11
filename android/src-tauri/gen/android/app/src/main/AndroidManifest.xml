@@ -43,9 +43,11 @@
             </intent-filter>
         </activity>
 
-        <!-- 后台监控保活:业务逻辑在 Rust 循环,服务仅持常驻通知+WifiLock+WakeLock -->
+        <!-- 后台核心唯一宿主::core 独立进程,含 Rust 巡检/自动登录/通知/WiFi watcher。
+             UI/WebView 进程被系统回收不影响核心;START_STICKY 重建服务时核心自恢复 -->
         <service
-            android:name="com.campuslogin.plugin.monitorservice.ForegroundService"
+            android:name="com.campuslogin.plugin.monitorservice.CoreService"
+            android:process=":core"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -56,6 +58,7 @@
         <!-- 开机自启:默认 disabled,由设置页 setBootAutostart 动态启停 -->
         <receiver
             android:name="com.campuslogin.plugin.monitorservice.BootReceiver"
+            android:process=":core"
             android:enabled="false"
             android:exported="false">
             <intent-filter>

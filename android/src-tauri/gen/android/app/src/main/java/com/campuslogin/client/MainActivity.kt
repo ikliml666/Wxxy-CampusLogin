@@ -14,6 +14,8 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // core 事件(登录日志/检测结果)经广播回传,这里交给 Rust 再 emit 给 WebView
+    com.campuslogin.plugin.monitorservice.CoreClient.registerEventReceiver(this)
   }
 
   override fun onWebViewCreate(webView: WebView) {

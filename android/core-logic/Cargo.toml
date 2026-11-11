@@ -1,0 +1,16 @@
+[package]
+name = "campus-core-logic"
+version = "2.4.3"
+edition = "2021"
+description = "安卓后台核心的纯逻辑与契约(无 tauri/无 JNI,host 可测)"
+
+# 独立 workspace:避免被 android/src-tauri 或上层目录的 workspace 吸收
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# unix flock(Android 配置跨进程锁)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

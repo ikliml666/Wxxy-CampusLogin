@@ -175,7 +175,7 @@ async fn persist_current(app: &tauri::AppHandle, merged: &Settings) -> Result<se
         .path()
         .app_data_dir()
         .map_err(|e| format!("获取数据目录失败: {e}"))?;
-    config_state::save_to(&dir, &bridge, merged).await?;
+    config_state::save_to_locked(&dir, &bridge, merged).await?;
     if let Ok(mut cache) = app.state::<crate::android_state::AndroidState>().config.lock() {
         *cache = Some(merged.clone());
     }
@@ -222,7 +222,7 @@ pub async fn switch_account(
     let display = persist_current(&app, &merged).await?;
     // 切账号也收尾 avoid_bad_wifi 快照:出站切换态标记已清,快照残留会让
     // network_avoid_bad_wifi 停在 1(无快照时幂等无动作)
-    crate::monitor_loop::restore_avoid_bad_wifi(&app).await;
+    crate::core_bridge_cmds::restore_avoid_bad_wifi_local(&app).await;
     Ok(AccountResult::ok_with_account(safe_name, display))
 }
 
@@ -355,7 +355,7 @@ pub async fn delete_account(
         current.night_outbound_restore = String::new();
         let display = persist_current(&app, &current).await?;
         // 与切账号同位:清标记后收尾 avoid_bad_wifi 快照(幂等)
-        crate::monitor_loop::restore_avoid_bad_wifi(&app).await;
+        crate::core_bridge_cmds::restore_avoid_bad_wifi_local(&app).await;
         return Ok(AccountResult { success: true, message: None, active_account: Some(String::new()), display_name: None, config: Some(display) });
     }
     Ok(AccountResult::ok(config_state::masked_for_display(&current)))

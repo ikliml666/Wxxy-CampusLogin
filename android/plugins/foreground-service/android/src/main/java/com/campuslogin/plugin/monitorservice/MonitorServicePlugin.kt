@@ -34,6 +34,12 @@ class StartArgs {
 }
 
 @InvokeArg
+class CoreCommandArgs {
+  var action: String? = null
+  var args: String? = null
+}
+
+@InvokeArg
 class TextArgs {
   var text: String? = null
 }
@@ -46,28 +52,42 @@ class BoolArgs {
 @TauriPlugin
 class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(activity) {
 
+    override fun load(webView: android.webkit.WebView) {
+        super.load(webView)
+        val ctx = activity.applicationContext
+        // UI 进程插件初始化即注册 core 事件接收器(幂等),不依赖 MainActivity
+        CoreClient.registerEventReceiver(ctx)
+        // 核心由 boot/START_STICKY 恢复;UI 只有收到实际操作才经 CoreClient 拉起,
+        // 关闭后台检测后重开界面不会凭空出现常驻通知
+    }
+
+    /**
+     * UI → :core 命令转发(action = start/stop/trigger/status/login/logout)。
+     * 登录/注销含协议 3 次重试,默认 25s 会截断,单独放大到 60s。
+     */
     @Command
-    fun startMonitor(invoke: Invoke) {
-        val args = invoke.parseArgs(StartArgs::class.java)
-        val title = args.title
-        if (title == null) {
-            Log.w(TAG, "startMonitor: 缺少参数 title")
-            invoke.reject("缺少参数 title")
+    fun coreCommand(invoke: Invoke) {
+        val parsed = invoke.parseArgs(CoreCommandArgs::class.java)
+        val action = parsed.action
+        if (action == null) {
+            invoke.reject("缺少参数 action")
             return
         }
-        val intent = Intent(activity, ForegroundService::class.java)
-            .putExtra(ForegroundService.EXTRA_TEXT, title)
-        // 后台启 FGS 在部分 ROM/状态下抛 ForegroundServiceStartNotAllowedException
-        // (IllegalStateException 子类,catch 父类免低版本类引用问题)
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                activity.startForegroundService(intent)
-            } else {
-                activity.startService(intent)
-            }
-        } catch (e: IllegalStateException) {
-            Log.e(TAG, "startMonitor: 前台服务启动失败: ${e.javaClass.name}: ${e.message}", e)
-            invoke.reject("前台服务启动失败: ${e.message ?: e.javaClass.simpleName}")
+        val timeoutMs = if (action == "login" || action == "logout") 60_000L else 15_000L
+        val result = CoreClient.command(activity.applicationContext, action, parsed.args ?: "{}", timeoutMs)
+        val ret = JSObject()
+        ret.put("result", result)
+        invoke.resolve(ret)
+    }
+
+    @Command
+    fun startMonitor(invoke: Invoke) {
+        // 后台核心在 :core 进程:UI 只拉起服务并转发 start(幂等)
+        val ctx = activity.applicationContext
+        CoreClient.ensureService(ctx)
+        val result = CoreClient.command(ctx, "start", "{}", 15_000)
+        if (result.contains("\"error\"")) {
+            invoke.reject(result)
             return
         }
         val ret = JSObject()
@@ -77,9 +97,12 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
 
     @Command
     fun stopMonitor(invoke: Invoke) {
-        val intent = Intent(activity, ForegroundService::class.java)
-            .setAction(ForegroundService.ACTION_STOP)
-        activity.startService(intent) // 通知服务自杀,避免 stopService 与 startForeground 竞态
+        val ctx = activity.applicationContext
+        val result = CoreClient.command(ctx, "stop", "{}", 15_000)
+        if (result.contains("\"error\"")) {
+            invoke.reject(result)
+            return
+        }
         val ret = JSObject()
         ret.put("started", false)
         invoke.resolve(ret)
@@ -87,19 +110,7 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
 
     @Command
     fun updateNotification(invoke: Invoke) {
-        val args = invoke.parseArgs(TextArgs::class.java)
-        val text = args.text
-        if (text == null) {
-            Log.w(TAG, "updateNotification: 缺少参数 text")
-            invoke.reject("缺少参数 text")
-            return
-        }
-        val manager = activity.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        // 与服务侧同一构建(标准协议:计时器/免重复提醒),通道由服务创建
-        manager.notify(
-            ForegroundService.NOTIFICATION_ID,
-            ForegroundService.buildNotification(activity, text)
-        )
+        // 常驻通知由 :core 内部随状态更新;保留命令面兼容,UI 侧不再改写文案
         invoke.resolve()
     }
 
@@ -136,18 +147,17 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
         }
     }
 
-    // 探针窗口:Rust 巡检每拍开始/结束直调服务静态入口(同进程,无 IPC 路由)。
+    // 探针窗口:core 进程内部经 JNI 直调 CoreService,此命令仅保留兼容。
     // 窗口内持有 WifiLock + 唤醒锁,窗口外全部释放——常驻 WifiLock 会让系统
     // 永不进入 WiFi 省电(CDD 要求),而一轮探针只数百毫秒。
     @Command
     fun beginProbeWindow(invoke: Invoke) {
-        ForegroundService.beginProbeWindow()
+        // 探针窗口锁由 :core 进程经 JNI 直调 CoreService,此命令仅保留兼容
         invoke.resolve()
     }
 
     @Command
     fun endProbeWindow(invoke: Invoke) {
-        ForegroundService.endProbeWindow()
         invoke.resolve()
     }
 
@@ -408,35 +418,24 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
     }
 }
 
-/// 开机自启:仅当用户在设置里开启过(setBootAutostart 记忆于 SharedPreferences)才拉起前台服务。
-/// 注意 FGS 只提供通知壳与保活锁——Rust 监控循环/自动登录/定时测试由 tauri Activity
-/// 的 setup→run_startup_tasks 驱动,故还需 best-effort 拉起 MainActivity:
-/// Android 10+ 后台启 Activity 受 ROM 限制(MIUI 需"后台弹出界面"权限),被拦时
-/// 常驻通知仍在,用户点开 app 一次即恢复完整链路。
+/// 开机自启:仅当用户在设置里开启过(setBootAutostart 记忆于 SharedPreferences)才拉起 core 服务。
+/// 核心在 :core 进程,START_STICKY/开机拉起时无需 Activity 即可恢复巡检与 WiFi watcher。
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         val prefs = context.getSharedPreferences("campus_settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("boot_autostart", false)) return
-        val service = Intent(context, ForegroundService::class.java)
-            .putExtra(ForegroundService.EXTRA_TEXT, "开机自启:监控运行中")
-        // 开机瞬间部分 ROM 仍可能拒绝 FGS 启动(IllegalStateException 系),只记日志
-        // 不能炸掉广播接收器——MainActivity 拉起链路照走
+        // 只拉起 :core 前台服务,不再拉起 MainActivity:核心不依赖 Activity,
+        // 开机后即恢复巡检与 WiFi watcher,前端留给系统按需回收
         try {
+            val service = Intent(context, CoreService::class.java)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 context.startForegroundService(service)
             } else {
                 context.startService(service)
             }
         } catch (e: IllegalStateException) {
-            Log.e(TAG, "BootReceiver: 开机启动前台服务失败: ${e.javaClass.name}: ${e.message}", e)
+            Log.e(TAG, "BootReceiver: 开机启动 core 服务失败: ${e.javaClass.name}: ${e.message}", e)
         }
-        try {
-            context.startActivity(
-                Intent()
-                    .setClassName(context.packageName, "${context.packageName}.MainActivity")
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        } catch (_: Exception) { }
     }
 }

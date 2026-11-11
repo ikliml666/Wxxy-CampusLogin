@@ -444,6 +444,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "campus-core-logic"
+version = "2.4.3"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "campus-login"
 version = "2.4.3"
 dependencies = [
@@ -499,9 +508,11 @@ dependencies = [
 name = "campus-login-android"
 version = "2.4.3"
 dependencies = [
+ "campus-core-logic",
  "campus-login",
  "chrono",
  "futures-util",
+ "jni",
  "lazy_static",
  "libc",
  "network-interface",

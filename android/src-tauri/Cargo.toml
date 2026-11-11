@@ -16,7 +16,7 @@ tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "macros", "io-util", "sync"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "net", "macros", "io-util", "sync"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 lazy_static = "1.5"
 regex = "1"
@@ -29,6 +29,12 @@ libc = "0.2"
 
 # 协议核心:与桌面端单点共享(阶段 3 收敛为 git 依赖 + tag)
 campus-login = { path = "../../tauri-app/src-tauri" }
+
+# 后台核心纯逻辑(启动决策/通知文案/状态形状),host 可测
+campus-core-logic = { path = "../core-logic" }
+
+# :core 进程 JNI 桥
+jni = "0.21"
 
 # WLAN 网络绑定插件(bindProcessToNetwork)
 tauri-plugin-campus-network-bind = { path = "../plugins/network-bind" }

@@ -64,7 +64,7 @@ pub struct Settings {
     pub outbound_standby_route: String,
     /// 安卓出站切换态标记(值恒 "logged_out",纯标记不暂存账号名):非空=处于出站
     /// 切换态(已注销等待晨间重登)。标记生效期间巡检整轮跳过、运营商夜切让位、
-    /// 定时登录跳过(见 monitor_loop::run_scheduled_actions);切账号、删除当前账号、
+    /// 定时登录跳过(见 core::monitor::run_scheduled_actions);切账号、删除当前账号、
     /// 关闭本功能或还原失败达上限时清空
     pub night_outbound_restore: String,
     /// 桌面 DNS 优化目标适配器名单(网卡名,可多选)。DNS 优化为桌面专属功能,
@@ -341,14 +341,36 @@ pub async fn save_file(path: &Path, bridge: &CryptoBridge, s: &Settings) -> Resu
 /// 形状的全部遗留,不区分 pid——能活过一次重启的 tmp 一定是孤儿(当前进程的
 /// tmp 写完即 rename 消失)。
 pub async fn cleanup_stale_config_tmp(dir: PathBuf) {
-    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
         return;
     };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
     while let Ok(Some(entry)) = entries.next_entry().await {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else { continue };
-        if name.starts_with(&format!("{CONFIG_FILE}.")) && name.ends_with(".tmp") {
-            let _ = tokio::fs::remove_file(entry.path()).await;
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !campus_core_logic::config_tmp::is_config_tmp(name) {
+            continue;
+        }
+        let modified_ms = entry
+            .metadata()
+            .await
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        if campus_core_logic::config_tmp::is_stale_tmp(
+            name,
+            modified_ms,
+            now_ms,
+            campus_core_logic::config_tmp::CONFIG_TMP_MAX_AGE_MS,
+        ) {
+            let _ = tokio::fs::remove_file(&path).await;
         }
     }
 }
@@ -380,9 +402,9 @@ pub async fn load_from(dir: &Path, bridge: &CryptoBridge) -> Result<Settings, St
 /// 旧默认的值一并刷为新默认;落盘后不再二次覆盖。
 /// v6→v7(2026-09-20):夜切开关旧默认 false→true(上线一天即改默认);定时登录/
 /// 注销禁用值 0→1440(0 变为真实的 00:00 时刻,禁用改用哨兵 1440)。
-/// 迁移结果(含版本号)落盘,此后用户主动改回不会再次覆盖;
-/// 落盘失败静默:下次读盘重迁,幂等。
-async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Settings) {
+/// 迁移结果(含版本号)由 :core 启动时的统一事务写口落盘,此后用户主动改回
+/// 不会再次覆盖;load_from 本身只迁移内存,不在读路径无锁回写。
+async fn migrate_legacy_defaults(_dir: &Path, _bridge: &CryptoBridge, s: &mut Settings) {
     let legacy = s.config_schema_version < 3;
     if s.config_schema_version < 1 && s.background_check_interval == 15_000 {
         s.background_check_interval = 60_000;
@@ -398,36 +420,24 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
             s.enable_network_quality = false;
         }
         s.config_schema_version = 3;
-        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
-            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
-        }
     }
     if s.config_schema_version < 4 {
         if s.background_check_idle_interval == 0 {
             s.background_check_idle_interval = 300_000;
         }
         s.config_schema_version = 4;
-        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
-            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
-        }
     }
     if s.config_schema_version < 5 {
         if s.campus_check_end_minutes == 0 {
             s.campus_check_end_minutes = 1380;
         }
         s.config_schema_version = 5;
-        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
-            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
-        }
     }
     if s.config_schema_version < 6 {
         if s.latency_test_interval == 60_000 {
             s.latency_test_interval = 600_000;
         }
         s.config_schema_version = 6;
-        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
-            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
-        }
     }
     if s.config_schema_version < 7 {
         if !s.enable_night_operator_switch {
@@ -440,9 +450,6 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
             s.scheduled_logout_minutes = 1440;
         }
         s.config_schema_version = 7;
-        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
-            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
-        }
     }
     // v7→v8(2026-11-10):校园网关与质量检测固定网关默认值由 10.2.127.254 改为
     // 10.1.1.1(学校核心设备,实测各卡绑源均可达);存量等于旧默认的值一并刷新
@@ -454,14 +461,22 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
             s.fixed_gateway = "10.1.1.1".to_string();
         }
         s.config_schema_version = 8;
-        if let Err(e) = save_file(&dir.join(CONFIG_FILE), bridge, s).await {
-            campus_login_lib::log_warn!("config", "旧配置迁移落盘失败(下次读盘重迁,幂等): {e}");
-        }
     }
 }
 
 pub async fn save_to(dir: &Path, bridge: &CryptoBridge, s: &Settings) -> Result<(), String> {
     save_file(&dir.join(CONFIG_FILE), bridge, s).await
+}
+
+/// 账号切换等命令的整份配置落盘:调用方必须已持 config_io_lock;
+/// 此处只补跨进程锁,避免 tokio::sync::Mutex 重入自死锁。
+pub async fn save_to_locked(
+    dir: &Path,
+    bridge: &CryptoBridge,
+    s: &Settings,
+) -> Result<(), String> {
+    let _xproc = config_lock_guard(dir).await?;
+    save_to(dir, bridge, s).await
 }
 
 async fn apply_settings_update<F>(
@@ -478,6 +493,17 @@ where
     Ok(fresh)
 }
 
+/// 跨进程配置锁:与 :core 进程共用 config.json.lock,防 load→mutate→save 互相覆盖。
+/// 阻塞等锁走 spawn_blocking,不占 async 线程;进程内 tokio 锁仍保留(先取)。
+async fn config_lock_guard(
+    dir: &Path,
+) -> Result<campus_core_logic::file_lock::CrossProcessLock, String> {
+    let lock_path = dir.join(format!("{CONFIG_FILE}.lock"));
+    tokio::task::spawn_blocking(move || campus_core_logic::file_lock::acquire(&lock_path))
+        .await
+        .map_err(|e| format!("配置锁任务失败: {e}"))?
+}
+
 async fn update_at<F, A, Fut>(
     dir: &Path,
     bridge: &CryptoBridge,
@@ -490,6 +516,7 @@ where
     Fut: Future<Output = ()>,
 {
     let _guard = config_io_lock().await;
+    let _xproc = config_lock_guard(dir).await?;
     let fresh = apply_settings_update(dir, bridge, mutate).await?;
     after_save(fresh.clone()).await;
     Ok(fresh)
@@ -500,6 +527,19 @@ where
 /// 这是「读当前值再改字段」的写口入口；闭包拿到锁内最新文件状态，不会用调用前
 /// 的旧快照覆盖其他写者。落盘失败时文件、缓存与前端状态均保持原值。账号档案
 /// 同步仍由 `save_config` 在凭据变更后单独负责。
+/// 在配置 IO 锁内 load→mutate→save(不依赖 AppHandle)。
+/// :core 进程与 UI 进程的写口共用同一把进程内锁与同一磁盘格式。
+pub async fn update_at_dir<F>(
+    dir: &Path,
+    bridge: &CryptoBridge,
+    mutate: F,
+) -> Result<Settings, String>
+where
+    F: FnOnce(&mut Settings),
+{
+    update_at(dir, bridge, mutate, |_| async {}).await
+}
+
 pub async fn update<F>(app: &tauri::AppHandle, mutate: F) -> Result<Settings, String>
 where
     F: FnOnce(&mut Settings),
@@ -588,6 +628,7 @@ pub async fn save_config(
         .path()
         .app_data_dir()
         .map_err(|e| format!("获取数据目录失败: {e}"))?;
+    let _xproc = config_lock_guard(&dir).await?;
     let current = load_from(&dir, &bridge).await?;
     let mut merged = config;
     merged.password =

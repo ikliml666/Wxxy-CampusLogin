@@ -1,31 +1,28 @@
-//! 安卓端 Tauri 入口:命令面与桌面版同名对齐,协议核心 path 依赖 campus-login 单点共享。
-//! 模块分工:
-//! - protocol_cmds:登录/注销/Portal 探测/WiFi 绑定
-//! - campus_detect:校园网探针(检测卡 + check_campus_status)
-//! - config_state:全量配置(Keystore 加密落盘/掩码出口)
-//! - self_service_cmds:自助服务七网络命令(自动路由直连/WebVPN) + 生物识别验证门
-//! - vpn_cmds:WebVPN 凭据命令与自助服务校外自动路由(桌面 commands/vpn.rs 同构)
-//! - identity_gate / login_history:验证门 TTL 与登录历史
-//! - quality_history:网络质量历史落盘(形状与桌面端一致)
-//! - android_state:进程态(源 IP 缓存/配置内存态/监控循环句柄)
+//! 安卓端 Tauri 入口(UI 进程)。
+//!
+//! 后台核心(巡检/自动登录/夜间切换/通知/WiFi watcher)只跑在 `:core` 进程,
+//! 由 `core::runner` 在 `CoreService.onCreate` 经 JNI 拉起;本进程只做 UI 命令面,
+//! 启动/停止/检测/登录/注销经 Binder 转发(见 `core_bridge_cmds`)。
+//! 协议核心仍只在 `campus-login` 单点实现。
 
-mod campus_detect;
+mod account_cmds;
 mod android_state;
+mod battery_cmds;
+mod campus_detect;
 mod config_state;
+mod core;
+mod core_bridge_cmds;
 mod cpu_affinity;
+mod face_model_cmds;
 mod identity_gate;
 mod login_history;
 mod protocol_cmds;
-mod self_service_cmds;
-mod vpn_cmds;
-mod monitor_loop;
-mod account_cmds;
-mod system_cmds;
 mod quality_cmds;
 mod quality_history;
+mod self_service_cmds;
+mod system_cmds;
 mod update_cmds;
-mod face_model_cmds;
-mod battery_cmds;
+mod vpn_cmds;
 
 use tauri::Manager;
 
@@ -51,14 +48,13 @@ pub fn run() {
             .app_data_dir()
             .unwrap_or_else(|_| std::path::PathBuf::from("."))
             .join("logs");
-        // logger 初始化失败(目录不可写)不得静默:log_* 宏依赖它,失败则一切
-        // 日志去向不明,排障无从下手
         if let Err(e) = campus_login_lib::infra::logger::init_logger(log_dir) {
             eprintln!("[startup] 日志初始化失败,日志将不可用: {e}");
         }
-        // 启动恢复:按持久化配置拉起后台检测/定时质量测试循环并执行启动自动登录
-        monitor_loop::run_startup_tasks(app.handle().clone());
-        // 清理上次进程崩溃遗留的配置临时文件(孤儿 tmp 不参与 rename 竞争,纯垃圾)
+        // UI 进程事件桥:core 广播 → WebView 事件
+        crate::core::ui_bridge::set_app_handle(app.handle().clone());
+        // UI 侧启动任务(质量首测/更新检查);后台检测等由 :core 自行恢复
+        ui_startup(app.handle().clone());
         if let Ok(dir) = app.path().app_data_dir() {
             let _ = tauri::async_runtime::spawn(config_state::cleanup_stale_config_tmp(dir));
         }
@@ -71,11 +67,19 @@ pub fn run() {
             protocol_cmds::accept_wifi_network,
             protocol_cmds::get_avoid_bad_wifi_status,
             protocol_cmds::restore_written_settings,
-            protocol_cmds::do_login,
-            protocol_cmds::do_logout,
             protocol_cmds::check_portal_status,
             campus_detect::check_campus_status,
             campus_detect::request_wifi_ssid_permission,
+            core_bridge_cmds::do_login,
+            core_bridge_cmds::do_logout,
+            core_bridge_cmds::start_background_check,
+            core_bridge_cmds::stop_background_check,
+            core_bridge_cmds::trigger_background_check,
+            core_bridge_cmds::get_background_status,
+            core_bridge_cmds::get_boot_autostart,
+            core_bridge_cmds::set_boot_autostart,
+            core_bridge_cmds::get_notification_enabled,
+            core_bridge_cmds::set_notification_enabled,
             config_state::get_config,
             config_state::save_config,
             self_service_cmds::verify_biometric_identity,
@@ -106,14 +110,6 @@ pub fn run() {
             system_cmds::set_log_retention_days,
             system_cmds::get_debug_mode,
             system_cmds::set_debug_mode,
-            monitor_loop::start_background_check,
-            monitor_loop::stop_background_check,
-            monitor_loop::trigger_background_check,
-            monitor_loop::get_background_status,
-            monitor_loop::get_boot_autostart,
-            monitor_loop::set_boot_autostart,
-            monitor_loop::get_notification_enabled,
-            monitor_loop::set_notification_enabled,
             battery_cmds::get_battery_optimization_info,
             battery_cmds::request_ignore_battery_optimizations,
             battery_cmds::open_vendor_battery_settings,
@@ -130,12 +126,34 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .unwrap_or_else(|e| panic!("tauri 应用构建失败: {e:#}"))
-        .run(|_app, event| {
-            // 退出护栏：Tauri 默认「最后窗口关闭→process::exit(0)」会把前台服务
-            // 一起带走（tauri #15671 根因）。安卓语义：划掉任务只关 UI，进程随
-            // 前台服务常驻，巡检/夜切/定时动作继续；彻底退出走系统设置
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                api.prevent_exit();
+        // UI 进程允许正常退出:后台核心由 :core 进程自持,WebView/UI 交给系统回收
+        .run(|_app, _event| {});
+}
+
+/// UI 进程启动任务:质量首测与更新检查(后台检测/自动登录由 :core 负责)
+fn ui_startup(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        let settings = match crate::config_state::current_settings(&app).await {
+            Ok(s) => s,
+            Err(e) => {
+                campus_login_lib::log_error!("monitor", "UI 启动任务读取配置失败: {e}");
+                return;
             }
-        });
+        };
+        campus_login_lib::infra::logger::set_log_retention_days(settings.log_retention_days);
+        if settings.enable_network_quality {
+            let enable_latency = settings.enable_latency_test;
+            let app2 = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if enable_latency {
+                    let _ = crate::quality_cmds::start_latency_test(app2).await;
+                } else {
+                    let _ = crate::quality_cmds::check_network_quality(app2).await;
+                }
+            });
+        }
+        crate::update_cmds::start_update_check_loop(app.clone());
+        crate::update_cmds::cleanup_stale_apks(&app).await;
+    });
 }

@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the coreCommand command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-coreCommand",
+          "markdownDescription": "Enables the coreCommand command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the coreCommand command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-coreCommand",
+          "markdownDescription": "Denies the coreCommand command without any pre-configured scope."
+        },
+        {
           "description": "Enables the installApk command without any pre-configured scope.",
           "type": "string",
           "const": "allow-installApk",

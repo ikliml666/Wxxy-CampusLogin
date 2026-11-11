@@ -4,13 +4,13 @@
 
 use chrono::{Datelike, Timelike};
 use lazy_static::lazy_static;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
-use tauri::Manager;
 
 // WiFi watcher 注册失败降级标志:android_state 进程级静态(status_value 无
 // State 也可读;register 结果由 start_wifi_watcher 记账)
 use crate::android_state::WATCHER_FAILED;
+use crate::core::platform::CoreCtx;
 
 lazy_static! {
     pub(crate) static ref MONITOR: MonitorState = MonitorState::default();
@@ -68,7 +68,6 @@ pub struct MonitorState {
     /// 常驻通知已展示的在线状态(0=未展示,1=在线,2=未连接,3=非检测时段):仅状态
     /// 翻转时才 notify 重建通知——每拍重建常驻通知是稳态功耗点(60s 一拍 IPC + notify),
     /// 文案不再携带逐拍递增的检测次数(检测次数前端状态页有)
-    pub notified_online: AtomicU8,
     /// 定时登录当日已触发标记(当日序号 num_days_from_ce;0=从未触发,当日序号
     /// 恒为正,与"未触发"等价;跨天由序号变化自然重置)。与掉线重连的 cooldown/
     /// 熔断计数互不共享,判定复用跨平台纯函数 config::schedule
@@ -141,8 +140,7 @@ pub fn should_attempt_login(
     millis_since_last_attempt >= cooldown_secs.saturating_mul(1000)
 }
 
-/// get_init_data 的 backgroundStatus 与前端 get_background_status 命令共用的出站形状
-pub fn status_value() -> serde_json::Value {
+pub fn status_snapshot() -> serde_json::Value {
     let last = MONITOR
         .last_result
         .lock()
@@ -156,9 +154,6 @@ pub fn status_value() -> serde_json::Value {
         "lastResult": last.as_ref(),
         "watcherFailed": WATCHER_FAILED.load(Ordering::Relaxed),
     });
-    // 展平最近一次检测的关键字段到顶层:前端启动时读 bgStatus.online 驱动
-    // 状态点(首轮 emit 先于 WebView 监听建立,事件会丢,getInitData 是唯一
-    // 可靠的启动初值来源)
     if let Some(last) = &last {
         for key in [
             "online",
@@ -175,6 +170,21 @@ pub fn status_value() -> serde_json::Value {
     v
 }
 
+/// 状态快照 + 写跨进程状态文件(心跳/通知新鲜度)
+pub fn status_value(ctx: &CoreCtx) -> serde_json::Value {
+    let v = status_snapshot();
+    ctx.mark_status(|s| {
+        s.is_running = MONITOR.running.load(Ordering::Relaxed);
+        s.check_count = MONITOR.check_count.load(Ordering::Relaxed);
+        s.consecutive_failures = MONITOR.consecutive_failures.load(Ordering::Relaxed);
+        s.reconnect_count = MONITOR.reconnect_count.load(Ordering::Relaxed);
+        s.watcher_failed = WATCHER_FAILED.load(Ordering::Relaxed);
+        s.last_result = MONITOR.last_result.lock().ok().and_then(|g| g.clone());
+        s.last_tick_ms = epoch_ms();
+    });
+    v
+}
+
 #[allow(dead_code)] // Task 4 循环体接线
 pub fn is_running() -> bool {
     MONITOR.running.load(Ordering::Relaxed)
@@ -187,38 +197,18 @@ fn epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn emit_login_log(app: &tauri::AppHandle, message: &str, log_type: &str) {
-    use tauri::Emitter;
-    let payload = serde_json::json!({ "message": message, "type": log_type });
-    let _ = app.emit("login-log", payload);
+fn emit_login_log(ctx: &CoreCtx, message: &str, log_type: &str) {
+    ctx.emit_log(message, log_type);
 }
 
-/// 系统通知(区别于常驻通知):掉线/重连失败/达上限/新版本等关键事件。
-/// 此前安卓关键事件零提醒(桌面 emit_notification 系同语义),锁屏时用户
-/// 对掉线完全无感知;enable_notification=false 时静默。
 pub(crate) fn notify_system(
-    app: &tauri::AppHandle,
+    ctx: &CoreCtx,
     enabled: bool,
     title: &str,
     body: &str,
     mascot: &str,
 ) {
-    if !enabled {
-        return;
-    }
-    use tauri_plugin_notification::NotificationExt;
-    // mascot 为 drawable 资源名（如 mascot_alert），作为通知大图显示看板娘；
-    // 资源缺失时插件抛 Resources.NotFoundException，降级为不带大图的纯文本。
-    let result = app
-        .notification()
-        .builder()
-        .title(title)
-        .body(body)
-        .large_icon(mascot)
-        .show();
-    if result.is_err() {
-        let _ = app.notification().builder().title(title).body(body).show();
-    }
+    ctx.notify_system(enabled, title, body, mascot);
 }
 
 /// 探测/登录失败通知追加 VPN 接管提示:全量 VPN(Clash/UU 等)未排除本应用时,
@@ -233,326 +223,109 @@ fn with_vpn_hint(body: &str) -> String {
     }
 }
 
-/// 启动后台监控:Rust tokio 循环 + 前台服务保活(幂等)
-#[tauri::command]
-pub async fn start_background_check(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let settings = crate::config_state::current_settings(&app).await?;
+pub async fn start_background_check(ctx: CoreCtx) -> Result<serde_json::Value, String> {
+    let settings = ctx.settings().await?;
     let want = settings.background_check_interval.max(5000);
     MONITOR.desired_interval_ms.store(want, Ordering::Relaxed);
     MONITOR
         .idle_interval_ms
         .store(settings.background_check_idle_interval, Ordering::Relaxed);
     if is_running() {
-        // 已在跑:仅刷新目标间隔,循环体下 tick 重建计时器(改间隔立即生效)。
-        // Rust 循环活着不代表 FGS 活着(系统可单独回收前台服务):现有插件桥无
-        // isRunning 查询命令(Kotlin 侧无法在本组改动),降级为重发一次 start_monitor
-        // 保活——服务活着时 onStartCommand 只是刷新通知文案(START_STICKY 幂等),
-        // 服务被杀则重新拉起,失败仅记日志不中断
         #[cfg(mobile)]
-        {
-            use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-            if let Err(e) = app
-                .campus_monitor_service()
-                .start_monitor("校园网监控运行中")
-            {
-                campus_login_lib::log_warn!("monitor", "运行中 FGS 保活重发失败: {e}");
-            }
-        }
+        start_wifi_watcher(&ctx);
         return Ok(serde_json::json!({ "isRunning": true }));
     }
-
-    #[cfg(mobile)]
-    {
-        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-        let service = app.campus_monitor_service();
-        // 先启动 FGS,成功后才置运行标志:启动失败会 reject 给前端且不残留假"运行中"
-        service
-            .start_monitor("校园网监控运行中")
-            .map_err(|e| e.to_string())?;
-        // 自启设置与监控开关独立;此处仅同步当前配置到插件
-        let _ = service.set_boot_autostart(settings.enable_boot_autostart);
-    }
     MONITOR.running.store(true, Ordering::Relaxed);
-    // 重置通知状态记忆:服务通知刚以"校园网监控运行中"重建,首拍需刷新为实时状态
-    MONITOR.notified_online.store(0, Ordering::Relaxed);
-
-    // WiFi 变化监听随后台检测起停:变化事件即时触发一次完整检测(不等下一拍)
     #[cfg(mobile)]
-    start_wifi_watcher(&app);
-
-    // 代际 token:循环持有本代值,stop/下一次 start 推进代际后旧循环自退,
-    // 退出时只有代际匹配才清 running 标志(stop→start 竞速防误清)
+    start_wifi_watcher(&ctx);
     let gen = MONITOR_GENERATION.fetch_add(1, Ordering::Relaxed);
-    tauri::async_runtime::spawn(monitor_tick_loop(app.clone(), want, gen));
-    emit_login_log(&app, "后台监控已启动", "info");
+    tokio::spawn(monitor_tick_loop(ctx.clone(), want, gen));
+    emit_login_log(&ctx, "后台监控已启动", "info");
+    ctx.mark_status(|s| {
+        s.is_running = true;
+        s.core_alive = true;
+    });
     Ok(serde_json::json!({ "isRunning": true }))
 }
 
-#[tauri::command]
-pub async fn stop_background_check(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    // 先推进代际再清标志:旧循环退出时 gen 已失配,不会把新一轮的 running 误清
+pub async fn stop_background_check(ctx: CoreCtx) -> Result<serde_json::Value, String> {
     MONITOR_GENERATION.fetch_add(1, Ordering::Relaxed);
     MONITOR.running.store(false, Ordering::Relaxed);
-    stop_wifi_watcher(&app);
     #[cfg(mobile)]
-    {
-        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-        let _ = app.campus_monitor_service().stop_monitor();
-    }
-    emit_login_log(&app, "后台监控已停止", "info");
+    stop_wifi_watcher(&ctx);
+    emit_login_log(&ctx, "后台监控已停止", "info");
+    ctx.update_notification("监控已停止");
+    ctx.mark_status(|s| {
+        s.is_running = false;
+    });
     Ok(serde_json::json!({ "isRunning": false }))
 }
 
 /// WiFi 变化监听的注册 channel id:注销 removeListener 需要
 #[cfg(mobile)]
-static WIFI_WATCHER_CHANNEL_ID: AtomicU32 = AtomicU32::new(0);
-#[cfg(mobile)]
 static WIFI_WATCHER_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// 注册 WiFi 变化监听(Kotlin NetworkCallback → channel 事件):随后台检测开关
-/// 起停——start_background_check 成功后调用;失败只记日志,退化为纯周期检测
 #[cfg(mobile)]
-pub(crate) fn start_wifi_watcher(app: &tauri::AppHandle) {
-    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
-
-    let app_h = app.clone();
-    let channel = tauri::ipc::Channel::<serde_json::Value>::new(move |body| {
-        handle_wifi_event(app_h.clone(), body)
-    });
-    let id = channel.id();
-    match app.campus_network_bind().start_wifi_watcher(channel) {
+pub(crate) fn start_wifi_watcher(ctx: &CoreCtx) {
+    match ctx.platform().start_wifi_watcher() {
         Ok(_) => {
-            WIFI_WATCHER_CHANNEL_ID.store(id, Ordering::Relaxed);
             WIFI_WATCHER_ACTIVE.store(true, Ordering::Relaxed);
             WATCHER_FAILED.store(false, Ordering::Relaxed);
             campus_login_lib::log_info!("monitor", "WiFi 变化监听已启动(WiFi 变化即时触发检测)");
         }
         Err(e) => {
-            // 注册失败降级为纯周期检测:置失败标志经 get_background_status 暴露
-            // (前端可提示"变化即时感知不可用"),不静默
             WATCHER_FAILED.store(true, Ordering::Relaxed);
-            campus_login_lib::log_warn!("monitor", "WiFi 变化监听启动失败,退化为纯周期检测: {e}")
+            campus_login_lib::log_warn!("monitor", "WiFi 变化监听启动失败,退化为纯周期检测: {e}");
         }
     }
 }
 
-/// 注销 WiFi 变化监听(随 stop_background_check 调用)
 #[cfg(mobile)]
-pub(crate) fn stop_wifi_watcher(app: &tauri::AppHandle) {
-    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
-
+pub(crate) fn stop_wifi_watcher(ctx: &CoreCtx) {
     if !WIFI_WATCHER_ACTIVE.swap(false, Ordering::Relaxed) {
         return;
     }
-    let id = WIFI_WATCHER_CHANNEL_ID.load(Ordering::Relaxed);
-    if let Err(e) = app.campus_network_bind().stop_wifi_watcher(id) {
-        campus_login_lib::log_warn!("monitor", "WiFi 变化监听注销失败: {e}");
-    } else {
-        campus_login_lib::log_info!("monitor", "WiFi 变化监听已停止");
-    }
+    ctx.platform().stop_wifi_watcher();
+    campus_login_lib::log_info!("monitor", "WiFi 变化监听已停止");
 }
 
-/// WiFi 变化事件处理:去抖 + 延迟后执行一次完整检测(run_check_once)。
-/// channel 消息体为 {"event": "available|lost|validated|unvalidated"}
 #[cfg(mobile)]
-fn handle_wifi_event(
-    app: tauri::AppHandle,
-    body: tauri::ipc::InvokeResponseBody,
-) -> tauri::Result<()> {
-    // 事件只在后台监控运行时有意义(watcher 生命周期与其绑定,此处兜底防竞态)
+pub(crate) async fn handle_wifi_event(ctx: CoreCtx, event: String) {
     if !is_running() {
-        return Ok(());
+        return;
     }
-    let event = body
-        .deserialize::<serde_json::Value>()
-        .ok()
-        .and_then(|v| v["event"].as_str().map(str::to_string));
-    let Some(event) = event else {
-        return Ok(());
-    };
     let now = epoch_ms();
     if !wifi_event_is_burst_start(
         MONITOR.wifi_event_ms.load(Ordering::Relaxed),
         now,
         WIFI_EVENT_DEBOUNCE_MS,
     ) {
-        return Ok(());
+        return;
     }
     MONITOR.wifi_event_ms.store(now, Ordering::Relaxed);
-    // lost 零延迟:断开即事实,探测失败=离线;连上方向保持 2500ms 等 DHCP/路由稳定
     let delay = if event == "lost" {
         WIFI_LOST_EVENT_DELAY_MS
     } else {
         WIFI_EVENT_DELAY_MS
     };
-    tauri::async_runtime::spawn(async move {
+    tokio::spawn(async move {
         if delay > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
         }
-        // 风暴内更新的起点已覆盖时间戳:本任务过期自杀,由最后安排的任务执行
         if MONITOR.wifi_event_ms.load(Ordering::Relaxed) != now {
             return;
         }
         campus_login_lib::log_info!("monitor", "检测到 WiFi 变化({event}),立即执行网络状态检测");
-        run_check_once(&app).await;
+        run_check_once(&ctx).await;
     });
-    Ok(())
 }
 
-#[tauri::command]
-pub async fn trigger_background_check(app: tauri::AppHandle) -> Result<(), String> {
-    // 仅在后台监控运行时放行:监控停着时手动触发会产生无 watch/无通知管理的
-    // 孤立检测(前端"立即检测"按钮语义即刷新当前监控状态),停跑时明确拒绝
+pub async fn trigger_background_check(ctx: &CoreCtx) -> Result<(), String> {
     if !is_running() {
         return Err("后台监控未运行,无法触发检测".to_string());
     }
-    run_check_once(&app).await;
+    run_check_once(ctx).await;
     Ok(())
-}
-
-#[tauri::command]
-pub fn get_background_status() -> serde_json::Value {
-    status_value()
-}
-
-/// 开机自启开关:插件组件启停 + 配置字段同步(设置页 set_auto_launch 等价物)
-#[tauri::command]
-pub async fn get_boot_autostart(app: tauri::AppHandle) -> Result<bool, String> {
-    #[cfg(mobile)]
-    {
-        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-        return app
-            .campus_monitor_service()
-            .is_boot_autostart_enabled()
-            .map_err(|e| e.to_string());
-    }
-    #[cfg(not(mobile))]
-    {
-        let _ = &app;
-        Ok(false)
-    }
-}
-
-#[tauri::command]
-pub async fn set_boot_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    #[cfg(mobile)]
-    {
-        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-        app.campus_monitor_service()
-            .set_boot_autostart(enabled)
-            .map_err(|e| e.to_string())?;
-    }
-    crate::config_state::update(&app, |settings| {
-        settings.enable_boot_autostart = enabled;
-    })
-    .await?;
-    Ok(())
-}
-
-/// 通知开关:配置字段读写(设置页 set_notification_enabled 等价物)
-#[tauri::command]
-pub async fn get_notification_enabled(app: tauri::AppHandle) -> Result<bool, String> {
-    Ok(crate::config_state::current_settings(&app)
-        .await?
-        .enable_notification)
-}
-
-#[tauri::command]
-pub async fn set_notification_enabled(
-    app: tauri::AppHandle,
-    enabled: bool,
-) -> Result<bool, String> {
-    crate::config_state::update(&app, |settings| {
-        settings.enable_notification = enabled;
-    })
-    .await?;
-    Ok(enabled)
-}
-
-/// 启动恢复(对齐桌面 startup.rs→watcher::run_startup_tasks):按持久化配置
-/// 拉起后台检测/定时质量测试循环并执行启动自动登录。此前安卓三者均只在用户
-/// 手动切换时启动,重启 app 后"开关开着却不运行"——即自动登录无效/定时测试
-/// 不跑/后台检测无效三个反馈的共性根因。
-///
-/// 2026-09-09 启动提速:三条互不依赖的启动链(后台检测/质量首测/自动登录)
-/// 由串行 await 改为并行 spawn——质量首测要跑完 12 个外网域名(数秒级),
-/// 串行时自动登录被压在最后,冷启动登录完成时间被成倍拖长;并行后即 tokio
-/// multi-thread 运行时的多核利用。就绪窗口从桌面同款 1.5s 收窄到 500ms,
-/// 网络未就绪的极端场景由自动登录的一次重试与后台检测下一拍兜底。
-pub fn run_startup_tasks(app: tauri::AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        let settings = match crate::config_state::current_settings(&app).await {
-            Ok(s) => s,
-            Err(e) => {
-                // 启动链读配置失败不得静默:自动登录/后台检测/定时质量全部不拉起,
-                // 用户看到的是"开关开着却不运行"而无任何解释。log_error + emit
-                // startup-failed 供前端提示
-                campus_login_lib::log_error!("monitor", "启动恢复失败(读取配置): {e}");
-                use tauri::Emitter;
-                let _ = app.emit(
-                    "startup-failed",
-                    serde_json::json!({ "reason": format!("读取配置失败: {e}") }),
-                );
-                // BootReceiver 可能已把 FGS 拉起(常驻通知"监控运行中"是假的):
-                // 停服务让通知消失,与真实状态一致;失败则留通知并已由上面的
-                // 事件与日志如实暴露(B4h: 尽力停服务)
-                #[cfg(mobile)]
-                {
-                    use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-                    if let Err(stop_err) = app.campus_monitor_service().stop_monitor() {
-                        campus_login_lib::log_warn!(
-                            "monitor",
-                            "FGS 停止失败(启动恢复失败路径): {stop_err}"
-                        );
-                    }
-                }
-                return;
-            }
-        };
-        // 启动即应用持久化日志保留天数（set 内含一次按天清理）：此前安卓 retention 重启后
-        // 恒为默认 7（仅日志面板临时改），且首次按时间清理要等 worker 跑满 1 小时
-        campus_login_lib::infra::logger::set_log_retention_days(settings.log_retention_days);
-        if settings.enable_background_check {
-            let app2 = app.clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = start_background_check(app2).await;
-            });
-        }
-        // avoid_bad_wifi 快照兜底:出站切换态标记为空但插件快照仍待还原(上次切换态
-        // 收尾时应用被杀/功能被关等残留)→ 启动即还原,不停在 1。标记非空(切换态
-        // 进行中)则不动,等 Restore 分支收尾;无快照时插件幂等无动作
-        if settings.night_outbound_restore.is_empty() {
-            restore_avoid_bad_wifi(&app).await;
-        }
-        if settings.enable_network_quality {
-            let enable_latency = settings.enable_latency_test;
-            let app2 = app.clone();
-            tauri::async_runtime::spawn(async move {
-                if enable_latency {
-                    let _ = crate::quality_cmds::start_latency_test(app2).await;
-                } else {
-                    // 定时测试关着时的唯一首屏来源:启动做一次质量检测(emit
-                    // network-quality-result),否则顶部胶囊/质量页永远 pending
-                    let _ = crate::quality_cmds::check_network_quality(app2).await;
-                }
-            });
-        }
-        // 自动更新检查循环(桌面 24h 同语义):有新版本 emit + 系统通知
-        crate::update_cmds::start_update_check_loop(app.clone());
-        // 清理历史残留安装包(下载未装/装失败/旧版本装完未删):只删超龄的,
-        // 本次刚下载的包 mtime 会被刷新,不受影响
-        crate::update_cmds::cleanup_stale_apks(&app).await;
-        if settings.auto_login_on_start {
-            let app2 = app.clone();
-            tauri::async_runtime::spawn(async move {
-                match crate::config_state::current_settings(&app2).await {
-                    Ok(s) => auto_login_on_start(&app2, &s).await,
-                    Err(_) => {}
-                }
-            });
-        }
-    });
 }
 
 /// 启动探测:未确认校园网(探测失败/非校园网)时 3s 后重试一次——开机自启等
@@ -560,18 +333,18 @@ pub fn run_startup_tasks(app: tauri::AppHandle) {
 /// 最后一次结果返回,语义与原单次探测一致(Err→判定失败,Ok 非 campus→跳过)。
 /// SSID 感知版:名称检查开启时 SSID 命中直接判在校园网(2026-09-20)。
 async fn probe_with_retry(
-    app: &tauri::AppHandle,
+    ctx: &CoreCtx,
     settings: &crate::config_state::Settings,
 ) -> (
     Result<crate::campus_detect::CampusProbe, String>,
     Option<String>,
 ) {
-    let first = crate::campus_detect::probe_campus_with_ssid(app, settings).await;
+    let first = ctx.probe_campus_with_ssid(settings).await;
     if first.0.as_ref().is_ok_and(|p| p.on_campus) {
         return first;
     }
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    let retry = crate::campus_detect::probe_campus_with_ssid(app, settings).await;
+    let retry = ctx.probe_campus_with_ssid(settings).await;
     if retry.0.as_ref().is_ok_and(|p| p.on_campus) {
         return retry;
     }
@@ -582,13 +355,8 @@ async fn probe_with_retry(
     }
 }
 
-/// 自动登录结果走应用内通知(前端 auto-login-result 监听→应用内 toast):
-/// 成功与失败都发(失败此前只发系统通知,前端失败 toast 分支无数据源)。
-/// 系统通知仍仅失败侧保留(锁屏感知):启动自动登录与首拍自动重登常连续
-/// 发生,系统通知重复轰炸(2026-09-09 真机反馈)。日志记录由 login-log 负责,不重复。
-fn emit_auto_login_result(app: &tauri::AppHandle, success: bool, message: &str) {
-    use tauri::Emitter;
-    let _ = app.emit(
+fn emit_auto_login_result(ctx: &CoreCtx, success: bool, message: &str) {
+    ctx.emit(
         "auto-login-result",
         serde_json::json!({ "success": success, "message": message }),
     );
@@ -596,8 +364,16 @@ fn emit_auto_login_result(app: &tauri::AppHandle, success: bool, message: &str) 
 
 /// 启动自动登录(对齐桌面 auto_auth::run_auto_login_on_start 的安卓精简版):
 /// 有凭据 + 判定在校园网才登录;非校园网不登录由 probe_campus 的 on_campus 保证
-async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_state::Settings) {
+async fn auto_login_on_start(
+    ctx: &CoreCtx,
+    settings: &crate::config_state::Settings,
+    respect_silent: bool,
+) {
     if settings.user.is_empty() || settings.password.is_empty() {
+        return;
+    }
+    if crate::core::login::logout_protected() {
+        emit_login_log(ctx, "注销保护期内,跳过启动自动登录", "info");
         return;
     }
     // 校园网检测静默期（检测时段外）连启动自动登录一并跳过：与桌面
@@ -606,7 +382,7 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
     // 本就断网，启动即发起探测/认证只会在日志里留一串失败。
     // 2026-10-26：边界判定改调共享单点 campus_login_lib::config::schedule::
     // is_campus_check_silent（此前四份手写展开，见该函数文档）。
-    if settings.campus_check_start_minutes > 0 {
+    if respect_silent && settings.campus_check_start_minutes > 0 {
         let now = chrono::Local::now();
         let minutes_now = now.hour() as u16 * 60 + now.minute() as u16;
         if campus_login_lib::config::schedule::is_campus_check_silent(
@@ -615,7 +391,7 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
             settings.campus_check_end_minutes,
         ) {
             emit_login_log(
-                app,
+                ctx,
                 "启动检测:校园网检测静默期(非检测时段),跳过校园网判定与自动登录",
                 "info",
             );
@@ -623,61 +399,54 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
         }
     }
     // 探测/登录前强制绑 WiFi:WiFi+流量同开时默认路由可能落蜂窝,探测与登录走错网络
-    crate::protocol_cmds::ensure_wifi_bound(app).await;
-    let state = app.state::<crate::android_state::AndroidState>();
-    let (probe, _ssid) = match probe_with_retry(app, settings).await {
+    ctx.ensure_wifi_bound().await;
+        let (probe, _ssid) = match probe_with_retry(ctx, settings).await {
         (Ok(p), ssid) => (p, ssid),
         (Err(e), _) => {
-            emit_login_log(app, &format!("启动自动登录:校园网判定失败 {e}"), "warning");
+            emit_login_log(ctx, &format!("启动自动登录:校园网判定失败 {e}"), "warning");
             return;
         }
     };
-    crate::campus_detect::cache_source_ip(&state, probe.source);
+    ctx.cache_source_ip(probe.source);
     if !probe.on_campus {
-        emit_login_log(app, "启动检测:不在校园网环境,跳过自动登录", "info");
+        emit_login_log(ctx, "启动检测:不在校园网环境,跳过自动登录", "info");
         return;
     }
-    let Some(attempt) = crate::protocol_cmds::try_begin_login() else {
-        emit_login_log(app, "启动自动登录: 已有登录任务进行中,本次跳过", "info");
+    let Some(attempt) = crate::core::login::try_begin_login() else {
+        emit_login_log(ctx, "启动自动登录: 已有登录任务进行中,本次跳过", "info");
         return;
     };
-    emit_login_log(app, "检测到校园网环境,执行启动自动登录", "info");
-    match crate::protocol_cmds::run_login(
-        &settings.user,
-        &settings.password,
-        &settings.operator,
-        &state,
-        attempt,
-    )
+    emit_login_log(ctx, "检测到校园网环境,执行启动自动登录", "info");
+    match crate::core::login::run_login(ctx, &settings.user, &settings.password, &settings.operator, attempt)
     .await
     {
         Ok(v) if v["success"].as_bool().unwrap_or(false) => {
             let msg = v["message"].as_str().unwrap_or("").to_string();
-            emit_login_log(app, &format!("启动自动登录成功: {msg}"), "success");
-            emit_auto_login_result(app, true, &msg);
+            emit_login_log(ctx, &format!("启动自动登录成功: {msg}"), "success");
+            emit_auto_login_result(ctx, true, &msg);
         }
         Ok(v) => {
             let msg = v["message"].as_str().unwrap_or("").to_string();
-            emit_login_log(app, &format!("启动自动登录失败: {msg}"), "error");
+            emit_login_log(ctx, &format!("启动自动登录失败: {msg}"), "error");
             notify_system(
-                app,
+                ctx,
                 settings.enable_notification,
                 "启动自动登录失败",
                 &with_vpn_hint(&msg),
                 "mascot_offline",
             );
-            emit_auto_login_result(app, false, &msg);
+            emit_auto_login_result(ctx, false, &msg);
         }
         Err(e) => {
-            emit_login_log(app, &format!("启动自动登录失败: {e}"), "error");
+            emit_login_log(ctx, &format!("启动自动登录失败: {e}"), "error");
             notify_system(
-                app,
+                ctx,
                 settings.enable_notification,
                 "启动自动登录失败",
                 &with_vpn_hint(&e),
                 "mascot_offline",
             );
-            emit_auto_login_result(app, false, &e);
+            emit_auto_login_result(ctx, false, &e);
         }
     }
 }
@@ -685,13 +454,12 @@ async fn auto_login_on_start(app: &tauri::AppHandle, settings: &crate::config_st
 /// 探针窗口 guard:进入窗口持 WifiLock/WakeLock,离开(Drop,含 early return 与 panic
 /// unwind)必释放。Android 8+ 后台 startService 受限,故经插件命令直调服务静态入口。
 #[cfg(mobile)]
-struct ProbeWindowGuard(tauri::AppHandle);
+struct ProbeWindowGuard(CoreCtx);
 
 #[cfg(mobile)]
 impl Drop for ProbeWindowGuard {
     fn drop(&mut self) {
-        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-        let _ = self.0.campus_monitor_service().end_probe_window();
+        self.0.end_probe_window();
     }
 }
 
@@ -699,19 +467,16 @@ impl Drop for ProbeWindowGuard {
 /// 查询失败按保守值 (true, true) 处理——按基础间隔巡检,不因查询异常漏检测
 /// (省电是优化项,漏检是功能缺陷)。
 #[cfg(mobile)]
-fn power_state(app: &tauri::AppHandle) -> (bool, bool) {
-    use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-    app.campus_monitor_service()
-        .get_power_state()
-        .unwrap_or((true, true))
+fn power_state(ctx: &CoreCtx) -> (bool, bool) {
+    ctx.power_state()
 }
 
 #[cfg(not(mobile))]
-fn power_state(_app: &tauri::AppHandle) -> (bool, bool) {
+fn power_state(_ctx: &CoreCtx) -> (bool, bool) {
     (true, true)
 }
 
-async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64, gen: u64) {
+async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
     // 下限 5s:防误配超小间隔打爆探测
     let mut current = interval_ms.max(5000);
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(current));
@@ -720,7 +485,7 @@ async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64, gen: u64) {
     // 当日注销时刻已过,「过点补触发」会让首拍立即注销——用户刚打开监控就被踢下线,
     // 是意外而非预期。只消耗今日额度不执行动作;运行中的补触发不受影响。定时登录
     // 不消耗:启动补登录=补上线,正是预期。读取失败静默跳过(下一拍判定照常)
-    if let Ok(settings) = crate::config_state::current_settings(&app).await {
+    if let Ok(settings) = ctx.settings().await {
         let now = chrono::Local::now();
         let now_minutes = (now.hour() * 60 + now.minute()) as u16;
         let today_day = now.date_naive().num_days_from_ce() as i32;
@@ -746,7 +511,7 @@ async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64, gen: u64) {
         // 定时登录/定时注销判定(P2-32):置于巡检分档跳拍与校园网检测静默期之前——
         // 定时动作常配置在检测静默期/灭屏闲时段(如 23:30 注销、07:40 登录),
         // 放进 run_check_once 会被静默期整拍吞掉。双目标均禁用时函数内部早退
-        run_scheduled_actions(&app).await;
+        run_scheduled_actions(&ctx).await;
         // 间隔热更新:运行中改检测间隔(start_background_check 刷新 desired),
         // 重建计时器;tokio interval 重建后首个 tick 立即返回,吃掉保持节奏
         let want = MONITOR.desired_interval_ms.load(Ordering::Relaxed);
@@ -758,14 +523,14 @@ async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64, gen: u64) {
         // 分档:唤醒周期恒为基础间隔(保证亮屏/回 WiFi 后最迟一拍恢复),
         // 是否真正跑探针由闲时间隔决定——蜂窝/灭屏时跳拍,省掉整轮 Portal 探测
         let idle_ms = MONITOR.idle_interval_ms.load(Ordering::Relaxed);
-        let (screen_on, wifi_connected) = power_state(&app);
+        let (screen_on, wifi_connected) = power_state(&ctx);
         let effective = effective_interval_ms(current, idle_ms, screen_on, wifi_connected);
         let now = epoch_ms();
         if last_probe_ms != 0 && now.saturating_sub(last_probe_ms) < effective {
             continue;
         }
         last_probe_ms = now;
-        run_check_once(&app).await;
+        run_check_once(&ctx).await;
     }
     // 只有代际匹配才清 running 标志:stop 已推进代际时标志清理由 stop 自身负责
     // (新一轮 start 可能已把 running 置回 true,旧循环退出不得误清)
@@ -776,8 +541,8 @@ async fn monitor_tick_loop(app: tauri::AppHandle, interval_ms: u64, gen: u64) {
 
 /// 是否处于夜间出站切换态(night_outbound_restore 标记非空)。读配置命中内存
 /// 缓存,开销可忽略;读取失败按"未切换"处理——宁可多跑一轮巡检,不可漏检
-async fn outbound_switch_active(app: &tauri::AppHandle) -> bool {
-    crate::config_state::current_settings(app)
+async fn outbound_switch_active(ctx: &CoreCtx) -> bool {
+    ctx.settings()
         .await
         .map(|s| !s.night_outbound_restore.is_empty())
         .unwrap_or(false)
@@ -787,10 +552,10 @@ async fn outbound_switch_active(app: &tauri::AppHandle) -> bool {
 /// 已改的字段用旧值覆盖回去(如还原清掉的标记被同拍运营商夜切块复活写回);
 /// 读取失败回退传入快照——宁可写回一次快照,也不因此放弃本次动作
 async fn latest_settings(
-    app: &tauri::AppHandle,
+    ctx: &CoreCtx,
     fallback: &crate::config_state::Settings,
 ) -> crate::config_state::Settings {
-    crate::config_state::current_settings(app)
+    ctx.settings()
         .await
         .unwrap_or_else(|_| fallback.clone())
 }
@@ -801,16 +566,15 @@ async fn latest_settings(
 /// wlan_user_ip 的破坏性踢下线)成功即本机已离线;只看 success(Radius 单边)会把
 /// (false, true) 组合误判为注销失败,从而掉线重连→再注销整夜摆动。
 /// 两个信号都未生效时按连续失败计数收敛(见 switch_logout_unconfirmed)
-async fn logout_for_outbound_switch(app: &tauri::AppHandle) -> bool {
+async fn logout_for_outbound_switch(ctx: &CoreCtx) -> bool {
     if !MONITOR.was_online.load(Ordering::Relaxed) {
         // 本来就不在线:注销请求盲发必失败(评审 P2),跳过请求照常建立切换态。
         // 计数一并清零:本出口同样"确认离线",跨夜残留会让次夜的失败预算只剩 2 拍
         OUTBOUND_SWITCH_FAIL_COUNT.store(0, Ordering::Relaxed);
-        emit_login_log(app, "夜间出站切换: 未检测到校园网在线,跳过注销请求", "info");
+        emit_login_log(ctx, "夜间出站切换: 未检测到校园网在线,跳过注销请求", "info");
         return true;
     }
-    let state = app.state::<crate::android_state::AndroidState>();
-    match crate::protocol_cmds::do_logout(None, None, app.clone(), state).await {
+        match crate::core::login::run_logout(ctx, None, "scheduled").await {
         Ok(v) => {
             let radius_ok = v["radiusOk"].as_bool().unwrap_or(false);
             let unbind_ok = v["unbindOk"].as_bool().unwrap_or(false);
@@ -821,17 +585,17 @@ async fn logout_for_outbound_switch(app: &tauri::AppHandle) -> bool {
                 MONITOR.was_online.store(false, Ordering::Relaxed);
                 true
             } else {
-                switch_logout_unconfirmed(app, v["message"].as_str().unwrap_or(""))
+                switch_logout_unconfirmed(ctx, v["message"].as_str().unwrap_or(""))
             }
         }
-        Err(e) => switch_logout_unconfirmed(app, &e),
+        Err(e) => switch_logout_unconfirmed(ctx, &e),
     }
 }
 
 /// 注销未确认生效(radiusOk/unbindOk 均未生效或执行失败)时的上限判定:
 /// 未达上限 → false(保持未切换态,下一拍整段重试);达上限 → true 并记 warn
 /// (注销请求在网络断开时本来就发不出去,照常建态交系统侧验证接管)
-fn switch_logout_unconfirmed(app: &tauri::AppHandle, reason: &str) -> bool {
+fn switch_logout_unconfirmed(ctx: &CoreCtx, reason: &str) -> bool {
     let fails = OUTBOUND_SWITCH_FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     if fails >= OUTBOUND_SWITCH_MAX_FAILS {
         OUTBOUND_SWITCH_FAIL_COUNT.store(0, Ordering::Relaxed);
@@ -842,7 +606,7 @@ fn switch_logout_unconfirmed(app: &tauri::AppHandle, reason: &str) -> bool {
         true
     } else {
         emit_login_log(
-            app,
+            ctx,
             &format!("夜间出站切换: 注销未确认生效({reason}),保持未切换态下一拍重试"),
             "warning",
         );
@@ -884,7 +648,7 @@ async fn portal_probe_on_little_cores(
         Err(e) => {
             eprintln!("[portal_probe] 线程创建失败,降级共享阻塞池: {e}");
             // 线程创建失败降级回共享阻塞池(仅保正确性;原始 ip 未被 move)
-            tauri::async_runtime::spawn_blocking(move || {
+            tokio::task::spawn_blocking(move || {
                 campus_login_lib::auth::portal::check_portal_full(&ip, None)
             })
             .await
@@ -905,8 +669,8 @@ async fn portal_probe_on_little_cores(
 /// - 晚间断网切换判定复用共享纯函数 `config::night_switch::evaluate_night_switch`
 ///   (周日/周一 23:00、周五/周六 23:30 切至无锡学院,次日 7:30 起恢复),位于
 ///   定时动作双禁用早退之前(夜切开关独立于定时登录/注销)。
-async fn run_scheduled_actions(app: &tauri::AppHandle) {
-    let settings = match crate::config_state::current_settings(app).await {
+async fn run_scheduled_actions(ctx: &CoreCtx) {
+    let settings = match ctx.settings().await {
         Ok(s) => s,
         Err(_) => return, // 配置读取失败:静默跳过,下一拍重试
     };
@@ -941,10 +705,10 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
         NightOutboundAction::Switch => {
             // 前置在线检查、注销与"离线生效"判据(radiusOk || unbindOk)、注销失败上限
             // 全在 logout_for_outbound_switch 内(评审 P2 + N1)
-            if logout_for_outbound_switch(app).await {
+            if logout_for_outbound_switch(ctx).await {
                 // 标记落盘成功才触发系统重检:落盘失败即切换态未成立,下一拍重试整段
                 // (与运营商夜切"落盘失败即下一拍重试"同语义)
-                let persisted = persist_settings(app, |current| {
+                let persisted = persist_settings(ctx, |current| {
                     current.night_outbound_restore = "logged_out".to_string();
                 })
                 .await;
@@ -955,10 +719,10 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                     // 应用声明 WRITE_SECURE_SETTINGS,用户 adb `pm grant` 授权后这里
                     // 程序化确保=1(插件记录原值快照,晨间还原);未授权时 ensured=false,
                     // 保留手动开启提示(设置页文案;常开=1 对用户无害,本就应常开)
-                    ensure_avoid_bad_wifi(app).await;
-                    trigger_wifi_recheck(app).await;
+                    ensure_avoid_bad_wifi(ctx).await;
+                    trigger_wifi_recheck(ctx).await;
                     emit_login_log(
-                        app,
+                        ctx,
                         "夜间出站切换: 已注销校园网，等待系统切换移动数据",
                         "info",
                     );
@@ -968,10 +732,10 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
         NightOutboundAction::Restore => {
             // 登录当前活跃账号(复用运营商夜切同款内核:无校园网探测闸,与桌面
             // full_login 对齐);成功才清标记
-            let login_outcome = night_switch_login(app, &settings).await;
+            let login_outcome = night_switch_login(ctx, &settings).await;
             if matches!(login_outcome, NightLoginOutcome::Succeeded) {
                 OUTBOUND_RESTORE_FAIL_COUNT.store(0, Ordering::Relaxed);
-                let persisted = persist_settings(app, |current| {
+                let persisted = persist_settings(ctx, |current| {
                     current.night_outbound_restore = String::new();
                 })
                 .await;
@@ -979,12 +743,12 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                     outbound_active = false;
                     // 切换态收尾:若切换侧程序化写过 avoid_bad_wifi,按插件快照还原原值
                     // (原值=1 时快照不存在,幂等无动作)
-                    restore_avoid_bad_wifi(app).await;
+                    restore_avoid_bad_wifi(ctx).await;
                     // 还原时刻可配置后可能早于静默期起点:开启静默期持续放行,让校园网
                     // 判定与在线状态立刻刷新并一直重试到静默期结束(桌面 request_check_
                     // after_outbound_restore 同义)
                     RESTORE_SILENT_PASS.store(true, Ordering::Release);
-                    emit_login_log(app, "夜间出站切换: 已恢复校园网登录", "success");
+                    emit_login_log(ctx, "夜间出站切换: 已恢复校园网登录", "success");
                 }
             } else if matches!(login_outcome, NightLoginOutcome::Busy) {
                 // 其他入口正在登录:保留切换态且不计失败,下一拍再判断结果。
@@ -995,23 +759,23 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                 let fails = OUTBOUND_RESTORE_FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
                 if fails >= OUTBOUND_RESTORE_MAX_FAILS {
                     OUTBOUND_RESTORE_FAIL_COUNT.store(0, Ordering::Relaxed);
-                    let persisted = persist_settings(app, |current| {
+                    let persisted = persist_settings(ctx, |current| {
                         current.night_outbound_restore = String::new();
                     })
                     .await;
                     if persisted.is_some() {
                         outbound_active = false;
                         // 放弃自动还原也收尾系统态:avoid_bad_wifi 不停在 1
-                        restore_avoid_bad_wifi(app).await;
+                        restore_avoid_bad_wifi(ctx).await;
                         emit_login_log(
-                            app,
+                            ctx,
                             "夜间出站切换: 自动还原失败已放弃，请手动登录",
                             "error",
                         );
                     }
                 } else {
                     emit_login_log(
-                        app,
+                        ctx,
                         &format!(
                             "夜间出站切换: 恢复登录未成功(第 {fails} 次),保留切换态下一拍重试"
                         ),
@@ -1024,7 +788,7 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
     }
     // 出站动作可能刚改写标记(切换写/还原清):运营商夜切与后续定时登录改用**重读**的
     // 新鲜配置,避免用调用起点的 stale 快照克隆把刚清掉的 night_outbound_restore 复活写回
-    let settings = latest_settings(app, &settings).await;
+    let settings = latest_settings(ctx, &settings).await;
     // 自动切换运营商（原晚间断网自动切换）:纯函数依据当前 operator/restore 状态天然防重——
     // 已切换(operator 为空、restore 非空)不再返回 SwitchToCampus,已恢复
     // (restore 清空)不再返回 Restore,落盘即收敛,无需额外每日标记;落盘失败
@@ -1051,31 +815,31 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             );
         match action {
             campus_login_lib::config::night_switch::NightSwitchAction::SwitchToCampus => {
-                emit_login_log(app, "晚间断网切换: 运营商已切至无锡学院", "info");
-                if let Some(switched) = persist_settings(app, |current| {
+                emit_login_log(ctx, "晚间断网切换: 运营商已切至无锡学院", "info");
+                if let Some(switched) = persist_settings(ctx, |current| {
                     current.night_operator_restore = current.operator.clone();
                     current.operator = String::new();
                 })
                 .await
                 {
-                    let _ = night_switch_login(app, &switched).await;
+                    let _ = night_switch_login(ctx, &switched).await;
                     // 独立 tokio 任务验证登录是否生效,不阻塞监控循环
-                    tauri::async_runtime::spawn(verify_night_switch(
-                        app.clone(),
+                    tokio::spawn(verify_night_switch(
+                        ctx.clone(),
                         switched.operator.clone(),
                     ));
                 }
             }
             campus_login_lib::config::night_switch::NightSwitchAction::Restore => {
-                emit_login_log(app, "晚间断网切换: 已恢复原运营商", "info");
-                if let Some(switched) = persist_settings(app, |current| {
+                emit_login_log(ctx, "晚间断网切换: 已恢复原运营商", "info");
+                if let Some(switched) = persist_settings(ctx, |current| {
                     current.operator = std::mem::take(&mut current.night_operator_restore);
                 })
                 .await
                 {
-                    let _ = night_switch_login(app, &switched).await;
-                    tauri::async_runtime::spawn(verify_night_switch(
-                        app.clone(),
+                    let _ = night_switch_login(ctx, &switched).await;
+                    tokio::spawn(verify_night_switch(
+                        ctx.clone(),
                         switched.operator.clone(),
                     ));
                 }
@@ -1111,7 +875,7 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             .scheduled_login_day
             .store(today_day, Ordering::Relaxed);
         emit_login_log(
-            app,
+            ctx,
             &format!(
                 "定时登录触发 (目标 {:02}:{:02})",
                 settings.scheduled_login_minutes / 60,
@@ -1119,7 +883,8 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             ),
             "info",
         );
-        auto_login_on_start(app, &settings).await;
+        // 定时登录是用户指定的明确动作,必须能在检测静默期执行
+        auto_login_on_start(ctx, &settings, false).await;
     }
 
     if fire_logout {
@@ -1127,7 +892,7 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             .scheduled_logout_day
             .store(today_day, Ordering::Relaxed);
         emit_login_log(
-            app,
+            ctx,
             &format!(
                 "定时注销触发 (目标 {:02}:{:02})",
                 settings.scheduled_logout_minutes / 60,
@@ -1135,18 +900,17 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             ),
             "info",
         );
-        let state = app.state::<crate::android_state::AndroidState>();
-        match crate::protocol_cmds::do_logout(None, None, app.clone(), state).await {
+                match crate::core::login::run_logout(ctx, None, "scheduled").await {
             Ok(v) => {
                 let success = v["success"].as_bool().unwrap_or(false);
                 let message = v["message"].as_str().unwrap_or("").to_string();
                 emit_login_log(
-                    app,
+                    ctx,
                     &format!("定时注销: {message}"),
                     if success { "success" } else { "error" },
                 );
             }
-            Err(e) => emit_login_log(app, &format!("定时注销执行失败: {e}"), "error"),
+            Err(e) => emit_login_log(ctx, &format!("定时注销执行失败: {e}"), "error"),
         }
     }
 }
@@ -1156,16 +920,16 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
 /// 注意：夜切只改运行态 operator，不在这里同步账号档案——档案要保留用户原始运营商，
 /// 否则切回该账号时会把临时的无锡学院空串当成原值写回。
 async fn persist_settings<F>(
-    app: &tauri::AppHandle,
+    ctx: &CoreCtx,
     mutate: F,
 ) -> Option<crate::config_state::Settings>
 where
     F: FnOnce(&mut crate::config_state::Settings),
 {
-    match crate::config_state::update(app, mutate).await {
+    match ctx.update_settings(mutate).await {
         Ok(saved) => Some(saved),
         Err(e) => {
-            emit_login_log(app, &format!("晚间断网切换配置落盘失败: {e}"), "error");
+            emit_login_log(ctx, &format!("晚间断网切换配置落盘失败: {e}"), "error");
             None
         }
     }
@@ -1182,147 +946,49 @@ enum NightLoginOutcome {
 }
 
 async fn night_switch_login(
-    app: &tauri::AppHandle,
+    ctx: &CoreCtx,
     settings: &crate::config_state::Settings,
 ) -> NightLoginOutcome {
     if settings.user.is_empty() || settings.password.is_empty() {
-        emit_login_log(app, "晚间断网切换: 账号或密码未配置,跳过登录", "warning");
+        emit_login_log(ctx, "晚间断网切换: 账号或密码未配置,跳过登录", "warning");
         return NightLoginOutcome::Failed;
     }
-    let Some(attempt) = crate::protocol_cmds::try_begin_login() else {
-        emit_login_log(app, "晚间断网切换: 已有登录任务进行中,本次跳过", "info");
+    let Some(attempt) = crate::core::login::try_begin_login() else {
+        emit_login_log(ctx, "晚间断网切换: 已有登录任务进行中,本次跳过", "info");
         return NightLoginOutcome::Busy;
     };
     // 登录前强制绑 WiFi(同 auto_login_on_start;WiFi+流量同开时默认路由可能落蜂窝)
-    crate::protocol_cmds::ensure_wifi_bound(app).await;
-    let state = app.state::<crate::android_state::AndroidState>();
-    match crate::protocol_cmds::run_login(
-        &settings.user,
-        &settings.password,
-        &settings.operator,
-        &state,
-        attempt,
-    )
+    ctx.ensure_wifi_bound().await;
+        match crate::core::login::run_login(ctx, &settings.user, &settings.password, &settings.operator, attempt)
     .await
     {
         Ok(v) => {
             let msg = v["message"].as_str().unwrap_or("").to_string();
             let success = v["success"].as_bool().unwrap_or(false);
             emit_login_log(
-                app,
+                ctx,
                 &format!("晚间断网切换登录: {msg}"),
                 if success { "success" } else { "error" },
             );
             if success { NightLoginOutcome::Succeeded } else { NightLoginOutcome::Failed }
         }
         Err(e) => {
-            emit_login_log(app, &format!("晚间断网切换登录失败: {e}"), "error");
+            emit_login_log(ctx, &format!("晚间断网切换登录失败: {e}"), "error");
             NightLoginOutcome::Failed
         }
     }
 }
 
-/// 触发系统对当前 WiFi 重新验证(NetworkMonitor reportNetworkUnusable):验证失败后
-/// 系统按 network_avoid_bad_wifi 自行决定把默认网络切到蜂窝——这是应用侧唯一合法的
-/// "让出站口切蜂窝"通道(改跃点属桌面能力,安卓无权限)。JNI 阻塞调用必须
-/// spawn_blocking(插件 lib.rs 同名 API doc);失败只记日志,不影响已成立的切换态
-async fn trigger_wifi_recheck(app: &tauri::AppHandle) {
-    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
-    let cloned = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        cloned.campus_network_bind().report_wifi_unusable()
-    })
-    .await;
-    match result {
-        Ok(Ok(v)) if v["reported"].as_bool().unwrap_or(false) => {
-            campus_login_lib::log_info!("monitor", "夜间出站切换: 已触发系统 WiFi 重检 {v}")
-        }
-        // reported=false:系统未接受本次上报(无 WiFi 网段/版本不支持等),切蜂窝
-        // 只能靠用户手动开启,故与异常同类按 warn 记,并带上插件给的 reason
-        Ok(Ok(v)) => campus_login_lib::log_warn!(
-            "monitor",
-            "夜间出站切换: 触发系统 WiFi 重检未生效({}),若系统未自动切移动数据请手动开启",
-            v["reason"].as_str().unwrap_or("未知原因")
-        ),
-        Ok(Err(e)) => {
-            campus_login_lib::log_warn!("monitor", "夜间出站切换: 触发系统 WiFi 重检失败: {e}")
-        }
-        Err(e) => campus_login_lib::log_warn!("monitor", "夜间出站切换: WiFi 重检任务异常: {e}"),
-    }
+async fn trigger_wifi_recheck(ctx: &CoreCtx) {
+    ctx.report_wifi_unusable().await;
 }
 
-/// 程序化确保 network_avoid_bad_wifi=1(WRITE_SECURE_SETTINGS 经 adb pm grant 授权后生效):
-/// 插件侧记录原值快照,晨间由 restore_avoid_bad_wifi 还原。JNI 阻塞调用走 spawn_blocking;
-/// 未授权/写入失败只记日志,不影响已成立的切换态(系统探测未开启时用户手动开启兜底)。
-async fn ensure_avoid_bad_wifi(app: &tauri::AppHandle) {
-    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
-    let cloned = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        cloned.campus_network_bind().ensure_avoid_bad_wifi()
-    })
-    .await;
-    match result {
-        Ok(Ok(v)) if v["ensured"].as_bool().unwrap_or(false) => {
-            if v["changed"].as_bool().unwrap_or(false) {
-                campus_login_lib::log_info!(
-                    "monitor",
-                    "夜间出站切换: 已程序化开启 network_avoid_bad_wifi=1(原值 {},晨间还原)",
-                    v["previous"].as_i64().unwrap_or(-1)
-                );
-            } else {
-                campus_login_lib::log_info!(
-                    "monitor",
-                    "夜间出站切换: network_avoid_bad_wifi 已开启,无需写入"
-                );
-            }
-        }
-        Ok(Ok(v)) => campus_login_lib::log_warn!(
-            "monitor",
-            "夜间出站切换: 无法程序化开启 network_avoid_bad_wifi({}),若系统未自动切移动数据请手动开启",
-            v["reason"].as_str().unwrap_or("未知原因")
-        ),
-        Ok(Err(e)) => campus_login_lib::log_warn!(
-            "monitor",
-            "夜间出站切换: ensure network_avoid_bad_wifi 调用失败: {e}"
-        ),
-        Err(e) => campus_login_lib::log_warn!(
-            "monitor",
-            "夜间出站切换: ensure network_avoid_bad_wifi 任务异常: {e}"
-        ),
-    }
+async fn ensure_avoid_bad_wifi(ctx: &CoreCtx) {
+    ctx.ensure_avoid_bad_wifi().await;
 }
 
-/// 按插件快照还原 network_avoid_bad_wifi(切换态收尾时调用;无快照幂等无动作)。
-pub(crate) async fn restore_avoid_bad_wifi(app: &tauri::AppHandle) {
-    use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
-    let cloned = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        cloned.campus_network_bind().restore_avoid_bad_wifi()
-    })
-    .await;
-    match result {
-        Ok(Ok(v)) if v["restored"].as_bool().unwrap_or(false) => {
-            campus_login_lib::log_info!(
-                "monitor",
-                "夜间出站切换: network_avoid_bad_wifi 已还原(原值 {})",
-                v["previous"].as_i64().unwrap_or(-1)
-            );
-        }
-        // restored=false:无快照(未程序化写过),正常路径,不打日志
-        Ok(Ok(_)) => {}
-        Ok(Err(e)) => {
-            campus_login_lib::log_warn!(
-                "monitor",
-                "夜间出站切换: 还原 network_avoid_bad_wifi 调用失败: {e}"
-            )
-        }
-        Err(e) => {
-            campus_login_lib::log_warn!(
-                "monitor",
-                "夜间出站切换: 还原 network_avoid_bad_wifi 任务异常: {e}"
-            )
-        }
-    }
+pub(crate) async fn restore_avoid_bad_wifi(ctx: &CoreCtx) {
+    ctx.restore_avoid_bad_wifi().await;
 }
 
 /// 夜切验证时序参数(与桌面同构):登录编排完成后等 15s 再查(eportal 在线表
@@ -1360,14 +1026,14 @@ fn expected_operator_display(expected_operator: &str) -> &str {
 /// 等 15s → 查 eportal chkstatus(JSONP)核对在线账号 uid 与期望运营商后缀
 /// (重试 3 次、间隔 5s)→ 仍不符则注销重登一轮再复验 → 最终不符发告警日志
 /// +系统通知,生效写 success 日志。uid 核对复用共享纯函数 config::night_switch。
-async fn verify_night_switch(app: tauri::AppHandle, expected_operator: String) {
+async fn verify_night_switch(ctx: CoreCtx, expected_operator: String) {
     // 出站切换态:校园网登录已被夜间出站编排接管,夜切验证的前提不成立(随后的
     // chkstatus 核对与"注销重登复验"会打断出站切换的等待窗口),直接放弃本轮验证
-    if outbound_switch_active(&app).await {
+    if outbound_switch_active(&ctx).await {
         return;
     }
     tokio::time::sleep(std::time::Duration::from_secs(NIGHT_VERIFY_WAIT_SECS)).await;
-    let settings = match crate::config_state::current_settings(&app).await {
+    let settings = match ctx.settings().await {
         Ok(s) => s,
         Err(_) => return, // 配置读取失败:静默放弃,不打扰用户
     };
@@ -1377,7 +1043,7 @@ async fn verify_night_switch(app: tauri::AppHandle, expected_operator: String) {
     }
     if let Ok(uid) = night_switch_verify_round(&settings, &expected_operator).await {
         emit_login_log(
-            &app,
+            &ctx,
             &format!("夜切验证: 已生效, 在线账号 {uid}"),
             "success",
         );
@@ -1387,38 +1053,39 @@ async fn verify_night_switch(app: tauri::AppHandle, expected_operator: String) {
     // 避免把用户刚改的配置又注销掉)
     // 复验轮前再查一次出站切换态(入口那次查在 15s 等待与首轮复验之前):等待期间
     // 若进入切换态,本轮的"注销→复登"会把账号登回切换态,打断出站等待窗口
-    if outbound_switch_active(&app).await {
+    if outbound_switch_active(&ctx).await {
         return;
     }
     // 日志在守卫之后:本行的承诺("注销重登后复验")必须以动作真的会发生为前提
-    emit_login_log(&app, "夜切验证: 未生效, 注销重登后复验", "warning");
-    let settings = match crate::config_state::current_settings(&app).await {
+    emit_login_log(
+            &ctx, "夜切验证: 未生效, 注销重登后复验", "warning");
+    let settings = match ctx.settings().await {
         Ok(s) => s,
         Err(_) => return,
     };
     if settings.operator != expected_operator {
         return;
     }
-    let state = app.state::<crate::android_state::AndroidState>();
-    if let Err(e) = crate::protocol_cmds::do_logout(None, None, app.clone(), state).await {
+        if let Err(e) = crate::core::login::run_logout(&ctx, None, "scheduled").await {
         emit_login_log(
-            &app,
+            &ctx,
             &format!("夜切验证: 注销失败, 继续复登: {e}"),
             "warning",
         );
     }
-    let _ = night_switch_login(&app, &settings).await;
+    let _ = night_switch_login(&ctx, &settings).await;
     tokio::time::sleep(std::time::Duration::from_secs(NIGHT_VERIFY_WAIT_SECS)).await;
     match night_switch_verify_round(&settings, &expected_operator).await {
         Ok(uid) => emit_login_log(
-            &app,
+            &ctx,
             &format!("夜切验证: 已生效, 在线账号 {uid}"),
             "success",
         ),
         Err(e) => {
-            emit_login_log(&app, &format!("夜切验证: {e}, 请手动检查"), "warning");
+            emit_login_log(
+            &ctx, &format!("夜切验证: {e}, 请手动检查"), "warning");
             notify_system(
-                &app,
+                &ctx,
                 settings.enable_notification,
                 "夜切验证失败",
                 "夜切后在线账号与期望运营商不符, 请手动检查",
@@ -1495,12 +1162,18 @@ async fn night_switch_check_once(
 }
 
 /// 单次检测:校园网判定 → Portal 探测 → 状态机 → 自动重登 → emit
-pub async fn run_check_once(app: &tauri::AppHandle) {
+pub async fn run_check_once(ctx: &CoreCtx) {
     MONITOR.check_count.fetch_add(1, Ordering::Relaxed);
-    let settings = match crate::config_state::current_settings(app).await {
+    ctx.mark_status(|s| {
+        s.last_tick_ms = epoch_ms();
+        s.check_count = MONITOR.check_count.load(Ordering::Relaxed);
+    });
+    let settings = match ctx.settings().await {
         Ok(s) => s,
         Err(e) => {
-            emit_login_log(app, &format!("读取配置失败,跳过本轮检测: {e}"), "error");
+            emit_login_log(ctx, &format!("读取配置失败,跳过本轮检测: {e}"), "error");
+            #[cfg(mobile)]
+            apply_notification_text(ctx, campus_core_logic::notify::TEXT_CONFIG_UNAVAILABLE).await;
             return;
         }
     };
@@ -1512,6 +1185,8 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     // run_scheduled_actions 不经过此闸:晨间还原判定必须在切换态下照常执行
     if !settings.night_outbound_restore.is_empty() {
         campus_login_lib::log_debug!("monitor", "出站切换态,跳过本轮巡检");
+        #[cfg(mobile)]
+        apply_notification_text(ctx, campus_core_logic::notify::TEXT_OUTBOUND_SWITCH).await;
         return;
     }
 
@@ -1540,17 +1215,9 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
         restore_pass = false;
     }
     if silent_now && !restore_pass {
-        // 非检测时段不探测,但常驻通知不能停在上一拍的"在线"(2026-09-13 真机反馈);
-        // 状态码 3=非检测时段,与在线(1)/未连接(2)区分,仅首次进入本状态时重建通知
+        // 非检测时段不探测,但常驻通知不能停在上一拍的"在线"(2026-09-13 真机反馈)
         #[cfg(mobile)]
-        {
-            use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-            if MONITOR.notified_online.swap(3, Ordering::Relaxed) != 3 {
-                let _ = app
-                    .campus_monitor_service()
-                    .update_notification("监控运行中 · 已暂停检测(非检测时段)");
-            }
-        }
+        apply_notification_text(ctx, campus_core_logic::notify::TEXT_CHECK_SILENT).await;
         return;
     }
     if silent_now && restore_pass {
@@ -1564,29 +1231,27 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     // 窗口外全部释放(省电)。guard 保证任何 early return / panic 都释放。
     #[cfg(mobile)]
     let _probe_window = {
-        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-        let _ = app.campus_monitor_service().begin_probe_window();
-        ProbeWindowGuard(app.clone())
+        let _ = ctx.begin_probe_window();
+        ProbeWindowGuard(ctx.clone())
     };
 
     // 每拍探测/Portal 探测/掉线自动重登前强制绑 WiFi(同 auto_login_on_start;
     // WiFi 未认证被降分后默认路由可能落蜂窝)
-    crate::protocol_cmds::ensure_wifi_bound(app).await;
+    ctx.ensure_wifi_bound().await;
 
     // 1. 校园网判定(复用探针;源 IP 缓存同步更新——自动重登/质量测试绑定用,
     //    此前后台链路不缓存,首次重登拿空/过期 IP 被协议拒)。
     //    SSID 感知:名称检查开启时经插件取 WifiManager SSID 参与判定(2026-09-20)
-    let (probe, current_ssid) = crate::campus_detect::probe_campus_with_ssid(app, &settings).await;
+    let (probe, current_ssid) = ctx.probe_campus_with_ssid(&settings).await;
     let (on_campus, source_ip, wifi_off) = match probe {
         Ok(p) => {
-            crate::campus_detect::cache_source_ip(
-                &app.state::<crate::android_state::AndroidState>(),
-                p.source,
-            );
+            ctx.cache_source_ip(p.source);
             (p.on_campus, p.source, p.wifi_off)
         }
         Err(e) => {
-            emit_login_log(app, &format!("校园网检测失败: {e}"), "error");
+            emit_login_log(ctx, &format!("校园网检测失败: {e}"), "error");
+            #[cfg(mobile)]
+            apply_notification_text(ctx, campus_core_logic::notify::TEXT_PROBE_FAILED).await;
             return;
         }
     };
@@ -1629,15 +1294,14 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     if online {
         MONITOR.reconnect_count.store(0, Ordering::Relaxed);
         MONITOR.consecutive_failures.store(0, Ordering::Relaxed);
-        MONITOR
-            .logout_protected_until_ms
-            .store(0, Ordering::Relaxed);
+        // 注销后探测失败会继承 prev_online，不能把继承态当作真实登录成功清除保护期；
+        // 真实自动/手动登录成功在 LoginAttempt.finish 中统一清理。
     }
     let was_online = MONITOR.was_online.swap(online, Ordering::Relaxed);
     // 掉线通知:从在线翻离线且在校园网(桌面 background_emit 同语义)
     if was_online && !online && on_campus {
         notify_system(
-            app,
+            ctx,
             settings.enable_notification,
             "校园网连接掉线",
             &with_vpn_hint(&format!("将自动重登: {portal_message}")),
@@ -1668,9 +1332,9 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
         );
     // 所有入口共享同一登录所有权；已有尝试时跳过，而不是等待后再登一次。
     let login_needed = should && !settings.user.is_empty() && !settings.password.is_empty();
-    let attempt = if login_needed { crate::protocol_cmds::try_begin_login() } else { None };
+    let attempt = if login_needed { crate::core::login::try_begin_login() } else { None };
     if login_needed && attempt.is_none() {
-        emit_login_log(app, "自动重登: 已有登录任务进行中,本次跳过", "info");
+        emit_login_log(ctx, "自动重登: 已有登录任务进行中,本次跳过", "info");
     }
     if let Some(attempt) = attempt {
         MONITOR.last_login_attempt_ms.store(now, Ordering::Relaxed);
@@ -1679,32 +1343,26 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
         if count >= settings.max_disconnect_reconnect {
             // 达上限只发通知,不再执行本轮 run_login(重试也注定失败且刷熔断计数)
             notify_system(
-                app,
+                ctx,
                 settings.enable_notification,
                 "自动重连已达上限",
                 &with_vpn_hint("本轮在线周期内不再自动重登,请手动登录"),
                 "mascot_offline",
             );
         } else {
-            let state = app.state::<crate::android_state::AndroidState>();
-            match crate::protocol_cmds::run_login(
-                &settings.user,
-                &settings.password,
-                &settings.operator,
-                &state,
-                attempt,
-            )
+                        match crate::core::login::run_login(ctx, &settings.user, &settings.password, &settings.operator, attempt)
             .await
             {
                 Ok(v) => {
                     let success = v["success"].as_bool().unwrap_or(false);
                     let message = v["message"].as_str().unwrap_or("").to_string();
                     emit_login_log(
-                        app,
+                        ctx,
                         &format!("自动登录: {message}"),
                         if success { "info" } else { "error" },
                     );
-                    if let Ok(dir) = app.path().app_data_dir() {
+                    let dir = ctx.data_dir().to_path_buf();
+                    if true {
                         if let Err(e) = crate::login_history::append_async(
                             dir,
                             success,
@@ -1719,32 +1377,32 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
                     }
                     if success {
                         // 成功走应用内 toast(auto-login-result);系统通知仅保留失败场景
-                        emit_auto_login_result(app, true, &message);
+                        emit_auto_login_result(ctx, true, &message);
                     } else {
                         // 协议返回失败(凭据错误等)与执行失败同计入熔断,达 5 次停止本会话自动重登
                         MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
                         notify_system(
-                            app,
+                            ctx,
                             settings.enable_notification,
                             "自动重登失败",
                             &with_vpn_hint(&message),
                             "mascot_offline",
                         );
-                        emit_auto_login_result(app, false, &message);
+                        emit_auto_login_result(ctx, false, &message);
                     }
                     login_result = Some(v);
                 }
                 Err(e) => {
                     MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
-                    emit_login_log(app, &format!("自动登录执行失败: {e}"), "error");
+                    emit_login_log(ctx, &format!("自动登录执行失败: {e}"), "error");
                     notify_system(
-                        app,
+                        ctx,
                         settings.enable_notification,
                         "自动重登失败",
                         &with_vpn_hint(&e),
                         "mascot_offline",
                     );
-                    emit_auto_login_result(app, false, &e);
+                    emit_auto_login_result(ctx, false, &e);
                 }
             }
         }
@@ -1784,34 +1442,25 @@ pub async fn run_check_once(app: &tauri::AppHandle) {
     if let Ok(mut last) = MONITOR.last_result.lock() {
         *last = Some(payload.clone());
     }
-    use tauri::Emitter;
-    let _ = app.emit("background-check-result", payload);
+        let _ = ctx.emit("background-check-result", payload);
 
-    // 常驻通知同步实时状态:仅在线状态翻转时 notify(Chronometer 起点由服务侧
-    // 固定,时长不被打断)。每拍重建是稳态功耗点,2026-09-12 调研后改为按需更新
+    // 常驻通知同步实时状态:按完整文案去重(同状态码但失败原因变化也要更新,
+    // 否则失败路径会把"在线"永久钉住)。每拍重建仍是稳态功耗点,文案相同即跳过
     #[cfg(mobile)]
-    {
-        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
-        let (state_code, state) = notify_state(online, wifi_off);
-        if MONITOR.notified_online.swap(state_code, Ordering::Relaxed) != state_code {
-            let _ = app
-                .campus_monitor_service()
-                .update_notification(&format!("监控运行中 · {state}"));
-        }
-    }
+    apply_notification_text(
+        ctx,
+        &campus_core_logic::notify::running_text(online, wifi_off, on_campus, &portal_message),
+    )
+    .await;
 }
 
-/// 常驻通知状态码与文案(纯函数,单测锁定):1=在线 2=未连接 4=WiFi 未连接;
-/// 3 已被"非检测时段"占用(2026-10-02 起新增 WiFi 短路态,不与既有码冲突)
-fn notify_state(online: bool, wifi_off: bool) -> (u8, &'static str) {
-    if online {
-        (1, "在线")
-    } else if wifi_off {
-        (4, "WiFi 未连接")
-    } else {
-        (2, "未连接")
-    }
+/// 完整文案变化才更新常驻通知:避免逐拍重建(稳态功耗),
+/// 又不丢同状态码下的新原因
+#[cfg(mobile)]
+async fn apply_notification_text(ctx: &CoreCtx, text: &str) {
+    ctx.update_running_notification(text);
 }
+
 
 #[cfg(test)]
 #[allow(non_snake_case)]
@@ -1819,15 +1468,6 @@ mod tests {
     use super::*;
 
     const COOLDOWN: u64 = 60;
-
-    #[test]
-    fn 通知状态_wifi短路独立码() {
-        // 2026-10-02:WiFi 未连接新增状态码 4,与在线(1)/未连接(2)区分;
-        // 3 被"非检测时段"占用,不得复用
-        assert_eq!(notify_state(true, false), (1, "在线"));
-        assert_eq!(notify_state(false, true), (4, "WiFi 未连接"));
-        assert_eq!(notify_state(false, false), (2, "未连接"));
-    }
 
     #[test]
     fn 在线或非校园网_永不尝试() {
@@ -2004,8 +1644,16 @@ mod tests {
                 "onlineOperator": "@telecom",
             }));
         }
-        let v = status_value();
+        let v = status_snapshot();
         assert_eq!(v["onlineOperator"], "@telecom");
         assert_eq!(v["online"], true);
     }
+}
+/// 启动自动登录(供 :core 启动任务调用;失败只记日志)
+pub async fn auto_login_on_start_pub(ctx: CoreCtx) {
+    let settings = match ctx.settings().await {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    auto_login_on_start(&ctx, &settings, true).await;
 }
