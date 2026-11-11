@@ -41,7 +41,8 @@ async fn run_quality_once(app: &tauri::AppHandle) -> NetworkQualityResult {
     .await;
     // 质量历史落盘：命令与定时循环都汇聚于此函数，每次真实检测记一条，供趋势回溯
     if let Ok(dir) = app.path().app_data_dir() {
-        if let Err(e) = crate::quality_history::append(&dir, &result) {
+        let entry = crate::quality_history::QualityHistoryEntry::from_result(&result);
+        if let Err(e) = crate::quality_history::append_async(dir, entry).await {
             campus_login_lib::log_warn!("quality", "写入网络质量历史失败: {e}");
         }
     }
@@ -94,7 +95,10 @@ const BACKOFF_MAX_MS: u64 = 1_800_000;
 /// 不低于基础间隔）；未达 5 拍维持当前间隔
 fn next_backoff_interval_ms(current_ms: u64, stable_good_streak: u32, base_ms: u64) -> u64 {
     if stable_good_streak > 0 && stable_good_streak % BACKOFF_STABLE_STREAK == 0 {
-        current_ms.saturating_mul(2).min(BACKOFF_MAX_MS).max(base_ms)
+        current_ms
+            .saturating_mul(2)
+            .min(BACKOFF_MAX_MS)
+            .max(base_ms)
     } else {
         current_ms
     }
@@ -108,16 +112,23 @@ async fn latency_loop(app: tauri::AppHandle, settings: crate::config_state::Sett
     // tick(新建计时器首 tick 立即到期),等待从未真正发生——退避翻倍后仍按连发
     // 节奏打外网。改用 sleep 放循环尾部,天然支持退避变周期,无首 tick 陷阱
     loop {
-        if !LATENCY_RUNNING.load(Ordering::Relaxed) || LATENCY_GENERATION.load(Ordering::Relaxed) != gen {
+        if !LATENCY_RUNNING.load(Ordering::Relaxed)
+            || LATENCY_GENERATION.load(Ordering::Relaxed) != gen
+        {
             break;
         }
         let result = run_quality_once(&app).await; // quality 内部经 EventBus emit network-quality-result
-        // 退避状态机：good 及以上累计，波动/失败（fair/poor/bad/unknown/busy）清零
+                                                   // 退避状态机：good 及以上累计，波动/失败（fair/poor/bad/unknown/busy）清零
         if GOOD_LEVELS.contains(&result.quality.as_str()) {
             stable_good_streak = stable_good_streak.saturating_add(1);
             current_ms = next_backoff_interval_ms(current_ms, stable_good_streak, base_ms);
         } else if stable_good_streak >= BACKOFF_STABLE_STREAK {
-            campus_login_lib::log_info!("quality", "网络质量波动，检测间隔 {}ms 恢复 {}ms", current_ms, base_ms);
+            campus_login_lib::log_info!(
+                "quality",
+                "网络质量波动，检测间隔 {}ms 恢复 {}ms",
+                current_ms,
+                base_ms
+            );
             stable_good_streak = 0;
             current_ms = base_ms;
         } else {
@@ -135,16 +146,22 @@ async fn latency_loop(app: tauri::AppHandle, settings: crate::config_state::Sett
 
 #[cfg(test)]
 mod tests {
-    use super::{next_backoff_interval_ms, GOOD_LEVELS, BACKOFF_MAX_MS, BACKOFF_STABLE_STREAK};
+    use super::{next_backoff_interval_ms, BACKOFF_MAX_MS, BACKOFF_STABLE_STREAK, GOOD_LEVELS};
 
     #[test]
     fn 稳定计数达5_间隔翻倍_上限封顶() {
         assert_eq!(next_backoff_interval_ms(60_000, 5, 60_000), 120_000);
         assert_eq!(next_backoff_interval_ms(120_000, 10, 60_000), 240_000);
         // 翻倍后超上限则封顶
-        assert_eq!(next_backoff_interval_ms(1_440_000, 20, 60_000), BACKOFF_MAX_MS);
+        assert_eq!(
+            next_backoff_interval_ms(1_440_000, 20, 60_000),
+            BACKOFF_MAX_MS
+        );
         // 已到上限不再增长
-        assert_eq!(next_backoff_interval_ms(BACKOFF_MAX_MS, 25, 60_000), BACKOFF_MAX_MS);
+        assert_eq!(
+            next_backoff_interval_ms(BACKOFF_MAX_MS, 25, 60_000),
+            BACKOFF_MAX_MS
+        );
     }
 
     #[test]

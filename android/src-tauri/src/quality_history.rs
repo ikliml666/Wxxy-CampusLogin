@@ -32,7 +32,10 @@ pub fn read(dir: &Path) -> Vec<QualityHistoryEntry> {
         Ok(raw) => match serde_json::from_str(&String::from_utf8_lossy(&raw)) {
             Ok(entries) => entries,
             Err(_) => {
-                let bak = dir.join(format!("quality_history.json.corrupt-{}.bak", epoch_millis()));
+                let bak = dir.join(format!(
+                    "quality_history.json.corrupt-{}.bak",
+                    epoch_millis()
+                ));
                 let _ = std::fs::rename(&path, &bak);
                 Vec::new()
             }
@@ -48,21 +51,24 @@ fn epoch_millis() -> u128 {
         .unwrap_or(0)
 }
 
-/// 追加一条质量历史(头插法,上限 100),原子写(tmp+rename)。
-pub fn append(dir: &Path, result: &NetworkQualityResult) -> Result<(), String> {
-    let _guard = QUALITY_HISTORY_LOCK
-        .lock()
-        .map_err(|_| "质量历史锁损坏".to_string())?;
-    let mut entries = read(dir);
-    entries.insert(
-        0,
-        QualityHistoryEntry {
+impl QualityHistoryEntry {
+    pub fn from_result(result: &NetworkQualityResult) -> Self {
+        Self {
             timestamp: result.timestamp,
             gateway_latency: (result.gateway_latency >= 0).then_some(result.gateway_latency),
             external_latency: (result.external_latency >= 0).then_some(result.external_latency),
             quality: result.quality.clone(),
-        },
-    );
+        }
+    }
+}
+
+/// 追加一条质量历史(头插法,上限 100),原子写(tmp+rename)。
+fn append_entry(dir: &Path, entry: QualityHistoryEntry) -> Result<(), String> {
+    let _guard = QUALITY_HISTORY_LOCK
+        .lock()
+        .map_err(|_| "质量历史锁损坏".to_string())?;
+    let mut entries = read(dir);
+    entries.insert(0, entry);
     entries.truncate(QUALITY_HISTORY_MAX);
 
     std::fs::create_dir_all(dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
@@ -72,6 +78,17 @@ pub fn append(dir: &Path, result: &NetworkQualityResult) -> Result<(), String> {
     std::fs::write(&tmp, json).map_err(|e| format!("写质量历史失败: {e}"))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("替换质量历史失败: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+fn append(dir: &Path, result: &NetworkQualityResult) -> Result<(), String> {
+    append_entry(dir, QualityHistoryEntry::from_result(result))
+}
+
+pub async fn append_async(dir: PathBuf, entry: QualityHistoryEntry) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || append_entry(&dir, entry))
+        .await
+        .map_err(|e| format!("质量历史任务失败: {e}"))?
 }
 
 #[cfg(test)]

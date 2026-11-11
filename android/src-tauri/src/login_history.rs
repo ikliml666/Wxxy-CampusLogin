@@ -31,7 +31,10 @@ pub fn read(dir: &Path) -> Vec<LoginHistoryEntry> {
         Ok(raw) => match serde_json::from_str(&String::from_utf8_lossy(&raw)) {
             Ok(entries) => entries,
             Err(_) => {
-                let bak = dir.join(format!("login-history.json.corrupt-{}.bak", chrono_epoch_millis()));
+                let bak = dir.join(format!(
+                    "login-history.json.corrupt-{}.bak",
+                    chrono_epoch_millis()
+                ));
                 let _ = std::fs::rename(&path, &bak);
                 Vec::new()
             }
@@ -49,7 +52,13 @@ fn chrono_epoch_millis() -> u128 {
 
 /// 追加一条登录历史(头插法,上限 100),原子写(tmp+rename)。
 /// 锁中毒不静默: Err 上抛给调用方记日志(吞掉会让「历史全丢」不可见)
-pub fn append(dir: &Path, success: bool, message: &str, user: &str, login_type: &str) -> Result<(), String> {
+pub fn append(
+    dir: &Path,
+    success: bool,
+    message: &str,
+    user: &str,
+    login_type: &str,
+) -> Result<(), String> {
     let _guard = LOGIN_HISTORY_LOCK
         .lock()
         .map_err(|_| "登录历史锁损坏".to_string())?;
@@ -74,6 +83,20 @@ pub fn append(dir: &Path, success: bool, message: &str, user: &str, login_type: 
     std::fs::write(&tmp, json).map_err(|e| format!("写登录历史失败: {e}"))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("替换登录历史失败: {e}"))?;
     Ok(())
+}
+
+pub async fn append_async(
+    dir: PathBuf,
+    success: bool,
+    message: String,
+    user: String,
+    login_type: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        append(&dir, success, &message, &user, &login_type)
+    })
+    .await
+    .map_err(|e| format!("登录历史任务失败: {e}"))?
 }
 
 #[cfg(test)]

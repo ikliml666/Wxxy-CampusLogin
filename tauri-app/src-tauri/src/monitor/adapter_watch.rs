@@ -1,12 +1,13 @@
-use tauri::{AppHandle, Manager};
+use crate::infra::events::EventBus;
+use crate::infra::state::AppState;
+use crate::network::{get_all_adapters_cached, Adapter, DisabledAdapter};
 use chrono::{Datelike, Timelike};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use crate::network::{Adapter, DisabledAdapter, get_all_adapters_cached};
-use crate::infra::state::AppState;
-use crate::infra::events::EventBus;
+use tauri::{AppHandle, Manager};
 
 const ADAPTER_WATCH_INTERVAL: u64 = 15000;
+const AUTO_ENABLE_TASK: &str = "adapter_auto_enable";
 /// class subkey 缓存刷新周期 = 15s × 4 = 60s。选择"放宽周期"而非"仅适配器
 /// 集合变化时刷新"：禁用分类检测（is_admin_disabled_via_registry 读该缓存）
 /// 本身依赖缓存新鲜度，而设备管理器禁用/启用未必改变适配器 name/ip——
@@ -236,36 +237,43 @@ pub fn start_adapter_watch(app_handle: &AppHandle) -> Result<(), String> {
                             let allow_uac = stats.auto_enable_failure_count.load(Ordering::Relaxed) > 0;
                             for da in targets {
                                 let name = da.name.clone();
+                                let task_name = format!("{AUTO_ENABLE_TASK}:{name}");
                                 crate::log_info!("adapter_watch", "检测到手选适配器 {} 被禁用，尝试自动启用", name);
-                                // netsh + 提权为阻塞调用，包进 spawn_blocking 不进 async 上下文
                                 let app_h_enable = app_h.clone();
-                                tauri::async_runtime::spawn_blocking(move || {
-                                    match crate::network::adapter_cache::enable_adapter(&name, allow_uac) {
-                                        Ok(()) => {
-                                            crate::log_info!("adapter_watch", "自动启用适配器成功: {}", name);
-                                            let s = app_h_enable.state::<AppState>();
-                                            s.update_stats.auto_enable_failure_count.store(0, Ordering::Relaxed);
-                                            // 稍等适配器就绪后触发一次性检查以尽快恢复登录
-                                            //（沿用禁用恢复路径模式：不重开用户已停止的后台巡检）。
-                                            // 审计 A9：经统一注册入口发起，令牌全程可达
-                                            let app_h_check = app_h_enable.clone();
-                                            tauri::async_runtime::spawn(async move {
-                                                tokio::time::sleep(Duration::from_secs(5)).await;
-                                                crate::monitor::background_task::spawn_background_check_once(&app_h_check);
-                                            });
-                                        }
-                                        Err(e) => {
-                                            let s = app_h_enable.state::<AppState>();
-                                            let failures = s.update_stats.auto_enable_failure_count.fetch_add(1, Ordering::Relaxed) + 1;
-                                            let next = auto_enable_backoff_ms(failures);
-                                            crate::log_warn!(
-                                                "adapter_watch",
-                                                "自动启用适配器失败: {}，按退避 {}s 后重试: {}",
-                                                name, next / 1000, e
-                                            );
+                                let spawn_result = app_h.state::<AppState>().task_manager.spawn(&task_name, move |cancel_token| {
+                                    async move {
+                                        // 每张卡独立单飞；同名任务仍在执行时，本轮不重复发起。
+                                        let name_for_enable = name.clone();
+                                        let result = tauri::async_runtime::spawn_blocking(move || {
+                                            crate::network::adapter_cache::enable_adapter(&name_for_enable, allow_uac)
+                                        }).await;
+                                        match result {
+                                            Ok(Ok(())) => {
+                                                crate::log_info!("adapter_watch", "自动启用适配器成功: {}", name);
+                                                app_h_enable.state::<AppState>().update_stats.auto_enable_failure_count.store(0, Ordering::Relaxed);
+                                                // 延迟补检挂在同一取消令牌下，退出后不再遗留游离任务。
+                                                tokio::select! {
+                                                    _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                                                        crate::monitor::background_task::spawn_background_check_once(&app_h_enable);
+                                                    }
+                                                    _ = cancel_token.cancelled() => {}
+                                                }
+                                            }
+                                            Ok(Err(e)) => {
+                                                let s = app_h_enable.state::<AppState>();
+                                                let failures = s.update_stats.auto_enable_failure_count.fetch_add(1, Ordering::Relaxed) + 1;
+                                                let next = auto_enable_backoff_ms(failures);
+                                                crate::log_warn!("adapter_watch", "自动启用适配器失败: {}，按退避 {}s 后重试: {}", name, next / 1000, e);
+                                            }
+                                            Err(e) => {
+                                                crate::log_warn!("adapter_watch", "自动启用适配器任务失败: {}: {}", name, e);
+                                            }
                                         }
                                     }
                                 });
+                                if let Err(e) = spawn_result {
+                                    crate::log_debug!("adapter_watch", "自动启用仍在执行，本轮不重复发起: {}", e);
+                                }
                             }
                         }
                     }

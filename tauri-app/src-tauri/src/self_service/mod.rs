@@ -99,12 +99,18 @@ pub fn operator_fld_pair(operator: &str) -> Option<(usize, usize)> {
 
 /// 登录页 hidden checkcode 提取
 pub fn extract_checkcode(html: &str) -> Option<String> {
-    RE_CHECKCODE.captures(html)?.get(1).map(|m| m.as_str().to_string())
+    RE_CHECKCODE
+        .captures(html)?
+        .get(1)
+        .map(|m| m.as_str().to_string())
 }
 
 /// 绑定页 hidden csrftoken（UUID）提取
 pub fn extract_csrftoken(html: &str) -> Option<String> {
-    RE_CSRFTOKEN.captures(html)?.get(1).map(|m| m.as_str().to_string())
+    RE_CSRFTOKEN
+        .captures(html)?
+        .get(1)
+        .map(|m| m.as_str().to_string())
 }
 
 /// 绑定页 FLDEXTRA1..6 预填值（已绑定运营商的账号/密码明文回显；未绑定为空串）。
@@ -124,7 +130,10 @@ pub fn extract_fld_values(html: &str) -> [String; 6] {
 
 /// 页面内嵌 swal 提示文本提取（登录失败原因 / 绑定结果，整页唯一）
 pub fn extract_swal_msg(html: &str) -> Option<String> {
-    RE_SWAL_MSG.captures(html)?.get(1).map(|m| m.as_str().to_string())
+    RE_SWAL_MSG
+        .captures(html)?
+        .get(1)
+        .map(|m| m.as_str().to_string())
 }
 
 /// 绑定结果判定：成功 msg 形如"中国移动账号:xxx,绑定运营商账号信息成功"
@@ -137,7 +146,11 @@ pub fn md5_hex(input: &str) -> String {
     use md5::Digest;
     let mut hasher = md5::Md5::new();
     hasher.update(input.as_bytes());
-    hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
 }
 
 /// 构建自助服务会话客户端：独立于 CLIENT_POOL（一次性会话，cookie_store 保持
@@ -153,7 +166,9 @@ fn build_session_client(local_addr: Option<IpAddr>) -> Result<reqwest::Client, S
     if let Some(ip) = local_addr {
         builder = builder.local_address(ip);
     }
-    builder.build().map_err(|e| format!("创建自助服务HTTP客户端失败: {e}"))
+    builder
+        .build()
+        .map_err(|e| format!("创建自助服务HTTP客户端失败: {e}"))
 }
 
 /// 自助服务执行通道：一次操作（登录会话 + 业务请求）所用的 base URL 与 HTTP client。
@@ -247,7 +262,8 @@ pub async fn bind_operator_via(
         .post(channel.url("/service/bind-operator"))
         .header(reqwest::header::REFERER, channel.url("/service/operatorId"))
         .form(&form)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("提交绑定请求失败: {e}"))?;
     if bind_resp.status().is_redirection() {
         return Err("登录会话失效，请重试".to_string());
@@ -316,8 +332,8 @@ pub async fn reveal_credential_via(
 /// `{"state":"fail","data":原因}` 失败（data 为服务端原文，如"旧密码错误"）；
 /// 其余结构视为失败。独立成函数便于单测（服务端三种返回形状均有实测样本）。
 fn parse_change_password_response(text: &str) -> Result<String, String> {
-    let value: serde_json::Value = serde_json::from_str(text)
-        .map_err(|e| format!("修改密码结果解析失败: {e}"))?;
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("修改密码结果解析失败: {e}"))?;
     match value.get("state").and_then(|s| s.as_str()) {
         Some("success") => Ok("密码修改成功".to_string()),
         Some("fail") => Err(value
@@ -347,7 +363,8 @@ pub async fn change_password_via(
     let page_resp = channel
         .client
         .get(channel.url("/setting/changePassword"))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("打开修改密码页失败: {e}"))?;
     if page_resp.status().is_redirection() {
         return Err("登录会话失效，请重试".to_string());
@@ -363,14 +380,18 @@ pub async fn change_password_via(
     let resp = channel
         .client
         .post(channel.url("/setting/changePasswordMethod"))
-        .header(reqwest::header::REFERER, channel.url("/setting/changePassword"))
+        .header(
+            reqwest::header::REFERER,
+            channel.url("/setting/changePassword"),
+        )
         .form(&[
             ("csrftoken", csrftoken.as_str()),
             ("oldPassword", password),
             ("newPassword", new_password),
             ("confirmPassword", new_password),
         ])
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("提交修改密码请求失败: {e}"))?;
     if resp.status().is_redirection() {
         return Err("登录会话失效，请重试".to_string());
@@ -422,7 +443,8 @@ async fn login_session(
     let login_resp = channel
         .client
         .get(channel.url("/login/"))
-        .send().await
+        .send()
+        .await
         .and_then(|r| r.error_for_status())
         .map_err(|e| format!("无法连接自助服务系统: {e}"))?;
     let login_html = read_bounded_body_async(login_resp, "登录页").await?;
@@ -434,7 +456,8 @@ async fn login_session(
         .client
         .get(channel.url("/login/randomCode"))
         .query(&[("t", "1")])
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("无法连接自助服务系统（预热验证码）: {e}"))?
         .error_for_status()
         .map_err(|e| format!("预热验证码失败: {e}"))?;
@@ -449,7 +472,8 @@ async fn login_session(
             ("checkcode", checkcode.as_str()),
             ("code", ""),
         ])
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("登录请求失败: {e}"))?;
     let is_login_ok = verify_resp
         .headers()
@@ -462,12 +486,17 @@ async fn login_session(
         let fail_resp = channel
             .client
             .get(channel.url("/login/"))
-            .send().await
+            .send()
+            .await
             .and_then(|r| r.error_for_status())
             .map_err(|e| format!("登录失败（{e}）"))?;
         let fail_html = read_bounded_body_async(fail_resp, "登录失败页").await?;
         let msg = extract_swal_msg(&fail_html).unwrap_or_default();
-        return Err(if msg.is_empty() { "登录失败，请检查学号与自助服务密码".to_string() } else { msg });
+        return Err(if msg.is_empty() {
+            "登录失败，请检查学号与自助服务密码".to_string()
+        } else {
+            msg
+        });
     }
     Ok(())
 }
@@ -533,7 +562,8 @@ async fn login_and_fetch_bind_page(
     let op_resp = channel
         .client
         .get(channel.url("/service/operatorId"))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("打开绑定页失败: {e}"))?;
     if op_resp.status().is_redirection() {
         return Err("登录会话失效，请重试".to_string());
@@ -554,7 +584,8 @@ async fn fetch_dashboard_json(
     let resp = channel
         .client
         .get(channel.url(&format!("/dashboard/{path}")))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("请求{label}失败: {e}"))?;
     if resp.status().is_redirection() {
         return Err("登录会话失效，请重试".to_string());
@@ -575,9 +606,11 @@ pub async fn query_dashboard_via(
     channel: &SelfServiceChannel,
 ) -> Result<(serde_json::Value, serde_json::Value), String> {
     login_session_with_retry(channel, account, password).await?;
-    let online = fetch_dashboard_json(channel, "getOnlineList", "在线信息").await?;
-    let history = fetch_dashboard_json(channel, "getLoginHistory", "上网记录").await?;
-    Ok((online, history))
+    let (online, history) = tokio::join!(
+        fetch_dashboard_json(channel, "getOnlineList", "在线信息"),
+        fetch_dashboard_json(channel, "getLoginHistory", "上网记录"),
+    );
+    Ok((online?, history?))
 }
 
 /// 查询自助服务"上网记录"账单页数据（协议见模块注释第 9 条）。
@@ -634,7 +667,8 @@ pub async fn offline_session_via(
         .client
         .get(channel.url("/dashboard/tooffline"))
         .query(&[("sessionid", session_id)])
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("请求注销失败: {e}"))?;
     if resp.status().is_redirection() {
         return Err("登录会话失效，请重试".to_string());
@@ -729,7 +763,9 @@ mod tests {
 
     #[test]
     fn bind_success_judgement() {
-        assert!(is_bind_success("中国移动账号:19720520238,绑定运营商账号信息成功 \\n"));
+        assert!(is_bind_success(
+            "中国移动账号:19720520238,绑定运营商账号信息成功 \\n"
+        ));
         assert!(!is_bind_success("密码错误，请重试"));
         assert!(!is_bind_success(""));
     }
@@ -813,7 +849,12 @@ mod tests {
         let values = extract_fld_values(html);
         assert_eq!(values[0], "12345678901");
         assert_eq!(values[1], "abc123");
-        assert!(values[2].is_empty() && values[3].is_empty() && values[4].is_empty() && values[5].is_empty());
+        assert!(
+            values[2].is_empty()
+                && values[3].is_empty()
+                && values[4].is_empty()
+                && values[5].is_empty()
+        );
 
         // 绑定联通（5/6）时，移动 1/2 必须带回预填值而非空串
         let (acct_fld, pwd_fld) = operator_fld_pair("@unicom").unwrap();
@@ -828,9 +869,15 @@ mod tests {
             };
             form.push((format!("FLDEXTRA{i}"), value));
         }
-        assert_eq!(form[1], ("FLDEXTRA1".to_string(), "12345678901".to_string()));
+        assert_eq!(
+            form[1],
+            ("FLDEXTRA1".to_string(), "12345678901".to_string())
+        );
         assert_eq!(form[2], ("FLDEXTRA2".to_string(), "abc123".to_string()));
-        assert_eq!(form[5], ("FLDEXTRA5".to_string(), "13900000000".to_string()));
+        assert_eq!(
+            form[5],
+            ("FLDEXTRA5".to_string(), "13900000000".to_string())
+        );
         assert_eq!(form[6], ("FLDEXTRA6".to_string(), "sms123".to_string()));
     }
 }

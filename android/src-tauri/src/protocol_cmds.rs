@@ -30,11 +30,19 @@ pub async fn do_login(
         _ => crate::config_state::current_settings(&app).await?.password,
     };
     if user.is_empty() || password.is_empty() {
-        eprintln!("[do_login][v2] reject: user_empty={} password_empty={}", user.is_empty(), password.is_empty());
+        eprintln!(
+            "[do_login][v2] reject: user_empty={} password_empty={}",
+            user.is_empty(),
+            password.is_empty()
+        );
         return Err("账号与密码不能为空".to_string());
     }
     // 运营商名不落日志:运营商归属可反推用户线路/宿舍区等敏感关联,只打长度
-    eprintln!("[do_login] start: user_len={} operator_len={}", user.len(), operator.len());
+    eprintln!(
+        "[do_login] start: user_len={} operator_len={}",
+        user.len(),
+        operator.len()
+    );
     let operator = if operator.is_empty() {
         crate::config_state::current_settings(&app).await?.operator
     } else {
@@ -44,9 +52,12 @@ pub async fn do_login(
     let result = run_login(&user, &password, &operator, &state).await?;
     // 登录历史落盘(桌面 session.rs 同构;此处为手动登录)
     if let Ok(dir) = app.path().app_data_dir() {
-        let message = result["message"].as_str().unwrap_or("");
+        let message = result["message"].as_str().unwrap_or("").to_string();
         let success = result["success"].as_bool().unwrap_or(false);
-        if let Err(e) = crate::login_history::append(&dir, success, message, &user, "manual") {
+        if let Err(e) =
+            crate::login_history::append_async(dir, success, message, user, "manual".to_string())
+                .await
+        {
             campus_login_lib::log_warn!("protocol", "手动登录历史记录失败: {e}");
         }
     }
@@ -55,9 +66,15 @@ pub async fn do_login(
     // 切换的前置在线检查误判离线而跳过注销请求(如 22:50 手动登录后 23:00 到点切换)
     if result["success"].as_bool().unwrap_or(false) {
         use crate::monitor_loop::MONITOR;
-        MONITOR.consecutive_failures.store(0, std::sync::atomic::Ordering::Relaxed);
-        MONITOR.logout_protected_until_ms.store(0, std::sync::atomic::Ordering::Relaxed);
-        MONITOR.was_online.store(true, std::sync::atomic::Ordering::Relaxed);
+        MONITOR
+            .consecutive_failures
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        MONITOR
+            .logout_protected_until_ms
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        MONITOR
+            .was_online
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
     Ok(result)
 }
@@ -123,9 +140,17 @@ pub async fn do_logout(
     .map_err(|e| format!("注销任务执行失败: {e}"))??;
 
     if let Ok(dir) = app.path().app_data_dir() {
-        let message = inner["message"].as_str().unwrap_or("");
+        let message = inner["message"].as_str().unwrap_or("").to_string();
         let success = inner["success"].as_bool().unwrap_or(false);
-        if let Err(e) = crate::login_history::append(&dir, success, message, &user_for_history, "manual") {
+        if let Err(e) = crate::login_history::append_async(
+            dir,
+            success,
+            message,
+            user_for_history,
+            "manual".to_string(),
+        )
+        .await
+        {
             campus_login_lib::log_warn!("protocol", "注销历史记录失败: {e}");
         }
     }
@@ -137,7 +162,9 @@ pub async fn do_logout(
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        MONITOR.logout_protected_until_ms.store(now + 60_000, std::sync::atomic::Ordering::Relaxed);
+        MONITOR
+            .logout_protected_until_ms
+            .store(now + 60_000, std::sync::atomic::Ordering::Relaxed);
     }
     Ok(inner)
 }
@@ -221,10 +248,11 @@ pub async fn get_avoid_bad_wifi_status(app: tauri::AppHandle) -> Result<serde_js
     #[cfg(mobile)]
     {
         use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
-        let outcome =
-            tauri::async_runtime::spawn_blocking(move || app.campus_network_bind().get_secure_settings_status())
-                .await
-                .map_err(|e| e.to_string())?;
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            app.campus_network_bind().get_secure_settings_status()
+        })
+        .await
+        .map_err(|e| e.to_string())?;
         outcome.map_err(|e| e.to_string())
     }
     #[cfg(not(mobile))]
@@ -241,10 +269,11 @@ pub async fn restore_written_settings(app: tauri::AppHandle) -> Result<serde_jso
     #[cfg(mobile)]
     {
         use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
-        let outcome =
-            tauri::async_runtime::spawn_blocking(move || app.campus_network_bind().restore_written_settings())
-                .await
-                .map_err(|e| e.to_string())?;
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            app.campus_network_bind().restore_written_settings()
+        })
+        .await
+        .map_err(|e| e.to_string())?;
         outcome.map_err(|e| e.to_string())
     }
     #[cfg(not(mobile))]
@@ -329,10 +358,7 @@ pub(crate) async fn ensure_wifi_bound(app: &tauri::AppHandle) {
         }
         Err(e) => {
             eprintln!("[wifi-bind] call_failed: {e}");
-            campus_login_lib::log_warn!(
-                "wifi-bind",
-                "WiFi 绑定调用失败（本次回落默认路由）: {e}"
-            );
+            campus_login_lib::log_warn!("wifi-bind", "WiFi 绑定调用失败（本次回落默认路由）: {e}");
         }
     }
 }
