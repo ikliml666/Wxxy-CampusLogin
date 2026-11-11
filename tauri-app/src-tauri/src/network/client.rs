@@ -5,7 +5,11 @@ use arc_swap::ArcSwap;
 use dashmap::DashMap;
 
 #[cfg(test)]
-static CLIENT_TEST_BUILD_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static CLIENT_TEST_TLS13_BUILD_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+static CLIENT_TEST_TLS12_BUILD_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+static CLIENT_TEST_COLD_START_BARRIER: parking_lot::Mutex<Option<Arc<std::sync::Barrier>>> = parking_lot::Mutex::new(None);
 #[cfg(test)]
 static CLIENT_TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
@@ -49,10 +53,11 @@ fn client_pool_key(local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version, t
 
 fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version, bypass_addr: Option<SocketAddr>) -> Result<reqwest::Client, String> {
     #[cfg(test)]
-    {
-        CLIENT_TEST_BUILD_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
+    match tls_version_id(min_tls) {
+        3 => CLIENT_TEST_TLS13_BUILD_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+        2 => CLIENT_TEST_TLS12_BUILD_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+        _ => unreachable!("客户端池只构建 TLS 1.3 或 TLS 1.2"),
+    };
     let mut default_headers = reqwest::header::HeaderMap::new();
     default_headers.insert(
         reqwest::header::CACHE_CONTROL,
@@ -127,6 +132,14 @@ fn create_http_client_with_bypass(
         return Ok(client);
     }
 
+    #[cfg(test)]
+    {
+        let barrier = CLIENT_TEST_COLD_START_BARRIER.lock().clone();
+        if let Some(barrier) = barrier {
+            barrier.wait();
+        }
+    }
+
     // 构建本身不发起网络 IO；只在冷启动慢路径串行化，避免并发重复初始化和返回不同连接池。
     let _build_guard = CLIENT_POOL_BUILD_LOCK.lock();
     if let Some(client) = client_pool_get(&tls13_key, "(TLS 1.3)") {
@@ -149,10 +162,7 @@ fn create_http_client_with_bypass(
         }
     };
 
-    let client = CLIENT_POOL.entry(actual_key)
-        .or_insert_with(|| (client.clone(), Instant::now()))
-        .0
-        .clone();
+    CLIENT_POOL.insert(actual_key, (client.clone(), Instant::now()));
     // 容量上限清理：按 Instant 找最早插入的条目剔除（命中路径不刷新时间戳，见 client_pool_get）
     while CLIENT_POOL.len() > CLIENT_POOL_MAX_ENTRIES {
         if let Some(entry) = CLIENT_POOL.iter().min_by_key(|e| e.value().1) {
@@ -215,12 +225,14 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn 冷启动并发只构建一个客户端代际() {
+    fn 冷启动并发每个_tls版本至多构建一次() {
         let _guard = CLIENT_TEST_LOCK.lock();
         clear_client_pool();
-        CLIENT_TEST_BUILD_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+        CLIENT_TEST_TLS13_BUILD_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+        CLIENT_TEST_TLS12_BUILD_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
         const WORKERS: usize = 8;
         let barrier = Arc::new(Barrier::new(WORKERS));
+        *CLIENT_TEST_COLD_START_BARRIER.lock() = Some(barrier.clone());
         let mut workers = Vec::new();
         for _ in 0..WORKERS {
             let barrier = barrier.clone();
@@ -232,9 +244,15 @@ mod tests {
         for worker in workers {
             worker.join().unwrap();
         }
+        *CLIENT_TEST_COLD_START_BARRIER.lock() = None;
 
-        assert_eq!(CLIENT_TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst), 1,
-            "同一缓存代际的冷启动并发只能构建一次客户端");
+        let tls13_builds = CLIENT_TEST_TLS13_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst);
+        let tls12_builds = CLIENT_TEST_TLS12_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(tls13_builds <= 1, "TLS 1.3 冷启动并发重复构建 {tls13_builds} 次");
+        assert!(tls12_builds <= 1, "TLS 1.2 冷启动并发重复构建 {tls12_builds} 次");
+        let total_builds = tls13_builds + tls12_builds;
+        assert!((1..=2).contains(&total_builds),
+            "一个客户端最多经历 TLS 1.3 失败和 TLS 1.2 成功两次构建，实际 {total_builds} 次");
         assert_eq!(CLIENT_POOL.len(), 1);
         clear_client_pool();
     }
