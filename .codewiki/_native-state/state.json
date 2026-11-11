@@ -2,27 +2,14 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "6fe1e14ecde91b3a60e6785952ffb188a64f69e1",
-    "headCommit": "04b5c319d71a8dea69e91c1d8574ba9960727c49"
+    "baseCommit": "04b5c319d71a8dea69e91c1d8574ba9960727c49",
+    "headCommit": "18fa383d501780c007ad020f571f1ef8c601a693"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "6fe1e14ecde91b3a60e6785952ffb188a64f69e1",
-    "headCommit": "04b5c319d71a8dea69e91c1d8574ba9960727c49",
-    "committed": [
-      "android/frontend/src/hooks/useAuthStore.ts",
-      "android/src-tauri/src/config_state.rs",
-      "android/src-tauri/src/monitor_loop.rs",
-      "tauri-app/src-tauri/src/commands/account.rs",
-      "tauri-app/src-tauri/src/commands/config_cmd.rs",
-      "tauri-app/src-tauri/src/commands/system.rs",
-      "tauri-app/src-tauri/src/commands/vpn.rs",
-      "tauri-app/src-tauri/src/config/model.rs",
-      "tauri-app/src-tauri/src/config/persist.rs",
-      "tauri-app/src-tauri/src/monitor/background_check.rs",
-      "tauri-app/src-tauri/src/monitor/quality_scheduler.rs",
-      "tauri-app/src-tauri/src/network/client.rs"
-    ],
+    "baseCommit": "04b5c319d71a8dea69e91c1d8574ba9960727c49",
+    "headCommit": "18fa383d501780c007ad020f571f1ef8c601a693",
+    "committed": [],
     "staged": [],
     "unstaged": [
       "tauri-app/frontend/index.html"
@@ -42,9 +29,10 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "工作区未提交改动已合成临时 commit 83f53cb2eaa4（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwc03eq5-1-native（66 个文件）",
-    "本轮把 1 个未提交源码改动一并写进产物（快照 83f53cb2eaa4）：tauri-app/frontend/index.html"
+    "持久化基线 6fe1e14 与本次 cw 基线 04b5c31 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "工作区未提交改动已合成临时 commit fe91ce2735ca（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwc2ynqq-1-native（66 个文件）",
+    "本轮把 1 个未提交源码改动一并写进产物（快照 fe91ce2735ca）：tauri-app/frontend/index.html"
   ],
-  "updatedAt": "2026-11-11T10:55:44.236Z"
+  "updatedAt": "2026-11-11T12:15:47.183Z"
 }
