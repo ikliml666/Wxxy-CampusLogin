@@ -10,7 +10,6 @@ export const NAV_ITEMS = [
   { id: 'selfservice' as const, labelKey: 'nav.selfservice', icon: 'Globe', shortcut: '9' },
   { id: 'monitor' as const, labelKey: 'nav.monitor', icon: 'Activity', shortcut: '4' },
   { id: 'quality' as const, labelKey: 'nav.quality', icon: 'Signal', shortcut: '5' },
-  { id: 'speedtest' as const, labelKey: 'nav.speedtest', icon: 'Gauge', shortcut: '6' },
   { id: 'settings' as const, labelKey: 'nav.settings', icon: 'Settings', shortcut: '7' },
   { id: 'log' as const, labelKey: 'nav.log', icon: 'ScrollText', shortcut: '8' },
 ] as const

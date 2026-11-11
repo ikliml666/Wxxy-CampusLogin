@@ -41,6 +41,8 @@ export function useInitialDataLoad() {
 
           useThemeStore.getState().initTheme(cfg)
 
+          if (cfg.defaultPanel && !VALID_PANELS.includes(cfg.defaultPanel)) cfg.defaultPanel = ''
+
           const savedPanel = safeStorage.get('campus-active-panel') as PanelName | null
           // 质量检测已禁用时 quality 面板不渲染（App.tsx 返回 null、Dock 隐藏入口），
           // 恢复该面板会导致重启后主区域空白，跳过恢复

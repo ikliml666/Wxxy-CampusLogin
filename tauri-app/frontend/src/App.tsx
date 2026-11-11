@@ -33,7 +33,6 @@ import { SelfServicePanel } from '@/account/SelfServicePanel'
 import { NetworkPanel } from '@/network/NetworkPanel'
 import { MonitorPanel } from '@/monitor/MonitorPanel'
 import { QualityPanel } from '@/monitor/QualityPanel'
-import { SpeedTestPanel } from '@/monitor/SpeedTestPanel'
 import { SettingsPanel } from '@/settings/SettingsPanel'
 import { createPanelAppleVariants } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
@@ -68,7 +67,6 @@ const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
   network: { titleKey: 'panel.network', descKey: 'panel.networkDesc' },
   monitor: { titleKey: 'panel.monitor', descKey: 'panel.monitorDesc' },
   quality: { titleKey: 'panel.quality', descKey: 'panel.qualityDesc' },
-  speedtest: { titleKey: 'panel.speedtest', descKey: 'panel.speedtestDesc' },
   settings: { titleKey: 'panel.settings', descKey: 'panel.settingsDesc' },
   log: { titleKey: 'panel.log', descKey: 'panel.logDesc' },
 }
@@ -406,13 +404,6 @@ function AppInner() {
           addToast={addToast}
           initialDebugMode={initDebugMode}
           initialLogRetentionDays={initLogRetentionDays}
-        />
-      )
-      break
-    case 'speedtest':
-      panelContent = (
-        <SpeedTestPanel
-          openExternal={(url) => api.openExternal?.(url)}
         />
       )
       break

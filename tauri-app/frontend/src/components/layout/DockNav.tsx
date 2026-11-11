@@ -6,7 +6,6 @@ import {
   Network,
   Activity,
   Signal,
-  Gauge,
   ScrollText,
   Settings,
   LogIn,
@@ -41,7 +40,6 @@ const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   Network,
   Activity,
   Signal,
-  Gauge,
   ScrollText,
   Settings,
 }

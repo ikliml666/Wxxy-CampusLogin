@@ -1,5 +1,5 @@
 export type StatusState = 'loading' | 'online' | 'offline' | 'error'
-export type PanelName = 'dashboard' | 'account' | 'selfservice' | 'network' | 'monitor' | 'quality' | 'settings' | 'log' | 'speedtest'
+export type PanelName = 'dashboard' | 'account' | 'selfservice' | 'network' | 'monitor' | 'quality' | 'settings' | 'log'
 export type ThemeName = 'default' | 'vibrant' | 'forest' | 'midnight' | 'ocean' | 'cherry' | 'custom'
 /** 玻璃质感档位：对齐 Apple Liquid Glass / FlClash 的三档（关 / 标准 / 极致） */
 export type GlassLevel = 'off' | 'standard' | 'ultra'

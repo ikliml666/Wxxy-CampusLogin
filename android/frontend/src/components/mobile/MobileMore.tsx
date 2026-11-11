@@ -1,4 +1,4 @@
-// "更多"聚合页:设置/测速/日志/后台检测(桌面 MonitorPanel) 子页,顶部 chips 切换。
+// "更多"聚合页:设置/日志/后台检测(桌面 MonitorPanel) 子页,顶部 chips 切换。
 // 各子页复用桌面面板组件——它们是流式布局,窄屏可用;此处只提供移动导航容器。
 // 质量检测关闭(默认)时"后台检测"已提为底栏 tab,此处不再重复出现,子页随之移除。
 
@@ -6,7 +6,6 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { MonitorPanel } from '@/monitor/MonitorPanel'
-import { SpeedTestPanel } from '@/monitor/SpeedTestPanel'
 import { SettingsPanel } from '@/settings/SettingsPanel'
 import { LogPanel } from '@/shared/LogPanel'
 import { useMonitor } from '@/monitor/useMonitor'
@@ -16,11 +15,10 @@ import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 import { useMemo } from 'react'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 
-type MoreTab = 'monitor' | 'speedtest' | 'log' | 'settings'
+type MoreTab = 'monitor' | 'log' | 'settings'
 
 const TABS: { id: MoreTab; labelKey: string; qualityOnly?: boolean }[] = [
   { id: 'settings', labelKey: 'mobile.moreSettings' },
-  { id: 'speedtest', labelKey: 'mobile.moreSpeedtest' },
   { id: 'log', labelKey: 'mobile.moreLog' },
   { id: 'monitor', labelKey: 'mobile.moreMonitor', qualityOnly: true },
 ]
@@ -70,7 +68,6 @@ export function MobileMore({ onShowOnboarding }: MobileMoreProps) {
           onTriggerCheck={handleTriggerCheck}
         />
       )}
-      {sub === 'speedtest' && <SpeedTestPanel openExternal={(url) => api.openExternal?.(url)} />}
       {sub === 'log' && <LogPanel api={api} addToast={addToast} />}
       {sub === 'settings' && (
         <SettingsPanel

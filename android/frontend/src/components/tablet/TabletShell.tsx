@@ -2,7 +2,7 @@
 // TitleBar/StatusBar/RightPanel/DockNav 与桌面端同源(样式零改动),
 // 面板内容全部使用安卓版:总览=MobileDashboard(安卓 DashboardPanel+移动卡注入),
 // 设置=安卓 SettingsPanel(Windows 专属项经 VITE_PLATFORM 内部裁剪),
-// 账号/自助服务/监控/测速/日志均为安卓裁剪版面板。
+// 账号/自助服务/监控/日志均为安卓裁剪版面板。
 // 相对桌面 App 的差异:无窗口控制(安卓无窗口管理 API)、无开场启动序列与
 // Onboarding 向导、无赞助自动弹出;无账号引导与移动外壳同款(直达账号页);
 // 面板过渡沿用移动外壳轻量变体。竖屏时隐藏右侧日志栏为主区让出全宽
@@ -40,7 +40,6 @@ import { AccountPanel } from '@/account/AccountPanel'
 import { SelfServicePanel } from '@/account/SelfServicePanel'
 import { MonitorPanel } from '@/monitor/MonitorPanel'
 import { QualityPanel } from '@/monitor/QualityPanel'
-import { SpeedTestPanel } from '@/monitor/SpeedTestPanel'
 import { SettingsPanel } from '@/settings/SettingsPanel'
 import { useAdaptiveFramePace, markInteraction } from '@/hooks/useAdaptiveFramePace'
 import { useOrientation } from '@/hooks/useFormFactor'
@@ -57,7 +56,6 @@ const PANEL_TITLES: Record<string, { titleKey: string; descKey: string }> = {
   selfservice: { titleKey: 'panel.selfservice', descKey: 'panel.selfserviceDesc' },
   monitor: { titleKey: 'panel.monitor', descKey: 'panel.monitorDesc' },
   quality: { titleKey: 'panel.quality', descKey: 'panel.qualityDesc' },
-  speedtest: { titleKey: 'panel.speedtest', descKey: 'panel.speedtestDesc' },
   settings: { titleKey: 'panel.settings', descKey: 'panel.settingsDesc' },
   log: { titleKey: 'panel.log', descKey: 'panel.logDesc' },
 }
@@ -209,13 +207,6 @@ function TabletShellInner() {
           onToggleLatencyTest={handleToggleLatencyTest}
         />
       ) : null
-      break
-    case 'speedtest':
-      panelContent = (
-        <SpeedTestPanel
-          openExternal={(url) => api.openExternal?.(url)}
-        />
-      )
       break
     case 'settings':
       panelContent = (
