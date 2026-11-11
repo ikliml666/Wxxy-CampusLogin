@@ -5,7 +5,7 @@
 
 use serde_json::json;
 use std::net::IpAddr;
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::config::model::Config;
 use crate::infra::state::{AppState, CommandResult};
@@ -111,19 +111,22 @@ pub(crate) async fn resolve_self_service_channel(
     }
 }
 
-/// 配置落盘 + 内存更新 + 重置缓存会话（改 VPN 相关配置的统一收尾：
-/// 先落盘再更新内存——落盘失败时命令报错且运行态不变，与 save_config 同则）。
-async fn persist_config_and_reset_session(
+/// 配置事务 + 重置缓存会话（改 VPN 相关配置的统一收尾：锁内改最新值，
+/// 落盘成功才发布运行态；失败时命令报错且配置不变）。
+async fn persist_config_and_reset_session<F>(
     app_handle: &tauri::AppHandle,
-    state: &State<'_, AppState>,
-    new_config: Config,
-) -> Result<(), String> {
+    mutate: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&mut Config) -> Result<(), String> + Send + 'static,
+{
     let handle = app_handle.clone();
-    let config_for_disk = new_config.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::config::persist::save_config_and_broadcast(&handle, &config_for_disk))
-        .await
-        .map_err(|e| format!("配置落盘任务失败: {e}"))??;
-    state.config.store(new_config);
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = handle.state::<AppState>();
+        super::config_cmd::mutate_config_and_save(&handle, state.inner(), mutate)
+    })
+    .await
+    .map_err(|e| format!("配置落盘任务失败: {e}"))??;
     reset_vpn_session();
     Ok(())
 }
@@ -148,11 +151,14 @@ pub async fn vpn_save_credential(
         return Ok(CommandResult::err("请输入统一身份认证密码"));
     }
     let enc = crate::account::crypto::encrypt(&password).map_err(|e| format!("密码加密失败: {e}"))?;
-    let mut new_config = (*state.config.load()).clone();
-    new_config.vpn_account = account.clone();
-    new_config.vpn_password_enc = enc;
-    new_config.self_service_via_vpn = true;
-    persist_config_and_reset_session(&app_handle, &state, new_config).await?;
+    let account_for_save = account.clone();
+    persist_config_and_reset_session(&app_handle, move |new_config| {
+        new_config.vpn_account = account_for_save;
+        new_config.vpn_password_enc = enc;
+        new_config.self_service_via_vpn = true;
+        Ok(())
+    })
+    .await?;
     crate::log_info!("vpn", "VPN 凭据已保存（账号 {}，密码已加密），总开关自动开启", crate::self_service::mask_account(&account));
     Ok(CommandResult::ok_msg("VPN 凭据已保存，校外访问将自动经 WebVPN 连接"))
 }
@@ -171,12 +177,14 @@ pub fn vpn_credential_status(state: State<'_, AppState>) -> Result<CommandResult
 
 /// 清除 WebVPN 凭据并把总开关置回关闭。
 #[tauri::command]
-pub async fn vpn_clear_credential(app_handle: tauri::AppHandle, state: State<'_, AppState>) -> Result<CommandResult, String> {
-    let mut new_config = (*state.config.load()).clone();
-    new_config.vpn_account.clear();
-    new_config.vpn_password_enc.clear();
-    new_config.self_service_via_vpn = false;
-    persist_config_and_reset_session(&app_handle, &state, new_config).await?;
+pub async fn vpn_clear_credential(app_handle: tauri::AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
+    persist_config_and_reset_session(&app_handle, |new_config| {
+        new_config.vpn_account.clear();
+        new_config.vpn_password_enc.clear();
+        new_config.self_service_via_vpn = false;
+        Ok(())
+    })
+    .await?;
     crate::log_info!("vpn", "VPN 凭据已清除，总开关关闭");
     Ok(CommandResult::ok_msg("已清除 VPN 凭据"))
 }
@@ -188,12 +196,14 @@ pub async fn set_self_service_via_vpn(
     state: State<'_, AppState>,
     enabled: bool,
 ) -> Result<CommandResult, String> {
-    let mut new_config = (*state.config.load()).clone();
-    if new_config.self_service_via_vpn == enabled {
+    if state.config.load().self_service_via_vpn == enabled {
         return Ok(CommandResult::ok_msg(if enabled { "已处于开启状态" } else { "已处于关闭状态" }));
     }
-    new_config.self_service_via_vpn = enabled;
-    persist_config_and_reset_session(&app_handle, &state, new_config).await?;
+    persist_config_and_reset_session(&app_handle, move |new_config| {
+        new_config.self_service_via_vpn = enabled;
+        Ok(())
+    })
+    .await?;
     crate::log_info!("vpn", "校外经 WebVPN 访问总开关: {}", if enabled { "开" } else { "关" });
     Ok(CommandResult::ok_msg(if enabled { "已开启校外经 WebVPN 访问" } else { "已关闭校外经 WebVPN 访问" }))
 }

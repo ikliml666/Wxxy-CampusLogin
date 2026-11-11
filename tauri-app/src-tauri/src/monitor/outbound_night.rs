@@ -509,29 +509,32 @@ fn collect_probe_targets(
     pairs
 }
 
-/// 改单份本机状态配置并落盘+广播+store（排程 30s 一拍，逐拍重写同值既写盘又
-/// 触发前端 config-changed 刷新，调用方自行做同值早退）。落盘失败仅告警但仍
-/// store 内存：内存值驱动排程判定（如待切换补驱动），若因落盘失败而不进内存，
-/// 下拍比对内存旧值仍会重试落盘——磁盘恢复后自动收敛，不丢整晚时序。
-fn persist_config_update(app_handle: &AppHandle, fresh: crate::config::Config) {
+/// 在统一配置写锁内读最新值、改字段、落盘，成功后才发布内存并广播；调用方
+/// 自行做同值早退（排程 30s 一拍，逐拍重写同值既写盘又触发前端刷新）。落盘
+/// 失败仅告警，内存保持旧值，下拍判定条件仍未满足时会重试。
+fn persist_config_update<F>(app_handle: &AppHandle, mutate: F)
+where
+    F: FnOnce(&mut crate::config::Config),
+{
     let state = app_handle.state::<AppState>();
-    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &fresh) {
+    if let Err(e) = crate::config::persist::mutate_config_and_save(app_handle, &state, |fresh| {
+        mutate(fresh);
+        Ok(())
+    }) {
         crate::log_warn!("outbound", "夜间出站切换: 状态字段落盘失败: {e}");
     }
-    state.config.store(fresh);
 }
 
-/// 写/清待切换状态（仅内容变化时才落盘+广播+store，见 persist_config_update）。
-/// 落盘失败的最坏后果：持久化值缺失一拍（前端徽标暂缺），内存已 store、
-/// 下拍重试落盘；仅磁盘持续故障到重启才会真正丢挂起记录。
+/// 写/清待切换状态（仅内容变化时才落盘+广播，见 persist_config_update）。
+/// 落盘失败时内存保持旧值，待切换状态未成立，下拍会再次尝试。
 fn set_pending_switch(app_handle: &AppHandle, pending: &str) {
     let state = app_handle.state::<AppState>();
-    let mut fresh: crate::config::Config = (*state.config.load_full()).clone();
-    if fresh.outbound_pending_switch == pending {
+    if state.config.load().outbound_pending_switch == pending {
         return;
     }
-    fresh.outbound_pending_switch = pending.to_string();
-    persist_config_update(app_handle, fresh);
+    persist_config_update(app_handle, |fresh| {
+        fresh.outbound_pending_switch = pending.to_string();
+    });
 }
 
 /// 待切换状态的**清理入口**（排程 None 拍调用，须在 spawn_blocking 线程内）。
@@ -883,14 +886,16 @@ pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::conf
     // 目标卡自己的 DHCP 默认路由共存，Windows 判重复 → route add 每夜恒失败重放），
     // 历史值保留给还原步骤①按四元组精确清理，清空会让历史残留无人认领
     let state = app_handle.state::<AppState>();
-    let mut fresh: crate::config::Config = (*state.config.load_full()).clone();
-    fresh.outbound_metric_restore = snapshot_json(&plan.target_guid, &plan.rows);
-    fresh.outbound_disabled_adapters = disabled_adapters_json(campus_to_disable);
-    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &fresh) {
+    let metric_restore = snapshot_json(&plan.target_guid, &plan.rows);
+    let disabled_adapters = disabled_adapters_json(campus_to_disable);
+    if let Err(e) = crate::config::persist::mutate_config_and_save(app_handle, &state, move |fresh| {
+        fresh.outbound_metric_restore = metric_restore;
+        fresh.outbound_disabled_adapters = disabled_adapters;
+        Ok(())
+    }) {
         crate::log_warn!("outbound", "夜间出站切换: 切换态快照落盘失败: {e}");
         return Err(format!("切换状态快照写入失败: {e}"));
     }
-    state.config.store(fresh);
     crate::log_info!(
         "outbound",
         "夜间出站切换: 目标卡 {} ({}), 已记录两族跃点快照（待禁用校园网卡 {} 张）",
@@ -1514,23 +1519,25 @@ fn finish_outbound_restore(app_handle: &AppHandle) -> bool {
 /// 同款语义，避免"内存已还原、重启后又回到切换态"的错位）；返回快照是否已清。
 fn clear_outbound_snapshot(app_handle: &AppHandle) -> bool {
     let state = app_handle.state::<AppState>();
-    let mut fresh: crate::config::Config = (*state.config.load_full()).clone();
-    if fresh.outbound_metric_restore.is_empty()
-        && fresh.outbound_disabled_adapters.is_empty()
-        && fresh.outbound_standby_route.is_empty()
-        && fresh.outbound_pending_switch.is_empty()
+    let current = state.config.load();
+    if current.outbound_metric_restore.is_empty()
+        && current.outbound_disabled_adapters.is_empty()
+        && current.outbound_standby_route.is_empty()
+        && current.outbound_pending_switch.is_empty()
     {
         return true;
     }
-    fresh.outbound_metric_restore = String::new();
-    fresh.outbound_disabled_adapters = String::new();
-    fresh.outbound_standby_route = String::new();
-    fresh.outbound_pending_switch = String::new();
-    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &fresh) {
+    drop(current);
+    if let Err(e) = crate::config::persist::mutate_config_and_save(app_handle, &state, |fresh| {
+        fresh.outbound_metric_restore = String::new();
+        fresh.outbound_disabled_adapters = String::new();
+        fresh.outbound_standby_route = String::new();
+        fresh.outbound_pending_switch = String::new();
+        Ok(())
+    }) {
         crate::log_warn!("outbound", "夜间出站切换: 切换态快照清空落盘失败: {e}");
         return false;
     }
-    state.config.store(fresh);
     true
 }
 
@@ -1540,12 +1547,10 @@ fn clear_outbound_snapshot(app_handle: &AppHandle) -> bool {
 /// （apply 幂等性保障下可接受），不应因此拒绝手动切换。
 fn set_outbound_manual_hold(app_handle: &AppHandle, day: i32) {
     let state = app_handle.state::<AppState>();
-    let mut fresh: crate::config::Config = (*state.config.load_full()).clone();
-    if fresh.outbound_manual_hold_day == day {
+    if state.config.load().outbound_manual_hold_day == day {
         return;
     }
-    fresh.outbound_manual_hold_day = day;
-    persist_config_update(app_handle, fresh);
+    persist_config_update(app_handle, |fresh| fresh.outbound_manual_hold_day = day);
 }
 
 /// 清 hold 标记（手动还原先行清；自动还原成功在 finish_outbound_restore 收尾清）。

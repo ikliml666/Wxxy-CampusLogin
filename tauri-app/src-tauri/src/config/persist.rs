@@ -1,14 +1,22 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use parking_lot::Mutex;
 use tauri::{AppHandle, Manager};
 use crate::config::model::Config;
 use crate::infra::command_context::AppHandleExt;
+use crate::infra::state::AppState;
 use crate::account::crypto;
 
 // 登录历史的读-改-写全程互斥：自动登录与手动登录并发追加时，
 // 无锁的后写者会用旧快照覆盖先写者丢历史。锁内不调用本函数（无重入）。
 static LOGIN_HISTORY_LOCK: Mutex<()> = Mutex::new(());
+
+// 配置的「读当前值→改字段→落盘→发布」必须是一个串行事务：各写口自行 load
+// 快照再整份写回时，后写者会用旧值覆盖先写者刚落盘的字段。锁覆盖内存提交、
+// 阻塞持久化和事件广播（保证两个写者的内存与事件顺序一致）；广播路径与闭包
+// 内不得再次进入任何配置写口。
+static CONFIG_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
     // 临时文件名带纳秒时间戳，避免并发保存时互相覆盖
@@ -289,13 +297,10 @@ pub fn append_quality_history_to(data_dir: &Path, result: &crate::network::quali
 
 /// 落盘 + 掩码广播 config-changed 的统一出口（不刷托盘）。
 ///
-/// 监控层与 commands 层共用：持久化成功后把掩码配置以 { config: Config } 包裹
-/// 广播给前端。托盘菜单刷新不在此处——托盘仅依赖 user/active_account，监控
-/// 写路径（快照/运营商/巡检间隔）不触及，无需重建菜单；commands 层的
-/// save_config_to_disk_encrypted 包装在此之上叠加托盘刷新。
-pub fn save_config_and_broadcast(app_handle: &AppHandle, config: &Config) -> Result<(), String> {
-    let data_dir = get_data_dir(app_handle);
-    save_config_to_disk_encrypted(&data_dir, config)?;
+/// 持久化成功后把掩码配置以 { config: Config } 包裹广播给前端。托盘菜单刷新
+/// 不在此处——监控写路径（快照/运营商/巡检间隔）不触及 user/active_account；
+/// 命令层事务在成功后自行刷新托盘。
+fn broadcast_config_changed(app_handle: &AppHandle, config: &Config) {
     // 必须掩码后再发射，避免泄露真实密码；事件体必须带 config 包裹，
     // 直发裸 Config 会让前端监听静默失效
     let emit_cfg = config.masked_for_display();
@@ -318,7 +323,28 @@ pub fn save_config_and_broadcast(app_handle: &AppHandle, config: &Config) -> Res
             }
         });
     }
-    Ok(())
+}
+
+/// 在统一写锁内修改当前配置、先落盘、成功后替换内存并广播。
+///
+/// 这是需要「读当前值再改字段」的写口入口；闭包拿到的是锁内最新值，不会用
+/// 调用前的旧快照覆盖别的写者。落盘失败时内存保持原值。
+pub fn mutate_config_and_save<F>(
+    app_handle: &AppHandle,
+    state: &AppState,
+    mutate: F,
+) -> Result<Arc<Config>, String>
+where
+    F: FnOnce(&mut Config) -> Result<(), String>,
+{
+    let _guard = CONFIG_WRITE_LOCK.lock();
+    let data_dir = get_data_dir(app_handle);
+    let stored = state.config.update_persisted(mutate, |config| {
+        save_config_to_disk_encrypted(&data_dir, config)
+    })?;
+    // 与落盘同锁广播：保证两个并发写者的事件顺序与内存提交顺序一致。
+    broadcast_config_changed(app_handle, &stored);
+    Ok(stored)
 }
 
 pub fn save_config_to_disk_encrypted(data_dir: &Path, config: &Config) -> Result<(), String> {
@@ -498,5 +524,66 @@ mod tests {
         // 文件不存在 → Err("账号不存在")，不 panic
         assert_eq!(load_account_config(&dir, "no-such").unwrap_err(), "账号不存在");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn 配置并发修改串行落盘不丢字段() {
+        use crate::infra::state::ConfigStore;
+        use std::sync::{Arc, Barrier};
+
+        let store = Arc::new(ConfigStore::new(Config::default()));
+        let disk = Arc::new(Mutex::new(Config::default()));
+        let barrier = Arc::new(Barrier::new(3));
+
+        let first = {
+            let store = Arc::clone(&store);
+            let disk = Arc::clone(&disk);
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                store
+                    .update_persisted(
+                        |cfg| {
+                            cfg.user = "并发甲".to_string();
+                            std::thread::sleep(std::time::Duration::from_millis(20));
+                            Ok(())
+                        },
+                        |cfg| {
+                            *disk.lock() = (*cfg).clone();
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
+            })
+        };
+
+        let second = {
+            let store = Arc::clone(&store);
+            let disk = Arc::clone(&disk);
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                store
+                    .update_persisted(
+                        |cfg| {
+                            cfg.portal_url = "并发乙".to_string();
+                            Ok(())
+                        },
+                        |cfg| {
+                            *disk.lock() = (*cfg).clone();
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
+            })
+        };
+
+        barrier.wait();
+        first.join().unwrap();
+        second.join().unwrap();
+
+        let persisted = disk.lock();
+        assert_eq!(persisted.user, "并发甲", "先写者的字段不得被旧快照覆盖");
+        assert_eq!(persisted.portal_url, "并发乙", "后写者的字段必须落入磁盘");
     }
 }

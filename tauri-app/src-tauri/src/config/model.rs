@@ -353,6 +353,17 @@ impl Config {
         c
     }
 
+    /// 保留本机运行时出站状态字段：这些值由监控写入，前端配置快照可能较早，
+    /// 整份保存/导入时用旧快照覆盖会导致切换态、跃点快照与还原标记丢失。
+    pub fn preserve_outbound_runtime_from(&mut self, current: &Config) {
+        self.outbound_metric_restore = current.outbound_metric_restore.clone();
+        self.outbound_disabled_adapters = current.outbound_disabled_adapters.clone();
+        self.outbound_standby_route = current.outbound_standby_route.clone();
+        self.outbound_manual_hold_day = current.outbound_manual_hold_day;
+        self.outbound_pending_switch = current.outbound_pending_switch.clone();
+        self.night_outbound_restore = current.night_outbound_restore.clone();
+    }
+
     pub fn mask_in_place(&mut self) {
         if !self.password.is_empty() {
             self.password = PASSWORD_MASK.to_string();

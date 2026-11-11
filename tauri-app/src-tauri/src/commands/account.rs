@@ -45,8 +45,8 @@ pub async fn switch_account(account_name: String, app_handle: AppHandle, state: 
 }
 
 /// switch_account 命令与托盘「切换账号」菜单共享的核心逻辑（含阻塞读盘与落盘，
-/// 须在 spawn_blocking 等阻塞上下文调用）。落盘统一经 save_config_to_disk_encrypted，
-/// 其内部会发射 config-changed（前端自动同步）并刷新托盘菜单。
+/// 须在 spawn_blocking 等阻塞上下文调用）。主配置写入走统一配置事务：锁内合并
+/// 最新配置、落盘成功才发布内存，随后广播 config-changed 并刷新托盘菜单。
 /// 返回 Ok(safe_name)：校验后的账号 id（命令层据此回填 activeAccount）。
 /// 返回 Err(String)：账号名校验失败 / 账号不存在 / 读盘或落盘失败。
 pub(crate) fn perform_switch_account_sync(
@@ -61,20 +61,17 @@ pub(crate) fn perform_switch_account_sync(
     let safe_name = crate::infra::state::validate_account_name(account_name)?;
 
     let data_dir = persist::get_data_dir(app_handle);
-    let config = persist::load_account_config(&data_dir, &safe_name)?;
+    let account = persist::load_account_config(&data_dir, &safe_name)?;
 
-    // 审计 A2：先在副本上合并出候选配置，落盘成功后才更新内存运行态。
-    // 旧实现先 update 后落盘：落盘失败时内存运行态已被污染（UI 显示已切换
-    // 但重启回落），对调后失败路径内存与磁盘保持一致
-    let mut candidate = (*state.config.load_full()).clone();
-    merge_account_into_config(&mut candidate, &config, &safe_name);
-    super::config_cmd::save_config_to_disk_encrypted(app_handle, &candidate)?;
+    // 锁内以最新主配置为基线合并登录字段：并发夜切/巡检写入的运行时字段
+    // 不会被切换前的旧快照覆盖；落盘失败时内存保持原值。
+    let switch_name = safe_name.clone();
+    let saved = super::config_cmd::mutate_config_and_save(app_handle, state, move |current| {
+        merge_account_into_config(current, &account, &switch_name);
+        Ok(())
+    })?;
 
-    state.config.update(|c| {
-        merge_account_into_config(c, &config, &safe_name);
-    });
-
-    crate::log_info!("account", "切换账号: {} (用户: {})", safe_name, config.user);
+    crate::log_info!("account", "切换账号: {} (用户: {})", safe_name, saved.user);
     Ok(safe_name)
 }
 
@@ -199,21 +196,19 @@ pub async fn save_current_as_account(account_name: String, app_handle: AppHandle
         Ok::<String, String>(display)
     }).await.map_err(|e| e.to_string())??;
 
-    state.config.update(|c| {
-        c.active_account = account_name.clone();
-        // 显示名与激活账号同步，避免"高亮 id 与显示名错位"
-        c.display_name = final_display.clone();
-    });
-
     // 与 switch_account/delete_account 对齐：active_account 变更必须落盘，
-    // 否则重启后回落到旧账号
-    let cfg = state.config.load();
-    // 审计 A3：持久化失败不再静默——内存态已生效，但重启后会回落旧账号，
-    // 与用户看到的"已保存"不一致，必须上报（文案如实说明已生效状态）
-    if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
+    // 否则重启后回落到旧账号。锁内修改、落盘成功才发布运行态。
+    let active_name = account_name.clone();
+    let display = final_display.clone();
+    if let Err(e) = super::config_cmd::mutate_config_and_save(&app_handle, &state, move |c| {
+        c.active_account = active_name;
+        // 显示名与激活账号同步，避免"高亮 id 与显示名错位"
+        c.display_name = display;
+        Ok(())
+    }) {
         crate::log_error!("account", "保存账号后持久化 active_account 失败: {}", e);
         return Ok(AccountResult::err(&format!(
-            "账号「{account_name}」已保存并激活，但激活状态持久化失败：{e}（重启后可能回落到旧账号）"
+            "账号「{account_name}」档案已保存，但激活状态写入失败：{e}（运行态未切换）"
         )));
     }
 
@@ -332,18 +327,15 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle) -> Resu
         let current_config = state.config.load();
         let cleared_active = current_config.active_account == account_name;
         if cleared_active {
-            state.config.update(|c| {
+            // 删除账号文件已生效；主配置的 active_account 也必须在锁内清空并落盘，
+            // 否则重启后仍指向已删除账号。落盘失败时运行态保持原值并如实上报。
+            if let Err(e) = super::config_cmd::mutate_config_and_save(&app_h, &state, |c| {
                 c.active_account = String::new();
-            });
-            // 历史缺陷：清空 active_account 仅内存更新不落盘，重启后配置仍指向已删除账号。
-            // 持久化并发射 config-changed（删除账号后 UI 若不清空，显示将永久不一致）。
-            let cfg = state.config.load();
-            // 审计 A3：落盘失败不再静默——删除已生效、内存已清理，但重启后
-            // 仍指向已删除账号，必须上报（文案如实说明已生效状态）
-            if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_h, &cfg) {
+                Ok(())
+            }) {
                 crate::log_error!("account", "保存删除账号后的配置失败: {}", e);
                 return Ok(AccountResult::err(&format!(
-                    "账号「{account_name}」已删除，但激活状态清理持久化失败：{e}（重启后可能仍指向已删除账号）"
+                    "账号「{account_name}」已删除，但激活状态清理失败：{e}（运行态仍指向已删除账号）"
                 )));
             }
         }
@@ -354,7 +346,7 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle) -> Resu
             result.active_account = Some(String::new());
         }
         // 托盘「切换账号」子菜单按账号文件列表构建，删除后需重建（删除当前账号时
-        // 上方 save_config_to_disk_encrypted 已触发，这里统一刷新一次保证覆盖）
+        // 上方配置事务已刷新一次，这里统一刷新保证菜单按已删文件重建）
         crate::app::tray::refresh_tray_menu_state(&app_h);
         Ok(result)
     }).await.map_err(|e| e.to_string())?
@@ -384,8 +376,8 @@ pub async fn rename_account(account_id: String, display_name: String, app_handle
 
 /// rename_account 命令的核心逻辑（含阻塞读盘与落盘，须在阻塞上下文调用）。
 /// 只改账号档案的 displayName，不动文件名与 active_account；若被改名账号是
-/// 当前激活账号，同步主配置 display_name 并落盘（经 save_config_to_disk_encrypted
-/// 广播 config-changed，前端即时可见）。
+/// 当前激活账号，同步主配置 display_name 并落盘（经统一配置事务广播
+/// config-changed，前端即时可见）。
 fn perform_rename_account_sync(
     app_handle: &AppHandle,
     state: &AppState,
@@ -404,13 +396,12 @@ fn perform_rename_account_sync(
     let new_name = rename_account_core(&data_dir, &safe_id, display_name)?;
 
     if safe_id == active_account {
-        // 审计 A2：同 switch——先落盘候选成功，再更新内存运行态
-        let mut candidate = (*state.config.load_full()).clone();
-        candidate.display_name = new_name.clone();
-        super::config_cmd::save_config_to_disk_encrypted(app_handle, &candidate)?;
-        state.config.update(|c| {
-            c.display_name = new_name.clone();
-        });
+        // 锁内只改显示名，保留其他写者刚提交的字段；落盘成功才发布运行态。
+        let display = new_name.clone();
+        super::config_cmd::mutate_config_and_save(app_handle, state, move |c| {
+            c.display_name = display;
+            Ok(())
+        })?;
     }
 
     let display_config = state.config.load().masked_for_display();

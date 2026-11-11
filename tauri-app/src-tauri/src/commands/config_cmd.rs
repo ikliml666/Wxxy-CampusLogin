@@ -5,13 +5,18 @@ use crate::config::validate::{validate_config, validate_config_lenient};
 use crate::account::crypto;
 use crate::infra::state::{AppState, CommandResult};
 
-pub fn save_config_to_disk_encrypted(app_handle: &AppHandle, config: &Config) -> Result<(), String> {
-    // 落盘 + 掩码广播已下沉至 config::persist（监控层同走该路径，不再反向依赖 commands 层）
-    persist::save_config_and_broadcast(app_handle, config)?;
-    // 托盘菜单依赖账号配置（「快速注销」可用性取决于 user 是否已配置、「切换账号」
-    // 依赖 active_account 标记），配置落盘后异步重建菜单
+/// 命令层配置事务：锁内读最新值、落盘成功后才发布内存和事件，最后刷新托盘。
+pub fn mutate_config_and_save<F>(
+    app_handle: &AppHandle,
+    state: &AppState,
+    mutate: F,
+) -> Result<std::sync::Arc<Config>, String>
+where
+    F: FnOnce(&mut Config) -> Result<(), String>,
+{
+    let saved = persist::mutate_config_and_save(app_handle, state, mutate)?;
     crate::app::tray::refresh_tray_menu_state(app_handle);
-    Ok(())
+    Ok(saved)
 }
 
 fn load_config_from_file(app_handle: &AppHandle) -> Result<Config, String> {
@@ -138,11 +143,11 @@ pub async fn export_config(state: State<'_, AppState>, app_handle: AppHandle, in
 
 /// 从 JSON 文件导入配置。失败分列三类原因：JSON 解析失败 / 配置校验失败 / 落盘失败
 /// （另有密码密文解密失败，见 restore_imported_password_field）。
-/// 通过后走与 save_config 完全相同的落盘路径：update_portal_url → set_log_retention_days
-/// → save_config_to_disk_encrypted（内含 config-changed 事件）→ 更新内存 ConfigStore。
+/// 通过后走与 save_config 相同的配置事务：锁内还原密码/保留运行时字段 → 校验
+/// → 落盘成功才发布内存并广播 config-changed → 更新全局 Portal URL 与日志保留天数。
 /// 审计 A5：文件读取与 DPAPI+落盘为阻塞段，各移入 spawn_blocking。
 #[tauri::command]
-pub async fn import_config(state: State<'_, AppState>, app_handle: AppHandle, path: String) -> Result<CommandResult, String> {
+pub async fn import_config(_state: State<'_, AppState>, app_handle: AppHandle, path: String) -> Result<CommandResult, String> {
     // 大小防呆：配置文件不应超过 1MB，防止误选超大文件整读进内存
     const MAX_IMPORT_SIZE: u64 = 1024 * 1024;
     // 审计 A5：文件读取为阻塞 IO，移入 spawn_blocking
@@ -163,48 +168,52 @@ pub async fn import_config(state: State<'_, AppState>, app_handle: AppHandle, pa
     let password_encrypted = value.get("passwordEncrypted").and_then(|b| b.as_bool()).unwrap_or(false);
     let config_value = value.get("config").cloned().unwrap_or(value);
     // 失败分列②：结构不符合 Config（serde 錯誤给出首个不合法字段）
-    let mut config: Config = serde_json::from_value(config_value)
+    let config: Config = serde_json::from_value(config_value)
         .map_err(|e| format!("配置文件结构无效: {e}"))?;
 
     // 密码语义还原必须先于严格校验：含密码导出的密码字段是 base64 密文，
     // 长度必然超过 validate_password 的 128 上限，先还原成明文再校验
-    let current = state.config.load();
-    restore_imported_password_field(&mut config.password, password_encrypted, &current.password)?;
-    // WebVPN 凭据整体不随配置迁移（学号与加密密码是本机凭据对，专用命令管理）：
-    // 导入文件里的值一律丢弃，保留本机当前值，避免出现学号与密码错配
-    config.vpn_account = current.vpn_account.clone();
-    config.vpn_password_enc = current.vpn_password_enc.clone();
-    // 切换态是本机系统状态（metric 快照/禁用名单/兜底路由/注销标记），不可随配置
-    // 迁移：导入文件里的四字段一律丢弃，改保留本机当前值。若直接清空，切换中导入
-    // 会把活跃快照整体顶掉——系统残留切换态（目标卡 metric=1/校园卡禁用/兜底路由）
-    // 却再无还原路径，原始跃点从此丢失，次夜还会把 metric=1 当原值快照（k2.8 审计 P1-1）
-    config.outbound_metric_restore = current.outbound_metric_restore.clone();
-    config.outbound_disabled_adapters = current.outbound_disabled_adapters.clone();
-    config.outbound_standby_route = current.outbound_standby_route.clone();
-    config.outbound_manual_hold_day = current.outbound_manual_hold_day;
-    config.outbound_pending_switch = current.outbound_pending_switch.clone();
-    config.night_outbound_restore = current.night_outbound_restore.clone();
-
-    // 失败分列③：配置校验失败（严格版，与 save_config 同源）
-    let config = match validate_config(config) {
-        Ok(c) => c,
-        Err(e) => return Ok(CommandResult::err(&format!("配置校验失败: {e}"))),
-    };
-
-    // 与 save_config 同路径同顺序：全局 Portal URL → logger 保留天数 → 落盘（含
-    // config-changed 事件，掩码后发射）→ 更新内存。落盘失败（分列④）时命令返回 Err
-    // 且运行态不变，避免"导入成功但内存未生效"的错位
-    crate::network::update_portal_url(&config.portal_url);
-    crate::infra::logger::set_log_retention_days(config.log_retention_days);
-    // 审计 A5：DPAPI+落盘+事件广播为阻塞段，移入 spawn_blocking
     let app_h = app_handle.clone();
-    let config_for_save = config.clone();
-    tauri::async_runtime::spawn_blocking(move || save_config_to_disk_encrypted(&app_h, &config_for_save))
-        .await
-        .map_err(|e| format!("配置落盘任务失败: {e}"))??;
-    state.config.store(config.clone());
-    let user = config.user.clone();
-    crate::log_info!("config", "配置导入成功, 用户: {}", user);
+    let imported = config;
+    let save_result = tauri::async_runtime::spawn_blocking(move || {
+        let st = app_h.state::<AppState>();
+        persist::mutate_config_and_save(&app_h, &st, move |fresh| {
+            let mut next = imported;
+            // 密码语义还原必须先于严格校验：含密码导出的密码字段是 base64 密文，
+            // 长度必然超过 validate_password 的 128 上限，先还原成明文再校验
+            restore_imported_password_field(
+                &mut next.password,
+                password_encrypted,
+                &fresh.password,
+            )?;
+            // WebVPN 凭据整体不随配置迁移（学号与加密密码是本机凭据对，专用命令管理）：
+            // 导入文件里的值一律丢弃，保留本机当前值，避免出现学号与密码错配
+            next.vpn_account = fresh.vpn_account.clone();
+            next.vpn_password_enc = fresh.vpn_password_enc.clone();
+            // 切换态是本机系统状态（metric 快照/禁用名单/兜底路由/注销标记），不可随配置
+            // 迁移：导入文件里的值一律丢弃，保留本机当前值。若直接清空，切换中导入
+            // 会把活跃快照整体顶掉，原始跃点从此丢失（k2.8 审计 P1-1）
+            next.preserve_outbound_runtime_from(fresh);
+            // 失败分列③：配置校验失败（严格版，与 save_config 同源）
+            let validated = validate_config(next)
+                .map_err(|e| format!("配置校验失败: {e}"))?;
+            *fresh = validated;
+            Ok(())
+        })
+    })
+    .await
+    .map_err(|e| format!("配置落盘任务失败: {e}"))?;
+    let saved = match save_result {
+        Ok(saved) => saved,
+        Err(e) if e.starts_with("配置校验失败: ") => {
+            return Ok(CommandResult::err(&e));
+        }
+        Err(e) => return Err(e),
+    };
+    crate::network::update_portal_url(&saved.portal_url);
+    crate::infra::logger::set_log_retention_days(saved.log_retention_days);
+    crate::app::tray::refresh_tray_menu_state(&app_handle);
+    crate::log_info!("config", "配置导入成功, 用户: {}", saved.user);
 
     Ok(CommandResult::ok_msg("配置导入成功"))
 }
@@ -250,44 +259,44 @@ pub async fn save_config(
         }
     };
 
-    let mut config = validated;
-    // 显式清除密码（用户在账号面板点击"清除密码"）：跳过兜底直接置空
-    if clear_password == Some(true) {
-        config.password = String::new();
-    } else if config.password.is_empty() || config.password == crate::config::model::PASSWORD_MASK {
-        // 空密码或 mask 占位符：保留当前密码，避免前端未传密码时旧密码被覆盖
-        let current = state.config.load();
-        config.password = current.password.clone();
-    }
-    // WebVPN 凭据不归 save_config 管（专用命令 vpn_save_credential/vpn_clear_credential）：
-    // 前端回传空/mask 占位符时保留当前加密值，防止任意配置保存抹掉 VPN 凭据
-    if config.vpn_password_enc.is_empty() || config.vpn_password_enc == crate::config::model::PASSWORD_MASK {
-        let current = state.config.load();
-        config.vpn_password_enc = current.vpn_password_enc.clone();
-    }
-
-    // 历史缺陷：修改 Portal URL 仅存配置，不更新进程全局 PORTAL_URL，
-    // 运行期后台巡检/登录仍用旧地址直到重启。此处持久化前先同步全局。
-    crate::network::update_portal_url(&config.portal_url);
-
-    // 日志保留天数同步应用到运行期 logger（否则需重启或重进日志面板才生效）
-    crate::infra::logger::set_log_retention_days(config.log_retention_days);
-
-    // 先落盘再更新内存：磁盘失败（满/只读）时命令返回 Err 且运行态不变，
-    // 避免"保存失败但内存已生效、重启后回退"的错位
-    // 审计 A5：DPAPI+落盘+事件广播为阻塞段，移入 spawn_blocking
+    let candidate = validated;
     let app_h = app_handle.clone();
-    let config_for_save = config.clone();
-    tauri::async_runtime::spawn_blocking(move || save_config_to_disk_encrypted(&app_h, &config_for_save))
-        .await
-        .map_err(|e| format!("配置落盘任务失败: {e}"))??;
-    state.config.store(config.clone());
-    crate::log_info!("config", "配置保存成功, 用户: {}", config.user);
+    let saved = tauri::async_runtime::spawn_blocking(move || {
+        let st = app_h.state::<AppState>();
+        persist::mutate_config_and_save(&app_h, &st, move |fresh| {
+            let mut next = candidate;
+            // 显式清除密码（用户在账号面板点击"清除密码"）：跳过兜底直接置空
+            if clear_password == Some(true) {
+                next.password = String::new();
+            } else if next.password.is_empty()
+                || next.password == crate::config::model::PASSWORD_MASK
+            {
+                // 空密码或 mask 占位符：保留落盘时最新的已存密码
+                next.password = fresh.password.clone();
+            }
+            // WebVPN 凭据不归 save_config 管（专用命令 vpn_save_credential/vpn_clear_credential）：
+            // 前端回传空/mask 占位符时保留当前加密值，防止任意配置保存抹掉 VPN 凭据
+            if next.vpn_password_enc.is_empty()
+                || next.vpn_password_enc == crate::config::model::PASSWORD_MASK
+            {
+                next.vpn_password_enc = fresh.vpn_password_enc.clone();
+            }
+            next.preserve_outbound_runtime_from(fresh);
+            *fresh = next;
+            Ok(())
+        })
+    })
+    .await
+    .map_err(|e| format!("配置落盘任务失败: {e}"))??;
+    crate::network::update_portal_url(&saved.portal_url);
+    crate::infra::logger::set_log_retention_days(saved.log_retention_days);
+    crate::app::tray::refresh_tray_menu_state(&app_handle);
+    crate::log_info!("config", "配置保存成功, 用户: {}", saved.user);
 
     // R2 自动建号：输入了账号+密码即默认创建/同步同名本地账号。
     // 失败仅告警，不得让本次保存失败；内部只走底层落盘，不经命令层避免递归。
-    // 实际创建/更新了账号时补刷托盘菜单——save_config_to_disk_encrypted 内部的
-    // 托盘刷新发生在自动建号之前，不补刷则新账号要等下一次落盘才进托盘子菜单
+    // 实际创建/更新了账号时补刷托盘菜单——配置事务的托盘刷新发生在自动建号之前，
+    // 不补刷则新账号要等下一次落盘才进托盘子菜单
     if crate::commands::account::auto_create_account_for_current(&state, &app_handle) {
         crate::app::tray::refresh_tray_menu_state(&app_handle);
     }

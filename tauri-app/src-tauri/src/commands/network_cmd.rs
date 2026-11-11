@@ -232,21 +232,25 @@ pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) ->
     // 同步把 enable_latency_test 落盘为 false，经 config-changed 事件推回前端，
     // 避免 UI 开关与实际运行状态分叉
     if !s.config.load().enable_network_quality {
-        let cfg = s.config.update(|c| c.enable_latency_test = false);
-        if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
+        if let Err(e) = super::config_cmd::mutate_config_and_save(&app_handle, &s, |c| {
+            c.enable_latency_test = false;
+            Ok(())
+        }) {
             crate::log_warn!("network", "保存延迟测试开关失败: {}", e);
         }
         return Ok(CommandResult::ok_msg("质量检测总开关未启用，定时测试保持关闭"));
     }
+    // 先持久化开关再启动循环：落盘失败时不出现"循环已跑、重启后开关回退"的错位
+    if let Err(e) = super::config_cmd::mutate_config_and_save(&app_handle, &s, |c| {
+        c.enable_latency_test = true;
+        Ok(())
+    }) {
+        crate::log_warn!("network", "保存延迟测试开关失败: {}", e);
+        return Err(format!("保存延迟测试开关失败: {e}"));
+    }
     // 间隔由循环内每轮重读（配置 + 轻量化系数），无需启动时读取
     if crate::monitor::latency::spawn_latency_test_loop(&app_handle).is_err() {
         return Ok(CommandResult::ok_msg("延迟测试已在运行"));
-    }
-
-    // 持久化开关，避免重启后 enableLatencyTest 丢失（历史缺陷：仅前端本地更新，重启即回退）
-    let cfg = s.config.update(|c| c.enable_latency_test = true);
-    if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
-        crate::log_warn!("network", "保存延迟测试开关失败: {}", e);
     }
 
     Ok(CommandResult::ok_msg("延迟测试已启动"))
@@ -257,8 +261,10 @@ pub fn stop_latency_test(app_handle: AppHandle, state: State<'_, AppState>) -> R
     state.task_manager.cancel("latency_test");
 
     let s = CommandContext::from_app(&app_handle);
-    let cfg = s.config.update(|c| c.enable_latency_test = false);
-    if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
+    if let Err(e) = super::config_cmd::mutate_config_and_save(&app_handle, &s, |c| {
+        c.enable_latency_test = false;
+        Ok(())
+    }) {
         crate::log_warn!("network", "保存延迟测试开关失败: {}", e);
     }
 

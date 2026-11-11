@@ -5,7 +5,7 @@ pub mod exit;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use crate::config::model::Config;
-use store::ConfigStore;
+pub(crate) use store::ConfigStore;
 use network::NetworkState;
 use exit::ExitStateStore;
 use crate::infra::task_manager::BackgroundTaskManager;

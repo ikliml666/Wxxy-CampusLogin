@@ -19,9 +19,66 @@ type AdapterCacheEntry = (
     Instant,
 );
 
+#[derive(Default)]
+struct AdapterCache {
+    entry: RwLock<Option<AdapterCacheEntry>>,
+    query_lock: Mutex<()>,
+}
+
+impl AdapterCache {
+    fn query<T, F, Q>(&self, query: Q, select: F) -> Result<T, String>
+    where
+        F: Fn(&AdapterCacheEntry) -> T,
+        Q: FnOnce() -> AdapterQueryResult,
+    {
+        {
+            let cache = self.entry.read();
+            if let Some(entry @ (_, _, _, ts)) = cache.as_ref() {
+                if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
+                    return Ok(select(entry));
+                }
+            }
+        }
+        let _query_guard = self.query_lock.lock();
+        {
+            let cache = self.entry.read();
+            if let Some(entry @ (_, _, _, ts)) = cache.as_ref() {
+                if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
+                    return Ok(select(entry));
+                }
+            }
+        }
+        let (adapters, details, disabled) = query()?;
+        let entry = (adapters, details, disabled, Instant::now());
+        let selected = select(&entry);
+        *self.entry.write() = Some(entry);
+        Ok(selected)
+    }
+
+    fn force<F>(&self, query: F) -> AdapterQueryResult
+    where
+        F: FnOnce() -> AdapterQueryResult,
+    {
+        let _query_guard = self.query_lock.lock();
+        self.entry.write().take();
+        let result = query()?;
+        *self.entry.write() = Some((
+            result.0.clone(),
+            result.1.clone(),
+            result.2.clone(),
+            Instant::now(),
+        ));
+        Ok(result)
+    }
+
+    #[cfg(desktop)]
+    fn invalidate(&self) {
+        self.entry.write().take();
+    }
+}
+
 lazy_static! {
-    static ref ADAPTER_CACHE: RwLock<Option<AdapterCacheEntry>> = RwLock::new(None);
-    static ref ADAPTER_QUERY_LOCK: Mutex<()> = Mutex::new(());
+    static ref ADAPTER_CACHE: AdapterCache = AdapterCache::default();
 }
 
 const ADAPTER_CACHE_TTL_SECS: u64 = 5;
@@ -31,28 +88,7 @@ where
     F: Fn(&AdapterCacheEntry) -> T,
     Q: FnOnce() -> AdapterQueryResult,
 {
-    {
-        let cache = ADAPTER_CACHE.read();
-        if let Some(entry @ (_, _, _, ts)) = cache.as_ref() {
-            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
-                return Ok(select(entry));
-            }
-        }
-    }
-    let _query_guard = ADAPTER_QUERY_LOCK.lock();
-    {
-        let cache = ADAPTER_CACHE.read();
-        if let Some(entry @ (_, _, _, ts)) = cache.as_ref() {
-            if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
-                return Ok(select(entry));
-            }
-        }
-    }
-    let (adapters, details, disabled) = query()?;
-    let entry = (adapters, details, disabled, Instant::now());
-    let selected = select(&entry);
-    *ADAPTER_CACHE.write() = Some(entry);
-    Ok(selected)
+    ADAPTER_CACHE.query(query, select)
 }
 
 fn query_adapters_cached_inner() -> AdapterQueryResult {
@@ -87,7 +123,7 @@ pub fn get_adapters_cached() -> Result<Vec<Adapter>, String> {
 pub async fn get_adapters_cached_async() -> Result<Vec<Adapter>, String> {
     // 快速路径：缓存命中直接返回（仅 Mutex lock + clone，非阻塞）
     {
-        let cache = ADAPTER_CACHE.read();
+        let cache = ADAPTER_CACHE.entry.read();
         if let Some((adapters, _details, _disabled, ts)) = cache.as_ref() {
             if ts.elapsed().as_secs() < ADAPTER_CACHE_TTL_SECS {
                 return Ok(adapters.clone());
@@ -104,16 +140,7 @@ fn query_adapters_force_with<F>(query: F) -> AdapterQueryResult
 where
     F: FnOnce() -> AdapterQueryResult,
 {
-    let _query_guard = ADAPTER_QUERY_LOCK.lock();
-    ADAPTER_CACHE.write().take();
-    let result = query()?;
-    *ADAPTER_CACHE.write() = Some((
-        result.0.clone(),
-        result.1.clone(),
-        result.2.clone(),
-        Instant::now(),
-    ));
-    Ok(result)
+    ADAPTER_CACHE.force(query)
 }
 
 pub fn get_adapters_force() -> Result<Vec<Adapter>, String> {
@@ -127,14 +154,9 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier};
 
-    lazy_static! {
-        static ref TEST_CACHE_LOCK: Mutex<()> = Mutex::new(());
-    }
-
     #[test]
     fn 缓存失效并发查询只执行一次系统发现() {
-        let _test_guard = TEST_CACHE_LOCK.lock();
-        ADAPTER_CACHE.write().take();
+        let cache = AdapterCache::default();
         const READERS: usize = 8;
         let barrier = Arc::new(Barrier::new(READERS));
         let queries = Arc::new(AtomicUsize::new(0));
@@ -142,9 +164,10 @@ mod tests {
             for _ in 0..READERS {
                 let barrier = barrier.clone();
                 let queries = queries.clone();
+                let cache = &cache;
                 scope.spawn(move || {
                     barrier.wait();
-                    let result = query_adapters_with(
+                    let result = cache.query(
                         || {
                             queries.fetch_add(1, Ordering::SeqCst);
                             std::thread::sleep(std::time::Duration::from_millis(30));
@@ -161,14 +184,14 @@ mod tests {
 
     #[test]
     fn 强制查询即使缓存新鲜也重新发现() {
-        let _test_guard = TEST_CACHE_LOCK.lock();
-        query_adapters_with(
+        let cache = AdapterCache::default();
+        cache.query(
             || Ok((Vec::new(), Vec::new(), Vec::new())),
             |(adapters, _, _, _)| adapters.clone(),
         )
         .unwrap();
         let queries = AtomicUsize::new(0);
-        let result = query_adapters_force_with(|| {
+        let result = cache.force(|| {
             queries.fetch_add(1, Ordering::SeqCst);
             Ok((Vec::new(), Vec::new(), Vec::new()))
         });
@@ -324,7 +347,7 @@ pub fn enable_adapter(adapter_name: &str, allow_uac_prompt: bool) -> Result<(), 
 #[cfg(desktop)]
 fn invalidate_adapter_caches() {
     // 让下次查询拿到最新状态
-    ADAPTER_CACHE.write().take();
+    ADAPTER_CACHE.invalidate();
     // 同步刷新注册表缓存，避免 is_admin_disabled_via_registry 返回过时结果
     #[cfg(target_os = "windows")]
     crate::network::discovery::registry::refresh_class_subkey_cache();

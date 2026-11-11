@@ -3,6 +3,7 @@
 //! 出站一律掩码;空/MASK 占位符回退已存值语义与桌面 save_config 同构。
 
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::Manager;
@@ -449,6 +450,65 @@ async fn migrate_legacy_defaults(dir: &Path, bridge: &CryptoBridge, s: &mut Sett
 
 pub async fn save_to(dir: &Path, bridge: &CryptoBridge, s: &Settings) -> Result<(), String> {
     save_file(&dir.join(CONFIG_FILE), bridge, s).await
+}
+
+async fn apply_settings_update<F>(
+    dir: &Path,
+    bridge: &CryptoBridge,
+    mutate: F,
+) -> Result<Settings, String>
+where
+    F: FnOnce(&mut Settings),
+{
+    let mut fresh = load_from(dir, bridge).await?;
+    mutate(&mut fresh);
+    save_to(dir, bridge, &fresh).await?;
+    Ok(fresh)
+}
+
+async fn update_at<F, A, Fut>(
+    dir: &Path,
+    bridge: &CryptoBridge,
+    mutate: F,
+    after_save: A,
+) -> Result<Settings, String>
+where
+    F: FnOnce(&mut Settings),
+    A: FnOnce(Settings) -> Fut,
+    Fut: Future<Output = ()>,
+{
+    let _guard = config_io_lock().await;
+    let fresh = apply_settings_update(dir, bridge, mutate).await?;
+    after_save(fresh.clone()).await;
+    Ok(fresh)
+}
+
+/// 在统一配置 IO 锁内读取最新配置、修改、落盘，成功后刷新缓存并广播。
+///
+/// 这是「读当前值再改字段」的写口入口；闭包拿到锁内最新文件状态，不会用调用前
+/// 的旧快照覆盖其他写者。落盘失败时文件、缓存与前端状态均保持原值。账号档案
+/// 同步仍由 `save_config` 在凭据变更后单独负责。
+pub async fn update<F>(app: &tauri::AppHandle, mutate: F) -> Result<Settings, String>
+where
+    F: FnOnce(&mut Settings),
+{
+    let bridge = CryptoBridge::from_app(app);
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("获取数据目录失败: {e}"))?;
+    let app = app.clone();
+    update_at(&dir, &bridge, mutate, move |fresh| async move {
+        if let Ok(mut cache) = app
+            .state::<crate::android_state::AndroidState>()
+            .config
+            .lock()
+        {
+            *cache = Some(fresh.clone());
+        }
+        emit_config_changed(&app, &fresh).await;
+    })
+    .await
 }
 
 /// 出站掩码:非空密码 → "***"(对齐桌面 masked_for_display 唯一出口语义)。
@@ -940,6 +1000,38 @@ mod tests {
         empty.password.clear();
         save_to(&dir, &bridge, &empty).await.unwrap();
         assert!(!password_saved_at(&path), "空密码落盘后判据必须为未保存");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn 并发更新不同字段_后写者不得用旧快照覆盖() {
+        let dir = tmp_dir("concurrent-update");
+        let bridge = fake_bridge();
+        save_to(&dir, &bridge, &Settings::default()).await.unwrap();
+
+        let first_dir = dir.clone();
+        let first = tokio::spawn(async move {
+            update_at(&first_dir, &fake_bridge(), |s| {
+                s.user = "并发甲".to_string();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }, |_| async {})
+            .await
+            .unwrap();
+        });
+        let second_dir = dir.clone();
+        let second = tokio::spawn(async move {
+            update_at(&second_dir, &fake_bridge(), |s| {
+                s.portal_url = "并发乙".to_string();
+            }, |_| async {})
+            .await
+            .unwrap();
+        });
+        first.await.unwrap();
+        second.await.unwrap();
+
+        let persisted = load_from(&dir, &bridge).await.unwrap();
+        assert_eq!(persisted.user, "并发甲", "先写者字段不得被旧快照覆盖");
+        assert_eq!(persisted.portal_url, "并发乙", "后写者字段必须落盘");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

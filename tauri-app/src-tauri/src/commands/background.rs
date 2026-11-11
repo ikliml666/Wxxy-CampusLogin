@@ -16,13 +16,12 @@ pub fn stop_background_check(_state: State<'_, AppState>, app_handle: AppHandle)
     // 审计 A9：一次性检测也走 task_manager 注册（background_check_once），
     // 停止时一并取消
     s.task_manager.cancel("background_check_once");
-    let cfg = s.config.update(|cfg| {
+    if let Err(e) = super::config_cmd::mutate_config_and_save(&app_handle, &s, |cfg| {
         cfg.enable_background_check = false;
-    });
-    if let Err(e) = super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg) {
+        Ok(())
+    }) {
         crate::log_warn!("background", "保存停止检测配置失败: {}", e);
     }
-    // config-changed 事件已由 save_config_to_disk_encrypted → save_config_to_disk 统一发射
     Ok(CommandResult::ok_msg("后台检测已停止"))
 }
 

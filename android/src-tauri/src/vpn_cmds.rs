@@ -9,7 +9,6 @@
 
 use serde_json::json;
 use std::net::IpAddr;
-use tauri::Manager;
 
 use campus_login_lib::self_service::SelfServiceChannel;
 use campus_login_lib::vpn::cache::{
@@ -132,22 +131,13 @@ pub async fn vpn_save_credential(
     let enc = (bridge.encrypt)(&password).map_err(|e| format!("密码加密失败: {e}"))?;
     // 先落盘再改内存态(桌面同则):落盘失败命令报错且运行态不变;全程持配置
     // IO 锁覆盖 load→merge→save,防与 save_config/账号命令并发丢更新
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("获取数据目录失败: {e}"))?;
-    let _io_guard = crate::config_state::config_io_lock().await;
-    let mut merged = crate::config_state::load_from(&dir, &bridge).await?;
-    merged.vpn_account = account.clone();
-    merged.vpn_password_enc = enc;
-    merged.self_service_via_vpn = true;
-    crate::config_state::save_to(&dir, &bridge, &merged).await?;
-    let state = app.state::<crate::android_state::AndroidState>();
-    if let Ok(mut cache) = state.config.lock() {
-        *cache = Some(merged.clone());
-    }
+    crate::config_state::update(&app, |merged| {
+        merged.vpn_account = account.clone();
+        merged.vpn_password_enc = enc;
+        merged.self_service_via_vpn = true;
+    })
+    .await?;
     reset_vpn_session();
-    crate::config_state::emit_config_changed(&app, &merged).await;
     campus_login_lib::log_info!(
         "vpn",
         "VPN 凭据已保存（账号 {}，密码已加密），总开关自动开启",
@@ -180,23 +170,13 @@ pub async fn vpn_clear_credential(app: tauri::AppHandle) -> Result<CommandResult
     if let Some(msg) = crate::self_service_cmds::ensure_identity_gate(&settings) {
         return Ok(CommandResult::err(&msg));
     }
-    let bridge = CryptoBridge::from_app(&app);
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("获取数据目录失败: {e}"))?;
-    let _io_guard = crate::config_state::config_io_lock().await;
-    let mut merged = crate::config_state::load_from(&dir, &bridge).await?;
-    merged.vpn_account.clear();
-    merged.vpn_password_enc.clear();
-    merged.self_service_via_vpn = false;
-    crate::config_state::save_to(&dir, &bridge, &merged).await?;
-    let state = app.state::<crate::android_state::AndroidState>();
-    if let Ok(mut cache) = state.config.lock() {
-        *cache = Some(merged.clone());
-    }
+    crate::config_state::update(&app, |merged| {
+        merged.vpn_account.clear();
+        merged.vpn_password_enc.clear();
+        merged.self_service_via_vpn = false;
+    })
+    .await?;
     reset_vpn_session();
-    crate::config_state::emit_config_changed(&app, &merged).await;
     campus_login_lib::log_info!("vpn", "VPN 凭据已清除，总开关关闭");
     Ok(CommandResult::ok_msg("已清除 VPN 凭据"))
 }
@@ -219,21 +199,11 @@ pub async fn set_self_service_via_vpn(
             "已处于关闭状态"
         }));
     }
-    let bridge = CryptoBridge::from_app(&app);
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("获取数据目录失败: {e}"))?;
-    let _io_guard = crate::config_state::config_io_lock().await;
-    let mut merged = crate::config_state::load_from(&dir, &bridge).await?;
-    merged.self_service_via_vpn = enabled;
-    crate::config_state::save_to(&dir, &bridge, &merged).await?;
-    let state = app.state::<crate::android_state::AndroidState>();
-    if let Ok(mut cache) = state.config.lock() {
-        *cache = Some(merged.clone());
-    }
+    crate::config_state::update(&app, |merged| {
+        merged.self_service_via_vpn = enabled;
+    })
+    .await?;
     reset_vpn_session();
-    crate::config_state::emit_config_changed(&app, &merged).await;
     campus_login_lib::log_info!(
         "vpn",
         "校外经 WebVPN 访问总开关: {}",

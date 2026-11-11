@@ -5,12 +5,16 @@ use crate::infra::state::{AppState, CommandResult};
 use super::background_check::run_background_check;
 
 pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String> {
-    let cfg = state.config.update(|cfg| {
+    // 先落盘成功再启动任务：落盘失败时不得返回“已启动”而配置仍是关闭状态。
+    if let Err(e) = crate::config::persist::mutate_config_and_save(app_handle, state, |cfg| {
         cfg.enable_background_check = true;
         if cfg.background_check_interval < 10000 {
             cfg.background_check_interval = 15000;
         }
-    });
+        Ok(())
+    }) {
+        return Err(format!("保存后台检测配置失败: {e}"));
+    }
 
     let app_h = app_handle.clone();
     state.task_manager.spawn("background_check", move |cancel_token| {
@@ -57,12 +61,6 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
             }
         }
     })?;
-
-    // 走 config::persist 统一落盘+广播路径：持久化后广播 config-changed，
-    // 与 start/stop_latency_test 等命令保持一致的配置同步语义
-    if let Err(e) = crate::config::persist::save_config_and_broadcast(app_handle, &cfg) {
-        crate::log_warn!("background", "保存后台检测配置失败: {}", e);
-    }
 
     Ok(CommandResult::ok_msg("后台检测已启动"))
 }

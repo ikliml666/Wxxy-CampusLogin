@@ -413,38 +413,40 @@ fn spawn_login_action(
 /// 覆盖服务端延迟放行几分钟的常见情况（评审：原 3 次 90s 窗口太短）。
 const SCHEDULED_LOGIN_MAX_RETRIES: u32 = 20;
 
-/// 晚间断网切换动作：改内存配置 → 落盘（复用 save_config_to_disk_encrypted，
-/// 含 config-changed 事件与托盘刷新）→ 触发登录（复用定时登录的登录路径）。
-/// 切换态由配置自身承载，配置改完下一拍判定即回 None，无需去重标记。
+/// 晚间断网切换动作：在统一配置写锁内改最新配置并落盘，成功后才发布内存并
+/// 广播，再触发登录（复用定时登录的登录路径）。切换态由配置自身承载，配置
+/// 改完下一拍判定即回 None，无需去重标记。
 async fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAction) {
-    let s = app_handle.state::<AppState>();
-    let mut config = (*s.config.load_full()).clone();
-    let trigger_log = match action {
+    let trigger_log = match &action {
         NightSwitchAction::None => return,
-        NightSwitchAction::SwitchToCampus => {
-            let original = std::mem::take(&mut config.operator);
-            config.night_operator_restore = original;
-            "晚间断网切换: 运营商已切至无锡学院".to_string()
-        }
-        NightSwitchAction::Restore => {
-            config.operator = std::mem::take(&mut config.night_operator_restore);
-            "晚间断网切换: 已恢复原运营商".to_string()
-        }
+        NightSwitchAction::SwitchToCampus => "晚间断网切换: 运营商已切至无锡学院".to_string(),
+        NightSwitchAction::Restore => "晚间断网切换: 已恢复原运营商".to_string(),
     };
     let app_h_save = app_handle.clone();
-    let config_save = config.clone();
     let save_result = tauri::async_runtime::spawn_blocking(move || {
-        crate::config::persist::save_config_and_broadcast(&app_h_save, &config_save)
+        let s = app_h_save.state::<AppState>();
+        crate::config::persist::mutate_config_and_save(&app_h_save, &s, move |config| {
+            match action {
+                NightSwitchAction::None => {}
+                NightSwitchAction::SwitchToCampus => {
+                    let original = std::mem::take(&mut config.operator);
+                    config.night_operator_restore = original;
+                }
+                NightSwitchAction::Restore => {
+                    config.operator = std::mem::take(&mut config.night_operator_restore);
+                }
+            }
+            Ok(())
+        })
     })
     .await
     .map_err(|e| e.to_string())
     .and_then(|result| result);
     if let Err(e) = save_result {
-        // 落盘失败不 store 内存（避免"内存已切换、重启后回退"的错位），下拍重试
+        // 落盘失败不发布内存（避免"内存已切换、重启后回退"的错位），下拍重试
         crate::log_warn!("scheduled", "晚间断网切换配置落盘失败: {e}");
         return;
     }
-    s.config.store(config);
     crate::log_info!("scheduled", "{trigger_log}");
     spawn_login_action(
         app_handle,

@@ -57,7 +57,7 @@ pub fn open_external(url: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn set_auto_launch(enabled: bool, app_handle: AppHandle, _state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let exe_str = std::env::current_exe()
         .map_err(|e| format!("获取程序路径失败: {e}"))?
         .to_str()
@@ -78,12 +78,15 @@ pub async fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<
 
     match result {
         Ok(_) => {
-            let cfg = state.config.update(|cfg| {
-                cfg.auto_launch = enabled;
-            });
-            // 审计 A5：DPAPI+落盘为阻塞段，移入 spawn_blocking
+            // 审计 A5：DPAPI+落盘为阻塞段，移入 spawn_blocking；锁内修改并落盘，
+            // 成功后才发布运行态
+            let app_h = app_handle.clone();
             let save_result = tauri::async_runtime::spawn_blocking(move || {
-                super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg)
+                let st = app_h.state::<AppState>();
+                super::config_cmd::mutate_config_and_save(&app_h, st.inner(), move |cfg| {
+                    cfg.auto_launch = enabled;
+                    Ok(())
+                })
             })
             .await
             .map_err(|e| format!("自启配置落盘任务失败: {e}"))?;
@@ -110,13 +113,16 @@ pub async fn set_auto_launch(enabled: bool, app_handle: AppHandle, state: State<
 }
 
 #[tauri::command]
-pub async fn set_notification_enabled(enabled: bool, state: State<'_, AppState>, app_handle: AppHandle) -> Result<bool, String> {
-    let cfg = state.config.update(|cfg| {
-        cfg.enable_notification = enabled;
-    });
-    // 审计 A5：DPAPI+落盘为阻塞段，移入 spawn_blocking
+pub async fn set_notification_enabled(enabled: bool, _state: State<'_, AppState>, app_handle: AppHandle) -> Result<bool, String> {
+    // 审计 A5：DPAPI+落盘为阻塞段，移入 spawn_blocking；锁内修改并落盘，
+    // 成功后才发布运行态
+    let app_h = app_handle.clone();
     let save_result = tauri::async_runtime::spawn_blocking(move || {
-        super::config_cmd::save_config_to_disk_encrypted(&app_handle, &cfg)
+        let st = app_h.state::<AppState>();
+        super::config_cmd::mutate_config_and_save(&app_h, st.inner(), move |cfg| {
+            cfg.enable_notification = enabled;
+            Ok(())
+        })
     })
     .await
     .map_err(|e| format!("通知配置落盘任务失败: {e}"))?;

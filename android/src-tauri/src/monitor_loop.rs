@@ -442,23 +442,10 @@ pub async fn set_boot_autostart(app: tauri::AppHandle, enabled: bool) -> Result<
             .set_boot_autostart(enabled)
             .map_err(|e| e.to_string())?;
     }
-    let _io = crate::account_cmds::config_io_lock().await;
-    let bridge = crate::config_state::CryptoBridge::from_app(&app);
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("获取数据目录失败: {e}"))?;
-    let mut settings = crate::config_state::current_settings(&app).await?;
-    settings.enable_boot_autostart = enabled;
-    crate::config_state::save_to(&dir, &bridge, &settings).await?;
-    drop(_io);
-    if let Ok(mut cache) = app
-        .state::<crate::android_state::AndroidState>()
-        .config
-        .lock()
-    {
-        *cache = Some(settings);
-    }
+    crate::config_state::update(&app, |settings| {
+        settings.enable_boot_autostart = enabled;
+    })
+    .await?;
     Ok(())
 }
 
@@ -475,23 +462,10 @@ pub async fn set_notification_enabled(
     app: tauri::AppHandle,
     enabled: bool,
 ) -> Result<bool, String> {
-    let _io = crate::account_cmds::config_io_lock().await;
-    let bridge = crate::config_state::CryptoBridge::from_app(&app);
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("获取数据目录失败: {e}"))?;
-    let mut settings = crate::config_state::current_settings(&app).await?;
-    settings.enable_notification = enabled;
-    crate::config_state::save_to(&dir, &bridge, &settings).await?;
-    drop(_io);
-    if let Ok(mut cache) = app
-        .state::<crate::android_state::AndroidState>()
-        .config
-        .lock()
-    {
-        *cache = Some(settings);
-    }
+    crate::config_state::update(&app, |settings| {
+        settings.enable_notification = enabled;
+    })
+    .await?;
     Ok(enabled)
 }
 
@@ -970,9 +944,11 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             if logout_for_outbound_switch(app).await {
                 // 标记落盘成功才触发系统重检:落盘失败即切换态未成立,下一拍重试整段
                 // (与运营商夜切"落盘失败即下一拍重试"同语义)
-                let mut switched = latest_settings(app, &settings).await;
-                switched.night_outbound_restore = "logged_out".to_string();
-                if persist_settings(app, &switched).await {
+                let persisted = persist_settings(app, |current| {
+                    current.night_outbound_restore = "logged_out".to_string();
+                })
+                .await;
+                if persisted.is_some() {
                     outbound_active = true;
                     // network_avoid_bad_wifi=1 是"系统自动把默认网络让给蜂窝"的前提
                     // (accept_wifi_network 的 settings_global 路径会把它写成 0)。
@@ -995,9 +971,11 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             let login_outcome = night_switch_login(app, &settings).await;
             if matches!(login_outcome, NightLoginOutcome::Succeeded) {
                 OUTBOUND_RESTORE_FAIL_COUNT.store(0, Ordering::Relaxed);
-                let mut restored = latest_settings(app, &settings).await;
-                restored.night_outbound_restore = String::new();
-                if persist_settings(app, &restored).await {
+                let persisted = persist_settings(app, |current| {
+                    current.night_outbound_restore = String::new();
+                })
+                .await;
+                if persisted.is_some() {
                     outbound_active = false;
                     // 切换态收尾:若切换侧程序化写过 avoid_bad_wifi,按插件快照还原原值
                     // (原值=1 时快照不存在,幂等无动作)
@@ -1017,9 +995,11 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                 let fails = OUTBOUND_RESTORE_FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
                 if fails >= OUTBOUND_RESTORE_MAX_FAILS {
                     OUTBOUND_RESTORE_FAIL_COUNT.store(0, Ordering::Relaxed);
-                    let mut restored = latest_settings(app, &settings).await;
-                    restored.night_outbound_restore = String::new();
-                    if persist_settings(app, &restored).await {
+                    let persisted = persist_settings(app, |current| {
+                        current.night_outbound_restore = String::new();
+                    })
+                    .await;
+                    if persisted.is_some() {
                         outbound_active = false;
                         // 放弃自动还原也收尾系统态:avoid_bad_wifi 不停在 1
                         restore_avoid_bad_wifi(app).await;
@@ -1071,11 +1051,13 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
             );
         match action {
             campus_login_lib::config::night_switch::NightSwitchAction::SwitchToCampus => {
-                let mut switched = settings.clone();
-                switched.night_operator_restore = switched.operator.clone();
-                switched.operator = String::new();
                 emit_login_log(app, "晚间断网切换: 运营商已切至无锡学院", "info");
-                if persist_settings(app, &switched).await {
+                if let Some(switched) = persist_settings(app, |current| {
+                    current.night_operator_restore = current.operator.clone();
+                    current.operator = String::new();
+                })
+                .await
+                {
                     let _ = night_switch_login(app, &switched).await;
                     // 独立 tokio 任务验证登录是否生效,不阻塞监控循环
                     tauri::async_runtime::spawn(verify_night_switch(
@@ -1085,10 +1067,12 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
                 }
             }
             campus_login_lib::config::night_switch::NightSwitchAction::Restore => {
-                let mut switched = settings.clone();
-                switched.operator = std::mem::take(&mut switched.night_operator_restore);
                 emit_login_log(app, "晚间断网切换: 已恢复原运营商", "info");
-                if persist_settings(app, &switched).await {
+                if let Some(switched) = persist_settings(app, |current| {
+                    current.operator = std::mem::take(&mut current.night_operator_restore);
+                })
+                .await
+                {
                     let _ = night_switch_login(app, &switched).await;
                     tauri::async_runtime::spawn(verify_night_switch(
                         app.clone(),
@@ -1167,32 +1151,22 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
     }
 }
 
-/// 落盘夜间切换后的配置并刷新内存缓存。凭据为 current_settings 解密后的明文,
-/// save_file 落盘前重新加密(与 save_config 命令同链路);成功后同步本地账号档案。
-/// 返回 false 表示落盘失败(已记 error 日志),调用方跳过登录触发,下一拍重试。
-async fn persist_settings(app: &tauri::AppHandle, s: &crate::config_state::Settings) -> bool {
-    let bridge = crate::config_state::CryptoBridge::from_app(app);
-    let dir = match app.path().app_data_dir() {
-        Ok(d) => d,
+/// 在配置 IO 锁内读取最新配置、应用字段修改、落盘并刷新缓存/广播。
+/// 返回 None 表示落盘失败(已记 error 日志),调用方跳过登录触发,下一拍重试。
+async fn persist_settings<F>(
+    app: &tauri::AppHandle,
+    mutate: F,
+) -> Option<crate::config_state::Settings>
+where
+    F: FnOnce(&mut crate::config_state::Settings),
+{
+    match crate::config_state::update(app, mutate).await {
+        Ok(saved) => Some(saved),
         Err(e) => {
             emit_login_log(app, &format!("晚间断网切换配置落盘失败: {e}"), "error");
-            return false;
+            None
         }
-    };
-    if let Err(e) = crate::config_state::save_to(&dir, &bridge, s).await {
-        emit_login_log(app, &format!("晚间断网切换配置落盘失败: {e}"), "error");
-        return false;
     }
-    let state = app.state::<crate::android_state::AndroidState>();
-    if let Ok(mut cache) = state.config.lock() {
-        *cache = Some(s.clone());
-    }
-    crate::account_cmds::auto_create_account_for_current(app, s).await;
-    // 广播 config-changed(桌面 save_config_to_disk_encrypted 同语义):夜切改的
-    // operator/restore 须即时推到前端,否则 UI 停留旧运营商、用户随后改任意设置
-    // 会用旧快照把夜切字段覆盖回去
-    crate::config_state::emit_config_changed(app, s).await;
-    true
 }
 
 /// 夜切后的登录触发:直接走 run_login 内核(与桌面 full_login 无闸语义对齐)。
