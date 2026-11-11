@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Instant;
 use arc_swap::ArcSwap;
@@ -9,9 +9,9 @@ lazy_static::lazy_static! {
     static ref CLIENT_POOL: DashMap<ClientPoolKey, (reqwest::Client, Instant)> = DashMap::new();
 }
 
-/// 客户端池 key 类型：轻量复合键（本机地址、TLS 版本标识、超时毫秒）。
-/// 相比原 String 键，热路径零堆分配；仅日志输出时才 format。
-type ClientPoolKey = (Option<IpAddr>, u8, u64);
+/// 客户端池 key：本机地址、TLS 版本、超时与旁路代理地址共同决定连接池代际。
+/// 旁路客户端不绑定 local_address，其 key 的本机地址固定为 None。
+type ClientPoolKey = (Option<IpAddr>, u8, u64, Option<SocketAddr>);
 
 /// TLS 版本 → 紧凑 u8 标识（reqwest::tls::Version 未派生 Hash，无法直接入键；
 /// 其内部类型 non_exhaustive，需通配分支）
@@ -36,11 +36,12 @@ pub fn update_portal_url(url: &str) {
     }
 }
 
-fn client_pool_key(local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version, timeout: std::time::Duration) -> ClientPoolKey {
-    (local_addr, tls_version_id(min_tls), timeout.as_millis() as u64)
+fn client_pool_key(local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version, timeout: std::time::Duration, bypass_addr: Option<SocketAddr>) -> ClientPoolKey {
+    let direct_addr = if bypass_addr.is_some() { None } else { local_addr };
+    (direct_addr, tls_version_id(min_tls), timeout.as_millis() as u64, bypass_addr)
 }
 
-fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version) -> Result<reqwest::Client, String> {
+fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version, bypass_addr: Option<SocketAddr>) -> Result<reqwest::Client, String> {
     let mut default_headers = reqwest::header::HeaderMap::new();
     default_headers.insert(
         reqwest::header::CACHE_CONTROL,
@@ -55,18 +56,30 @@ fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tl
         .min_tls_version(min_tls)
         .timeout(timeout)
         .connect_timeout(std::time::Duration::from_secs(3))
-        .no_proxy()
         .redirect(reqwest::redirect::Policy::limited(5))
         .pool_max_idle_per_host(4)
         .pool_idle_timeout(std::time::Duration::from_secs(90))
         .tcp_keepalive(std::time::Duration::from_secs(30))
         .default_headers(default_headers);
 
-    if let Some(ip) = local_addr {
-        builder = builder.local_address(ip);
+    if let Some(addr) = bypass_addr {
+        let proxy = reqwest::Proxy::all(format!("http://{addr}"))
+            .map_err(|e| format!("旁路代理配置失败: {e}"))?;
+        builder = builder.proxy(proxy);
+    } else {
+        builder = builder.no_proxy();
+        if let Some(ip) = local_addr {
+            builder = builder.local_address(ip);
+        }
     }
 
-    builder.build().map_err(|e| format!("创建HTTP客户端失败: {e}"))
+    builder.build().map_err(|e| {
+        if bypass_addr.is_some() {
+            format!("创建旁路HTTP客户端失败: {e}")
+        } else {
+            format!("创建HTTP客户端失败: {e}")
+        }
+    })
 }
 
 /// 命中检查：返回 Some(client) 表示有效命中；返回 None 表示未命中或已过期清除。
@@ -88,53 +101,29 @@ fn client_pool_get(key: &ClientPoolKey, label: &str) -> Option<reqwest::Client> 
     }
 }
 
-/// 安卓旁路客户端:默认头/重定向/超时与 create_safe_http_client 同款,但请求经
-/// 本地旁路代理转发(传输层 SO_BINDTODEVICE 物理网卡直连,见 bound_socket 模块
-/// 头注释的对照实验记录)。代理未启动(能力封堵/无物理网卡)返回 None,调用方
-/// 回退 create_safe_http_client 原路径。不设 local_address——出口由旁路 socket 决定。
-#[cfg(target_os = "android")]
-pub fn create_bypass_http_client(timeout: std::time::Duration) -> Result<reqwest::Client, String> {
-    let Some(addr) = crate::network::bound_socket::bypass_proxy_addr() else {
-        return Err("旁路代理未启动".to_string());
-    };
-    let mut default_headers = reqwest::header::HeaderMap::new();
-    default_headers.insert(
-        reqwest::header::CACHE_CONTROL,
-        reqwest::header::HeaderValue::from_static("no-store"),
-    );
-    default_headers.insert(
-        reqwest::header::PRAGMA,
-        reqwest::header::HeaderValue::from_static("no-cache"),
-    );
-    let proxy = reqwest::Proxy::all(format!("http://{addr}")).map_err(|e| format!("旁路代理配置失败: {e}"))?;
-    reqwest::Client::builder()
-        .timeout(timeout)
-        .connect_timeout(std::time::Duration::from_secs(3))
-        .redirect(reqwest::redirect::Policy::limited(5))
-        .default_headers(default_headers)
-        .proxy(proxy)
-        .build()
-        .map_err(|e| format!("创建旁路HTTP客户端失败: {e}"))
-}
-
-pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::Client, String> {    let tls13_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_3, timeout);
+fn create_http_client_with_bypass(
+    timeout: std::time::Duration,
+    local_addr: Option<IpAddr>,
+    bypass_addr: Option<SocketAddr>,
+) -> Result<reqwest::Client, String> {
+    let tls13_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_3, timeout, bypass_addr);
     if let Some(client) = client_pool_get(&tls13_key, "(TLS 1.3)") {
         return Ok(client);
     }
 
-    let tls12_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_2, timeout);
+    let tls12_key = client_pool_key(local_addr, reqwest::tls::Version::TLS_1_2, timeout, bypass_addr);
     if let Some(client) = client_pool_get(&tls12_key, "(TLS 1.2 fallback)") {
         return Ok(client);
     }
 
-    let (client, actual_key) = match build_client(timeout, local_addr, reqwest::tls::Version::TLS_1_3) {
+    let (client, actual_key) = match build_client(timeout, local_addr, reqwest::tls::Version::TLS_1_3, bypass_addr) {
         Ok(c) => {
             crate::log_info!("http", "客户端池新建: key={:?}, poolSize={}", tls13_key, CLIENT_POOL.len() + 1);
             (c, tls13_key)
         }
         Err(_) => {
             crate::log_info!("http", "客户端池新建(TLS 1.2 fallback): key={:?}, poolSize={}", tls12_key, CLIENT_POOL.len() + 1);
-            let c = build_client(timeout, local_addr, reqwest::tls::Version::TLS_1_2)
+            let c = build_client(timeout, local_addr, reqwest::tls::Version::TLS_1_2, bypass_addr)
                 .map_err(|e| format!("TLS 1.3/1.2 客户端均构建失败: {e}"))?;
             (c, tls12_key)
         }
@@ -154,6 +143,30 @@ pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<
     Ok(client)
 }
 
+/// 仅创建普通直连客户端；Portal 保留旁路构建失败时的既有回退路径。
+#[cfg(target_os = "android")]
+pub(crate) fn create_direct_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::Client, String> {
+    create_http_client_with_bypass(timeout, local_addr, None)
+}
+
+/// 统一获取 HTTP 客户端；旁路选择在此完成，避免业务层先创建普通 client 再丢弃。
+pub fn create_safe_http_client(timeout: std::time::Duration, local_addr: Option<IpAddr>) -> Result<reqwest::Client, String> {
+    #[cfg(target_os = "android")]
+    let bypass_addr = crate::network::bound_socket::bypass_proxy_addr().copied();
+    #[cfg(not(target_os = "android"))]
+    let bypass_addr = None;
+    create_http_client_with_bypass(timeout, local_addr, bypass_addr)
+}
+
+/// 保留给库调用方的显式旁路入口；内部业务统一使用 create_safe_http_client。
+#[cfg(target_os = "android")]
+pub fn create_bypass_http_client(timeout: std::time::Duration) -> Result<reqwest::Client, String> {
+    let Some(addr) = crate::network::bound_socket::bypass_proxy_addr() else {
+        return Err("旁路代理未启动".to_string());
+    };
+    create_http_client_with_bypass(timeout, None, Some(*addr))
+}
+
 /// 清空 HTTP 客户端池，返回被清理的条目数。
 ///
 /// **网络路由变化后必须调用**：安卓端 `bindProcessToNetwork` 的 fwmark 只在
@@ -169,4 +182,39 @@ pub fn clear_client_pool() -> usize {
         crate::log_info!("http", "客户端池已清空: {} 条（网络路由变化，避免复用旧路由连接）", count);
     }
     count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{Ipv4Addr, SocketAddr};
+    use std::time::Duration;
+
+    #[test]
+    fn 统一入口按旁路地址与超时复用并在路由切换时整体失效() {
+        clear_client_pool();
+        let timeout = Duration::from_secs(15);
+        let bypass = SocketAddr::from((Ipv4Addr::LOCALHOST, 18080));
+
+        create_http_client_with_bypass(timeout, None, None).unwrap();
+        assert_eq!(CLIENT_POOL.len(), 1, "旁路不可用时应只创建普通客户端");
+        assert!(CLIENT_POOL.iter().all(|entry| entry.key().3.is_none()));
+
+        create_http_client_with_bypass(timeout, None, Some(bypass)).unwrap();
+        create_http_client_with_bypass(timeout, None, Some(bypass)).unwrap();
+        assert_eq!(CLIENT_POOL.len(), 2, "同一旁路地址与超时应复用缓存");
+
+        create_http_client_with_bypass(Duration::from_secs(3), None, Some(bypass)).unwrap();
+        assert_eq!(CLIENT_POOL.len(), 3, "超时不属于同一代际缓存键时不得复用");
+
+        let restarted = SocketAddr::from((Ipv4Addr::LOCALHOST, 18081));
+        create_http_client_with_bypass(timeout, None, Some(restarted)).unwrap();
+        assert_eq!(CLIENT_POOL.len(), 4, "代理重启后的新地址不得复用旧客户端");
+
+        assert_eq!(clear_client_pool(), 4, "路由切换必须同时清理普通与旁路客户端");
+        assert!(CLIENT_POOL.is_empty());
+
+        create_http_client_with_bypass(timeout, None, Some(restarted)).unwrap();
+        assert_eq!(CLIENT_POOL.len(), 1, "清池后的请求必须重新构建客户端");
+    }
 }

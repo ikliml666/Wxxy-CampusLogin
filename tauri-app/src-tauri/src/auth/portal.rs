@@ -1,4 +1,6 @@
 use crate::network::client::{PORTAL_URL, create_safe_http_client};
+#[cfg(target_os = "android")]
+use crate::network::client::create_direct_http_client;
 
 /// Portal 检测相关配置常量
 mod portal_config {
@@ -99,7 +101,17 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>) -> Result
     let portal_url = PORTAL_URL.load().clone();
     let local_addr = parse_adapter_ip(adapter_ip);
 
+    #[cfg(not(target_os = "android"))]
     let client = create_safe_http_client(portal_config::CLIENT_TIMEOUT, local_addr)?;
+    #[cfg(target_os = "android")]
+    let client = match create_safe_http_client(portal_config::CLIENT_TIMEOUT, local_addr) {
+        Ok(client) => client,
+        Err(e) if crate::network::bound_socket::bypass_proxy_addr().is_some() => {
+            crate::log_warn!("network", "旁路客户端创建失败,走原路径: {e}");
+            create_direct_http_client(portal_config::CLIENT_TIMEOUT, local_addr)?
+        }
+        Err(e) => return Err(e),
+    };
     let portal_base = portal_url.trim_end_matches('/');
 
     log_portal_query_start(adapter_name, adapter_ip);
@@ -193,21 +205,6 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
     // 2026-09-03 经浏览器实测 80/801 渲染结果后回退为原始地址探测。
     // 登录/注销/协议请求仍强制 :801（ensure_portal_port），两者端口本就不同。
     let page_url = format!("{}/", portal_base.trim_end_matches('/'));
-
-    // Android 旁路优先:客户端切换到旁路代理版(传输层 SO_BINDTODEVICE 物理网卡直连,
-    // 见 do_login_request 注释),下方 reqwest 代码(头/重定向/charset)原样复用;
-    // 旁路不可用(能力被 ROM 封堵/无物理网卡)→ 沿用传入的原客户端。
-    #[cfg(target_os = "android")]
-    let client = match crate::network::bound_socket::bypass_proxy_addr() {
-        Some(_) => match crate::network::client::create_bypass_http_client(portal_config::REQUEST_TIMEOUT) {
-            Ok(c) => c,
-            Err(e) => {
-                crate::log_warn!("network", "旁路客户端创建失败,走原路径: {e}");
-                client.clone()
-            }
-        },
-        None => client.clone(),
-    };
 
     let resp = match block_on_http(
         client.get(&page_url).timeout(portal_config::REQUEST_TIMEOUT).send()

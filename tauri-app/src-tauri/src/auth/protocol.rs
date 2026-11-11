@@ -148,16 +148,6 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
     let local_addr = adapter_ip.and_then(|ip| ip.parse::<std::net::IpAddr>().ok());
 
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
-    // Android 旁路优先:全量 VPN(Clash/UU 等,未排除本应用)接管流量时,请求经本地
-    // 旁路代理转发、传输层走 SO_BINDTODEVICE 物理网卡直连(仅 Android 编译;桌面
-    // 路径零变化)。HTTP 层(头/重定向/charset)100% 复用 reqwest——手写 HTTP 会被
-    // 学校网关 nginx 400,见 bound_socket 模块头注释的对照实验记录。
-    // 旁路不可用(能力被 ROM 封堵/无物理网卡)→ 沿用上面 create_safe_http_client 原路径。
-    #[cfg(target_os = "android")]
-    let client = match crate::network::bound_socket::bypass_proxy_addr() {
-        Some(_) => crate::network::client::create_bypass_http_client(std::time::Duration::from_secs(15))?,
-        None => client,
-    };
     let t_req = std::time::Instant::now();
 
     // 历史缺陷：错误串脱敏仅替换字面密码（URL 编码后的 %xx 无法匹配），
@@ -292,13 +282,6 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
     }
     let local_addr = adapter_ip.and_then(|ip| ip.parse::<std::net::IpAddr>().ok());
     let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
-    // Android 旁路优先:客户端整体切换到旁路代理版(传输层 SO_BINDTODEVICE,见
-    // do_login_request 注释),下发的 radius/mac 请求自动继承,助手函数零改动
-    #[cfg(target_os = "android")]
-    let client = match crate::network::bound_socket::bypass_proxy_addr() {
-        Some(_) => crate::network::client::create_bypass_http_client(std::time::Duration::from_secs(15))?,
-        None => client,
-    };
 
     // Radius 注销先行（主操作，最多 2 次、成功即止）。
     // 历史缺陷：旧实现每轮"先 MAC 解绑再 Radius 注销"×2 轮，外层再重试 2 次（最坏 4+4 次）。
