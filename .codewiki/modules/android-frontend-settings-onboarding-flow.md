@@ -106,7 +106,7 @@ flowchart LR
     G --> H["下次启动跳过引导"]
 ```
 
-后端命令对应 `android/src-tauri/src/self_service_cmds.rs` 中的 `query_bind_status` 与 `bind_operator`（详见 [android_backend_tauri](android-backend-tauri.md)），引导流程本身不直接实现绑定协议，而是委托给账号模块的绑定 Hook。
+后端命令对应 `android/src-tauri/src/self_service_cmds.rs` 中的 `query_bind_status` 与 `bind_operator`（详见 android_backend_tauri），引导流程本身不直接实现绑定协议，而是委托给账号模块的绑定 Hook。
 
 ---
 
@@ -119,7 +119,7 @@ flowchart LR
 | [android_frontend_settings_use_settings](android-frontend-settings-use-settings.md) | 引导产出的设置项经 `useSettings` 统一读写 |
 | [android_frontend_account_management_operator_binding](android-frontend-account-management-operator-binding.md) | 复用运营商绑定 Hook 与 `OperatorBindingInfo` 类型 |
 | [android_frontend_hooks](android-frontend-hooks.md) | 依赖 `ConfigStore`、`TauriApi` 等通用基础设施 |
-| [android_backend_tauri](android-backend-tauri.md) | 绑定状态查询与提交的后端命令来源 |
+| android_backend_tauri | 绑定状态查询与提交的后端命令来源 |
 
 ---
 

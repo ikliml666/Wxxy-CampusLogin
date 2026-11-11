@@ -171,7 +171,7 @@ sequenceDiagram
 3. **跨版本说明**：标注 v2.4.2 已完成开发但未单独发布、与 v2.4.3 合并发布，避免从 v2.4.1 升级的用户误判新功能范围；
 4. **指引到完整 Release Notes**（GitHub Releases 页面）。
 
-该文件与安卓端更新流程中的 `VersionFile`（见 [android_backend_tauri.md](android-backend-tauri.md) 中的 `check_update`）共享同一套版本比对语义；安卓端还会额外对 APK 做 `sha256_checksum` 完整性校验（`android/src-tauri/Cargo.toml` 中引入的 `sha2` crate）。
+该文件与安卓端更新流程中的 `VersionFile`（见 android_backend_tauri.md 中的 `check_update`）共享同一套版本比对语义；安卓端还会额外对 APK 做 `sha256_checksum` 完整性校验（`android/src-tauri/Cargo.toml` 中引入的 `sha2` crate）。
 
 ---
 
@@ -198,7 +198,7 @@ flowchart LR
 
 - `default-run = "campus-login"`：新增无头核心后，tauri CLI 必须显式指定默认主二进制，否则会歧义；
 - `campus-login-core` 是**不依赖 tauri 运行时**的无头登录核心，复用 `campus_login_lib` 的纯函数（协议/探测/DPAPI），由 SYSTEM 计划任务在开机未登录桌面时拉起——这对应 v2.4.3 发布说明中的「桌面端系统级自动登录」（见 [desktop_backend_commands.md](desktop-backend-commands.md)）；
-- 安卓 crate 通过 `campus-login = { path = "../../tauri-app/src-tauri" }` 直接复用这个 lib（见 [android_backend_tauri.md](android-backend-tauri.md)）。
+- 安卓 crate 通过 `campus-login = { path = "../../tauri-app/src-tauri" }` 直接复用这个 lib（见 android_backend_tauri.md）。
 
 ### 跨平台依赖划分
 
@@ -308,4 +308,4 @@ flowchart LR
 - 安卓三个本地插件的构建配置：[build_deployment_configuration_android_plugins.md](build-deployment-configuration-android-plugins.md)
 - 无头核心二进制的运行时入口：[desktop_backend_commands.md](desktop-backend-commands.md)（`campus-login-core.rs::main`）
 - 应用内更新与版本比对逻辑（桌面）：[desktop_backend_update.md](desktop-backend-update.md)
-- 安卓端 `VersionFile` / `check_update`：[android_backend_tauri.md](android-backend-tauri.md)
+- 安卓端 `VersionFile` / `check_update`：android_backend_tauri.md

@@ -168,7 +168,7 @@ flowchart TD
 
 - 父级面板及自助服务面板本体：见 [android_frontend_account_management_self_service_panel](android-frontend-account-management-self-service-panel.md)（`SelfServicePanel`、在线设备堆叠、上网记录）与上级页 [android_frontend_account_management](android-frontend-account-management.md)。
 - 运营商绑定流（`useOperatorBind`、生物验证门 `useHelloGate` / `useSelfServiceVerify`）：见 [android_frontend_account_management_operator_binding](android-frontend-account-management-operator-binding.md)。注意本弹窗本身**不挂**生物验证门——编辑密码属于主配置编辑，非自助服务特权操作。
-- 后端命令（`create_account`、`save_current_as_account`、`save_config`）与账号文件格式、密文落盘：见 [android_backend_tauri](android-backend-tauri.md) 的 `account_cmds.rs` / `config_state.rs`。
+- 后端命令（`create_account`、`save_current_as_account`、`save_config`）与账号文件格式、密文落盘：见 android_backend_tauri 的 `account_cmds.rs` / `config_state.rs`。
 - 共享 UI 原语（`Dialog`、`Input`、`Button`、`Select`）：见 [android_frontend_shared_ui_components](android-frontend-shared-ui-components.md)。
 - 运营商选项常量（`ISP_OPTIONS`、`operatorLabelKey`）：见 [android_frontend_settings](android-frontend-settings.md)。
 

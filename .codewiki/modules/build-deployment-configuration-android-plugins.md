@@ -175,7 +175,7 @@ tauri-plugin-campus-keystore = { path = "../plugins/keystore" }
 tauri-plugin-campus-monitor-service = { path = "../plugins/foreground-service" }
 ```
 
-以 `path` 依赖直接挂接本地三个 crate，随安卓主 crate 一起编译为 `campus_login_android_lib`（cdylib）；插件的 Rust 命令在 `lib.rs` 的 `run()` 中通过 `app.handle().plugin(...)` 注册（详见 [android_backend_tauri.md](android-backend-tauri.md)）。
+以 `path` 依赖直接挂接本地三个 crate，随安卓主 crate 一起编译为 `campus_login_android_lib`（cdylib）；插件的 Rust 命令在 `lib.rs` 的 `run()` 中通过 `app.handle().plugin(...)` 注册（详见 android_backend_tauri.md）。
 
 ### Gradle 侧引用（`gen/android/settings.gradle`）
 
@@ -260,7 +260,7 @@ sequenceDiagram
 ```
 
 要点说明：
-- **Rust 先行**：`buildSrc` 中的 `RustPlugin`（`rust` 扩展，见 [android_backend_tauri.md](android-backend-tauri.md) 中 `BuildTask`/`RustPlugin`）注册 cargo 编译任务，产出 `.so` 后再被 AGP 打包进 `jniLibs`。
+- **Rust 先行**：`buildSrc` 中的 `RustPlugin`（`rust` 扩展，见 android_backend_tauri.md 中 `BuildTask`/`RustPlugin`）注册 cargo 编译任务，产出 `.so` 后再被 AGP 打包进 `jniLibs`。
 - **release 产物优化**：`android/src-tauri/Cargo.toml` 在 workspace 根声明了 `[profile.release]`（`lto = "fat"`、`codegen-units = 1`、`strip = true`），因为桌面端的 profile 声明不随 path 依赖传导；详见 [build_deployment_configuration_android_build.md](build-deployment-configuration-android-build.md)。
 - **签名与命名**：`app/build.gradle.kts` 中 release 构建直接使用本机 `~/.android/debug.keystore` 签名、产物命名为 `Wxxy-CampusLogin_<版本>.apk`——这些策略与插件构建无直接耦合，属于应用模块配置。
 
@@ -301,4 +301,4 @@ flowchart TB
 - [android_plugins_foreground_service.md](android-plugins-foreground-service.md) — 前台服务插件运行时实现（`ForegroundService.kt`、`MonitorServicePlugin.kt`、`lib.rs`）
 - [android_plugins_keystore.md](android-plugins-keystore.md) — Keystore 插件运行时实现（`KeystorePlugin.kt`、`lib.rs`）
 - [android_plugins_network_bind.md](android-plugins-network-bind.md) — 网络绑定插件运行时实现（`NetworkBindPlugin.kt`、`lib.rs`）
-- [android_backend_tauri.md](android-backend-tauri.md) — 安卓 Tauri 主 crate（`lib.rs` 的 `run()` 如何注册上述插件、`RustPlugin`/`BuildTask` 构建任务）
+- android_backend_tauri.md — 安卓 Tauri 主 crate（`lib.rs` 的 `run()` 如何注册上述插件、`RustPlugin`/`BuildTask` 构建任务）

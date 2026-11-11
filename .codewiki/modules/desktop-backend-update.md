@@ -16,7 +16,7 @@ fsoft_page: desktop_backend_update.md
 - **核心引擎**：`tauri-app/src-tauri/src/update/updater.rs` —— 更新检查循环、版本比较、镜像源降级、SHA256 校验、临时目录清理等纯 Rust 逻辑。
 - **Tauri 命令层**：`tauri-app/src-tauri/src/commands/updater.rs` —— 暴露给前端的 `#[tauri::command]` 接口，处理下载互斥、取消令牌、下载域白名单等安全约束。
 
-与安卓端的更新实现（[android_backend_tauri.md](android-backend-tauri.md) 中的 `update_cmds.rs`）为双端同构设计：两端都读取同一份根目录下的 [`version.json`](../version.json)（当前版本 `v2.4.3`），但桌面端额外具备镜像源降级、SHA256 校验与临时目录清理能力。
+与安卓端的更新实现（android_backend_tauri.md 中的 `update_cmds.rs`）为双端同构设计：两端都读取同一份根目录下的 [`version.json`](../version.json)（当前版本 `v2.4.3`），但桌面端额外具备镜像源降级、SHA256 校验与临时目录清理能力。
 
 ## 架构总览
 

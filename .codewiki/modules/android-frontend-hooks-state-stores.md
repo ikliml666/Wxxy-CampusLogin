@@ -156,7 +156,7 @@ flowchart TD
 const portalResult = await queryPortalStatus('')
 ```
 
-这是真机缺陷（启动自动登录后状态点恒灰、过一会又变灰）的直接修复点：桌面的 `useAuthStore` 会先从适配器列表解析出源 IP 再查询 Portal，而安卓端该链路恒失败会走「解析失败判无网络」分支。后端侧对应 `check_portal_status` 命令的空 IP 回退逻辑，见 [安卓后端 Tauri 命令](android-backend-tauri-commands.md)。
+这是真机缺陷（启动自动登录后状态点恒灰、过一会又变灰）的直接修复点：桌面的 `useAuthStore` 会先从适配器列表解析出源 IP 再查询 Portal，而安卓端该链路恒失败会走「解析失败判无网络」分支。后端侧对应 `check_portal_status` 命令的空 IP 回退逻辑，见 安卓后端 Tauri 命令。
 
 ### 1.3 checkOnline 流程与并发锁
 
@@ -693,7 +693,7 @@ stateDiagram-v2
 - **下游消费**：[认证与总览面板](android-frontend-auth.md) 订阅 `status`/`bgStatus`/`doLogin`；[账号管理](android-frontend-account-management.md) 读写 `accounts`/`activeAccount` 并使用 `updateConfigLocal` + `clearDirtyFields` 组合；[监控与网络](android-frontend-monitoring-network.md) 的 `useMonitor` 写 `bgStatus` 并驱动 `refreshQuality`；[设置](android-frontend-settings.md) 的 `useSettings` 是 `updateConfig` 与 `useThemeStore` 的主要调用方；[共享组件](android-frontend-shared-components.md) 的 `LogPanel`/`ToastContainer` 渲染日志与 toast。
 - **工具库**：`mergeNetworkQuality`、`hexToHsl`、`safeStorage`、`extractErrorMessage` 来自 [安卓前端工具库](android-frontend-utilities-libraries.md)；`i18next` 由 `main.tsx` 侧的 i18n 初始化装配。
 - **动画层**：本层与 [动画运行时](android-frontend-hooks-animation-runtime.md) 基本解耦，唯一的接触点是 `useQualityStore.refreshRate`——`useAnimationProfile` 以 React hook 形式订阅该字段来选取缓动曲线。帧节奏（`useAdaptiveFramePace`）、空闲暂停（`AnimationActiveProvider`）、形态判定（`useFormFactor`）都不读写本层任何 store，因此主题/日志高频变更不会驱动动画循环重算。
-- **后端对应**：`save_config` / `config-changed` / `get_init_data` / `do_login` / `check_portal_status` / `check_network_quality` 等命令与事件的后端实现见 [安卓后端状态存储](android-backend-tauri-state-storage.md) 与 [安卓后端监控](android-backend-tauri-monitoring.md)。
+- **后端对应**：`save_config` / `config-changed` / `get_init_data` / `do_login` / `check_portal_status` / `check_network_quality` 等命令与事件的后端实现见 安卓后端状态存储 与 安卓后端监控。
 - **同名兄弟页**：仓库中另有 [android_frontend_hooks_android_frontend_hooks_state_stores.md](android-frontend-hooks-android-frontend-hooks-state-stores.md) 覆盖同一组六个 store，可互为参照。
 
 ## 构建与类型检查
@@ -709,4 +709,4 @@ stateDiagram-v2
 - 父模块：[安卓前端 Hooks](android-frontend-hooks.md)
 - 兄弟子模块：[启动编排](android-frontend-hooks-startup-orchestration.md)、[动画运行时](android-frontend-hooks-animation-runtime.md)
 - 桌面端对应实现：[桌面前端 Hooks](desktop-frontend-hooks.md)
-- 后端命令与状态：[安卓后端 Tauri](android-backend-tauri.md)
+- 后端命令与状态：安卓后端 Tauri

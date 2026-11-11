@@ -2,7 +2,6 @@
 title: Android 前台服务保活插件(foreground-service)
 type: module
 source_files:
-  - android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/ForegroundService.kt
   - android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/MonitorServicePlugin.kt
   - android/plugins/foreground-service/src/lib.rs
 tags: []
@@ -178,7 +177,7 @@ flowchart LR
 
 **上下游关系**:
 
-- **上游调用方**:[android_backend_tauri](android-backend-tauri.md) 模块的 `monitor_loop` 直接消费本插件——`stop_background_check` 调 `stop_monitor()`、`get_boot_autostart` 调 `is_boot_autostart_enabled()`、巡检循环每拍前后调探针窗口、状态翻转时调 `update_notification()`、每拍分档查询 `get_power_state()`。Rust 侧 `MonitorState` 的 `idle_interval_ms`(闲时间隔)正是由 `get_power_state` 返回值驱动的。
+- **上游调用方**:android_backend_tauri 模块的 `monitor_loop` 直接消费本插件——`stop_background_check` 调 `stop_monitor()`、`get_boot_autostart` 调 `is_boot_autostart_enabled()`、巡检循环每拍前后调探针窗口、状态翻转时调 `update_notification()`、每拍分档查询 `get_power_state()`。Rust 侧 `MonitorState` 的 `idle_interval_ms`(闲时间隔)正是由 `get_power_state` 返回值驱动的。
 - **退出护栏**:`run()` 监听 `RunEvent::ExitRequested` 并 `api.prevent_exit()` —— Tauri 默认"最后窗口关闭→exit(0)"会把前台服务一起带走(tauri #15671);安卓语义是划掉任务只关 UI,进程随前台服务常驻。
 - **同类插件兄弟页**:[android_plugins_network_bind](android-plugins-network-bind.md)(网络绑定)与 [android_plugins_keystore](android-plugins-keystore.md)(密钥存储)同样位于 `android/plugins/` 下,结构同构(Rust lib.rs + Kotlin 插件 + build.gradle.kts)。
 - **前端消费**:[android_frontend_settings](android-frontend-settings.md) 的设置页通过 `battery_cmds` 暴露的 Tauri 命令跳转厂商省电页/通知设置页;开机自启开关经 `set_boot_autostart` 贯通到 `BootReceiver` 组件。

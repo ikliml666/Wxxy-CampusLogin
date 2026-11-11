@@ -165,7 +165,7 @@ sequenceDiagram
 
 ## 与其他模块的关系
 
-- **后端命令面**：所有 IPC 经 [android_backend_tauri](android-backend-tauri.md) 的 `self_service_cmds.rs` / `account_cmds.rs` / `vpn_cmds.rs` 落地；HTTP 协议封装在 `campus_login_lib::self_service` 库中（跨平台共享，与桌面 [desktop_backend_commands](desktop-backend-commands.md) 同构）。
+- **后端命令面**：所有 IPC 经 android_backend_tauri 的 `self_service_cmds.rs` / `account_cmds.rs` / `vpn_cmds.rs` 落地；HTTP 协议封装在 `campus_login_lib::self_service` 库中（跨平台共享，与桌面 [desktop_backend_commands](desktop-backend-commands.md) 同构）。
 - **生物识别链路**：`verifyWindowsIdentity` 在 `tauriApi` 内分发系统 BiometricPrompt，不可用时回退到应用内 2D 人脸验证，见 [android_frontend_face_verification](android-frontend-face-verification.md)。
 - **共享 Hooks**：`tauriApi` 重试封装、`useConfigStore`、`useLogToastStore`、`useFormFactor` 见 [android_frontend_hooks](android-frontend-hooks.md)。
 - **UI 基础组件**：`Button` / `Input` / `Card` / `AnimatedCard` / `Dialog` 等见 [android_frontend_shared_ui_components](android-frontend-shared-ui-components.md)。

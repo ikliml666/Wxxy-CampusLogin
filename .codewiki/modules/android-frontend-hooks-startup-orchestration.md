@@ -360,5 +360,5 @@ flowchart TD
 - 动画与表单因子运行时：[安卓前端 Hooks — 动画运行时](android-frontend-hooks-animation-runtime.md)
 - Hooks 父模块总览：[安卓前端 Hooks](android-frontend-hooks.md)
 - 入口与崩溃恢复：[安卓前端入口与 Mock](android-frontend-entrypoint-mocks.md)
-- 后端命令实现：[安卓后端 Tauri](android-backend-tauri.md)（`get_init_data`、`render_heartbeat`、`check_portal_status`、`do_login` 等命令）
+- 后端命令实现：安卓后端 Tauri（`get_init_data`、`render_heartbeat`、`check_portal_status`、`do_login` 等命令）
 - 构建配置：[构建与部署配置 — 安卓构建](build-deployment-configuration-android-build.md)（`android/frontend/package.json` 的 `build`/`dev`/`typecheck` 脚本）

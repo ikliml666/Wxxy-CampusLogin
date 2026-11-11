@@ -287,7 +287,7 @@ flowchart TD
 | [自助服务面板](android-frontend-account-management-self-service-panel.md) | 同一文件 `selfServiceState.ts` 的另一消费者：`SelfServicePanel` 使用 `useSelfServiceVerify` 与 `resetSelfSessionGate`，与本模块的绑定门相互独立 |
 | [Android 前端共享 hooks](android-frontend-hooks.md) | 依赖 `tauriApiWithRetry`（IPC）、`useConfigStore`（凭据与总开关）、`useLogToastStore`（toast） |
 | [Android 人脸验证](android-frontend-face-verification.md) | `verifyWindowsIdentity` 在系统 BiometricPrompt 不可用时回退到应用内 2D 人脸验证，失败码经 `biometricFailMessage` 翻译 |
-| [Android 后端 Tauri](android-backend-tauri.md) | 命令实现于 `self_service_cmds.rs` / `identity_gate.rs`，TTL 600s 与前端 570s 对应 |
+| Android 后端 Tauri | 命令实现于 `self_service_cmds.rs` / `identity_gate.rs`，TTL 600s 与前端 570s 对应 |
 | [新手指引向导](android-frontend-settings.md) | `useOnboardingFlow` 复用 `useHelloGate` 与同名 `OperatorBindingInfo` 类型，绑定步骤在进入时自动查一次状态 |
 
 ---

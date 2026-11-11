@@ -250,7 +250,7 @@ export interface ExtraCardDef {
 - **[android_frontend_settings](android-frontend-settings.md)**：卡片依赖 `AccountItem`（账号档案类型）、`Config`（配置类型）、`operatorLabelKey`（运营商后缀到 i18n key 的映射）。
 - **[android_frontend_shared_ui_components](android-frontend-shared-ui-components.md)**：`AnimatedCard`、`CardHeader` / `CardContent` / `CardTitle` / `CardDescription`、`Button`、`Badge`、`EmptyState` 等基础 UI 原语。
 - **[android_frontend_utilities_libraries](android-frontend-utilities-libraries.md)**：`cn` / `extractErrorMessage` / `safeStorage`（`lib/utils.ts`）、`resolveQualityDisplay`（`lib/latency.ts`）、framer-motion 的 `m` 组件（用于拖拽动画）。
-- **[android_backend_tauri](android-backend-tauri.md)**：所有后端命令通过 `tauriApiWithRetry` 桥接，涉及 `protocol_cmds.rs`（登录 / Portal 状态）、`self_service_cmds.rs`（自助仪表盘 / 在线日志 / 会话注销 / 生物识别验证）、`system_cmds.rs`（打开外链）等。
+- **android_backend_tauri**：所有后端命令通过 `tauriApiWithRetry` 桥接，涉及 `protocol_cmds.rs`（登录 / Portal 状态）、`self_service_cmds.rs`（自助仪表盘 / 在线日志 / 会话注销 / 生物识别验证）、`system_cmds.rs`（打开外链）等。
 
 ## 构建与运行
 

@@ -111,7 +111,7 @@ flowchart LR
 `Cargo.toml` 是安卓构建的 **workspace 根**（这是它最容易被误解的身份）：
 
 - **包坐标**：`campus-login-android` v2.4.3；`[lib]` 名为 `campus_login_android_lib`，`crate-type = ["cdylib", "rlib"]`——`cdylib` 产出供 JNI 加载的 `.so`，`rlib` 供 Rust 侧测试/链接。
-- **协议核心共享**：`campus-login = { path = "../../tauri-app/src-tauri" }`，注释明确「与桌面端单点共享」，未来收敛为 git 依赖 + tag。安卓端 backend 的各命令模块（见 [安卓后端 Tauri](android-backend-tauri.md)）依赖该 crate 的协议实现。
+- **协议核心共享**：`campus-login = { path = "../../tauri-app/src-tauri" }`，注释明确「与桌面端单点共享」，未来收敛为 git 依赖 + tag。安卓端 backend 的各命令模块（见 安卓后端 Tauri）依赖该 crate 的协议实现。
 - **插件依赖**：三个手写插件全部走 `path` 依赖——`tauri-plugin-campus-network-bind`、`tauri-plugin-campus-keystore`、`tauri-plugin-campus-monitor-service`，它们的 Rust 构建细节见 [Android 插件工程配置](build-deployment-configuration-android-plugins.md)。
 - **关键依赖选型**：`reqwest` 强制 `rustls-tls`（避免安卓 openssl 交叉编译问题）；`chrono` 关闭 default-features 只留 `clock`；`sha2` 用于 APK 下载完整性校验（与桌面端同算法，校验 `version.json` 的 `sha256_checksum`）；`libc` 的 `sched_setaffinity` 绑小核降功耗。
 - **`[profile.release]`**：`lto = "fat"` + `codegen-units = 1` + `strip = true`。注释解释了一个工程陷阱：**该 profile 必须在安卓 crate 声明才会作用于全量依赖**（桌面端 `tauri-app/src-tauri/Cargo.toml` 的 `[profile.release]` 不随 path 依赖生效），缺省时 `.so` 不 strip、无 LTO，体积接近两倍。
@@ -164,7 +164,7 @@ flowchart TB
 | --- | --- | --- |
 | `compileSdk` / `targetSdk` | 36 | 最新 API |
 | `minSdk` | 29 | Android 10 起步（前台服务/生物识别最低要求） |
-| `applicationId` / `namespace` | `com.campuslogin.client` | 与 `MainActivity` 同源，见 [安卓后端 Tauri](android-backend-tauri.md) |
+| `applicationId` / `namespace` | `com.campuslogin.client` | 与 `MainActivity` 同源，见 安卓后端 Tauri |
 | 版本 | `versionCode=2004003`、`versionName=2.4.3`（读自 `tauri.properties`） | 与根 [发布配置](build-deployment-configuration-release.md) 的 `version.json` 对齐 |
 | 签名 | release 用本机 `~/.android/debug.keystore`（口令 `android`） | 个人分发策略：构建产出即发布物，免 zipalign/apksigner 后处理；**证书一经发布不可更换**（换证书 = 用户必须卸载重装） |
 | 产物命名 | `Wxxy-CampusLogin_${versionName}.apk` | 与桌面安装包命名同源，不再依赖构建后改名 |
@@ -228,6 +228,6 @@ sequenceDiagram
 
 - **协议核心来源**：[桌面后端基础设施](desktop-backend-infrastructure.md) 所在的 `tauri-app/src-tauri` 被本模块以 `path` 依赖引用——任何桌面端协议层变更会直接影响安卓构建，反之亦然（单点共享）。
 - **插件构建**：三个手写插件的 `Cargo.toml` / `build.rs` / 各自 `android/build.gradle.kts` 详见 [Android 插件工程配置](build-deployment-configuration-android-plugins.md)；插件运行时行为见 [前台服务插件](android-plugins-foreground-service.md)、[Keystore 插件](android-plugins-keystore.md)、[网络绑定插件](android-plugins-network-bind.md)。
-- **版本号对齐**：`tauri.properties` 的 `versionName=2.4.3` 与根 [发布配置](build-deployment-configuration-release.md) 的 `version.json`（`version: v2.4.3`）需保持同步；APK 产物同时被安卓端更新器（见 [安卓后端 Tauri](android-backend-tauri.md) 的 `update_cmds`）通过 `sha256_checksum` 校验下载完整性。
-- **运行时入口**：Gradle 产物最终加载的 `MainActivity` 与 Rust 命令注册见 [安卓后端 Tauri](android-backend-tauri.md)。
+- **版本号对齐**：`tauri.properties` 的 `versionName=2.4.3` 与根 [发布配置](build-deployment-configuration-release.md) 的 `version.json`（`version: v2.4.3`）需保持同步；APK 产物同时被安卓端更新器（见 安卓后端 Tauri 的 `update_cmds`）通过 `sha256_checksum` 校验下载完整性。
+- **运行时入口**：Gradle 产物最终加载的 `MainActivity` 与 Rust 命令注册见 安卓后端 Tauri。
 - **前端代码**：本模块只覆盖构建配置，前端源码分层见 [安卓前端各模块](android-frontend-account-management.md) 等页面。

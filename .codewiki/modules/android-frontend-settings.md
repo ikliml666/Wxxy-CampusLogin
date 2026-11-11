@@ -134,7 +134,7 @@ sequenceDiagram
 
 - 配置读取/保存细节、zustand 订阅方式见 [android_frontend_hooks.md](android-frontend-hooks.md)（`useConfigStore`、`useThemeStore`、`useLogToastStore`）。
 - Hello 自助服务验证门的语义见 [android_frontend_account_management.md](android-frontend-account-management.md)（`useHelloGate`）。
-- 后端配置持久化（`get_config` / `save_config`）与命令面见 [android_backend_tauri.md](android-backend-tauri.md)（`config_state.rs`、`system_cmds.rs`、`self_service_cmds.rs`）。
+- 后端配置持久化（`get_config` / `save_config`）与命令面见 android_backend_tauri.md（`config_state.rs`、`system_cmds.rs`、`self_service_cmds.rs`）。
 - 通知权限与前端工具函数（`safeStorage`、`extractErrorMessage`）见 [android_frontend_utilities_libraries.md](android-frontend-utilities-libraries.md)。
 - 构建产物（`android/frontend/package.json`、`vite.config.ts`）见 [build_deployment_configuration.md](build-deployment-configuration.md)。
 

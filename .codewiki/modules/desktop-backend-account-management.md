@@ -597,5 +597,5 @@ flowchart LR
 | [桌面后端 VPN 集成](desktop-backend-vpn-integration.md) | `vpn_password_enc` 以本模块 `encrypt` 密文形态存于 `Config`（内存态亦为密文，用时解密） |
 | [桌面前端账号管理](desktop-frontend-account-management.md) | `useAccount.ts` / `AccountPanel.tsx` / `LoginInfoDialog.tsx` 消费本模块 IPC 契约 |
 | [桌面前端 Hooks](desktop-frontend-hooks.md) | `tauriApi.ts` 的账号命令封装与 `useConfigStore` 对 `config-changed` 的自动同步 |
-| [安卓端账号管理](android-frontend-account-management.md) / [安卓后端](android-backend-tauri.md) | 同套账号命令语义的安卓实现；安卓侧密码不落盘，阶段 2 改用 Android Keystore（见 [android_plugins_keystore.md](android-plugins-keystore.md)） |
+| [安卓端账号管理](android-frontend-account-management.md) / 安卓后端 | 同套账号命令语义的安卓实现；安卓侧密码不落盘，阶段 2 改用 Android Keystore（见 [android_plugins_keystore.md](android-plugins-keystore.md)） |
 | [构建与发布配置](build-deployment-configuration.md) | `Cargo.toml` 的双 bin 声明、`build.rs` externalBin 占位、`beforeBundleCommand` 真实产物覆盖 |

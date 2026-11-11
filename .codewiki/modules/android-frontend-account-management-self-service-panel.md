@@ -302,7 +302,7 @@ flowchart TB
 | `vpnTestConnection` / `vpnVerifyCredential` | `vpn_test_connection` / `vpn_verify_credential` | 连通性测试 / 保存前校验 |
 | `verifyWindowsIdentity` | `verify_biometric_identity` | 生物识别/2D 人脸验证并记 TTL 时间戳 |
 
-> 后端命令统一经 `resolve_self_service_channel` 决策直连或 WebVPN 包装，校外直连失败文案会附加配置指引。后端命令面整体见 [安卓后端 Tauri](android-backend-tauri.md)。
+> 后端命令统一经 `resolve_self_service_channel` 决策直连或 WebVPN 包装，校外直连失败文案会附加配置指引。后端命令面整体见 安卓后端 Tauri。
 
 ## 九、相关模块链接
 
@@ -312,5 +312,5 @@ flowchart TB
 - UI 基础组件（`AnimatedCard` / `Button` / `Input` / `Card`）：[安卓共享 UI 组件](android-frontend-shared-ui-components.md)
 - 命令封装与 `withRetry` 重试：[安卓 Hooks](android-frontend-hooks.md)
 - 表单因子判定（`useFormFactor` 区分手机/平板）：[安卓 Hooks](android-frontend-hooks.md)
-- 后端自助服务命令：[安卓后端 Tauri](android-backend-tauri.md)
+- 后端自助服务命令：安卓后端 Tauri
 - 桌面端同构面板（实现对照参考）：[桌面账号管理](desktop-frontend-account-management.md)

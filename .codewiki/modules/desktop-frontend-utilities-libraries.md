@@ -74,7 +74,6 @@ source_files:
   - tauri-app/frontend/src/monitor/MonitorPanel.tsx
   - tauri-app/frontend/src/monitor/NetworkQualityCapsule.tsx
   - tauri-app/frontend/src/monitor/QualityPanel.tsx
-  - tauri-app/frontend/src/monitor/SpeedTestPanel.tsx
   - tauri-app/frontend/src/monitor/StatusBar.anchor.test.tsx
   - tauri-app/frontend/src/monitor/StatusBar.onlineOperator.test.tsx
   - tauri-app/frontend/src/monitor/StatusBar.tsx

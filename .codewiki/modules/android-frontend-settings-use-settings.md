@@ -111,7 +111,7 @@ sequenceDiagram
 
 - **字段名是安卓特有语义**：源码注释明确「安卓后端 Settings 无 autoLaunch 字段，开机自启真实字段为 `enableBootAutostart`（`set_boot_autostart`）」。这与桌面端（`set_auto_launch` 命令 + 注册表 Run 键）不同。
 - **失败必须提示**的历史缺陷背景：UI 已经乐观更新为「开启」，若后端注册失败不提示，用户会以为自启已生效。因此 catch 分支强制弹 `settings.autoLaunchFailed` 错误 toast。
-- 后端落点为 [android_backend_tauri](android-backend-tauri.md) 的 `monitor_loop.rs::get_boot_autostart / set_boot_autostart`（经 `MonitorServicePlugin` 的 `BootReceiver` 联动）。
+- 后端落点为 android_backend_tauri 的 `monitor_loop.rs::get_boot_autostart / set_boot_autostart`（经 `MonitorServicePlugin` 的 `BootReceiver` 联动）。
 
 ### 4. handleSetTheme —— 主题名设置
 
@@ -155,7 +155,7 @@ flowchart TD
 | `api.setAutoLaunch(enabled)` | `set_boot_autostart`（`monitor_loop.rs` / `BootReceiver`） | 安卓开机自启真实字段 `enableBootAutostart` |
 | `updateConfig(...)` 防抖 → `api.saveConfig(fullConfig)` | `save_config`（`config_state.rs`） | `themeMode / enableNotification / enableBootAutostart` 等统一经配置通道持久化 |
 
-后端命令清单与 Rust 侧实现详见 [android_backend_tauri](android-backend-tauri.md)。桌面端等价的 `useSettings`（含导出/导入配置、日志保留天数等桌面专属能力）不在本页展开，二者字段同构但桌面命令在安卓端统一走 `desktopOnly` 拒绝（见 [tauriApi.ts](android-frontend-hooks.md) 中 `desktopOnly` / `noopListener`）。
+后端命令清单与 Rust 侧实现详见 android_backend_tauri。桌面端等价的 `useSettings`（含导出/导入配置、日志保留天数等桌面专属能力）不在本页展开，二者字段同构但桌面命令在安卓端统一走 `desktopOnly` 拒绝（见 [tauriApi.ts](android-frontend-hooks.md) 中 `desktopOnly` / `noopListener`）。
 
 ## 典型数据流：设置面板切换通知开关
 

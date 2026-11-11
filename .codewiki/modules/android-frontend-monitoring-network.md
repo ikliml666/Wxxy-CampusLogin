@@ -9,7 +9,6 @@ source_files:
   - android/frontend/src/monitor/MonitorPanel.tsx
   - android/frontend/src/monitor/NetworkQualityCapsule.tsx
   - android/frontend/src/monitor/QualityPanel.tsx
-  - android/frontend/src/monitor/SpeedTestPanel.tsx
   - android/frontend/src/monitor/StatusBar.tsx
   - android/frontend/src/monitor/index.ts
   - android/frontend/src/monitor/types.ts
@@ -193,7 +192,7 @@ sequenceDiagram
 | --- | --- |
 | [android_frontend_hooks](android-frontend-hooks.md) | 依赖其中的 `tauriApi`、`useAuthStore`、`useConfigStore`、`useQualityStore`、`useLogToastStore`；IPC 封装与 store 定义均在该模块 |
 | [android_frontend_utilities_libraries](android-frontend-utilities-libraries.md) | 使用 `extractErrorMessage`（`@/lib/utils`）解析异常消息 |
-| [android_backend_tauri](android-backend-tauri.md) | 后端命令落点：`monitor_loop.rs`（后台巡检状态）、`protocol_cmds.rs` / `quality_cmds.rs`（质量与延迟）、`config_state.rs`（配置落盘） |
+| android_backend_tauri | 后端命令落点：`monitor_loop.rs`（后台巡检状态）、`protocol_cmds.rs` / `quality_cmds.rs`（质量与延迟）、`config_state.rs`（配置落盘） |
 | [android_plugins_foreground_service](android-plugins-foreground-service.md) | 后台巡检最终由 Android 前台服务承载（`start_background_check` 触发） |
 | [desktop_frontend_monitoring](desktop-frontend-monitoring.md) / [desktop_frontend_network_management](desktop-frontend-network-management.md) | 桌面端对应实现的参考版本；本模块刻意省略桌面专属能力（适配器门槛、DHCP、恢复自动获取） |
 

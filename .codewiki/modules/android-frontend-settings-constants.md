@@ -160,7 +160,7 @@ flowchart TB
 | `enableNetworkQuality` | `true` | — | 总开关，关闭时质量面板与顶栏胶囊一并隐藏 |
 | `skipTtfbInLatency` / `skipContentInLatency` | `true` / `true` | — | 延迟计算的两个跳过项 |
 
-巡检间隔的**双端联动点**在 `monitor_loop`（见 [android_backend_tauri_monitoring.md](android-backend-tauri-monitoring.md)）；前端只负责把值落盘，不自行计时。
+巡检间隔的**双端联动点**在 `monitor_loop`（见 android_backend_tauri_monitoring.md）；前端只负责把值落盘，不自行计时。
 
 ### 4. 网络出厂值
 
@@ -409,8 +409,8 @@ flowchart TD
 | [android_frontend_account_management.md](android-frontend-account-management.md) | `LoginInfoDialog` 用 `ISP_OPTIONS` 渲染运营商下拉；`operatorChip` 用同一批后缀字面量取品牌色 |
 | [android_frontend_shared_components.md](android-frontend-shared-components.md) | `NAV_ITEMS`（派生 `DEFAULT_PANEL_OPTIONS`）、`PASSWORD_MASK`、`IspMark` 的 logo 键表 |
 | [android_frontend_entrypoint_mocks.md](android-frontend-entrypoint-mocks.md) | `main.tsx::initTheme` 在 React 挂载前用 `VALID_THEMES` / `VALID_GLASS_LEVELS` 定档；`tauri-mock.js` 场景下后端不可达，`DEFAULT_CONFIG` 成为浏览器预览的唯一配置来源 |
-| [android_backend_tauri.md](android-backend-tauri.md) | 默认值与 `config_schema_version` 迁移的对端；`get_config` / `save_config` / `masked_for_display` |
-| [android_backend_tauri_state_storage.md](android-backend-tauri-state-storage.md) | `config_state.rs` 的 `load_file` / `save_file` / `migrate_legacy_defaults` / `masked_for_display` 实现 |
+| android_backend_tauri.md | 默认值与 `config_schema_version` 迁移的对端；`get_config` / `save_config` / `masked_for_display` |
+| android_backend_tauri_state_storage.md | `config_state.rs` 的 `load_file` / `save_file` / `migrate_legacy_defaults` / `masked_for_display` 实现 |
 | [build_deployment_configuration.md](build-deployment-configuration.md) | `android/frontend/tsconfig.json` 的 `strict` 与 `@/*` 路径别名是本模块可被广泛 import 的前提；`package.json` 的 `typecheck`（`tsc --noEmit`）保障 `Config` 全字段覆盖 |
 
 ### 出口 barrel

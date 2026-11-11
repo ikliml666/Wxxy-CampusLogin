@@ -263,7 +263,7 @@ flowchart TD
 | `check_campus_network(...).on_campus == false` | `OffCampus` | 网关与 Portal 都失败才判非校园 |
 | `get_adapters_cached()` 失败 / `spawn_blocking` 任务 join 失败 | `Unknown` | 探测拿不到输入时按 Unknown，与决策表一致：走直连、不做二次尝试 |
 
-由于校园网判定是**同步阻塞实现**（netsh、ICMP、Win32 适配器枚举），`detect_net_zone` 把整段探测放进 `tauri::async_runtime::spawn_blocking`，绝不在 async worker 上阻塞。安卓侧 `detect_net_zone` 结构等价，探测源换成 `campus_detect::probe_campus_with_ssid`（见 [android_backend_tauri](android-backend-tauri.md)）。
+由于校园网判定是**同步阻塞实现**（netsh、ICMP、Win32 适配器枚举），`detect_net_zone` 把整段探测放进 `tauri::async_runtime::spawn_blocking`，绝不在 async worker 上阻塞。安卓侧 `detect_net_zone` 结构等价，探测源换成 `campus_detect::probe_campus_with_ssid`（见 android_backend_tauri）。
 
 ---
 
@@ -599,7 +599,7 @@ flowchart LR
 | [desktop_backend_networking](desktop-backend-networking.md) | `network::get_adapters_cached()` 为归属探测提供适配器快照；探测失败（拿不到适配器信息等）→ `NetZone::Unknown` → 直连 |
 | [desktop_backend_platform_specific](desktop-backend-platform-specific.md) | `platform::identity::identity_verified_recently` 支撑 `ensure_identity_gate`：保存凭据这类改状态操作须在 Windows Hello 验证 TTL 内 |
 | [desktop_backend_infrastructure](desktop-backend-infrastructure.md) | `AppState.config`（`load` / `store` / `load_full`）、`CommandResult` 统一返回体、`log_info!` / `log_warn!` 宏（本模块日志前缀统一为 `vpn`，自助服务侧为 `self`） |
-| [android_backend_tauri](android-backend-tauri.md) | `android/src-tauri/src/vpn_cmds.rs` 与 `commands/vpn.rs` 严格同构；差异仅在凭据加密器（桌面 DPAPI / 安卓 AndroidKeyStore，见 [android_plugins_keystore](android-plugins-keystore.md)）与验证门（安卓改状态命令一律设生物识别门） |
+| android_backend_tauri | `android/src-tauri/src/vpn_cmds.rs` 与 `commands/vpn.rs` 严格同构；差异仅在凭据加密器（桌面 DPAPI / 安卓 AndroidKeyStore，见 [android_plugins_keystore](android-plugins-keystore.md)）与验证门（安卓改状态命令一律设生物识别门） |
 | [desktop_frontend_hooks](desktop-frontend-hooks.md) | 前端经 `hooks/tauriApi.ts` 的 `vpnSaveCredential` / `vpnCredentialStatus` / `vpnClearCredential` / `setSelfServiceViaVpn` / `vpnTestConnection` / `vpnVerifyCredential` 调用本模块；设置页与账号页见 [desktop_frontend_settings](desktop-frontend-settings.md)、[desktop_frontend_account_management](desktop-frontend-account-management.md) |
 | [desktop_backend_auth_protocol](desktop-backend-auth-protocol.md) | Portal 登录协议与 VPN 协议是**两条独立链路**（前者走校园网 Portal，后者走 WebVPN 网关）；二者的共同点是 HTTP 响应体一律经 `auth::protocol::read_bounded_body_async` 限长读取（`self_service` 消费），避免无上限读体 |
 

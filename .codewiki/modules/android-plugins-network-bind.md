@@ -97,7 +97,7 @@ Kotlin 插件内的十余个 `@Command` 按职责可归为五个功能域：
 
 > **重要副作用**：绑定只影响**新建**的 socket。Rust 侧绑定成功后必须清空 HTTP 连接池，否则已有
 > 连接仍走旧网络——主程序侧由 `protocol_cmds::ensure_wifi_bound` 负责这一衔接（见
-> [android_backend_tauri](android-backend-tauri.md) 模块文档）。
+> android_backend_tauri 模块文档）。
 
 ### 2. Captive Portal 放行（acceptWifiNetwork）
 
@@ -134,7 +134,7 @@ Kotlin 事件桥接为 Rust 侧 `"wifiChanged"` channel 事件。上报策略做
 - `onCapabilitiesChanged` 高频触发（信号强度、带宽都走它），**只在 `NET_CAPABILITY_VALIDATED`
   翻转时**上报 `validated` / `unvalidated`——校园网认证完成瞬间正是这个翻转点，巡检循环据此
   触发下一拍重新绑定与状态判定（主程序侧 `MonitorState.wifi_event_ms` 做事件去抖，见
-  [android_backend_tauri](android-backend-tauri.md)）。
+  android_backend_tauri）。
 
 监听**不取 SSID**，避免引入定位权限。
 
@@ -193,7 +193,7 @@ flowchart LR
     FS -.->|"进程与生命周期常驻"| ML
 ```
 
-- **[android_backend_tauri](android-backend-tauri.md)**：主程序 `android/src-tauri` 在 `run()` 中
+- **android_backend_tauri**：主程序 `android/src-tauri` 在 `run()` 中
   `.plugin(tauri_plugin_campus_network_bind::init())` 注册本插件，并暴露 `bind_to_wifi`、
   `accept_wifi_network`、`get_avoid_bad_wifi_status`、`restore_written_settings` 等前端可 invoke
   的命令；`do_login` 在登录前先调 `ensure_wifi_bound` 保证绑定生效。巡检循环 `MonitorState` 的

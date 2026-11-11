@@ -202,7 +202,7 @@ flowchart TB
 
 - **被 UI 层消费**：所有面板通过 `useAuthStore`、`useConfigStore`、`useQualityStore`、`useLogToastStore` 读写状态；`App.tsx` 根部直接调用 `useAppInit`、`useAdaptiveFramePace`、`AnimationActiveProvider`、`useFormFactor`。
 - **跨模块依赖**：生物识别验证出口回调 [android_frontend_face_verification](android-frontend-face-verification.md) 的 `shouldUseFaceFallback` / `useFaceDialogStore`；网络质量合并、颜色换算、错误消息抽取来自 [android_frontend_utilities_libraries](android-frontend-utilities-libraries.md)。
-- **对接后端**：命令与事件名一一对应 [android_backend_tauri](android-backend-tauri.md)（`get_config`/`save_config`/`check_portal_status`/`background-check-result`/`network-quality-result`/`config-changed` 等）。
+- **对接后端**：命令与事件名一一对应 android_backend_tauri（`get_config`/`save_config`/`check_portal_status`/`background-check-result`/`network-quality-result`/`config-changed` 等）。
 - **与桌面版的关系**：桌面平行模块见 [desktop_frontend_hooks](desktop-frontend-hooks.md)；安卓端在此基础上裁剪了适配器/DHCP/DNS/窗口链路，并新增电池优化、WiFi SSID 权限、`get_avoid_bad_wifi_status`/`restore_written_settings`（Settings.Global 写通道）等安卓专属命令。
 
 ## 关键设计要点

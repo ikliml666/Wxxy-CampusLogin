@@ -330,7 +330,7 @@ sequenceDiagram
 | 网络层 | [desktop_backend_networking](desktop-backend-networking.md) | 适配器枚举/缓存（`get_adapters_cached`）、绑源 ICMP（`check_gateway_reachable_from`）、`enable_adapter`（含 pnputil problem 22 分流） |
 | 平台层 | [desktop_backend_platform_specific](desktop-backend-platform-specific.md) | 跃点读写（`platform::metric`）、路由表（`platform::route_table`、`best_route`）、提权 helper（`helper_spawn`）、PnP 实例 ID（`discovery::devnode`） |
 | 基础设施 | [desktop_backend_infrastructure](desktop-backend-infrastructure.md) | `task_manager`（任务注册/取消）、`AppState`（配置/登录锁/当日标记）、`EventBus`（前端日志事件）、通知 |
-| 安卓对照 | [android_backend_tauri](android-backend-tauri.md) 的 `monitor_loop.rs` | 双端共享 `config` 层纯判定（`evaluate_scheduled_actions` 等），副作用各自实现（桌面改跃点/禁网卡；安卓蜂窝标记） |
+| 安卓对照 | android_backend_tauri 的 `monitor_loop.rs` | 双端共享 `config` 层纯判定（`evaluate_scheduled_actions` 等），副作用各自实现（桌面改跃点/禁网卡；安卓蜂窝标记） |
 
 ---
 
