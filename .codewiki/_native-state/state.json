@@ -2,14 +2,18 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "ff2ff5dd5b293fee68b847366b2d1291ace4e1de",
-    "headCommit": "40dcc088f2e9c8922cdd014d394af9165d86a6a2"
+    "baseCommit": "40dcc088f2e9c8922cdd014d394af9165d86a6a2",
+    "headCommit": "9b28146052f634abed7256ac1654e2219407ea6d"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "ff2ff5dd5b293fee68b847366b2d1291ace4e1de",
-    "headCommit": "40dcc088f2e9c8922cdd014d394af9165d86a6a2",
-    "committed": [],
+    "baseCommit": "40dcc088f2e9c8922cdd014d394af9165d86a6a2",
+    "headCommit": "9b28146052f634abed7256ac1654e2219407ea6d",
+    "committed": [
+      "tauri-app/src-tauri/src/auth/portal.rs",
+      "tauri-app/src-tauri/src/auth/protocol.rs",
+      "tauri-app/src-tauri/src/network/client.rs"
+    ],
     "staged": [],
     "unstaged": [
       "tauri-app/frontend/index.html"
@@ -25,14 +29,13 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 e526f51 与本次 cw 基线 ff2ff5d 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "工作区未提交改动已合成临时 commit 5f99e0302a0a（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbj5btl-1-native（66 个文件）",
-    "本轮把 1 个未提交源码改动一并写进产物（快照 5f99e0302a0a）：tauri-app/frontend/index.html"
+    "持久化基线 ff2ff5d 与本次 cw 基线 40dcc08 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "工作区未提交改动已合成临时 commit e2d1c6a1de86（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbk2apw-3-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-11T03:01:17.200Z"
+  "updatedAt": "2026-11-11T03:25:06.066Z"
 }
