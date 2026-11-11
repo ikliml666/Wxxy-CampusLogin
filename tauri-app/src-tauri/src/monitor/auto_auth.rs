@@ -177,10 +177,7 @@ pub fn try_auto_login_on_preparation(
         }
 
         if login_result.success {
-            state.network.update(|s| {
-                s.has_logged_online = true;
-                s.prep_login_failures = 0;
-            });
+            crate::auth::service::mark_login_success(state);
             if config.enable_notification {
                 emit_notification(app_handle, "自动登录成功", &login_result.message.unwrap_or_default(), "mascot-celebrate");
             }
@@ -276,12 +273,10 @@ pub fn try_disconnect_reconnect(
 
         if reconnect_result.success {
             reconnect_success = true;
-            state.network.update(|s| {
-                s.disconnect_reconnect_count = 0;
-                s.any_adapter_online = true;
-                s.has_logged_online = true;
-                s.prep_login_failures = 0;
-            });
+            crate::auth::service::mark_login_success(state);
+            // 重连路径原本会立即置在线，供调用方跳过旧 Portal 快照覆盖；
+            // 主副卡快照仍由下一拍检测回填。
+            state.network.update(|s| s.any_adapter_online = true);
             if let Err(e) = crate::config::persist::append_login_history(app_handle, true, "断线重连成功", offline_adapter, &config.user, "reconnect") {
                 crate::log_warn!("auto_login", "记录重连历史失败: {}", e);
             }
@@ -569,10 +564,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
 
             if login_result.success {
                 let s = app_h.state::<AppState>();
-                s.network.update(|s| {
-                    s.has_logged_online = true;
-                    s.prep_login_failures = 0;
-                });
+                crate::auth::service::mark_login_success(&s);
                 if config.enable_notification {
                     emit_notification(&app_h, "自动登录成功", &login_result.message.unwrap_or_default(), "mascot-celebrate");
                 }

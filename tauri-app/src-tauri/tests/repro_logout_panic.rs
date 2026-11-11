@@ -1,5 +1,5 @@
 //! 回归锁定：注销后"sleep(1s) + check_any_adapter_online 页面检测"路径的
-//! scope 裸子线程必须先进入 runtime context（commands/login.rs check_one 修复），
+//! scope 裸子线程必须先进入 runtime context（auth/service.rs check_one 修复），
 //! 否则 reqwest send() 构造超时计时器时 Handle::current() panic
 //! "there is no reactor running"，叠加 panic=abort 整进程崩溃。
 //!
@@ -21,7 +21,7 @@ fn repro_logout_page_check_panic() {
 
             // 模拟 check_any_adapter_online 的 scope 双子线程并行检测
             let (r1, r2) = std::thread::scope(|s| {
-                // 与 commands/login.rs check_one 修复后一致：子线程先进入 runtime context
+                // 与 auth/service.rs check_one 修复后一致：子线程先进入 runtime context
                 let h1 = s.spawn(|| {
                     let _ctx = tauri::async_runtime::handle().inner().enter();
                     campus_login_lib::auth::portal::check_portal_full("10.2.106.187", Some("以太网"))

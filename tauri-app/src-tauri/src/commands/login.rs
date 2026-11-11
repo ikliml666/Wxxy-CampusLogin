@@ -1,63 +1,10 @@
 use tauri::{AppHandle, Manager, State};
 use std::sync::atomic::Ordering;
-use crate::infra::events::EventBus;
-use crate::network::get_adapters_cached;
-use crate::auth::portal::check_portal_full;
-use crate::auth::failure_tracker;
+use crate::auth::service::{
+    apply_logout_online_snapshot, begin_full_logout, finish_partial_logout,
+    verify_logout_and_emit,
+};
 use crate::infra::state::{AppState, CommandResult};
-
-struct AdapterOnlineStatus {
-    any_online: bool,
-    a1_online: bool,
-    a2_online: bool,
-    // 审计 A8：探测链路是否全部可用（所有已启用适配器的 Portal 探测均成功返回）。
-    // false 表示存在探测异常——"离线"结论不可信，不得断言已确认离线
-    probe_ok: bool,
-}
-
-fn check_any_adapter_online(state: &AppState) -> AdapterOnlineStatus {
-    let adapters = match get_adapters_cached() {
-        Ok(a) => a,
-        // 适配器列表枚举失败：探测未发生，离线结论不可信
-        Err(_) => return AdapterOnlineStatus { any_online: false, a1_online: false, a2_online: false, probe_ok: false },
-    };
-    let config = state.config.load_full();
-    let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
-    let a2_enabled = crate::network::is_secondary_adapter_enabled(&config, &a2_name);
-
-    let check_one = |name: &str| -> Option<bool> {
-        // scope 裸子线程没有 Tokio runtime context：reqwest 的 send() 是同步函数，
-        // 构造 per-request 超时计时器（tokio::time::sleep）需要 Handle::current()，
-        // 失败即 panic（panic=abort 下整进程崩溃，2026-09-05 注销流程崩溃事故根因）。
-        // 进入 tauri 全局 runtime 的 context 修复之。（A1 起 panic 改 unwind，注释保留作背景）
-        let _runtime_ctx = tauri::async_runtime::handle().inner().enter();
-        // 审计 A8：Some(online)=探测成功；None=无有效 IP 或探测异常（区别于探测成功且离线）
-        crate::network::find_with_valid_ip(&adapters, name)
-            .and_then(|a| check_portal_full(&a.ip, Some(&a.name)).ok().map(|ps| ps.online))
-    };
-
-    // 并行检测双适配器 Portal 状态，避免串行累加 HTTP 延迟
-    let (a1_probe, a2_probe) = std::thread::scope(|s| {
-        let h1 = s.spawn(|| check_one(&a1_name));
-        let a2_probe = if a2_enabled {
-            let h2 = s.spawn(|| check_one(&a2_name));
-            h2.join().unwrap_or(None)
-        } else {
-            // 未启用副卡：不参与 probe_ok 判定
-            Some(false)
-        };
-        (h1.join().unwrap_or(None), a2_probe)
-    });
-
-    let a1_online = a1_probe.unwrap_or(false);
-    let a2_online = a2_probe.unwrap_or(false);
-    AdapterOnlineStatus {
-        any_online: a1_online || a2_online,
-        a1_online,
-        a2_online,
-        probe_ok: a1_probe.is_some() && a2_probe.is_some(),
-    }
-}
 
 #[tauri::command]
 pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter_name: Option<String>) -> Result<CommandResult, String> {
@@ -114,85 +61,17 @@ pub(crate) fn perform_full_logout_sync(app_handle: &AppHandle, adapter_name: Opt
 
     let result = crate::auth::service::full_logout(&s, app_handle, adapter_name);
 
-    let any_online_after_logout = if result.success {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        let status = check_any_adapter_online(&s);
-        if status.any_online {
-            let event_bus = EventBus::new(app_handle);
-            let _ = event_bus.emit_login_log(
-                "页面检测仍显示在线，注销可能未完全生效",
-                "warning",
-            );
-        } else if status.probe_ok {
-            // 审计 A8：探测全部成功且离线，才允许断言"已确认离线"
-            let event_bus = EventBus::new(app_handle);
-            let _ = event_bus.emit_login_log(
-                "注销成功（页面检测已确认离线）",
-                "success",
-            );
-        } else {
-            // 审计 A8：探测异常（无 IP/请求失败/列表枚举失败）不得断言已确认离线，
-            // 文案如实降级为"未能确认"
-            crate::log_warn!("logout", "注销后页面检测存在探测异常，离线状态未能确认");
-            let event_bus = EventBus::new(app_handle);
-            let _ = event_bus.emit_login_log(
-                "注销请求已发送，离线状态未能确认（页面检测异常）",
-                "warning",
-            );
-        }
-        Some(status)
-    } else {
-        None
-    };
-
     if result.success {
-        if adapter_name.is_none() {
-            // 全量注销：重置所有全局标志 + 取消自动退出 + 60秒注销保护期
-            crate::log_info!("logout", "全量注销成功，已重置网络状态，60秒注销保护期开始");
-            s.exit.auto_exit_cancelled.store(true, Ordering::Release);
-            s.exit.set_deadline(None);
-            failure_tracker::reset_all(&s);
-
-            // 复用闭包内 check_any_adapter_online 的逐适配器检测结果，避免重复 HTTP 请求
-            let status = any_online_after_logout.unwrap_or(AdapterOnlineStatus {
-                any_online: false, a1_online: false, a2_online: false, probe_ok: false,
-            });
-            s.network.update(|n| {
-                n.any_adapter_online = status.any_online;
-                n.last_a1_online = status.a1_online;
-            });
-            let cfg = s.config.load_full();
-            if cfg.dual_adapter {
-                s.network.update(|n| n.last_a2_online = status.a2_online);
-            } else {
-                s.network.update(|n| n.last_a2_online = false);
-            }
-
-            // 全量注销专属：重置登录/重连状态 + 注销保护期
-            let protected_until = std::time::Instant::now() + std::time::Duration::from_secs(60);
-            s.network.update(|n| {
-                n.has_logged_online = false;
-                n.disconnect_reconnect_count = 0;
-                n.last_auto_login_attempt = std::time::Instant::now();
-                n.logout_protected_until = protected_until;
-            });
+        // 保护期必须先于 1s 复检生效，否则复检窗口内断线重连可把刚注销的账号登回。
+        let is_full_logout = adapter_name.is_none();
+        if is_full_logout {
+            begin_full_logout(&s);
+        }
+        let status = verify_logout_and_emit(app_handle, &s);
+        if is_full_logout {
+            apply_logout_online_snapshot(&s, status);
         } else {
-            // 单适配器注销：复用 check_any_adapter_online 的逐适配器检测结果重置状态
-            // 避免用原始配置名（自动检测时为空/"自动检测"）比较导致状态残留
-            crate::log_info!("logout", "单适配器注销成功: {:?}", adapter_name);
-            let status = any_online_after_logout.unwrap_or(AdapterOnlineStatus {
-                any_online: false, a1_online: false, a2_online: false, probe_ok: false,
-            });
-            let cfg = s.config.load_full();
-            s.network.update(|n| {
-                n.last_a1_online = status.a1_online;
-                if cfg.dual_adapter {
-                    n.last_a2_online = status.a2_online;
-                } else {
-                    n.last_a2_online = false;
-                }
-                n.any_adapter_online = status.any_online;
-            });
+            finish_partial_logout(&s, status, adapter_name);
         }
     }
     result

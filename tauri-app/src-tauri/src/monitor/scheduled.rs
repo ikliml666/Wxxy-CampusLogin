@@ -465,10 +465,10 @@ async fn apply_night_switch_action(app_handle: &AppHandle, action: NightSwitchAc
     tauri::async_runtime::spawn(verify_night_switch(app_handle.clone(), expected_operator));
 }
 
-/// 定时注销：复用 full_logout（与手动注销同一互斥锁）。成功后对齐全量注销后处理
-/// （commands::login_cmd::do_logout 的 adapter_name=None 分支）：取消登录后自动退出、
-/// 重置登录/重连状态并启动 60s 注销保护期——防止定时注销后被准备自动登录/
-/// 掉线重连立即登回（安卓端 do_logout 内置同款保护期语义）。
+/// 定时注销：复用 full_logout（与手动注销同一互斥锁）。成功后复用 `auth::service`
+/// 的 1s Portal 复检与全量收尾：取消登录后自动退出、重置登录/重连状态并启动 60s
+/// 注销保护期——防止定时注销后被准备自动登录/掉线重连立即登回（安卓端 do_logout
+/// 内置同款保护期语义）。
 /// today_day 用于抢锁成功后消耗当日注销额度（审计 A7）。
 fn run_scheduled_logout(app_handle: &AppHandle, target_minutes: u16, today_day: i32) {
     crate::log_info!(
@@ -489,37 +489,30 @@ fn run_scheduled_logout(app_handle: &AppHandle, target_minutes: u16, today_day: 
 /// 启动 60s 注销保护期。
 fn perform_logout(app_handle: &AppHandle, result_prefix: &str, logout_quota_day: Option<i32>) {
     let s = app_handle.state::<AppState>();
-    let result = {
-        let _guard = match s.tasks.is_logging_out.try_acquire() {
-            Some(g) => g,
-            None => {
-                crate::log_warn!("scheduled", "{result_prefix}跳过：已有注销任务进行中");
-                let _ = EventBus::new(app_handle).emit_scheduled_action_skipped("logout");
-                return;
-            }
-        };
-        // 审计 A7：当日额度标记在抢锁成功之后置位——被互斥跳过的拍不白耗额度
-        if let Some(day) = logout_quota_day {
-            s.scheduled.logout_day.store(day, Ordering::Release);
+    let _guard = match s.tasks.is_logging_out.try_acquire() {
+        Some(g) => g,
+        None => {
+            crate::log_warn!("scheduled", "{result_prefix}跳过：已有注销任务进行中");
+            let _ = EventBus::new(app_handle).emit_scheduled_action_skipped("logout");
+            return;
         }
-        crate::auth::service::full_logout(&s, app_handle, None)
     };
+    // 审计 A7：当日额度标记在抢锁成功之后置位——被互斥跳过的拍不白耗额度
+    if let Some(day) = logout_quota_day {
+        s.scheduled.logout_day.store(day, Ordering::Release);
+    }
+    let result = crate::auth::service::full_logout(&s, app_handle, None);
     let message = result.message.clone().unwrap_or_default();
     let _ = EventBus::new(app_handle).emit_login_log(
         &format!("{result_prefix}: {message}"),
         if result.success { "success" } else { "error" },
     );
     if result.success {
-        s.exit.auto_exit_cancelled.store(true, Ordering::Release);
-        s.exit.set_deadline(None);
-        crate::auth::failure_tracker::reset_all(&s);
-        let protected_until = std::time::Instant::now() + Duration::from_secs(60);
-        s.network.update(|n| {
-            n.has_logged_online = false;
-            n.disconnect_reconnect_count = 0;
-            n.last_auto_login_attempt = std::time::Instant::now();
-            n.logout_protected_until = protected_until;
-        });
+        // 保护期先于 1s 复检生效，复用与手动/托盘注销相同的收尾；互斥锁覆盖
+        // 复检窗口，防止期间再起一轮注销。
+        crate::auth::service::begin_full_logout(&s);
+        let status = crate::auth::service::verify_logout_and_emit(app_handle, &s);
+        crate::auth::service::apply_logout_online_snapshot(&s, status);
     }
 }
 
