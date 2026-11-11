@@ -34,6 +34,23 @@ pub struct CoreStatus {
     pub last_result: Option<serde_json::Value>,
 }
 
+/// 最近一次检测结果的派生字段→UI 形状的单点透传。
+/// :core 的状态快照与 UI 的 core_status 读取共用同一 key 列表，避免两处各写一份。
+pub fn copy_last_result_fields(target: &mut serde_json::Value, last: Option<&serde_json::Value>) {
+    let Some(last) = last else { return };
+    for key in [
+        "online",
+        "message",
+        "onlineOperator",
+        "serverAvailable",
+        "onCampusNetwork",
+    ] {
+        if let Some(val) = last.get(key) {
+            target[key] = val.clone();
+        }
+    }
+}
+
 /// 核心是否存活:进程被杀不会走 onDestroy,必须用心跳年龄识别遗留的 coreAlive=true
 pub fn core_is_alive(status: &CoreStatus, now_ms: u64, max_age_ms: u64) -> bool {
     status.core_alive

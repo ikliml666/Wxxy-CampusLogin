@@ -28,37 +28,45 @@ fn parse_result(raw: String) -> Result<Value, String> {
     Ok(v)
 }
 
-fn call(app: &tauri::AppHandle, action: &str, args: &str) -> Result<Value, String> {
-    parse_result(forward(app, action, args)?)
+/// Binder 转发是同步阻塞调用（登录/注销最长 60s），必须在阻塞线程池执行，
+/// 不能占住 tokio worker。
+async fn call(app: &tauri::AppHandle, action: &str, args: &str) -> Result<Value, String> {
+    let app = app.clone();
+    let action = action.to_string();
+    let args = args.to_string();
+    let raw = tauri::async_runtime::spawn_blocking(move || forward(&app, &action, &args))
+        .await
+        .map_err(|e| format!("core 命令线程失败: {e}"))??;
+    parse_result(raw)
 }
 
 #[tauri::command]
 pub async fn start_background_check(app: tauri::AppHandle) -> Result<Value, String> {
-    call(&app, "start", "{}")
+    call(&app, "start", "{}").await
 }
 
 #[tauri::command]
 pub async fn stop_background_check(app: tauri::AppHandle) -> Result<Value, String> {
-    call(&app, "stop", "{}")
+    call(&app, "stop", "{}").await
 }
 
 #[tauri::command]
 pub async fn trigger_background_check(app: tauri::AppHandle) -> Result<(), String> {
-    call(&app, "trigger", "{}").map(|_| ())
+    call(&app, "trigger", "{}").await.map(|_| ())
 }
 
 #[tauri::command]
 pub async fn get_background_status(app: tauri::AppHandle) -> Result<Value, String> {
-    Ok(read_background_status(&app))
+    read_background_status(&app)
 }
 
 /// 读 :core 写的状态文件,组装成前端既有形状(不再由 UI 进程内存态给出)
-pub fn read_background_status(app: &tauri::AppHandle) -> Value {
-    let status = app
+pub fn read_background_status(app: &tauri::AppHandle) -> Result<Value, String> {
+    let dir = app
         .path()
         .app_data_dir()
-        .map(|dir| crate::core::status_file::read(&dir))
-        .unwrap_or_default();
+        .map_err(|e| format!("获取数据目录失败: {e}"))?;
+    let status = crate::core::status_file::read(&dir);
     let last = status.last_result.clone();
     let now = crate::core::platform::now_ms();
     let core_alive = campus_core_logic::status::core_is_alive(
@@ -80,20 +88,8 @@ pub fn read_background_status(app: &tauri::AppHandle) -> Value {
             campus_core_logic::status::MAX_STATUS_AGE_MS,
         ),
     });
-    if let Some(last) = &last {
-        for key in [
-            "online",
-            "message",
-            "onlineOperator",
-            "serverAvailable",
-            "onCampusNetwork",
-        ] {
-            if let Some(val) = last.get(key) {
-                v[key] = val.clone();
-            }
-        }
-    }
-    v
+    campus_core_logic::status::copy_last_result_fields(&mut v, last.as_ref());
+    Ok(v)
 }
 
 #[tauri::command]
@@ -110,7 +106,7 @@ pub async fn do_login(
         "password": password.unwrap_or_default(),
         "operator": operator.unwrap_or_default(),
     });
-    call(&app, "login", &args.to_string())
+    call(&app, "login", &args.to_string()).await
 }
 
 #[tauri::command]
@@ -121,7 +117,7 @@ pub async fn do_logout(
 ) -> Result<Value, String> {
     let _ = adapter;
     let args = serde_json::json!({ "user": user.unwrap_or_default() });
-    call(&app, "logout", &args.to_string())
+    call(&app, "logout", &args.to_string()).await
 }
 
 #[tauri::command]
@@ -187,31 +183,28 @@ pub fn notify_system_local(
         return;
     }
     use tauri_plugin_notification::NotificationExt;
-    let result = app
+    if let Err(e) = app
         .notification()
         .builder()
         .title(title)
         .body(body)
         .large_icon(mascot)
-        .show();
-    if result.is_err() {
-        let _ = app.notification().builder().title(title).body(body).show();
+        .show()
+    {
+        campus_login_lib::log_warn!("notify", "带图标通知发送失败，回退纯文本: {e}");
+        if let Err(e) = app.notification().builder().title(title).body(body).show() {
+            campus_login_lib::log_error!("notify", "系统通知发送失败: {e}");
+        }
     }
 }
 
 /// 账号切换/删除后的 avoid_bad_wifi 收尾统一在 :core 执行,避免两进程各自缓存
 /// SharedPreferences 后整文件覆盖,丢掉夜切快照(幂等,无快照无动作)。
-pub async fn restore_avoid_bad_wifi_local(app: &tauri::AppHandle) {
+pub async fn restore_avoid_bad_wifi_via_core(app: &tauri::AppHandle) {
     #[cfg(mobile)]
-    {
-        let handle = app.clone();
-        let _ = tauri::async_runtime::spawn_blocking(move || {
-            call(&handle, "restoreAvoidBadWifi", "{}")
-        })
-        .await;
+    if let Err(e) = call(app, "restoreAvoidBadWifi", "{}").await {
+        campus_login_lib::log_warn!("protocol", "恢复 avoid_bad_wifi 设置失败: {e}");
     }
     #[cfg(not(mobile))]
-    {
-        let _ = app;
-    }
+    let _ = app;
 }

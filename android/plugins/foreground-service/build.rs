@@ -1,4 +1,4 @@
-const COMMANDS: &[&str] = &["startMonitor", "stopMonitor", "updateNotification", "setBootAutostart", "isBootAutostartEnabled", "installApk", "coreCommand"];
+const COMMANDS: &[&str] = &["startMonitor", "stopMonitor", "setBootAutostart", "isBootAutostartEnabled", "installApk", "coreCommand"];
 
 fn main() {
     let result = tauri_plugin::Builder::new(COMMANDS)

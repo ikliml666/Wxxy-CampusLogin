@@ -1,6 +1,6 @@
 //! 后台监控循环:tick = 校园网判定 → Portal 探测 → 掉线自动重登(cooldown + 次数上限)
 //! → emit background-check-result / login-log。决策逻辑抽纯函数便于 TDD,
-//! tokio 循环体与前台服务保活在下方(Task 4)。
+//! 循环体跑在 :core 进程的 tokio runtime 上。
 
 use chrono::{Datelike, Timelike};
 use lazy_static::lazy_static;
@@ -46,7 +46,6 @@ static MONITOR_GENERATION: AtomicU64 = AtomicU64::new(0);
 static RESTORE_SILENT_PASS: AtomicBool = AtomicBool::new(false);
 
 #[derive(Default)]
-#[allow(dead_code)] // Task 4 循环体接线
 pub struct MonitorState {
     pub running: AtomicBool,
     pub check_count: AtomicU64,
@@ -65,9 +64,6 @@ pub struct MonitorState {
     pub logout_protected_until_ms: AtomicU64,
     /// 最近一次 WiFi 变化事件的 epoch ms:去抖与"风暴内最后事件生效"判定
     pub wifi_event_ms: AtomicU64,
-    /// 常驻通知已展示的在线状态(0=未展示,1=在线,2=未连接,3=非检测时段):仅状态
-    /// 翻转时才 notify 重建通知——每拍重建常驻通知是稳态功耗点(60s 一拍 IPC + notify),
-    /// 文案不再携带逐拍递增的检测次数(检测次数前端状态页有)
     /// 定时登录当日已触发标记(当日序号 num_days_from_ce;0=从未触发,当日序号
     /// 恒为正,与"未触发"等价;跨天由序号变化自然重置)。与掉线重连的 cooldown/
     /// 熔断计数互不共享,判定复用跨平台纯函数 config::schedule
@@ -116,7 +112,6 @@ pub fn effective_interval_ms(
 }
 
 /// 本 tick 是否应尝试登录(纯函数,全量条件显式入参)
-#[allow(dead_code)] // Task 4 循环体接线
 pub fn should_attempt_login(
     online: bool,
     was_online: bool,
@@ -154,19 +149,7 @@ pub fn status_snapshot() -> serde_json::Value {
         "lastResult": last.as_ref(),
         "watcherFailed": WATCHER_FAILED.load(Ordering::Relaxed),
     });
-    if let Some(last) = &last {
-        for key in [
-            "online",
-            "message",
-            "onlineOperator",
-            "serverAvailable",
-            "onCampusNetwork",
-        ] {
-            if let Some(val) = last.get(key) {
-                v[key] = val.clone();
-            }
-        }
-    }
+    campus_core_logic::status::copy_last_result_fields(&mut v, last.as_ref());
     v
 }
 
@@ -180,36 +163,16 @@ pub fn status_value(ctx: &CoreCtx) -> serde_json::Value {
         s.reconnect_count = MONITOR.reconnect_count.load(Ordering::Relaxed);
         s.watcher_failed = WATCHER_FAILED.load(Ordering::Relaxed);
         s.last_result = MONITOR.last_result.lock().ok().and_then(|g| g.clone());
-        s.last_tick_ms = epoch_ms();
+        s.last_tick_ms = crate::core::platform::now_ms();
     });
     v
 }
 
-#[allow(dead_code)] // Task 4 循环体接线
 pub fn is_running() -> bool {
     MONITOR.running.load(Ordering::Relaxed)
 }
 
-fn epoch_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
 
-fn emit_login_log(ctx: &CoreCtx, message: &str, log_type: &str) {
-    ctx.emit_log(message, log_type);
-}
-
-pub(crate) fn notify_system(
-    ctx: &CoreCtx,
-    enabled: bool,
-    title: &str,
-    body: &str,
-    mascot: &str,
-) {
-    ctx.notify_system(enabled, title, body, mascot);
-}
 
 /// 探测/登录失败通知追加 VPN 接管提示:全量 VPN(Clash/UU 等)未排除本应用时,
 /// socket 探测与登录流量被 tun 劫持——SO_BINDTODEVICE 旁路在 secure VPN 或被
@@ -240,7 +203,7 @@ pub async fn start_background_check(ctx: CoreCtx) -> Result<serde_json::Value, S
     start_wifi_watcher(&ctx);
     let gen = MONITOR_GENERATION.fetch_add(1, Ordering::Relaxed);
     tokio::spawn(monitor_tick_loop(ctx.clone(), want, gen));
-    emit_login_log(&ctx, "后台监控已启动", "info");
+    ctx.emit_log("后台监控已启动", "info");
     ctx.mark_status(|s| {
         s.is_running = true;
         s.core_alive = true;
@@ -253,7 +216,7 @@ pub async fn stop_background_check(ctx: CoreCtx) -> Result<serde_json::Value, St
     MONITOR.running.store(false, Ordering::Relaxed);
     #[cfg(mobile)]
     stop_wifi_watcher(&ctx);
-    emit_login_log(&ctx, "后台监控已停止", "info");
+    ctx.emit_log("后台监控已停止", "info");
     ctx.update_notification("监控已停止");
     ctx.mark_status(|s| {
         s.is_running = false;
@@ -294,7 +257,7 @@ pub(crate) async fn handle_wifi_event(ctx: CoreCtx, event: String) {
     if !is_running() {
         return;
     }
-    let now = epoch_ms();
+    let now = crate::core::platform::now_ms();
     if !wifi_event_is_burst_start(
         MONITOR.wifi_event_ms.load(Ordering::Relaxed),
         now,
@@ -373,7 +336,7 @@ async fn auto_login_on_start(
         return;
     }
     if crate::core::login::logout_protected() {
-        emit_login_log(ctx, "注销保护期内,跳过启动自动登录", "info");
+        ctx.emit_log("注销保护期内,跳过启动自动登录", "info");
         return;
     }
     // 校园网检测静默期（检测时段外）连启动自动登录一并跳过：与桌面
@@ -390,8 +353,7 @@ async fn auto_login_on_start(
             settings.campus_check_start_minutes,
             settings.campus_check_end_minutes,
         ) {
-            emit_login_log(
-                ctx,
+            ctx.emit_log(
                 "启动检测:校园网检测静默期(非检测时段),跳过校园网判定与自动登录",
                 "info",
             );
@@ -403,33 +365,32 @@ async fn auto_login_on_start(
         let (probe, _ssid) = match probe_with_retry(ctx, settings).await {
         (Ok(p), ssid) => (p, ssid),
         (Err(e), _) => {
-            emit_login_log(ctx, &format!("启动自动登录:校园网判定失败 {e}"), "warning");
+            ctx.emit_log(&format!("启动自动登录:校园网判定失败 {e}"), "warning");
             return;
         }
     };
     ctx.cache_source_ip(probe.source);
     if !probe.on_campus {
-        emit_login_log(ctx, "启动检测:不在校园网环境,跳过自动登录", "info");
+        ctx.emit_log("启动检测:不在校园网环境,跳过自动登录", "info");
         return;
     }
     let Some(attempt) = crate::core::login::try_begin_login() else {
-        emit_login_log(ctx, "启动自动登录: 已有登录任务进行中,本次跳过", "info");
+        ctx.emit_log("启动自动登录: 已有登录任务进行中,本次跳过", "info");
         return;
     };
-    emit_login_log(ctx, "检测到校园网环境,执行启动自动登录", "info");
+    ctx.emit_log("检测到校园网环境,执行启动自动登录", "info");
     match crate::core::login::run_login(ctx, &settings.user, &settings.password, &settings.operator, attempt)
     .await
     {
         Ok(v) if v["success"].as_bool().unwrap_or(false) => {
             let msg = v["message"].as_str().unwrap_or("").to_string();
-            emit_login_log(ctx, &format!("启动自动登录成功: {msg}"), "success");
+            ctx.emit_log(&format!("启动自动登录成功: {msg}"), "success");
             emit_auto_login_result(ctx, true, &msg);
         }
         Ok(v) => {
             let msg = v["message"].as_str().unwrap_or("").to_string();
-            emit_login_log(ctx, &format!("启动自动登录失败: {msg}"), "error");
-            notify_system(
-                ctx,
+            ctx.emit_log(&format!("启动自动登录失败: {msg}"), "error");
+            ctx.notify_system(
                 settings.enable_notification,
                 "启动自动登录失败",
                 &with_vpn_hint(&msg),
@@ -438,9 +399,8 @@ async fn auto_login_on_start(
             emit_auto_login_result(ctx, false, &msg);
         }
         Err(e) => {
-            emit_login_log(ctx, &format!("启动自动登录失败: {e}"), "error");
-            notify_system(
-                ctx,
+            ctx.emit_log(&format!("启动自动登录失败: {e}"), "error");
+            ctx.notify_system(
                 settings.enable_notification,
                 "启动自动登录失败",
                 &with_vpn_hint(&e),
@@ -525,7 +485,7 @@ async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
         let idle_ms = MONITOR.idle_interval_ms.load(Ordering::Relaxed);
         let (screen_on, wifi_connected) = power_state(&ctx);
         let effective = effective_interval_ms(current, idle_ms, screen_on, wifi_connected);
-        let now = epoch_ms();
+        let now = crate::core::platform::now_ms();
         if last_probe_ms != 0 && now.saturating_sub(last_probe_ms) < effective {
             continue;
         }
@@ -571,7 +531,7 @@ async fn logout_for_outbound_switch(ctx: &CoreCtx) -> bool {
         // 本来就不在线:注销请求盲发必失败(评审 P2),跳过请求照常建立切换态。
         // 计数一并清零:本出口同样"确认离线",跨夜残留会让次夜的失败预算只剩 2 拍
         OUTBOUND_SWITCH_FAIL_COUNT.store(0, Ordering::Relaxed);
-        emit_login_log(ctx, "夜间出站切换: 未检测到校园网在线,跳过注销请求", "info");
+        ctx.emit_log("夜间出站切换: 未检测到校园网在线,跳过注销请求", "info");
         return true;
     }
         match crate::core::login::run_logout(ctx, None, "scheduled").await {
@@ -605,8 +565,7 @@ fn switch_logout_unconfirmed(ctx: &CoreCtx, reason: &str) -> bool {
         );
         true
     } else {
-        emit_login_log(
-            ctx,
+        ctx.emit_log(
             &format!("夜间出站切换: 注销未确认生效({reason}),保持未切换态下一拍重试"),
             "warning",
         );
@@ -721,8 +680,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
                     // 保留手动开启提示(设置页文案;常开=1 对用户无害,本就应常开)
                     ensure_avoid_bad_wifi(ctx).await;
                     trigger_wifi_recheck(ctx).await;
-                    emit_login_log(
-                        ctx,
+                    ctx.emit_log(
                         "夜间出站切换: 已注销校园网，等待系统切换移动数据",
                         "info",
                     );
@@ -748,7 +706,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
                     // 判定与在线状态立刻刷新并一直重试到静默期结束(桌面 request_check_
                     // after_outbound_restore 同义)
                     RESTORE_SILENT_PASS.store(true, Ordering::Release);
-                    emit_login_log(ctx, "夜间出站切换: 已恢复校园网登录", "success");
+                    ctx.emit_log("夜间出站切换: 已恢复校园网登录", "success");
                 }
             } else if matches!(login_outcome, NightLoginOutcome::Busy) {
                 // 其他入口正在登录:保留切换态且不计失败,下一拍再判断结果。
@@ -767,15 +725,13 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
                         outbound_active = false;
                         // 放弃自动还原也收尾系统态:avoid_bad_wifi 不停在 1
                         restore_avoid_bad_wifi(ctx).await;
-                        emit_login_log(
-                            ctx,
+                        ctx.emit_log(
                             "夜间出站切换: 自动还原失败已放弃，请手动登录",
                             "error",
                         );
                     }
                 } else {
-                    emit_login_log(
-                        ctx,
+                    ctx.emit_log(
                         &format!(
                             "夜间出站切换: 恢复登录未成功(第 {fails} 次),保留切换态下一拍重试"
                         ),
@@ -815,7 +771,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
             );
         match action {
             campus_login_lib::config::night_switch::NightSwitchAction::SwitchToCampus => {
-                emit_login_log(ctx, "晚间断网切换: 运营商已切至无锡学院", "info");
+                ctx.emit_log("晚间断网切换: 运营商已切至无锡学院", "info");
                 if let Some(switched) = persist_settings(ctx, |current| {
                     current.night_operator_restore = current.operator.clone();
                     current.operator = String::new();
@@ -831,7 +787,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
                 }
             }
             campus_login_lib::config::night_switch::NightSwitchAction::Restore => {
-                emit_login_log(ctx, "晚间断网切换: 已恢复原运营商", "info");
+                ctx.emit_log("晚间断网切换: 已恢复原运营商", "info");
                 if let Some(switched) = persist_settings(ctx, |current| {
                     current.operator = std::mem::take(&mut current.night_operator_restore);
                 })
@@ -874,8 +830,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
         MONITOR
             .scheduled_login_day
             .store(today_day, Ordering::Relaxed);
-        emit_login_log(
-            ctx,
+        ctx.emit_log(
             &format!(
                 "定时登录触发 (目标 {:02}:{:02})",
                 settings.scheduled_login_minutes / 60,
@@ -891,8 +846,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
         MONITOR
             .scheduled_logout_day
             .store(today_day, Ordering::Relaxed);
-        emit_login_log(
-            ctx,
+        ctx.emit_log(
             &format!(
                 "定时注销触发 (目标 {:02}:{:02})",
                 settings.scheduled_logout_minutes / 60,
@@ -904,13 +858,12 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
             Ok(v) => {
                 let success = v["success"].as_bool().unwrap_or(false);
                 let message = v["message"].as_str().unwrap_or("").to_string();
-                emit_login_log(
-                    ctx,
+                ctx.emit_log(
                     &format!("定时注销: {message}"),
                     if success { "success" } else { "error" },
                 );
             }
-            Err(e) => emit_login_log(ctx, &format!("定时注销执行失败: {e}"), "error"),
+            Err(e) => ctx.emit_log(&format!("定时注销执行失败: {e}"), "error"),
         }
     }
 }
@@ -929,7 +882,7 @@ where
     match ctx.update_settings(mutate).await {
         Ok(saved) => Some(saved),
         Err(e) => {
-            emit_login_log(ctx, &format!("晚间断网切换配置落盘失败: {e}"), "error");
+            ctx.emit_log(&format!("晚间断网切换配置落盘失败: {e}"), "error");
             None
         }
     }
@@ -950,11 +903,11 @@ async fn night_switch_login(
     settings: &crate::config_state::Settings,
 ) -> NightLoginOutcome {
     if settings.user.is_empty() || settings.password.is_empty() {
-        emit_login_log(ctx, "晚间断网切换: 账号或密码未配置,跳过登录", "warning");
+        ctx.emit_log("晚间断网切换: 账号或密码未配置,跳过登录", "warning");
         return NightLoginOutcome::Failed;
     }
     let Some(attempt) = crate::core::login::try_begin_login() else {
-        emit_login_log(ctx, "晚间断网切换: 已有登录任务进行中,本次跳过", "info");
+        ctx.emit_log("晚间断网切换: 已有登录任务进行中,本次跳过", "info");
         return NightLoginOutcome::Busy;
     };
     // 登录前强制绑 WiFi(同 auto_login_on_start;WiFi+流量同开时默认路由可能落蜂窝)
@@ -965,15 +918,14 @@ async fn night_switch_login(
         Ok(v) => {
             let msg = v["message"].as_str().unwrap_or("").to_string();
             let success = v["success"].as_bool().unwrap_or(false);
-            emit_login_log(
-                ctx,
+            ctx.emit_log(
                 &format!("晚间断网切换登录: {msg}"),
                 if success { "success" } else { "error" },
             );
             if success { NightLoginOutcome::Succeeded } else { NightLoginOutcome::Failed }
         }
         Err(e) => {
-            emit_login_log(ctx, &format!("晚间断网切换登录失败: {e}"), "error");
+            ctx.emit_log(&format!("晚间断网切换登录失败: {e}"), "error");
             NightLoginOutcome::Failed
         }
     }
@@ -1042,8 +994,7 @@ async fn verify_night_switch(ctx: CoreCtx, expected_operator: String) {
         return;
     }
     if let Ok(uid) = night_switch_verify_round(&settings, &expected_operator).await {
-        emit_login_log(
-            &ctx,
+        ctx.emit_log(
             &format!("夜切验证: 已生效, 在线账号 {uid}"),
             "success",
         );
@@ -1057,8 +1008,7 @@ async fn verify_night_switch(ctx: CoreCtx, expected_operator: String) {
         return;
     }
     // 日志在守卫之后:本行的承诺("注销重登后复验")必须以动作真的会发生为前提
-    emit_login_log(
-            &ctx, "夜切验证: 未生效, 注销重登后复验", "warning");
+    ctx.emit_log("夜切验证: 未生效, 注销重登后复验", "warning");
     let settings = match ctx.settings().await {
         Ok(s) => s,
         Err(_) => return,
@@ -1067,8 +1017,7 @@ async fn verify_night_switch(ctx: CoreCtx, expected_operator: String) {
         return;
     }
         if let Err(e) = crate::core::login::run_logout(&ctx, None, "scheduled").await {
-        emit_login_log(
-            &ctx,
+        ctx.emit_log(
             &format!("夜切验证: 注销失败, 继续复登: {e}"),
             "warning",
         );
@@ -1076,16 +1025,13 @@ async fn verify_night_switch(ctx: CoreCtx, expected_operator: String) {
     let _ = night_switch_login(&ctx, &settings).await;
     tokio::time::sleep(std::time::Duration::from_secs(NIGHT_VERIFY_WAIT_SECS)).await;
     match night_switch_verify_round(&settings, &expected_operator).await {
-        Ok(uid) => emit_login_log(
-            &ctx,
+        Ok(uid) => ctx.emit_log(
             &format!("夜切验证: 已生效, 在线账号 {uid}"),
             "success",
         ),
         Err(e) => {
-            emit_login_log(
-            &ctx, &format!("夜切验证: {e}, 请手动检查"), "warning");
-            notify_system(
-                &ctx,
+            ctx.emit_log(&format!("夜切验证: {e}, 请手动检查"), "warning");
+            ctx.notify_system(
                 settings.enable_notification,
                 "夜切验证失败",
                 "夜切后在线账号与期望运营商不符, 请手动检查",
@@ -1165,13 +1111,13 @@ async fn night_switch_check_once(
 pub async fn run_check_once(ctx: &CoreCtx) {
     MONITOR.check_count.fetch_add(1, Ordering::Relaxed);
     ctx.mark_status(|s| {
-        s.last_tick_ms = epoch_ms();
+        s.last_tick_ms = crate::core::platform::now_ms();
         s.check_count = MONITOR.check_count.load(Ordering::Relaxed);
     });
     let settings = match ctx.settings().await {
         Ok(s) => s,
         Err(e) => {
-            emit_login_log(ctx, &format!("读取配置失败,跳过本轮检测: {e}"), "error");
+            ctx.emit_log(&format!("读取配置失败,跳过本轮检测: {e}"), "error");
             #[cfg(mobile)]
             apply_notification_text(ctx, campus_core_logic::notify::TEXT_CONFIG_UNAVAILABLE).await;
             return;
@@ -1249,7 +1195,7 @@ pub async fn run_check_once(ctx: &CoreCtx) {
             (p.on_campus, p.source, p.wifi_off)
         }
         Err(e) => {
-            emit_login_log(ctx, &format!("校园网检测失败: {e}"), "error");
+            ctx.emit_log(&format!("校园网检测失败: {e}"), "error");
             #[cfg(mobile)]
             apply_notification_text(ctx, campus_core_logic::notify::TEXT_PROBE_FAILED).await;
             return;
@@ -1300,8 +1246,7 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     let was_online = MONITOR.was_online.swap(online, Ordering::Relaxed);
     // 掉线通知:从在线翻离线且在校园网(桌面 background_emit 同语义)
     if was_online && !online && on_campus {
-        notify_system(
-            ctx,
+        ctx.notify_system(
             settings.enable_notification,
             "校园网连接掉线",
             &with_vpn_hint(&format!("将自动重登: {portal_message}")),
@@ -1314,7 +1259,7 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     //    ①注销保护期——手动注销后 60s 内不自动重登,否则注销即被登回(真机反馈语义);
     //    ②连续失败熔断——凭据错误时无限期每冷却重试刷日志耗流量,达 5 次停,手动登录成功清零
     let mut login_result: Option<serde_json::Value> = None;
-    let now = epoch_ms();
+    let now = crate::core::platform::now_ms();
     let since = now.saturating_sub(MONITOR.last_login_attempt_ms.load(Ordering::Relaxed));
     let logout_protected = now < MONITOR.logout_protected_until_ms.load(Ordering::Relaxed);
     let failures_capped = MONITOR.consecutive_failures.load(Ordering::Relaxed) >= 5;
@@ -1334,7 +1279,7 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     let login_needed = should && !settings.user.is_empty() && !settings.password.is_empty();
     let attempt = if login_needed { crate::core::login::try_begin_login() } else { None };
     if login_needed && attempt.is_none() {
-        emit_login_log(ctx, "自动重登: 已有登录任务进行中,本次跳过", "info");
+        ctx.emit_log("自动重登: 已有登录任务进行中,本次跳过", "info");
     }
     if let Some(attempt) = attempt {
         MONITOR.last_login_attempt_ms.store(now, Ordering::Relaxed);
@@ -1342,8 +1287,7 @@ pub async fn run_check_once(ctx: &CoreCtx) {
         let count = MONITOR.reconnect_count.load(Ordering::Relaxed);
         if count >= settings.max_disconnect_reconnect {
             // 达上限只发通知,不再执行本轮 run_login(重试也注定失败且刷熔断计数)
-            notify_system(
-                ctx,
+            ctx.notify_system(
                 settings.enable_notification,
                 "自动重连已达上限",
                 &with_vpn_hint("本轮在线周期内不再自动重登,请手动登录"),
@@ -1356,8 +1300,7 @@ pub async fn run_check_once(ctx: &CoreCtx) {
                 Ok(v) => {
                     let success = v["success"].as_bool().unwrap_or(false);
                     let message = v["message"].as_str().unwrap_or("").to_string();
-                    emit_login_log(
-                        ctx,
+                    ctx.emit_log(
                         &format!("自动登录: {message}"),
                         if success { "info" } else { "error" },
                     );
@@ -1381,8 +1324,7 @@ pub async fn run_check_once(ctx: &CoreCtx) {
                     } else {
                         // 协议返回失败(凭据错误等)与执行失败同计入熔断,达 5 次停止本会话自动重登
                         MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
-                        notify_system(
-                            ctx,
+                        ctx.notify_system(
                             settings.enable_notification,
                             "自动重登失败",
                             &with_vpn_hint(&message),
@@ -1394,9 +1336,8 @@ pub async fn run_check_once(ctx: &CoreCtx) {
                 }
                 Err(e) => {
                     MONITOR.consecutive_failures.fetch_add(1, Ordering::Relaxed);
-                    emit_login_log(ctx, &format!("自动登录执行失败: {e}"), "error");
-                    notify_system(
-                        ctx,
+                    ctx.emit_log(&format!("自动登录执行失败: {e}"), "error");
+                    ctx.notify_system(
                         settings.enable_notification,
                         "自动重登失败",
                         &with_vpn_hint(&e),

@@ -46,11 +46,9 @@ pub fn set_main_webview_suspended(app: &tauri::AppHandle, suspended: bool) {
     #[cfg(not(target_os = "windows"))]
     let _ = (app, suspended);
 
-    // 挂起后再主动归还工作集：SetIsVisible/LOW 只让渲染进程自行收敛（数十秒级），
-    // 这里把本进程与 WebView2 后代进程的工作集换出，页面状态不受影响
-    if suspended {
-        crate::platform::memory_trim::trim_working_sets_async();
-    }
+    // 工作集回收只在最小化路径触发（见 handle_window_resized_event 与
+    // commands::system::minimize_window）：隐藏到托盘要求秒恢复，换出后重新换入
+    // 反而更慢，不符合该模式的"状态全保留"语义。
 }
 
 /// 新 WebView 建立/销毁后复位挂起相关静态态：`LAST_MINIMIZED` 是跨窗口生命
@@ -169,8 +167,12 @@ pub fn handle_window_resized_event(window: &Window, event: &WindowEvent) {
         return;
     }
 
-    // 最小化即整体挂起（停帧 + 暂停脚本定时器），还原即恢复
+    // 最小化即整体挂起（停帧 + 暂停脚本定时器），还原即恢复；
+    // 同时归还本进程与 WebView2 后代进程的工作集
     set_main_webview_suspended(window.app_handle(), minimized);
+    if minimized {
+        crate::platform::memory_trim::trim_working_sets_async();
+    }
 }
 
 /// 标注「最小化挂起已同步」，供 commands::system::minimize_window 在主动
@@ -245,29 +247,24 @@ fn rebuild_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error:
     crate::app::lightweight::clear_window_ready("main");
     let window = builder.build()?;
     // 统一物理像素口径：builder 的 position/inner_size 是逻辑像素，构建后按物理值设置
-    if let Some(geo) = geometry {
-        let monitors: Vec<(i32, i32, u32, u32)> = app
-            .available_monitors()
-            .map(|list| {
-                list.iter()
-                    .map(|m| {
-                        let p = m.position();
-                        let s = m.size();
-                        (p.x, p.y, s.width, s.height)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        match crate::app::lightweight::restore_geometry(&window, &geo, &monitors) {
-            Ok(maximized) => {
-                if maximized {
-                    crate::app::lightweight::request_maximize_on_show();
+    match geometry {
+        Some(geo) => {
+            let monitors = crate::app::lightweight::available_monitor_rects(app);
+            match crate::app::lightweight::restore_geometry(&window, &geo, &monitors) {
+                Ok(maximized) => {
+                    // 恢复的几何即后续最大化捕获的"普通几何"基准，必须先回填
+                    crate::app::lightweight::remember_geometry(geo);
+                    if maximized {
+                        crate::app::lightweight::request_maximize_on_show();
+                    }
+                }
+                Err(reason) => {
+                    crate::log_warn!("lightweight", "未恢复窗口几何（{}），保持配置默认", reason);
+                    crate::app::lightweight::capture_geometry(&window);
                 }
             }
-            Err(reason) => {
-                crate::log_warn!("lightweight", "未恢复窗口几何（{}），保持配置默认", reason)
-            }
         }
+        None => crate::app::lightweight::capture_geometry(&window),
     }
     crate::log_info!("lightweight", "主窗口已重建，等待前端就绪后显示");
 

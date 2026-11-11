@@ -70,22 +70,36 @@ pub fn capture_geometry(window: &tauri::WebviewWindow) {
     }
     let Ok(pos) = window.outer_position() else { return; };
     let Ok(size) = window.inner_size() else { return; };
-    let maximized = window.is_maximized().unwrap_or(false);
+    let captured = WindowGeometry {
+        x: pos.x as f64,
+        y: pos.y as f64,
+        width: size.width as f64,
+        height: size.height as f64,
+        maximized: window.is_maximized().unwrap_or(false),
+    };
     if let Ok(mut g) = GEOMETRY.lock() {
-        if maximized {
-            if let Some(prev) = g.as_mut() {
-                prev.maximized = true;
-                return;
-            }
+        if let Some(next) = next_geometry(*g, captured) {
+            *g = Some(next);
         }
-        *g = Some(WindowGeometry {
-            x: pos.x as f64,
-            y: pos.y as f64,
-            width: size.width as f64,
-            height: size.height as f64,
-            maximized,
-        });
     }
+}
+
+/// 决定下一次落盘的几何（纯函数）。
+///
+/// 最大化尺寸不能当成还原尺寸：已有普通几何时只把状态位置为最大化、几何沿用旧值。
+/// 首次启动就最大化再关闭时没有旧值——此时不能落盘最大化几何（否则下次「还原」
+/// 得到全屏尺寸），返回 None 让调用方沿用磁盘上已有的普通几何或保持默认居中。
+pub fn next_geometry(
+    prev: Option<WindowGeometry>,
+    captured: WindowGeometry,
+) -> Option<WindowGeometry> {
+    if !captured.maximized {
+        return Some(captured);
+    }
+    prev.map(|mut prev| {
+        prev.maximized = true;
+        prev
+    })
 }
 
 pub fn take_geometry() -> Option<WindowGeometry> {
@@ -114,7 +128,7 @@ pub fn apply_pending_maximize(window: &tauri::WebviewWindow) {
 pub fn restore_geometry(
     window: &tauri::WebviewWindow,
     geo: &WindowGeometry,
-    monitors: &[(i32, i32, u32, u32)],
+    monitors: &[MonitorRect],
 ) -> Result<bool, String> {
     if !geometry_is_on_screen(geo, monitors) {
         return Err("几何已不在任何显示器上".to_string());
@@ -126,6 +140,41 @@ pub fn restore_geometry(
         .set_size(tauri::PhysicalSize::new(geo.width as u32, geo.height as u32))
         .map_err(|e| format!("set_size 失败: {e}"))?;
     Ok(geo.maximized)
+}
+
+/// 显示器矩形，物理像素：(x, y, width, height)
+pub type MonitorRect = (i32, i32, u32, u32);
+
+/// 当前所有显示器矩形；取不到时为空，恢复端据此判定离屏并回退默认几何。
+pub fn available_monitor_rects(app: &tauri::AppHandle) -> Vec<MonitorRect> {
+    app.available_monitors()
+        .map(|list| {
+            list.iter()
+                .map(|m| {
+                    let p = m.position();
+                    let s = m.size();
+                    (p.x, p.y, s.width, s.height)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 把已恢复/已捕获的几何放回内存缓存：后续最大化捕获才有普通几何可沿用，
+/// 否则首次启动直接最大化会把最大化尺寸当成还原尺寸落盘。
+pub fn remember_geometry(geo: WindowGeometry) {
+    if let Ok(mut g) = GEOMETRY.lock() {
+        *g = Some(geo);
+    }
+}
+
+/// 记录并落盘主窗口几何；窗口已销毁时沿用内存值（轻量化常驻后被系统关闭）。
+pub fn persist_window_geometry(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Some(ww) = app.get_webview_window("main") {
+        capture_geometry(&ww);
+    }
+    save_geometry(app);
 }
 
 /// 窗口几何落盘文件名（数据目录下，与 config.json 同级）
@@ -165,7 +214,7 @@ pub fn load_geometry(app: &tauri::AppHandle) -> Option<WindowGeometry> {
 }
 
 /// 几何与任一显示器矩形相交即认为在屏上（纯函数）
-pub fn geometry_is_on_screen(geo: &WindowGeometry, monitors: &[(i32, i32, u32, u32)]) -> bool {
+pub fn geometry_is_on_screen(geo: &WindowGeometry, monitors: &[MonitorRect]) -> bool {
     monitors.iter().any(|&(mx, my, mw, mh)| {
         let (mx, my) = (mx as f64, my as f64);
         let (mw, mh) = (mw as f64, mh as f64);
@@ -328,6 +377,27 @@ mod tests {
     }
 
     #[test]
+    fn 最大化捕获_有普通几何时只置状态位() {
+        let prev = WindowGeometry { x: 100.0, y: 80.0, width: 1200.0, height: 800.0, maximized: false };
+        let maximized_capture = WindowGeometry { x: 0.0, y: 0.0, width: 2560.0, height: 1440.0, maximized: true };
+        let next = super::next_geometry(Some(prev), maximized_capture).expect("应保留普通几何");
+        assert_eq!(next.x, 100.0);
+        assert_eq!(next.width, 1200.0);
+        assert!(next.maximized);
+    }
+
+    #[test]
+    fn 首次即最大化_不落盘最大化尺寸() {
+        let maximized_capture = WindowGeometry { x: 0.0, y: 0.0, width: 2560.0, height: 1440.0, maximized: true };
+        assert_eq!(super::next_geometry(None, maximized_capture), None);
+    }
+
+    #[test]
+    fn 普通窗口捕获_原样落盘() {
+        let captured = WindowGeometry { x: 10.0, y: 20.0, width: 900.0, height: 700.0, maximized: false };
+        assert_eq!(super::next_geometry(None, captured), Some(captured));
+    }
+
     fn 几何文件_固定在数据目录() {
         let path = geometry_path(std::path::Path::new("data"));
         assert!(path.ends_with(GEOMETRY_FILE));

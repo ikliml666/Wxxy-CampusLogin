@@ -48,7 +48,13 @@ export function useInitialDataLoad() {
 
           useThemeStore.getState().initTheme(cfg)
 
-          if (cfg.defaultPanel && !VALID_PANELS.includes(cfg.defaultPanel)) cfg.defaultPanel = ''
+          if (cfg.defaultPanel && !VALID_PANELS.includes(cfg.defaultPanel)) {
+            cfg.defaultPanel = ''
+            // 非法值（如已移除的 speedtest）不能只清内存：落盘收敛，避免每轮启动重复回退
+            void useConfigStore.getState().saveConfigDirect({ defaultPanel: '' }).catch((e) => {
+              if (import.meta.env.DEV) console.error('清理非法默认面板失败:', e)
+            })
+          }
 
           const savedPanel = safeStorage.get('campus-active-panel') as PanelName | null
           // 质量检测已禁用时 quality 面板不渲染（App.tsx 返回 null、Dock 隐藏入口），

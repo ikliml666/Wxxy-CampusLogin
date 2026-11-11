@@ -321,10 +321,7 @@ pub async fn shutdown_and_exit(app_handle: &AppHandle, state: &AppState) {
     // 覆盖不经过 CloseRequested 轻量化分支的退出路径（窗口已销毁时沿用上次落盘值）
     #[cfg(desktop)]
     {
-        if let Some(ww) = app_handle.get_webview_window("main") {
-            crate::app::lightweight::capture_geometry(&ww);
-        }
-        crate::app::lightweight::save_geometry(app_handle);
+        crate::app::lightweight::persist_window_geometry(app_handle);
     }
     state.exit.is_quitting.store(true, Ordering::Release);
     // 后台任务可能卡在不响应取消的阻塞调用（DHCP 子进程、长 HTTP 等），

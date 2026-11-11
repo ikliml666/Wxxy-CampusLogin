@@ -30,10 +30,7 @@ pub fn handle_window_close_event(window: &Window, event: &WindowEvent) {
         // 轻量化：记录几何 → 置单次退出守卫 → 开效率模式与轻量化标志 →
         // 不 prevent_close，让 Tauri 真销毁窗口。窗口销毁成为最后一个窗口时
         // Tauri 发 ExitRequested，由 startup.rs 的 run 回调消费守卫拦截退出
-        if let Some(ww) = window.app_handle().get_webview_window("main") {
-            crate::app::lightweight::capture_geometry(&ww);
-        }
-        crate::app::lightweight::save_geometry(window.app_handle());
+        crate::app::lightweight::persist_window_geometry(window.app_handle());
         crate::app::lightweight::arm_lightweight_exit_guard();
         crate::app::lightweight::set_lightweight_active(true);
         #[cfg(windows)]

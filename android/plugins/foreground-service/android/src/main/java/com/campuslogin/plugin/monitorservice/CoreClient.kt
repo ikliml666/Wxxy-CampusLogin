@@ -155,11 +155,8 @@ object CoreClient {
                 connection?.let { app.unbindService(it) }
             } catch (_: Exception) {
             }
-            // 显式关闭后台检测沿用旧语义:停巡检后同时结束 FGS 与常驻通知。
-            // 单次命令结束后的空闲核心由 CoreService 自停;新 startId 不被这里误杀。
-            if (action == "stop" && !result.get().contains("\"error\"")) {
-                app.stopService(Intent(app, CoreService::class.java))
-            }
+            // 空闲退出统一由 CoreService 用 stopSelfResult(lastStartId) 处理：
+            // UI 侧再 stopService 会在极端快速切换时误杀刚拉起的新一轮服务。
         }
         replyThread.quitSafely()
         return result.get()

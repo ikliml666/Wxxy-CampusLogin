@@ -26,7 +26,6 @@
 -keepclassmembers class com.campuslogin.plugin.monitorservice.CoreService {
     *** emit(java.lang.String,java.lang.String);
     *** notifySystem(java.lang.String);
-    *** updateNotification(java.lang.String);
     *** beginProbeWindow();
     *** endProbeWindow();
     *** powerState();

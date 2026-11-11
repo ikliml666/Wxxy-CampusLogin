@@ -108,12 +108,6 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
         invoke.resolve(ret)
     }
 
-    @Command
-    fun updateNotification(invoke: Invoke) {
-        // 常驻通知由 :core 内部随状态更新;保留命令面兼容,UI 侧不再改写文案
-        invoke.resolve()
-    }
-
     // 安装 APK:FileProvider content:// URI 交系统包安装器。
     // 此前走 opener open_path 的 file:// 对应用私有目录,Android 7+ 必失败
     // (FileUriExposedException / 他进程不可读);file_paths.xml 已补 files-path。

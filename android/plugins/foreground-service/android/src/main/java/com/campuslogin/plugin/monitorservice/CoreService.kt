@@ -46,16 +46,12 @@ class CoreService : Service() {
     companion object {
         const val CHANNEL_ID = "campus_monitor_v2"
         const val NOTIFICATION_ID = 0xCAFE
-        const val ACTION_STOP = "com.campuslogin.plugin.monitorservice.CORE_STOP"
         const val ACTION_EVENT = "com.campuslogin.plugin.monitorservice.CORE_EVENT"
         const val EXTRA_EVENT = "event"
         const val EXTRA_PAYLOAD = "payload"
         const val MSG_COMMAND = 1
         const val MSG_RESULT = 2
         const val NOTIFY_CHECK_INTERVAL_MS = 10 * 60 * 1000L
-
-        @Volatile
-        private var instance: CoreService? = null
 
         /** 通知陈旧阈值:与 campus_core_logic::status::MAX_STATUS_AGE_MS 一致 */
         private const val STATUS_STALE_MS = 15 * 60 * 1000L
@@ -65,6 +61,8 @@ class CoreService : Service() {
     private val notifyHandler = Handler(Looper.getMainLooper())
     private lateinit var messenger: Messenger
     private var startAtMs = 0L
+    /// 最近一次 startService 的 id：空闲退出只停自己这一轮，不误杀之后的新命令
+    private var lastStartId = 0
 
     private var wifiLock: WifiManager.WifiLock? = null
     private var probeWakeLock: PowerManager.WakeLock? = null
@@ -83,7 +81,6 @@ class CoreService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        instance = this
         startAtMs = System.currentTimeMillis()
         createChannel()
         startForegroundCompat("校园网监控运行中")
@@ -95,10 +92,7 @@ class CoreService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        lastStartId = startId
         return START_STICKY
     }
 
@@ -115,7 +109,6 @@ class CoreService : Service() {
         }
         handlerThread.quitSafely()
         stopForeground(true)
-        instance = null
         super.onDestroy()
     }
 
@@ -146,10 +139,22 @@ class CoreService : Service() {
             .setContentText(body)
             .setContentIntent(mainActivityIntent())
             .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setLargeIcon(mascotIcon(obj.optString("mascot", "")))
             .setAutoCancel(true)
             .build()
-        // 避开常驻通知 NOTIFICATION_ID,防止系统通知覆盖监控状态
-        manager.notify((System.currentTimeMillis() and 0xFFFF).toInt() + 100_000, notification)
+        // 固定 ID 且避开常驻通知：新的登录结果覆盖旧结果,而不是逐条堆叠
+        manager.notify(NOTIFICATION_ID + 1, notification)
+    }
+
+    /// mascot 是跨端共用的图标资源名；安卓缺该 drawable 时返回 null,回退小图标
+    private fun mascotIcon(name: String): android.graphics.Bitmap? {
+        if (name.isEmpty()) return null
+        val id = resources.getIdentifier(name, "drawable", packageName)
+        if (id == 0) {
+            Log.w(TAG, "缺少通知图标 drawable: $name")
+            return null
+        }
+        return android.graphics.BitmapFactory.decodeResource(resources, id)
     }
 
     fun updateNotification(text: String) {
@@ -611,9 +616,10 @@ class CoreService : Service() {
         } catch (e: Exception) {
             Log.w(TAG, "命令结果回传失败: ${e.message}")
         }
-        if (!keepService && action != "stop") {
-            // 只在 Binder IO 线程、当前命令已回传后退出;后续新命令会重新拉起核心。
-            stopSelf()
+        if (!keepService) {
+            // 只在 Binder IO 线程、当前命令已回传后退出;stopSelfResult 保证不会
+            // 误杀之后新 startService 的那一轮。后续新命令会重新拉起核心。
+            stopSelfResult(lastStartId)
         }
     }
 

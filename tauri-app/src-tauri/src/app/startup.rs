@@ -156,10 +156,7 @@ pub fn run(core_count: usize) {
             } else {
                 // 系统关机/注销路径不经过 shutdown_and_exit：窗口还在时补抓一次几何，
                 // 窗口已销毁（轻量化常驻后被系统关闭）则沿用上次落盘值
-                if let Some(ww) = _app.get_webview_window("main") {
-                    crate::app::lightweight::capture_geometry(&ww);
-                }
-                crate::app::lightweight::save_geometry(_app);
+                crate::app::lightweight::persist_window_geometry(_app);
             }
         }
     });
@@ -226,42 +223,34 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
     // visible(false)，设置位置不产生可见闪烁。离屏（拔显示器/分辨率变化）
     // 回退 tauri.conf 的居中默认。
     if let Some(window) = app.get_webview_window("main") {
-        if let Some(geo) = crate::app::lightweight::load_geometry(app.handle()) {
-            let monitors: Vec<(i32, i32, u32, u32)> = app
-                .handle()
-                .available_monitors()
-                .map(|list| {
-                    list.iter()
-                        .map(|m| {
-                            let p = m.position();
-                            let s = m.size();
-                            (p.x, p.y, s.width, s.height)
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            match crate::app::lightweight::restore_geometry(&window, &geo, &monitors) {
-                Ok(maximized) => {
-                    crate::log_info!(
-                        "startup",
-                        "已恢复上次窗口位置: ({}, {}) {}x{}{}",
-                        geo.x,
-                        geo.y,
-                        geo.width,
-                        geo.height,
-                        if maximized { "（最大化）" } else { "" }
-                    );
-                    if maximized {
-                        // 窗口尚未显示：show 后再 maximize，避免提前显示或清掉最大化
-                        crate::app::lightweight::request_maximize_on_show();
+        match crate::app::lightweight::load_geometry(app.handle()) {
+            Some(geo) => {
+                let monitors = crate::app::lightweight::available_monitor_rects(app.handle());
+                match crate::app::lightweight::restore_geometry(&window, &geo, &monitors) {
+                    Ok(maximized) => {
+                        crate::log_info!(
+                            "startup",
+                            "已恢复上次窗口位置: ({}, {}) {}x{}{}",
+                            geo.x,
+                            geo.y,
+                            geo.width,
+                            geo.height,
+                            if maximized { "（最大化）" } else { "" }
+                        );
+                        // 回填基准几何：首次启动后直接最大化时才有普通几何可沿用
+                        crate::app::lightweight::remember_geometry(geo);
+                        if maximized {
+                            // 窗口尚未显示：show 后再 maximize，避免提前显示或清掉最大化
+                            crate::app::lightweight::request_maximize_on_show();
+                        }
+                    }
+                    Err(reason) => {
+                        crate::log_warn!("lightweight", "未恢复上次窗口位置（{}），保持居中默认", reason);
+                        crate::app::lightweight::capture_geometry(&window);
                     }
                 }
-                Err(reason) => crate::log_warn!(
-                    "lightweight",
-                    "未恢复上次窗口位置（{}），保持居中默认",
-                    reason
-                ),
             }
+            None => crate::app::lightweight::capture_geometry(&window),
         }
     }
 

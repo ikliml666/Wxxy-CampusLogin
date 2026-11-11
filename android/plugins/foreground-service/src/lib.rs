@@ -38,11 +38,6 @@ impl<R: Runtime> CampusMonitorService<R> {
         self.0.run_mobile_plugin("stopMonitor", ())
     }
 
-    /// 更新前台通知文案(如登录结果)
-    pub fn update_notification(&self, text: &str) -> Result<serde_json::Value> {
-        self.0.run_mobile_plugin("updateNotification", serde_json::json!({ "text": text }))
-    }
-
     /// 进入探针窗口:窗口内持有 WifiLock + 唤醒锁(巡检每拍开始调用)
     pub fn begin_probe_window(&self) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("beginProbeWindow", ())

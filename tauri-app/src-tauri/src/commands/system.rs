@@ -14,9 +14,12 @@ pub fn minimize_window(window: Window, state: State<'_, AppState>) -> Result<(),
         crate::app::window::mark_hidden_by_design(true);
         window.hide().map_err(|e| e.to_string())
     } else {
-        // 同步挂起已发生，标注去抖态让随后的 Resized 事件不再重复触碰 COM
+        // 同步挂起已发生，标注去抖态让随后的 Resized 事件不再重复触碰 COM；
+        // Resized 被去抖后不会再走回收，这里主动归还工作集
         crate::app::window::note_minimized_synced();
-        window.minimize().map_err(|e| e.to_string())
+        window.minimize().map_err(|e| e.to_string())?;
+        crate::platform::memory_trim::trim_working_sets_async();
+        Ok(())
     }
 }
 

@@ -7,7 +7,6 @@
 
 - `allow-startMonitor`
 - `allow-stopMonitor`
-- `allow-updateNotification`
 - `allow-setBootAutostart`
 - `allow-isBootAutostartEnabled`
 - `allow-installApk`
@@ -179,32 +178,6 @@ Enables the stopMonitor command without any pre-configured scope.
 <td>
 
 Denies the stopMonitor command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`campus-monitor-service:allow-updateNotification`
-
-</td>
-<td>
-
-Enables the updateNotification command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`campus-monitor-service:deny-updateNotification`
-
-</td>
-<td>
-
-Denies the updateNotification command without any pre-configured scope.
 
 </td>
 </tr>
