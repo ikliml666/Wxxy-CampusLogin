@@ -4,9 +4,15 @@ use std::time::Instant;
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 
+#[cfg(test)]
+static CLIENT_TEST_BUILD_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+static CLIENT_TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
 lazy_static::lazy_static! {
     pub(crate) static ref PORTAL_URL: ArcSwap<String> = ArcSwap::from(Arc::new(crate::config::model::default_portal_url()));
     static ref CLIENT_POOL: DashMap<ClientPoolKey, (reqwest::Client, Instant)> = DashMap::new();
+    static ref CLIENT_POOL_BUILD_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 }
 
 /// 客户端池 key：本机地址、TLS 版本、超时与旁路代理地址共同决定连接池代际。
@@ -42,6 +48,11 @@ fn client_pool_key(local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version, t
 }
 
 fn build_client(timeout: std::time::Duration, local_addr: Option<IpAddr>, min_tls: reqwest::tls::Version, bypass_addr: Option<SocketAddr>) -> Result<reqwest::Client, String> {
+    #[cfg(test)]
+    {
+        CLIENT_TEST_BUILD_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     let mut default_headers = reqwest::header::HeaderMap::new();
     default_headers.insert(
         reqwest::header::CACHE_CONTROL,
@@ -116,6 +127,15 @@ fn create_http_client_with_bypass(
         return Ok(client);
     }
 
+    // 构建本身不发起网络 IO；只在冷启动慢路径串行化，避免并发重复初始化和返回不同连接池。
+    let _build_guard = CLIENT_POOL_BUILD_LOCK.lock();
+    if let Some(client) = client_pool_get(&tls13_key, "(TLS 1.3)") {
+        return Ok(client);
+    }
+    if let Some(client) = client_pool_get(&tls12_key, "(TLS 1.2 fallback)") {
+        return Ok(client);
+    }
+
     let (client, actual_key) = match build_client(timeout, local_addr, reqwest::tls::Version::TLS_1_3, bypass_addr) {
         Ok(c) => {
             crate::log_info!("http", "客户端池新建: key={:?}, poolSize={}", tls13_key, CLIENT_POOL.len() + 1);
@@ -129,7 +149,10 @@ fn create_http_client_with_bypass(
         }
     };
 
-    CLIENT_POOL.entry(actual_key).or_insert_with(|| (client.clone(), Instant::now()));
+    let client = CLIENT_POOL.entry(actual_key)
+        .or_insert_with(|| (client.clone(), Instant::now()))
+        .0
+        .clone();
     // 容量上限清理：按 Instant 找最早插入的条目剔除（命中路径不刷新时间戳，见 client_pool_get）
     while CLIENT_POOL.len() > CLIENT_POOL_MAX_ENTRIES {
         if let Some(entry) = CLIENT_POOL.iter().min_by_key(|e| e.value().1) {
@@ -188,10 +211,37 @@ pub fn clear_client_pool() -> usize {
 mod tests {
     use super::*;
     use std::net::{Ipv4Addr, SocketAddr};
+    use std::sync::Barrier;
     use std::time::Duration;
 
     #[test]
+    fn 冷启动并发只构建一个客户端代际() {
+        let _guard = CLIENT_TEST_LOCK.lock();
+        clear_client_pool();
+        CLIENT_TEST_BUILD_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+        const WORKERS: usize = 8;
+        let barrier = Arc::new(Barrier::new(WORKERS));
+        let mut workers = Vec::new();
+        for _ in 0..WORKERS {
+            let barrier = barrier.clone();
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                create_safe_http_client(Duration::from_secs(17), None).unwrap();
+            }));
+        }
+        for worker in workers {
+            worker.join().unwrap();
+        }
+
+        assert_eq!(CLIENT_TEST_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst), 1,
+            "同一缓存代际的冷启动并发只能构建一次客户端");
+        assert_eq!(CLIENT_POOL.len(), 1);
+        clear_client_pool();
+    }
+
+    #[test]
     fn 统一入口按旁路地址与超时复用并在路由切换时整体失效() {
+        let _guard = CLIENT_TEST_LOCK.lock();
         clear_client_pool();
         let timeout = Duration::from_secs(15);
         let bypass = SocketAddr::from((Ipv4Addr::LOCALHOST, 18080));
