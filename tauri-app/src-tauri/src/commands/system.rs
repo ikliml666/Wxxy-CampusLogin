@@ -57,7 +57,7 @@ pub fn open_external(url: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn set_auto_launch(enabled: bool, app_handle: AppHandle, _state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+pub async fn set_auto_launch(enabled: bool, app_handle: AppHandle) -> Result<serde_json::Value, String> {
     let exe_str = std::env::current_exe()
         .map_err(|e| format!("获取程序路径失败: {e}"))?
         .to_str()
@@ -113,7 +113,7 @@ pub async fn set_auto_launch(enabled: bool, app_handle: AppHandle, _state: State
 }
 
 #[tauri::command]
-pub async fn set_notification_enabled(enabled: bool, _state: State<'_, AppState>, app_handle: AppHandle) -> Result<bool, String> {
+pub async fn set_notification_enabled(enabled: bool, app_handle: AppHandle) -> Result<bool, String> {
     // 审计 A5：DPAPI+落盘为阻塞段，移入 spawn_blocking；锁内修改并落盘，
     // 成功后才发布运行态
     let app_h = app_handle.clone();

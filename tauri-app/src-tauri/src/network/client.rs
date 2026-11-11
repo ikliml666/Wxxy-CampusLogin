@@ -224,6 +224,15 @@ mod tests {
     use std::sync::Barrier;
     use std::time::Duration;
 
+    /// 测试退出（含断言 panic）时无条件摘掉全局屏障，避免残留的 Barrier
+    /// 让同进程后续客户端构建永久阻塞。
+    struct ColdStartBarrierGuard;
+    impl Drop for ColdStartBarrierGuard {
+        fn drop(&mut self) {
+            *CLIENT_TEST_COLD_START_BARRIER.lock() = None;
+        }
+    }
+
     #[test]
     fn 冷启动并发每个_tls版本至多构建一次() {
         let _guard = CLIENT_TEST_LOCK.lock();
@@ -233,6 +242,7 @@ mod tests {
         const WORKERS: usize = 8;
         let barrier = Arc::new(Barrier::new(WORKERS));
         *CLIENT_TEST_COLD_START_BARRIER.lock() = Some(barrier.clone());
+        let _barrier_guard = ColdStartBarrierGuard;
         let mut workers = Vec::new();
         for _ in 0..WORKERS {
             let barrier = barrier.clone();
@@ -244,7 +254,6 @@ mod tests {
         for worker in workers {
             worker.join().unwrap();
         }
-        *CLIENT_TEST_COLD_START_BARRIER.lock() = None;
 
         let tls13_builds = CLIENT_TEST_TLS13_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst);
         let tls12_builds = CLIENT_TEST_TLS12_BUILD_COUNT.load(std::sync::atomic::Ordering::SeqCst);

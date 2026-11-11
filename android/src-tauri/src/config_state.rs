@@ -140,6 +140,18 @@ pub struct Settings {
     pub config_schema_version: u32,
 }
 
+impl Settings {
+    /// 保留本机运行时出站状态：这些值由监控写入，前端配置快照可能较早，整份保存时
+    /// 用旧快照覆盖会丢失切换态、运营商暂存与还原标记。
+    pub fn preserve_runtime_from(&mut self, current: &Self) {
+        self.night_operator_restore = current.night_operator_restore.clone();
+        self.outbound_metric_restore = current.outbound_metric_restore.clone();
+        self.outbound_disabled_adapters = current.outbound_disabled_adapters.clone();
+        self.outbound_standby_route = current.outbound_standby_route.clone();
+        self.night_outbound_restore = current.night_outbound_restore.clone();
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -585,6 +597,9 @@ pub async fn save_config(
     // config_cmd save_config 对 vpn_password_enc 的回退同构)
     merged.vpn_password_enc =
         resolve_password_field(&merged.vpn_password_enc, &current.vpn_password_enc, false);
+    // 出站运行时状态由监控写入，前端整份回传的是旧快照；不保留会让切换标记/运营商
+    // 暂存被空值覆盖，夜切还原失去依据。
+    merged.preserve_runtime_from(&current);
     save_to(&dir, &bridge, &merged).await?;
     let state = app.state::<crate::android_state::AndroidState>();
     if let Ok(mut cache) = state.config.lock() {
@@ -728,6 +743,22 @@ mod tests {
             "旧默认单值载入时扩为三值(桌面 validate 同语义)"
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn 整份保存保留出站运行时字段() {
+        let mut current = Settings::default();
+        current.night_operator_restore = "@cmcc".to_string();
+        current.outbound_metric_restore = "metric".to_string();
+        current.night_outbound_restore = "logged_out".to_string();
+        let mut incoming = Settings::default();
+        incoming.night_operator_restore = String::new();
+        incoming.outbound_metric_restore = String::new();
+        incoming.night_outbound_restore = String::new();
+        incoming.preserve_runtime_from(&current);
+        assert_eq!(incoming.night_operator_restore, "@cmcc");
+        assert_eq!(incoming.outbound_metric_restore, "metric");
+        assert_eq!(incoming.night_outbound_restore, "logged_out");
     }
 
     #[test]

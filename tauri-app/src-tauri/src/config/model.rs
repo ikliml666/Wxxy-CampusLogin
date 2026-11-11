@@ -356,6 +356,7 @@ impl Config {
     /// 保留本机运行时出站状态字段：这些值由监控写入，前端配置快照可能较早，
     /// 整份保存/导入时用旧快照覆盖会导致切换态、跃点快照与还原标记丢失。
     pub fn preserve_outbound_runtime_from(&mut self, current: &Config) {
+        self.night_operator_restore = current.night_operator_restore.clone();
         self.outbound_metric_restore = current.outbound_metric_restore.clone();
         self.outbound_disabled_adapters = current.outbound_disabled_adapters.clone();
         self.outbound_standby_route = current.outbound_standby_route.clone();
@@ -397,6 +398,22 @@ mod tests {
         let config: Config = serde_json::from_value(json).unwrap();
         assert_eq!(config.max_disconnect_reconnect, 3);
         assert_eq!(config.auto_login_cooldown_secs, 60);
+    }
+
+    #[test]
+    fn 出站运行时字段保留包含运营商暂存() {
+        let mut current = Config::default();
+        current.night_operator_restore = "@cmcc".to_string();
+        current.outbound_metric_restore = "metric".to_string();
+        current.outbound_pending_switch = "pending".to_string();
+        let mut incoming = Config::default();
+        incoming.night_operator_restore = String::new();
+        incoming.outbound_metric_restore = String::new();
+        incoming.outbound_pending_switch = String::new();
+        incoming.preserve_outbound_runtime_from(&current);
+        assert_eq!(incoming.night_operator_restore, "@cmcc");
+        assert_eq!(incoming.outbound_metric_restore, "metric");
+        assert_eq!(incoming.outbound_pending_switch, "pending");
     }
 
     #[test]

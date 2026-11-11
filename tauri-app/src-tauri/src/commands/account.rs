@@ -324,20 +324,31 @@ pub async fn delete_account(account_name: String, app_handle: AppHandle) -> Resu
         std::fs::remove_file(&account_path).map_err(|e| format!("删除账号失败: {e}"))?;
         crate::log_info!("account", "删除账号: {}", name);
 
-        let current_config = state.config.load();
-        let cleared_active = current_config.active_account == account_name;
+        // 账号增删改切共用 try_account_op_lock，本段持有该锁，active_account 不会被
+        // switch/rename 并发改掉；事务闭包内再核对一次，兼容 save_config 的整份写入。
+        let mut cleared_active = state.config.load().active_account == account_name;
         if cleared_active {
-            // 删除账号文件已生效；主配置的 active_account 也必须在锁内清空并落盘，
-            // 否则重启后仍指向已删除账号。落盘失败时运行态保持原值并如实上报。
+            let mut cleared_in_tx = false;
+            let mut tx_checked = false;
             if let Err(e) = super::config_cmd::mutate_config_and_save(&app_h, &state, |c| {
-                c.active_account = String::new();
+                tx_checked = true;
+                cleared_in_tx = c.active_account == account_name;
+                if cleared_in_tx {
+                    c.active_account = String::new();
+                }
                 Ok(())
             }) {
-                crate::log_error!("account", "保存删除账号后的配置失败: {}", e);
-                return Ok(AccountResult::err(&format!(
-                    "账号「{account_name}」已删除，但激活状态清理失败：{e}（运行态仍指向已删除账号）"
-                )));
+                // 闭包已看到 active 已被 save_config 改走时，这次落盘失败与删除的
+                // 账号无关，不能反过来把已成功的删除报成失败。
+                if !tx_checked || cleared_in_tx {
+                    crate::log_error!("account", "保存删除账号后的配置失败: {}", e);
+                    return Ok(AccountResult::err(&format!(
+                        "账号「{account_name}」已删除，但激活状态清理失败：{e}（运行态仍指向已删除账号）"
+                    )));
+                }
+                crate::log_warn!("account", "删除非激活账号后的配置写入失败（可忽略）: {}", e);
             }
+            cleared_active = cleared_in_tx;
         }
 
         let display_config = state.config.load().masked_for_display();
@@ -392,14 +403,19 @@ fn perform_rename_account_sync(
     // 穿越——与 perform_switch_account_sync 同款防护，../config 等输入直接拒绝
     let safe_id = crate::infra::state::validate_account_name(account_id)?;
     let data_dir = persist::get_data_dir(app_handle);
-    let active_account = state.config.load().active_account.clone();
     let new_name = rename_account_core(&data_dir, &safe_id, display_name)?;
 
+    // 账号写操作共用 try_account_op_lock，本段持有该锁；闭包内再核对 active_account，
+    // 兼容 save_config 的整份写入。非激活账号不写主配置，避免无字段变化的事务
+    // 因落盘失败反向让改名/删除报错。
+    let active_account = state.config.load().active_account.clone();
     if safe_id == active_account {
-        // 锁内只改显示名，保留其他写者刚提交的字段；落盘成功才发布运行态。
         let display = new_name.clone();
+        let active_id = safe_id.clone();
         super::config_cmd::mutate_config_and_save(app_handle, state, move |c| {
-            c.display_name = display;
+            if c.active_account == active_id {
+                c.display_name = display;
+            }
             Ok(())
         })?;
     }

@@ -13,9 +13,11 @@ use crate::account::crypto;
 static LOGIN_HISTORY_LOCK: Mutex<()> = Mutex::new(());
 
 // 配置的「读当前值→改字段→落盘→发布」必须是一个串行事务：各写口自行 load
-// 快照再整份写回时，后写者会用旧值覆盖先写者刚落盘的字段。锁覆盖内存提交、
-// 阻塞持久化和事件广播（保证两个写者的内存与事件顺序一致）；广播路径与闭包
-// 内不得再次进入任何配置写口。
+// 快照再整份写回时，后写者会用旧值覆盖先写者刚落盘的字段。此锁覆盖阻塞持久化
+// 与事件广播，保证两个写者的内存提交、落盘与事件顺序一致；ConfigStore 内部
+// write_lock 覆盖锁内 mutate、persist、提交整段，与广播顺序是两段窗口，
+// 两者都不能省。
+// 广播路径与闭包内不得再次进入任何配置写口。
 static CONFIG_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {

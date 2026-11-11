@@ -123,11 +123,27 @@ where
     let handle = app_handle.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = handle.state::<AppState>();
-        super::config_cmd::mutate_config_and_save(&handle, state.inner(), mutate)
+        // VPN 字段不参与托盘账号菜单，直接走持久化事务，避免无谓重建托盘。
+        crate::config::persist::mutate_config_and_save(&handle, &state, mutate)
     })
     .await
     .map_err(|e| format!("配置落盘任务失败: {e}"))??;
     reset_vpn_session();
+    Ok(())
+}
+
+/// 只落盘、不重置已复用的 WebVPN 会话：总开关同值切换不应丢弃会话。
+async fn persist_config<F>(app_handle: &tauri::AppHandle, mutate: F) -> Result<(), String>
+where
+    F: FnOnce(&mut Config) -> Result<(), String> + Send + 'static,
+{
+    let handle = app_handle.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = handle.state::<AppState>();
+        crate::config::persist::mutate_config_and_save(&handle, &state, mutate)
+    })
+    .await
+    .map_err(|e| format!("配置落盘任务失败: {e}"))??;
     Ok(())
 }
 
@@ -177,7 +193,7 @@ pub fn vpn_credential_status(state: State<'_, AppState>) -> Result<CommandResult
 
 /// 清除 WebVPN 凭据并把总开关置回关闭。
 #[tauri::command]
-pub async fn vpn_clear_credential(app_handle: tauri::AppHandle, _state: State<'_, AppState>) -> Result<CommandResult, String> {
+pub async fn vpn_clear_credential(app_handle: tauri::AppHandle) -> Result<CommandResult, String> {
     persist_config_and_reset_session(&app_handle, |new_config| {
         new_config.vpn_account.clear();
         new_config.vpn_password_enc.clear();
@@ -193,14 +209,14 @@ pub async fn vpn_clear_credential(app_handle: tauri::AppHandle, _state: State<'_
 #[tauri::command]
 pub async fn set_self_service_via_vpn(
     app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
     enabled: bool,
 ) -> Result<CommandResult, String> {
-    if state.config.load().self_service_via_vpn == enabled {
-        return Ok(CommandResult::ok_msg(if enabled { "已处于开启状态" } else { "已处于关闭状态" }));
-    }
-    persist_config_and_reset_session(&app_handle, move |new_config| {
-        new_config.self_service_via_vpn = enabled;
+    // 幂等判定必须在配置事务锁内完成；锁外读快照会在并发保存时把已切换的值
+    // 又写回旧值。同值只多一次无字段变化的落盘，但不重置已复用的 VPN 会话。
+    persist_config(&app_handle, move |new_config| {
+        if new_config.self_service_via_vpn != enabled {
+            new_config.self_service_via_vpn = enabled;
+        }
         Ok(())
     })
     .await?;

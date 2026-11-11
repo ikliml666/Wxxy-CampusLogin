@@ -5,6 +5,8 @@ use crate::config::validate::{validate_config, validate_config_lenient};
 use crate::account::crypto;
 use crate::infra::state::{AppState, CommandResult};
 
+const VALIDATION_ERROR_PREFIX: &str = "配置校验失败: ";
+
 /// 命令层配置事务：锁内读最新值、落盘成功后才发布内存和事件，最后刷新托盘。
 pub fn mutate_config_and_save<F>(
     app_handle: &AppHandle,
@@ -147,7 +149,7 @@ pub async fn export_config(state: State<'_, AppState>, app_handle: AppHandle, in
 /// → 落盘成功才发布内存并广播 config-changed → 更新全局 Portal URL 与日志保留天数。
 /// 审计 A5：文件读取与 DPAPI+落盘为阻塞段，各移入 spawn_blocking。
 #[tauri::command]
-pub async fn import_config(_state: State<'_, AppState>, app_handle: AppHandle, path: String) -> Result<CommandResult, String> {
+pub async fn import_config(app_handle: AppHandle, path: String) -> Result<CommandResult, String> {
     // 大小防呆：配置文件不应超过 1MB，防止误选超大文件整读进内存
     const MAX_IMPORT_SIZE: u64 = 1024 * 1024;
     // 审计 A5：文件读取为阻塞 IO，移入 spawn_blocking
@@ -177,7 +179,7 @@ pub async fn import_config(_state: State<'_, AppState>, app_handle: AppHandle, p
     let imported = config;
     let save_result = tauri::async_runtime::spawn_blocking(move || {
         let st = app_h.state::<AppState>();
-        persist::mutate_config_and_save(&app_h, &st, move |fresh| {
+        super::config_cmd::mutate_config_and_save(&app_h, &st, move |fresh| {
             let mut next = imported;
             // 密码语义还原必须先于严格校验：含密码导出的密码字段是 base64 密文，
             // 长度必然超过 validate_password 的 128 上限，先还原成明文再校验
@@ -196,7 +198,7 @@ pub async fn import_config(_state: State<'_, AppState>, app_handle: AppHandle, p
             next.preserve_outbound_runtime_from(fresh);
             // 失败分列③：配置校验失败（严格版，与 save_config 同源）
             let validated = validate_config(next)
-                .map_err(|e| format!("配置校验失败: {e}"))?;
+                .map_err(|e| format!("{VALIDATION_ERROR_PREFIX}{e}"))?;
             *fresh = validated;
             Ok(())
         })
@@ -205,14 +207,13 @@ pub async fn import_config(_state: State<'_, AppState>, app_handle: AppHandle, p
     .map_err(|e| format!("配置落盘任务失败: {e}"))?;
     let saved = match save_result {
         Ok(saved) => saved,
-        Err(e) if e.starts_with("配置校验失败: ") => {
+        Err(e) if e.starts_with(VALIDATION_ERROR_PREFIX) => {
             return Ok(CommandResult::err(&e));
         }
         Err(e) => return Err(e),
     };
     crate::network::update_portal_url(&saved.portal_url);
     crate::infra::logger::set_log_retention_days(saved.log_retention_days);
-    crate::app::tray::refresh_tray_menu_state(&app_handle);
     crate::log_info!("config", "配置导入成功, 用户: {}", saved.user);
 
     Ok(CommandResult::ok_msg("配置导入成功"))
@@ -263,7 +264,7 @@ pub async fn save_config(
     let app_h = app_handle.clone();
     let saved = tauri::async_runtime::spawn_blocking(move || {
         let st = app_h.state::<AppState>();
-        persist::mutate_config_and_save(&app_h, &st, move |fresh| {
+        super::config_cmd::mutate_config_and_save(&app_h, &st, move |fresh| {
             let mut next = candidate;
             // 显式清除密码（用户在账号面板点击"清除密码"）：跳过兜底直接置空
             if clear_password == Some(true) {
@@ -290,7 +291,6 @@ pub async fn save_config(
     .map_err(|e| format!("配置落盘任务失败: {e}"))??;
     crate::network::update_portal_url(&saved.portal_url);
     crate::infra::logger::set_log_retention_days(saved.log_retention_days);
-    crate::app::tray::refresh_tray_menu_state(&app_handle);
     crate::log_info!("config", "配置保存成功, 用户: {}", saved.user);
 
     // R2 自动建号：输入了账号+密码即默认创建/同步同名本地账号。

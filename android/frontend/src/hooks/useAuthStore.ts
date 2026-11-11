@@ -107,9 +107,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
     const self = useAuthStore.getState()
     const config = useConfigStore.getState().config
     if (self.isLoggingIn || self.isLoggingOut || !config) return false
+    const previousStatus = self.status
+    const loadingText = i18next.t('auth.loggingInToast')
     const loginConfig = { ...config }
     set({ isLoggingIn: true })
-    set({ status: { text: i18next.t('auth.loggingInToast'), state: 'loading' } })
+    set({ status: { text: loadingText, state: 'loading' } })
     useLogToastStore.getState().addLog('开始登录...', 'info')
     useLogToastStore.getState().addToast(i18next.t('auth.loggingInToast'), 'info')
 
@@ -127,7 +129,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
       if (result?.inProgress) {
         loginInProgress = true
         const message = result.message || i18next.t('auth.loggingInToast')
-        set({ status: { text: message, state: 'loading' } })
+        // 另一个登录任务持有后端所有权，本地这次没有真正执行；只有状态条仍停在
+        // 本次写入的 loading 时才恢复，避免覆盖等待期间后台事件刚写入的在线/离线状态。
+        if (useAuthStore.getState().status.text === loadingText) {
+          set({ status: previousStatus })
+        }
         useLogToastStore.getState().addLog(message, 'info')
         useLogToastStore.getState().addToast(message, 'info')
       } else if (result?.success) {

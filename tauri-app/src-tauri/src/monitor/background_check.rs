@@ -493,7 +493,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         CheckOutcome::NotOnline
     };
     if outcome == CheckOutcome::OnlineButPortalUnreachable {
-        trigger_fast_quality_check(app_handle, state, &adapters, &config);
+        trigger_fast_quality_check(app_handle, state, &adapters, &config, cancel_token);
     }
 
     // IP 冲突兜底：有地址但服务不可达，且系统 DAD 已判定该地址冲突（同网段有另一台
@@ -547,6 +547,7 @@ fn trigger_fast_quality_check(
     state: &AppState,
     adapters: &[crate::network::Adapter],
     config: &crate::config::model::Config,
+    cancel_token: &tokio_util::sync::CancellationToken,
 ) {
     let allowed = state
         .network
@@ -573,8 +574,11 @@ fn trigger_fast_quality_check(
         name
     );
     let app_h = app_handle.clone();
+    let cancel = cancel_token.clone();
     tauri::async_runtime::spawn(async move {
-        let result = super::quality_scheduler::run_quality_check(&app_h, &name, &ip, None).await;
+        // 停止后台检测时，这次联动质量检测也必须随取消令牌退出，不能继续跑满
+        // 19 个外网目标并写历史。
+        let result = super::quality_scheduler::run_quality_check(&app_h, &name, &ip, Some(&cancel)).await;
         // 明确回答"能否访问互联网"：外网站点平均延迟 > 0 即至少一个外网目标成功，
         // 互联网可达；全部失败则外网中断（此时门户+外网都不通，问题在本地网络/被踢下线）。
         // 结论写运行日志并推前端登录日志；系统通知仅在外网中断时发（可达不发，免打扰）。

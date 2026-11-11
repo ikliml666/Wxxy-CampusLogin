@@ -1153,6 +1153,8 @@ async fn run_scheduled_actions(app: &tauri::AppHandle) {
 
 /// 在配置 IO 锁内读取最新配置、应用字段修改、落盘并刷新缓存/广播。
 /// 返回 None 表示落盘失败(已记 error 日志),调用方跳过登录触发,下一拍重试。
+/// 注意：夜切只改运行态 operator，不在这里同步账号档案——档案要保留用户原始运营商，
+/// 否则切回该账号时会把临时的无锡学院空串当成原值写回。
 async fn persist_settings<F>(
     app: &tauri::AppHandle,
     mutate: F,
