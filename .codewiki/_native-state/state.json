@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "82ae432503aa2bf85c71c78319efa0747be0081b",
-    "headCommit": "9fb192df16d4d5d7c0c1ff34757e20ff85017f4a"
+    "headCommit": "1fcc86fe0bc4219d00c7711788663df484d900b4"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "82ae432503aa2bf85c71c78319efa0747be0081b",
-    "headCommit": "9fb192df16d4d5d7c0c1ff34757e20ff85017f4a",
+    "headCommit": "1fcc86fe0bc4219d00c7711788663df484d900b4",
     "committed": [
       "android/frontend/src/auth/types.ts",
       "android/frontend/src/hooks/useAuthStore.ts",
@@ -53,12 +53,13 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "工作区未提交改动已合成临时 commit 36d4b0966102（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbyhevq-9-native（66 个文件）"
+    "工作区未提交改动已合成临时 commit cc345c56cf1d（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbyktlb-a-native（66 个文件）",
+    "本轮把 1 个未提交源码改动一并写进产物（快照 cc345c56cf1d）：tauri-app/frontend/index.html"
   ],
-  "updatedAt": "2026-11-11T10:09:08.330Z"
+  "updatedAt": "2026-11-11T10:11:24.386Z"
 }
