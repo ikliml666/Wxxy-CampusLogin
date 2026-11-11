@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "efe792a1f2d467843d7493b179846eccdfdde3a1",
-    "headCommit": "1df30dd8aff2ab6c10a22ad02e3ff0d4923e8a22"
+    "headCommit": "e526f51a6974476bf3d6657a28b5f845b7c46cbf"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "efe792a1f2d467843d7493b179846eccdfdde3a1",
-    "headCommit": "1df30dd8aff2ab6c10a22ad02e3ff0d4923e8a22",
+    "headCommit": "e526f51a6974476bf3d6657a28b5f845b7c46cbf",
     "committed": [
       "android/src-tauri/src/login_history.rs",
       "android/src-tauri/src/monitor_loop.rs",
@@ -38,15 +38,15 @@
     "tauri-app/frontend/index.html"
   ],
   "engineVersion": "2.0.0",
-  "scope": "auto",
+  "scope": "stale",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 6852af5 与本次 cw 基线 efe792a 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "工作区未提交改动已合成临时 commit 8b784ce869b1（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbfsoed-f-native（66 个文件）"
+    "工作区未提交改动已合成临时 commit 7bcb6c41ca77（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbfw96p-g-native（66 个文件）",
+    "本轮把 1 个未提交源码改动一并写进产物（快照 7bcb6c41ca77）：tauri-app/frontend/index.html"
   ],
-  "updatedAt": "2026-11-11T01:25:39.978Z"
+  "updatedAt": "2026-11-11T01:28:25.606Z"
 }
