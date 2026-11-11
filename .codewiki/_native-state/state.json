@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "50ca23ff48ddc48546a12a4b731a91b601cd0fd4",
-    "headCommit": "94bcaf68ecde1a19e2b43b91fe09898dd7f12ccd"
+    "headCommit": "43be991f167281d94df7a8671b5077c66e614964"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "50ca23ff48ddc48546a12a4b731a91b601cd0fd4",
-    "headCommit": "94bcaf68ecde1a19e2b43b91fe09898dd7f12ccd",
+    "headCommit": "43be991f167281d94df7a8671b5077c66e614964",
     "committed": [
       "tauri-app/src-tauri/src/network/client.rs"
     ],
@@ -31,9 +31,8 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 40dcc08 与本次 cw 基线 50ca23f 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "工作区未提交改动已合成临时 commit d0361fd2c5c0（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbmn2xg-3-native（66 个文件）"
+    "工作区未提交改动已合成临时 commit 80a6e9846da2（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbo5fda-4-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-11T04:37:14.944Z"
+  "updatedAt": "2026-11-11T05:19:30.363Z"
 }
