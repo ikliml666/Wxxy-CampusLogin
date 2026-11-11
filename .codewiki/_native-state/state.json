@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "82ae432503aa2bf85c71c78319efa0747be0081b",
-    "headCommit": "89f2d5474e61aadf6fcb9ab4bd359031b8fd21c0"
+    "headCommit": "41c9f9e659e630af87a39305e814535729f33f7c"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "82ae432503aa2bf85c71c78319efa0747be0081b",
-    "headCommit": "89f2d5474e61aadf6fcb9ab4bd359031b8fd21c0",
+    "headCommit": "41c9f9e659e630af87a39305e814535729f33f7c",
     "committed": [
       "android/src-tauri/src/quality_cmds.rs",
       "tauri-app/src-tauri/src/monitor/quality_scheduler.rs",
@@ -16,6 +16,8 @@
     ],
     "staged": [],
     "unstaged": [
+      "android/src-tauri/src/monitor_loop.rs",
+      "android/src-tauri/src/protocol_cmds.rs",
       "tauri-app/frontend/index.html"
     ],
     "untracked": [],
@@ -24,6 +26,8 @@
     "reason": ""
   },
   "unconsumed": [
+    "android/src-tauri/src/monitor_loop.rs",
+    "android/src-tauri/src/protocol_cmds.rs",
     "tauri-app/frontend/index.html"
   ],
   "engineVersion": "2.0.0",
@@ -33,9 +37,8 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 a0410e9 与本次 cw 基线 82ae432 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "工作区未提交改动已合成临时 commit 3771099f6f4a（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbrjqt6-3-native（66 个文件）"
+    "工作区未提交改动已合成临时 commit 14b460ae25ca（3 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwburs1w-5-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-11T06:54:38.015Z"
+  "updatedAt": "2026-11-11T08:26:52.543Z"
 }
