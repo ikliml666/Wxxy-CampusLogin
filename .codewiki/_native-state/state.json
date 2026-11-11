@@ -2,29 +2,14 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "efe792a1f2d467843d7493b179846eccdfdde3a1",
-    "headCommit": "e526f51a6974476bf3d6657a28b5f845b7c46cbf"
+    "baseCommit": "e526f51a6974476bf3d6657a28b5f845b7c46cbf",
+    "headCommit": "ff2ff5dd5b293fee68b847366b2d1291ace4e1de"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "efe792a1f2d467843d7493b179846eccdfdde3a1",
-    "headCommit": "e526f51a6974476bf3d6657a28b5f845b7c46cbf",
-    "committed": [
-      "android/src-tauri/src/login_history.rs",
-      "android/src-tauri/src/monitor_loop.rs",
-      "android/src-tauri/src/protocol_cmds.rs",
-      "android/src-tauri/src/quality_cmds.rs",
-      "android/src-tauri/src/quality_history.rs",
-      "android/src-tauri/src/update_cmds.rs",
-      "tauri-app/src-tauri/src/commands/system.rs",
-      "tauri-app/src-tauri/src/monitor/adapter_watch.rs",
-      "tauri-app/src-tauri/src/monitor/campus_check.rs",
-      "tauri-app/src-tauri/src/monitor/scheduled.rs",
-      "tauri-app/src-tauri/src/network/adapter_cache.rs",
-      "tauri-app/src-tauri/src/network/ip_conflict.rs",
-      "tauri-app/src-tauri/src/self_service/mod.rs",
-      "tauri-app/src-tauri/src/vpn/cache.rs"
-    ],
+    "baseCommit": "e526f51a6974476bf3d6657a28b5f845b7c46cbf",
+    "headCommit": "ff2ff5dd5b293fee68b847366b2d1291ace4e1de",
+    "committed": [],
     "staged": [],
     "unstaged": [
       "tauri-app/frontend/index.html"
@@ -38,15 +23,16 @@
     "tauri-app/frontend/index.html"
   ],
   "engineVersion": "2.0.0",
-  "scope": "stale",
+  "scope": "auto",
   "effectiveScope": "stale",
   "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "工作区未提交改动已合成临时 commit 7bcb6c41ca77（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbfw96p-g-native（66 个文件）",
-    "本轮把 1 个未提交源码改动一并写进产物（快照 7bcb6c41ca77）：tauri-app/frontend/index.html"
+    "持久化基线 efe792a 与本次 cw 基线 e526f51 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "工作区未提交改动已合成临时 commit 4da530a04df0（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwbg78jv-1-native（66 个文件）",
+    "本轮把 1 个未提交源码改动一并写进产物（快照 4da530a04df0）：tauri-app/frontend/index.html"
   ],
-  "updatedAt": "2026-11-11T01:28:25.606Z"
+  "updatedAt": "2026-11-11T01:38:48.837Z"
 }
