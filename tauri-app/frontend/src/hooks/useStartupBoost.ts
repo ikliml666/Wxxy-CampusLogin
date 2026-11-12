@@ -119,7 +119,7 @@ export function useStartupBoost() {
 
     if (r.dockNav) {
       // 悬浮栏进场只做位移与缩放，不做 opacity：它自己的「玻璃就绪后才出现」已由
-      // .glass-live 的 opacity 过渡接管（见 lib/glass-dock.tsx），这里再叠一层 opacity
+      // data-glass-live 的 opacity 过渡接管（见 lib/glass-dock.tsx），这里再叠一层 opacity
       // 会让祖先链在补间期间 opacity < 1 → backdrop root → 玻璃膜发黑。
       tl.fromTo(r.dockNav,
         { y: 40, scale: 0.85 },

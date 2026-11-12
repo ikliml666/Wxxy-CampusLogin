@@ -141,9 +141,9 @@ const LIVE_FRAMES = 2
  * 挂载拆成三件事：
  *
  * ① **挂滤镜**：进 effect 立刻挂，不等任何东西。
- * ② **放开半透明**（补 `.glass-live`）：要等整条祖先链落回「不透明 + 无变换 +
+ * ② **放开半透明**（补 `data-glass-live`）：要等整条祖先链落回「不透明 + 无变换 +
  *    无 will-change」，补丁两帧后加。
- * ③ **让它出现**：`.glass-live` 之前 CSS 把整条压成 `opacity: 0`，所以悬浮栏
+ * ③ **让它出现**：`data-glass-live` 之前 CSS 把整条压成 `opacity: 0`，所以悬浮栏
  *    在玻璃就绪的同一刻才淡入——不是先露一条白膜、过一会儿再变成玻璃。
  *
  * 「整条发黑」的根因是**祖先层在建合成层**：桌面端 GSAP 的入场补间给悬浮栏外层
@@ -171,8 +171,8 @@ const LIVE_FRAMES = 2
  * 触发 1 次**（812ms，639×43 的 content box，对应 651×55 的 border box）。
  * 布局自始至终没变过，位移图只建一次，那 400ms 是纯等待——已删。
  *
- * 等不到祖先链落干净时的兜底：加 `.glass-ready` 让它以**实底**出现（导航栏不能
- * 整个缺席），半透仍然只由 `.glass-live` 放开，所以兜底路径也不会露黑膜。
+ * 等不到祖先链落干净时的兜底：加 `data-glass-ready` 让它以**实底**出现（导航栏不能
+ * 整个缺席），半透仍然只由 `data-glass-live` 放开，所以兜底路径也不会露黑膜。
  */
 export function useGlassRefraction(
   ref: RefObject<HTMLElement | null>,
@@ -199,21 +199,21 @@ export function useGlassRefraction(
       }
     }
 
-    // .glass-live 只在卸载时拆：换档位是 remove→attach 紧挨着发生的，
+    // data-glass-live 只在卸载时拆：换档位是 remove→attach 紧挨着发生的，
     // 中途拆掉会让膜落回实底、闪两帧再淡回来。
     const cleanup = () => {
       cancelAnimationFrame(liveRaf)
       cancelAnimationFrame(pollRaf)
       remove()
-      el.classList.remove('glass-live')
-      el.classList.remove('glass-ready')
+      delete el.dataset.glassLive
+      delete el.dataset.glassReady
     }
 
     if (level === 'off' || !hyalite.supported()) {
       remove()
       // 没有玻璃可等，立刻可见：off 档的 CSS 本就不藏它，这条是防「引擎不支持时
       // data-glass 仍是 standard/ultra」把悬浮栏永久藏住。
-      el.classList.add('glass-ready')
+      el.dataset.glassReady = ''
       return cleanup
     }
 
@@ -223,10 +223,10 @@ export function useGlassRefraction(
     hyalite.attach(el, GLASS_DOCK_OPTS[level])
     attached.current = true
 
-    // ② 放开半透明：等祖先链落干净再补 .glass-live。
+    // ② 放开半透明：等祖先链落干净再补 data-glass-live。
     // 已经放开过（换档位）就直接放，别再等一次。
     if (pastStartup.current) {
-      el.classList.add('glass-live')
+      el.dataset.glassLive = ''
       return cleanup
     }
 
@@ -255,7 +255,7 @@ export function useGlassRefraction(
       let frames = LIVE_FRAMES
       const live = () => {
         if (frames-- > 0) liveRaf = requestAnimationFrame(live)
-        else el.classList.add('glass-live')
+        else el.dataset.glassLive = ''
       }
       liveRaf = requestAnimationFrame(live)
     }
@@ -267,12 +267,12 @@ export function useGlassRefraction(
         goLive()
         return
       }
-      // 兜底：等不到祖先链落干净就先让悬浮栏可见（加 .glass-ready → CSS 钉回实底），
+      // 兜底：等不到祖先链落干净就先让悬浮栏可见（加 data-glass-ready → CSS 钉回实底），
       // 不要因为等不到就整条不给——导航栏消失比一条白膜严重得多。半透仍然只由
       // goLive 放开，所以这条路径不会露黑膜。
       if (performance.now() - startedAt >= MAX_WAIT_MS) {
         pastStartup.current = true
-        el.classList.add('glass-ready')
+        el.dataset.glassReady = ''
         return
       }
       pollRaf = requestAnimationFrame(poll)
