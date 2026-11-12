@@ -3,6 +3,15 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use crate::infra::state::{AppState, CommandResult};
 use super::background_check::run_background_check;
+use super::dynamic_interval::CheckOutcome;
+
+fn interval_base_ms(outcome: CheckOutcome, base_ms: u64, lightweight: bool) -> u64 {
+    if outcome == CheckOutcome::NotOnline {
+        crate::app::lightweight::effective_background_interval_ms(base_ms, lightweight)
+    } else {
+        base_ms
+    }
+}
 
 pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) -> Result<CommandResult, String> {
     // 先落盘成功再启动任务：落盘失败时不得返回“已启动”而配置仍是关闭状态。
@@ -26,7 +35,7 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
             }
 
             // 动态检测间隔（dynamic_interval.rs）：未登录按配置基础间隔 ×2 逐步
-            // 退避（封顶 5 分钟）；已登录 10 分钟；已登录但门户不可达 1 分钟快排查。
+            // 退避（封顶 5 分钟）；已登录 1 分钟；已登录但门户不可达 1 分钟快排查。
             // 配置基础间隔每轮重读，设置面板修改即时生效。
             let mut dyn_interval = super::dynamic_interval::DynamicInterval::default();
             let mut last_outcome = run_background_check(&app_h, cancel_token.clone()).await;
@@ -38,7 +47,8 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
                     let base_ms = cfg.background_check_interval.max(10000);
                     // 轻量化下限 300s 只作用于退避基础值：快排查（1 分钟）与已登录档
                     // 不被抬回 5 分钟，保证"门户不可达快排查"在轻量化下依然有效
-                    let base_eff = crate::app::lightweight::effective_background_interval_ms(
+                    let base_eff = interval_base_ms(
+                        last_outcome,
                         base_ms,
                         crate::app::lightweight::is_lightweight_active(),
                     );
@@ -185,7 +195,15 @@ pub fn spawn_background_check_after_outbound_restore(app_handle: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::post_restore_wait_should_continue;
+    use super::{interval_base_ms, post_restore_wait_should_continue, CheckOutcome};
+
+    #[test]
+    fn 轻量化只抬离线退避_不拖慢在线与快排查() {
+        assert_eq!(interval_base_ms(CheckOutcome::NotOnline, 60_000, true), 300_000);
+        assert_eq!(interval_base_ms(CheckOutcome::Online, 60_000, true), 60_000);
+        assert_eq!(interval_base_ms(CheckOutcome::OnlineButPortalUnreachable, 60_000, true), 60_000);
+        assert_eq!(interval_base_ms(CheckOutcome::Skipped, 60_000, true), 60_000);
+    }
 
     /// 等待上限语义：达到上限即收尾，不多睡一轮空等
     #[test]

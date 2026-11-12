@@ -166,6 +166,10 @@ pub(super) fn emit_background_check_result(
     }
 }
 
+pub(super) fn all_adapters_online(online: bool, secondary_online: Option<bool>) -> bool {
+    online && secondary_online != Some(false)
+}
+
 pub(super) fn update_network_state(
     state: &AppState,
     online: bool,
@@ -188,7 +192,8 @@ pub(super) fn update_network_state(
     state.network.update(|s| {
         s.any_adapter_online = any_online;
         s.last_a1_online = online;
-        if any_online {
+        // 另一张卡仍在线不能清零目标卡的重连计数；全部在线才进入新在线周期。
+        if all_adapters_online(online, secondary_online) {
             s.disconnect_reconnect_count = 0;
         }
     });
@@ -201,5 +206,19 @@ pub(super) fn update_network_state(
         if state.config.load().auto_exit_on_online {
             start_auto_exit(app_handle, state);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::all_adapters_online;
+
+    #[test]
+    fn 全部适配器在线才清零重连计数() {
+        assert!(all_adapters_online(true, None));
+        assert!(all_adapters_online(true, Some(true)));
+        assert!(!all_adapters_online(true, Some(false)));
+        assert!(!all_adapters_online(false, Some(true)));
+        assert!(!all_adapters_online(false, None));
     }
 }

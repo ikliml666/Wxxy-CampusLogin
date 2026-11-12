@@ -83,12 +83,69 @@ pub fn prep_failures_after_failure(failures: u32, failure_msg: &str) -> u32 {
     }
 }
 
-/// 断线重连是否应向上报告"已重连成功"。
-///
-/// 只有登录成功且未超过重连次数上限时才返回 true，调用方据此
-/// 跳过用重连前旧 Portal 快照覆盖 `any_adapter_online` 的逻辑。
-pub fn reconnect_should_report(login_success: bool, within_limit: bool) -> bool {
-    login_success && within_limit
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReconnectTarget {
+    Primary,
+    Secondary,
+}
+
+/// 只选择实际掉线且有 IP 的适配器，避免另一张卡的成功掩盖目标卡失败。
+pub fn reconnect_target(
+    online: bool,
+    secondary_online: Option<bool>,
+    a1_has_ip: bool,
+    a2_has_ip: bool,
+) -> Option<ReconnectTarget> {
+    if !online && a1_has_ip {
+        Some(ReconnectTarget::Primary)
+    } else if secondary_online == Some(false) && a2_has_ip {
+        Some(ReconnectTarget::Secondary)
+    } else {
+        None
+    }
+}
+
+/// 登录端点响应成功后，以目标卡的 Portal 页面确认会话已生效。
+/// 立即探测，未生效时短轮询，避免固定等待拖慢正常恢复。
+fn verify_reconnect_online(adapter_name: &str, is_quitting: &std::sync::atomic::AtomicBool) -> bool {
+    const MAX_ATTEMPTS: u32 = 3;
+    for attempt in 1..=MAX_ATTEMPTS {
+        if is_quitting.load(Ordering::Acquire) {
+            return false;
+        }
+        match get_adapters_force() {
+            Ok(adapters) => match crate::network::find_with_valid_ip(&adapters, adapter_name) {
+                Some(adapter) => match check_portal_full(&adapter.ip, Some(&adapter.name)) {
+                    Ok(status) if status.online => return true,
+                    Ok(status) => crate::log_debug!(
+                        "auto_login",
+                        "断线重连Portal复核 [{}/{}]: {} 仍未在线（{}）",
+                        attempt,
+                        MAX_ATTEMPTS,
+                        adapter_name,
+                        status.message
+                    ),
+                    Err(e) => crate::log_warn!("auto_login", "断线重连Portal复核失败 [{}/{}]: {}: {}", attempt, MAX_ATTEMPTS, adapter_name, e),
+                },
+                None => crate::log_warn!("auto_login", "断线重连Portal复核 [{}/{}]: 未找到适配器 {}", attempt, MAX_ATTEMPTS, adapter_name),
+            },
+            Err(e) => crate::log_warn!("auto_login", "断线重连复核获取适配器失败 [{}/{}]: {}", attempt, MAX_ATTEMPTS, e),
+        }
+        if attempt < MAX_ATTEMPTS {
+            for _ in 0..5 {
+                if is_quitting.load(Ordering::Acquire) {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
+    false
+}
+
+/// 协议成功、目标卡 Portal 复核在线且本次允许上报时，才认定重连成功。
+pub fn reconnect_should_report(login_success: bool, portal_online: bool, within_limit: bool) -> bool {
+    login_success && portal_online && within_limit
 }
 
 pub fn try_auto_login_on_preparation(
@@ -200,23 +257,35 @@ pub fn try_auto_login_on_preparation(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn try_disconnect_reconnect(
+pub(super) fn try_disconnect_reconnect(
     app_handle: &AppHandle,
     state: &AppState,
     online: bool,
     secondary_online: Option<bool>,
     a1: Option<&crate::network::Adapter>,
+    a2: Option<&crate::network::Adapter>,
     adapter1_name: &str,
     adapter2_name: &str,
     reachable: bool,
     login_available: bool,
+    secondary_result: Option<&super::portal_check::PortalCheckResult>,
     config: &crate::config::model::Config,
 ) -> bool {
-    let any_offline = (!online && a1.is_some()) || secondary_online == Some(false);
+    let Some(target) = reconnect_target(online, secondary_online, a1.is_some(), a2.is_some()) else {
+        return false;
+    };
+    let (offline_adapter, target_reachable, target_login_available) = match target {
+        ReconnectTarget::Primary => (adapter1_name, reachable, login_available),
+        ReconnectTarget::Secondary => (
+            adapter2_name,
+            secondary_result.map(|r| r.reachable()).unwrap_or(false),
+            secondary_result.map(|r| r.login_available()).unwrap_or(false),
+        ),
+    };
 
-    // 单次 load 快照，复用读取 any_adapter_online / logout_protected_until / last_auto_login_attempt / disconnect_reconnect_count
+    // 主卡在线不代表副卡可登录：门控必须使用目标卡自己的 Portal 结果。
     let snap = state.network.load();
-    if !snap.any_adapter_online || !any_offline || !reachable || !login_available || !config.auto_login_on_preparation {
+    if !snap.any_adapter_online || !target_reachable || !target_login_available || !config.auto_login_on_preparation {
         return false;
     }
 
@@ -251,7 +320,6 @@ pub fn try_disconnect_reconnect(
     let mut reconnect_success = false;
 
     if within_limit {
-        let offline_adapter = if !online { adapter1_name } else { adapter2_name };
         emit_notification(app_handle, "检测到断线", &format!("{offline_adapter} 已离线，正在自动重连 ({reconnect_count}/{})", config.max_disconnect_reconnect), "mascot-alert");
         // emit_notification 仅覆盖非前台系统通知，前台过程信息走日志通道
         let _ = EventBus::new(app_handle).emit_login_log(
@@ -265,14 +333,17 @@ pub fn try_disconnect_reconnect(
         let _login_guard = login_guard;
         let t0 = std::time::Instant::now();
         state.network.update(|s| s.last_auto_login_attempt = std::time::Instant::now());
-        let reconnect_result = crate::auth::service::full_login(state, app_handle, None);
+        let reconnect_result = crate::auth::service::full_login(state, app_handle, Some(offline_adapter));
         let elapsed = t0.elapsed();
 
         crate::log_info!("login", "断线重连结果 [{}/{}]: success={}, 耗时{}ms",
             reconnect_count, config.max_disconnect_reconnect, reconnect_result.success, elapsed.as_millis());
 
-        if reconnect_result.success {
-            reconnect_success = true;
+        let portal_online = reconnect_result.success
+            && verify_reconnect_online(offline_adapter, state.exit.is_quitting.as_ref());
+        reconnect_success = reconnect_should_report(reconnect_result.success, portal_online, within_limit);
+
+        if reconnect_success {
             crate::auth::service::mark_login_success(state);
             // 重连路径原本会立即置在线，供调用方跳过旧 Portal 快照覆盖；
             // 主副卡快照仍由下一拍检测回填。
@@ -283,6 +354,18 @@ pub fn try_disconnect_reconnect(
             let reconnect_msg = format!("断线重连成功: {}", reconnect_result.message.unwrap_or_default());
             if let Err(e) = EventBus::new(app_handle).emit_auto_login_result(true, &reconnect_msg, false) {
                 crate::log_warn!("auto_login", "发送重连结果失败: {}", e);
+            }
+        } else {
+            let failure_msg = if reconnect_result.success {
+                format!("{offline_adapter} 登录响应成功，但 Portal 复核仍未在线，将自动重试")
+            } else {
+                reconnect_result.message.clone().unwrap_or_else(|| format!("{offline_adapter} 断线重连失败"))
+            };
+            if reconnect_result.success {
+                let _ = EventBus::new(app_handle).emit_login_log(&failure_msg, "warning");
+            }
+            if let Err(e) = EventBus::new(app_handle).emit_auto_login_result(false, &failure_msg, false) {
+                crate::log_warn!("auto_login", "发送重连失败结果失败: {}", e);
             }
         }
     } else {
@@ -306,7 +389,7 @@ pub fn try_disconnect_reconnect(
     // 单适配器用户重连成功后立即被重新标记为离线，且下一周期因 !any_adapter_online
     // 提前返回、不再尝试重连，用户被永久困在离线状态。
     // 修复：重连成功（且未超限）时返回 true，让调用方跳过旧快照覆盖。
-    reconnect_should_report(reconnect_success, within_limit)
+    reconnect_success
 }
 
 pub fn run_auto_login_on_start(app_handle: &AppHandle) {
@@ -587,7 +670,30 @@ mod tests {
     #[test]
     fn reconnect_success_within_limit_reports_true() {
         // 重连成功且未超限 → 必须返回 true，调用方才不会用旧 Portal 快照覆盖在线状态
-        assert!(reconnect_should_report(true, true));
+        assert!(reconnect_should_report(true, true, true));
+    }
+
+    #[test]
+    fn reconnect_other_adapter_success_must_not_mask_target_failure() {
+        let dual = crate::auth::dual_adapter_executor::DualAdapterResult {
+            primary: Some(CommandResult::err("掉线卡登录失败")),
+            secondary: Some(CommandResult::ok()),
+        };
+        let merged = dual.build_command_result();
+        assert!(merged.success, "旧双卡合并确实会把单方失败报成成功");
+        assert!(
+            !reconnect_should_report(merged.success, false, true),
+            "另一张卡已在线/登录成功，不得替代掉线卡的 Portal 复核"
+        );
+    }
+
+    #[test]
+    fn reconnect_target_selects_only_offline_adapter_with_ip() {
+        assert_eq!(reconnect_target(false, Some(true), true, true), Some(ReconnectTarget::Primary));
+        assert_eq!(reconnect_target(true, Some(false), true, true), Some(ReconnectTarget::Secondary));
+        assert_eq!(reconnect_target(false, Some(false), false, true), Some(ReconnectTarget::Secondary));
+        assert_eq!(reconnect_target(true, Some(false), true, false), None);
+        assert_eq!(reconnect_target(true, Some(true), true, true), None);
     }
 
     #[test]
@@ -617,14 +723,15 @@ mod tests {
 
     #[test]
     fn reconnect_failure_never_reports_true() {
-        assert!(!reconnect_should_report(false, true));
-        assert!(!reconnect_should_report(false, false));
+        assert!(!reconnect_should_report(false, false, true));
+        assert!(!reconnect_should_report(false, false, false));
+        assert!(!reconnect_should_report(true, false, true));
     }
 
     #[test]
     fn reconnect_success_over_limit_reports_false() {
         // 超过重连次数上限：即使登录成功也不再上报（停止自动重连）
-        assert!(!reconnect_should_report(true, false));
+        assert!(!reconnect_should_report(true, true, false));
     }
 
     /// 上限内每次都放行重连

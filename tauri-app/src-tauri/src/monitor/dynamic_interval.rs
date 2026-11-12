@@ -3,7 +3,7 @@
 //!
 //! 三档语义（用户需求）：
 //! - 未登录：从配置基础间隔起 ×2 逐步退避，封顶 [`BACKOFF_CAP_MS`]（5 分钟）；
-//! - 已登录（门户可达）：间隔固定 [`ONLINE_INTERVAL_MS`]（10 分钟）；
+//! - 已登录（门户可达）：间隔固定 [`ONLINE_INTERVAL_MS`]（1 分钟）；
 //! - 已登录但无法访问门户（http://10.1.99.100/）：间隔降为 [`FAST_INTERVAL_MS`]
 //!   （1 分钟）快速排查，并由巡检联动一次网络质量检测（是否连上互联网）。
 //!
@@ -12,8 +12,8 @@
 
 /// 未登录退避封顶：5 分钟
 pub const BACKOFF_CAP_MS: u64 = 300_000;
-/// 已登录检测间隔：10 分钟
-pub const ONLINE_INTERVAL_MS: u64 = 600_000;
+/// 已登录检测间隔：1 分钟，掉线最迟在下一拍进入恢复流程
+pub const ONLINE_INTERVAL_MS: u64 = 60_000;
 /// 已登录但门户不可达的快速排查间隔：1 分钟
 pub const FAST_INTERVAL_MS: u64 = 60_000;
 /// MAC 重置检测启用时间：每日 08:30 之后（8*60+30=510 分钟）
@@ -57,7 +57,7 @@ impl DynamicInterval {
             }
             CheckOutcome::Online => {
                 self.offline_streak = 0;
-                // 已登录档取 10 分钟与用户配置基础间隔的较大者：用户配得更长时尊重用户
+                // 已登录档取 1 分钟与用户配置基础间隔的较大者：用户配得更长时尊重用户
                 ONLINE_INTERVAL_MS.max(base_ms)
             }
             CheckOutcome::NotOnline => {
@@ -107,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn 已登录间隔10分钟且复位退避() {
+    fn 已登录间隔1分钟且复位退避() {
         let mut d = DynamicInterval::default();
         for _ in 0..8 {
             d.next_ms(CheckOutcome::NotOnline, 15_000);
@@ -126,8 +126,14 @@ mod tests {
             d.next_ms(CheckOutcome::OnlineButPortalUnreachable, 15_000),
             FAST_INTERVAL_MS
         );
-        // 门户恢复（在线且可达）回到 10 分钟
+        // 门户恢复（在线且可达）回到 1 分钟
         assert_eq!(d.next_ms(CheckOutcome::Online, 15_000), ONLINE_INTERVAL_MS);
+    }
+
+    #[test]
+    fn 在线巡检最迟60秒发现掉线() {
+        let mut d = DynamicInterval::default();
+        assert_eq!(d.next_ms(CheckOutcome::Online, 15_000), 60_000);
     }
 
     #[test]
