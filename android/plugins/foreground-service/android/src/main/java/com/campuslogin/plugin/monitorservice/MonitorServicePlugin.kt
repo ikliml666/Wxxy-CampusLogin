@@ -63,7 +63,9 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
 
     /**
      * UI → :core 命令转发(action = start/stop/trigger/status/login/logout)。
-     * 登录/注销含协议 3 次重试,默认 25s 会截断,单独放大到 60s。
+     * Tauri 的 run_on_android_context 会把本方法调度到 Android 主线程，而
+     * CoreClient 等待结果期间，bindService/onServiceConnected 又需要主线程处理。
+     * 因此阻塞等待必须留在工作线程，主线程只负责接收异步完成后的 invoke 结果。
      */
     @Command
     fun coreCommand(invoke: Invoke) {
@@ -74,38 +76,44 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
             return
         }
         val timeoutMs = if (action == "login" || action == "logout") 60_000L else 15_000L
-        val result = CoreClient.command(activity.applicationContext, action, parsed.args ?: "{}", timeoutMs)
-        val ret = JSObject()
-        ret.put("result", result)
-        invoke.resolve(ret)
+        Thread({
+            val result = CoreClient.command(activity.applicationContext, action, parsed.args ?: "{}", timeoutMs)
+            val ret = JSObject()
+            ret.put("result", result)
+            invoke.resolve(ret)
+        }, "campus-core-command").start()
     }
 
     @Command
     fun startMonitor(invoke: Invoke) {
         // 后台核心在 :core 进程:UI 只拉起服务并转发 start(幂等)
         val ctx = activity.applicationContext
-        CoreClient.ensureService(ctx)
-        val result = CoreClient.command(ctx, "start", "{}", 15_000)
-        if (result.contains("\"error\"")) {
-            invoke.reject(result)
-            return
-        }
-        val ret = JSObject()
-        ret.put("started", true)
-        invoke.resolve(ret)
+        Thread({
+            CoreClient.ensureService(ctx)
+            val result = CoreClient.command(ctx, "start", "{}", 15_000)
+            if (result.contains("\"error\"")) {
+                invoke.reject(result)
+                return@Thread
+            }
+            val ret = JSObject()
+            ret.put("started", true)
+            invoke.resolve(ret)
+        }, "campus-core-start").start()
     }
 
     @Command
     fun stopMonitor(invoke: Invoke) {
         val ctx = activity.applicationContext
-        val result = CoreClient.command(ctx, "stop", "{}", 15_000)
-        if (result.contains("\"error\"")) {
-            invoke.reject(result)
-            return
-        }
-        val ret = JSObject()
-        ret.put("started", false)
-        invoke.resolve(ret)
+        Thread({
+            val result = CoreClient.command(ctx, "stop", "{}", 15_000)
+            if (result.contains("\"error\"")) {
+                invoke.reject(result)
+                return@Thread
+            }
+            val ret = JSObject()
+            ret.put("started", false)
+            invoke.resolve(ret)
+        }, "campus-core-stop").start()
     }
 
     // 安装 APK:FileProvider content:// URI 交系统包安装器。

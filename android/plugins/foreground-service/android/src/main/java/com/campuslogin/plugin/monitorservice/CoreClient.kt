@@ -125,6 +125,8 @@ object CoreClient {
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
+                result.set("{\"error\":\"core 服务连接已断开\"}")
+                latch.countDown()
             }
 
             override fun onBindingDied(name: ComponentName?) {
