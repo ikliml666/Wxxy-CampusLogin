@@ -115,6 +115,49 @@ describe('OnboardingWizard 账号步自动识别运营商', () => {
     expect(cardOf('onboarding.bindOperatorDesc').hasAttribute('inert')).toBe(true)
   })
 
+  it('账号密码输入停止后自动选择，下一步复用同一次检测', async () => {
+    getBindStatus.mockResolvedValue(
+      okStatus({ cmcc: null, telecom: { account: '189****3376', passwordSet: true }, unicom: null }),
+    )
+    render(<OnboardingWizard {...baseProps} onUpdateConfig={() => {}} />)
+    fireEvent.click(topNextButton())
+    await waitFor(() => expect(cardOf('onboarding.fillLoginInfoDesc').hasAttribute('inert')).toBe(false))
+
+    fireEvent.change(document.getElementById('username')!, { target: { value: '24385214' } })
+    fireEvent.change(document.getElementById('password')!, { target: { value: 'abc' } })
+    fireEvent.change(document.getElementById('password')!, { target: { value: 'abc123' } })
+
+    await waitFor(() => {
+      expect(getBindStatus).toHaveBeenCalledWith({ account: '24385214', password: 'abc123' })
+      expect(getBindStatus).toHaveBeenCalledTimes(1)
+    }, { timeout: 2000 })
+    expect(screen.getByText('onboarding.detectOperatorBound:settings.isp.telecom')).toBeInTheDocument()
+
+    fireEvent.click(topNextButton())
+    await waitFor(() => {
+      expect(cardOf('onboarding.selectNetworkAdapterDesc').hasAttribute('inert')).toBe(false)
+    })
+    expect(getBindStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it('自动检测未绑定后进入绑定步骤不重复检测', async () => {
+    getBindStatus.mockResolvedValue(okStatus({ cmcc: null, telecom: null, unicom: null }))
+    render(<OnboardingWizard {...baseProps} onUpdateConfig={() => {}} />)
+    fireEvent.click(topNextButton())
+    await waitFor(() => expect(cardOf('onboarding.fillLoginInfoDesc').hasAttribute('inert')).toBe(false))
+    fireEvent.change(document.getElementById('username')!, { target: { value: '24385214' } })
+    fireEvent.change(document.getElementById('password')!, { target: { value: 'abc123' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('onboarding.detectOperatorUnbound')).toBeInTheDocument()
+    }, { timeout: 2000 })
+    expect(getBindStatus).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(topNextButton())
+    await waitFor(() => expect(cardOf('onboarding.bindOperatorDesc').hasAttribute('inert')).toBe(false))
+    expect(getBindStatus).toHaveBeenCalledTimes(1)
+  })
+
   it('未绑定运营商时照常进入绑定步骤，运营商保持未选择', async () => {
     getBindStatus.mockResolvedValue(okStatus({ cmcc: null, telecom: null, unicom: null }))
     const onUpdateConfig = vi.fn()

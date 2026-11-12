@@ -32,6 +32,8 @@ export const DEFAULT_OPERATOR = '__default__'
 const BIND_SUCCESS_ADVANCE_MS = 1200
 /** 登录成功后停留时长 */
 const LOGIN_SUCCESS_ADVANCE_MS = 1500
+// 账号密码齐备后，等待最后一次输入停顿再识别，避免逐键请求
+const OPERATOR_DETECT_DEBOUNCE_MS = 500
 
 export type BindState = 'idle' | 'loading' | 'success' | 'error'
 
@@ -42,6 +44,10 @@ export interface OperatorBindingInfo {
   passwordSet: boolean
 }
 export type BindStatuses = Record<OperatorKey, OperatorBindingInfo | null>
+interface AccountDetection {
+  boundKey: OperatorKey | null
+  current: boolean
+}
 
 /** 绑定步骤下拉的 ISP 值 → query_bind_status 的键（与桌面端同规则） */
 export const OPERATOR_KEY_BY_VALUE: Record<string, OperatorKey> = {
@@ -249,8 +255,86 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
     onUpdateConfig(updateData)
   }, [username, password, operator, onUpdateConfig])
 
+  const fetchBindStatuses = useCallback(async (): Promise<BindStatuses | null> => {
+    try {
+      const result = await tauriApiWithRetry.getBindStatus({ account: username.trim(), password: bindCredPassword })
+      if (!result.success || !result.data) return null
+      const data = result.data as Record<string, OperatorBindingInfo | null>
+      return {
+        cmcc: data.cmcc ?? null,
+        telecom: data.telecom ?? null,
+        unicom: data.unicom ?? null,
+      }
+    } catch {
+      return null
+    }
+  }, [username, bindCredPassword])
+
+  const detectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const detectGenerationRef = useRef(0)
+  const detectKeyRef = useRef('')
+  const detectPromiseRef = useRef<Promise<AccountDetection> | null>(null)
+  const detectCredentialsKey = JSON.stringify([username.trim(), bindCredPassword])
+
+  // 自动检测与「下一步」共用同凭据的单飞 Promise；输入变化提升代次，旧响应不得覆盖新输入。
+  const detectAccountOperator = useCallback((): Promise<AccountDetection> => {
+    if (detectPromiseRef.current && detectKeyRef.current === detectCredentialsKey) {
+      return detectPromiseRef.current
+    }
+    if (detectTimerRef.current) {
+      clearTimeout(detectTimerRef.current)
+      detectTimerRef.current = null
+    }
+    const generation = ++detectGenerationRef.current
+    detectKeyRef.current = detectCredentialsKey
+    setDetectState('querying')
+    setDetectedOperator(null)
+    const promise = fetchBindStatuses().then((statuses) => {
+      if (generation !== detectGenerationRef.current) return { boundKey: null, current: false }
+      if (statuses) {
+        setBindStatuses(statuses)
+        const boundKey = OPERATOR_STATUS_ORDER.find((k) => statuses[k]) ?? null
+        if (boundKey) {
+          const value = OPERATOR_VALUE_BY_KEY[boundKey]
+          setOperator(value)
+          setBindOperatorValue(value)
+          setDetectedOperator(boundKey)
+          setDetectState('bound')
+          return { boundKey, current: true }
+        }
+        setDetectState('unbound')
+      } else {
+        setDetectState('error')
+      }
+      return { boundKey: null, current: true }
+    })
+    detectPromiseRef.current = promise
+    return promise
+  }, [detectCredentialsKey, fetchBindStatuses])
+
+  useEffect(() => {
+    if (!open || step !== 1 || !canProceedAccount) return
+    if (detectPromiseRef.current && detectKeyRef.current === detectCredentialsKey) return
+    const timer = setTimeout(() => {
+      detectTimerRef.current = null
+      void detectAccountOperator()
+    }, OPERATOR_DETECT_DEBOUNCE_MS)
+    detectTimerRef.current = timer
+    return () => {
+      clearTimeout(timer)
+      if (detectTimerRef.current === timer) detectTimerRef.current = null
+    }
+  }, [open, step, canProceedAccount, detectCredentialsKey, detectAccountOperator])
+
   /** 凭据变化后旧的识别结果与自动选中的运营商都不再可信 */
   const resetDetect = useCallback(() => {
+    if (detectTimerRef.current) {
+      clearTimeout(detectTimerRef.current)
+      detectTimerRef.current = null
+    }
+    detectGenerationRef.current += 1
+    detectPromiseRef.current = null
+    detectKeyRef.current = ''
     setDetectState('idle')
     setDetectedOperator(null)
     setBindStatuses(null)
@@ -266,51 +350,18 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
     return true
   }, [step, saveAccount, canProceedAccount])
 
-  /**
-   * 账号步「下一步」先识别绑定状态：已绑定运营商则自动选中并跳过绑定步骤；
-   * 未绑定/识别失败照常进入绑定步骤手动处理。
-   * 返回目标步骤（null 表示账号校验不通过，留在原地）。
-   */
+  /** 下一步复用自动识别结果：已绑定跳过绑定步骤，未绑定/失败进入手动处理。 */
   const resolveAccountNext = useCallback(async (): Promise<number | null> => {
-    if (!canProceedAccount || detectState === 'querying') return null
-    setDetectState('querying')
-    setDetectedOperator(null)
-    let statuses: BindStatuses | null = null
-    try {
-      const result = await tauriApiWithRetry.getBindStatus({ account: username.trim(), password: bindCredPassword })
-      if (result.success && result.data) {
-        const data = result.data as Record<string, OperatorBindingInfo | null>
-        statuses = {
-          cmcc: data.cmcc ?? null,
-          telecom: data.telecom ?? null,
-          unicom: data.unicom ?? null,
-        }
-      }
-    } catch {
-      statuses = null
-    }
-    // 识别期间用户可能已离开账号步，此时丢弃结果
-    if (stepRef.current !== 1) { setDetectState('idle'); return null }
-    if (statuses) {
-      // 结果交给绑定步骤复用，避免进入后再登录一次自助服务
-      setBindStatuses(statuses)
-      const boundKey = OPERATOR_STATUS_ORDER.find((k) => statuses?.[k])
-      if (boundKey) {
-        const value = OPERATOR_VALUE_BY_KEY[boundKey]
-        setOperator(value)
-        setBindOperatorValue(value)
-        setDetectedOperator(boundKey)
-        setDetectState('bound')
-        saveAccount(value)
-        return step + 2
-      }
-      setDetectState('unbound')
-    } else {
-      setDetectState('error')
+    if (!canProceedAccount) return null
+    const detection = await detectAccountOperator()
+    if (!detection.current || stepRef.current !== 1) return null
+    if (detection.boundKey) {
+      saveAccount(OPERATOR_VALUE_BY_KEY[detection.boundKey])
+      return step + 2
     }
     saveAccount()
     return step + 1
-  }, [canProceedAccount, detectState, username, bindCredPassword, saveAccount, step])
+  }, [canProceedAccount, detectAccountOperator, saveAccount, step])
 
   const goNext = useCallback(async () => {
     if (step === 1) {
@@ -371,10 +422,9 @@ export function useOnboardingFlow({ open, onUpdateConfig, onLogin, onClose, onAu
   const updatePassword = useCallback((v: string) => { setPassword(v); resetDetect() }, [resetDetect])
   // 用户手动选择运营商：作废自动识别结果（用户选择优先）
   const selectOperator = useCallback((v: string) => {
+    resetDetect()
     setOperator(v)
-    setDetectedOperator(null)
-    setDetectState('idle')
-  }, [])
+  }, [resetDetect])
 
   return {
     // 派生

@@ -1,7 +1,7 @@
 // 移动端底部导航:单条磨砂玻璃圆角胶囊栏(酷安式),只承载页签;登录/注销独立成
 // MobileQuickActions 动作条悬浮于本栏上方(M3「目的地与动作分离」),不再挤占页签空间。
-// 设计:FlClash 式页签——图标+短标签竖排常显(非激活也带标签),按钮等宽 w-16;
-// 选中指示药丸(inset-0)包整项,等宽保证 layoutId 滑动纯平移零变形,弹簧放慢可感知。
+// 设计:FlClash 式页签——图标+短标签竖排常显(非激活也带标签),窄屏等比收缩;
+// 选中指示药丸(inset-0)包整项,镜头尺寸取真实项宽,弹簧放慢可感知。
 // 纪律:底部避让 env(safe-area-inset-bottom);动画仅 transform/opacity,
 // 带 motion-reduce 降级;整体轻盈——无生硬描边,悬浮感靠阴影 + 磨砂。
 
@@ -107,9 +107,8 @@ export function BottomNav({ tab, onChange }: {
                 onClick={() => onChange(id)}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  // 等宽 w-16:五项 justify-around 均布后药丸(inset-0 包整项)恒定,
-                  // 切换滑动纯平移;图标 26px(24 与 28 的折中:均布后 24 偏小)
-                  'relative flex h-14 w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
+                  // flex-1 + min-w-0 让五项在窄屏等比收缩，max-w 保持宽屏原尺寸
+                  'relative flex h-14 min-w-0 max-w-[64px] flex-1 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
                   active ? 'text-primary' : 'text-muted-foreground active:text-foreground'
                 )}
               >
@@ -139,7 +138,7 @@ export function BottomNav({ tab, onChange }: {
             style={{ willChange: 'transform' }}
           >
             {tabs.map(({ id, labelKey, Icon }) => (
-              <div key={id} className="flex h-14 w-16 shrink-0 flex-col items-center justify-center gap-0.5">
+              <div key={id} className="flex h-14 min-w-0 max-w-[64px] flex-1 flex-col items-center justify-center gap-0.5">
                 <Icon className="h-[26px] w-[26px] shrink-0" />
                 <span className="whitespace-nowrap text-[11px] font-medium leading-tight">{t(labelKey)}</span>
               </div>
