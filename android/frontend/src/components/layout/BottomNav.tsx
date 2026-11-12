@@ -27,10 +27,33 @@ const TABS: { id: MobileTab; labelKey: string; Icon: typeof LayoutDashboard }[] 
 const QUALITY_TAB = { id: 'quality' as const, labelKey: 'nav.quality', Icon: Signal }
 const MONITOR_TAB = { id: 'monitor' as const, labelKey: 'nav.monitor', Icon: Activity }
 
+// 六项（质量开启）时每项可用宽度从约 64px 降到约 54px，图标/文字/项高按同一节奏
+// 收紧；外边距与内边距不变，胶囊外形与贴边留白保持一致。
+const DOCK_METRICS = {
+  five: {
+    gutter: 'clamp(8px, 3.33vw, 14px)',
+    pad: 'clamp(4px, 1.67vw, 7px)',
+    gap: 'clamp(2px, 1.39vw, 6px)',
+    item: 'clamp(48px, 15.56vw, 64px)',
+    icon: 'clamp(21px, 7.22vw, 30px)',
+    font: 'clamp(9px, 3.06vw, 13px)',
+  },
+  six: {
+    gutter: 'clamp(8px, 3.33vw, 14px)',
+    pad: 'clamp(4px, 1.67vw, 7px)',
+    gap: 'clamp(2px, 1.39vw, 6px)',
+    item: 'clamp(46px, 14vw, 56px)',
+    icon: 'clamp(20px, 6.5vw, 26px)',
+    font: 'clamp(9px, 2.8vw, 11.5px)',
+  },
+} as const
+
 function useNavTabs(): { id: MobileTab; labelKey: string; Icon: typeof LayoutDashboard }[] {
   const qualityEnabled = useConfigStore((s) => s.config.enableNetworkQuality !== false)
   const tabs = [...TABS]
-  tabs.splice(3, 0, qualityEnabled ? QUALITY_TAB : MONITOR_TAB)
+  // 质量开启时「质量」「检测」都占底栏位（六项）；关闭时只剩「检测」（五项）。
+  // 检测页始终留在底栏，不再下放到「更多」的子页签。
+  tabs.splice(3, 0, ...(qualityEnabled ? [QUALITY_TAB, MONITOR_TAB] : [MONITOR_TAB]))
   return tabs
 }
 
@@ -40,6 +63,7 @@ export function BottomNav({ tab, onChange }: {
 }) {
   const { t } = useTranslation()
   const tabs = useNavTabs()
+  const dock = tabs.length > 5 ? DOCK_METRICS.six : DOCK_METRICS.five
   // 与桌面 DockNav 同源：折射玻璃挂在 nav 上，位移图只在尺寸变化时重建
   const glassLevel = useThemeStore((s) => s.glassLevel)
   const navRef = useRef<HTMLDivElement>(null)
@@ -71,12 +95,12 @@ export function BottomNav({ tab, onChange }: {
       style={{
         bottom: 'calc(env(safe-area-inset-bottom) + 20px)',
         // 以 360px 为设计基准，实际 CSS 视口变化时整体协调缩放并保留上下限
-        ['--dock-viewport-gutter' as string]: 'clamp(8px, 3.33vw, 14px)',
-        ['--dock-pad' as string]: 'clamp(4px, 1.67vw, 7px)',
-        ['--dock-gap' as string]: 'clamp(2px, 1.39vw, 6px)',
-        ['--dock-item-height' as string]: 'clamp(48px, 15.56vw, 64px)',
-        ['--dock-icon-size' as string]: 'clamp(21px, 7.22vw, 30px)',
-        ['--dock-font-size' as string]: 'clamp(9px, 3.06vw, 13px)',
+        ['--dock-viewport-gutter' as string]: dock.gutter,
+        ['--dock-pad' as string]: dock.pad,
+        ['--dock-gap' as string]: dock.gap,
+        ['--dock-item-height' as string]: dock.item,
+        ['--dock-icon-size' as string]: dock.icon,
+        ['--dock-font-size' as string]: dock.font,
       }}
     >
       {/* 玻璃全交给 .glass-nav（与桌面 .glass-dock 同源）：底色、模糊、分层阴影、

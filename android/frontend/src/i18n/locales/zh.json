@@ -867,7 +867,6 @@
     "portalReachable": "可达",
     "portalUnreachable": "不可达",
     "checkCount": "已检测 {{count}} 次",
-    "moreMonitor": "后台检测",
     "moreSettings": "设置",
     "moreLog": "日志"
   },
