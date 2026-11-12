@@ -480,7 +480,21 @@
      横向 mask 的端点会错位到 27px（1.53×18），而药丸的弧要到 52px 才走完，
      圆角段就会出现「亮线在弧上突然出现」的断口。 */
   .glass-nav {
-    --glass-r: 34px;
+    /* 药丸半径必须跟着栏高走：半径 = (项高 + 上下内边距 + 上下边框) / 2。
+       .glass-nav 带 border:1px，药丸的实际半径比内盒高一半多 1px；写死 34px 时
+       五项（栏高约 70px）刚好，六项收紧到约 64px 后，横向 mask 的端点仍按
+       34×1.53 算，就错位到圆角弧之外——两侧内缘光被整段吃掉。 */
+    --glass-r: calc((var(--dock-item-height) + var(--dock-pad) * 2 + 2px) / 2);
+    /* 左右两侧的内缘微光：::before 的亮线是垂直渐变，只存在于顶部 5px 的水平
+       段，圆弧段天然没有光——栏高缩到六项档后弧更短，观感上就是"两侧边缘发黑"。
+       这两条 inset 侧光沿边框绘制、在弧上自然收口，补的正是那一段。强度压到
+       顶边的约三分之一，避免读成闭合描边。 */
+    box-shadow:
+      var(--glass-near),
+      var(--glass-far),
+      0 0 0 0.67px rgba(0, 0, 0, calc(var(--glass-rim) * 0.69)),
+      inset 1.3px 0 0 rgba(255, 255, 255, calc(var(--glass-shine) * 0.34)),
+      inset -1.3px 0 0 rgba(255, 255, 255, calc(var(--glass-shine) * 0.34));
   }
 
   /* 内缘光两条伪元素共用的横向 cos²θ 衰减。::before / ::after 各要写
