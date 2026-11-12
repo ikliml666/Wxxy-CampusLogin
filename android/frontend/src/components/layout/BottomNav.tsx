@@ -67,15 +67,24 @@ export function BottomNav({ tab, onChange }: {
   return (
     <nav
       aria-label="primary"
-      className="absolute inset-x-0 z-20 flex justify-center pointer-events-none px-3"
-      style={{ bottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}
+      className="absolute inset-x-0 z-20 flex justify-center pointer-events-none px-[var(--dock-viewport-gutter)]"
+      style={{
+        bottom: 'calc(env(safe-area-inset-bottom) + 20px)',
+        // 以 360px 为设计基准，实际 CSS 视口变化时整体协调缩放并保留上下限
+        ['--dock-viewport-gutter' as string]: 'clamp(8px, 3.33vw, 14px)',
+        ['--dock-pad' as string]: 'clamp(4px, 1.67vw, 7px)',
+        ['--dock-gap' as string]: 'clamp(2px, 1.39vw, 6px)',
+        ['--dock-item-height' as string]: 'clamp(48px, 15.56vw, 64px)',
+        ['--dock-icon-size' as string]: 'clamp(21px, 7.22vw, 30px)',
+        ['--dock-font-size' as string]: 'clamp(9px, 3.06vw, 13px)',
+      }}
     >
       {/* 玻璃全交给 .glass-nav（与桌面 .glass-dock 同源）：底色、模糊、分层阴影、
           光泽层、发丝线都在 CSS 里，且跟主题对话框的三档联动。这里再写 inline 会
           因优先级更高把 CSS 压成死代码，切档时只剩 inline 那几条在动。 */}
       <div
         ref={navRef}
-        className="glass-nav pointer-events-auto relative w-full max-w-[460px] flex items-center rounded-full p-1.5 select-none border border-transparent"
+        className="glass-nav pointer-events-auto relative w-full max-w-[460px] flex items-center rounded-full p-[var(--dock-pad)] select-none border border-transparent"
         style={{
           transform: 'translateX(var(--dock-stretch, 0px))',
           backgroundImage:
@@ -96,7 +105,7 @@ export function BottomNav({ tab, onChange }: {
         {/* 页签均匀分布占满栏宽(M3 目的地等分),gap-2 仅作窄屏最小间距保底。
             这一层同时也是 useDockLens 的挖洞目标：镜片盖住的那段要从原项里
             挖掉，否则放大副本底下还压着原来的图标，两套叠着就是残影。 */}
-        <div data-dock-strip className="relative flex flex-1 min-w-0 items-center justify-around gap-2">
+        <div data-dock-strip className="relative flex flex-1 min-w-0 items-center justify-around gap-[var(--dock-gap)]">
           {tabs.map(({ id, labelKey, Icon }) => {
             const active = tab === id
             return (
@@ -107,16 +116,16 @@ export function BottomNav({ tab, onChange }: {
                 onClick={() => onChange(id)}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  // flex-1 + min-w-0 让五项在窄屏等比收缩，max-w 保持宽屏原尺寸
-                  'relative flex h-14 min-w-0 max-w-[64px] flex-1 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
+                  // flex-1 + min-w-0 让五项随可用宽度分配，64px 仅作大屏上限
+                  'relative flex h-[var(--dock-item-height)] min-w-0 max-w-[64px] flex-1 flex-col items-center justify-center gap-0.5 rounded-full transition-colors motion-reduce:transition-none',
                   active ? 'text-primary' : 'text-muted-foreground active:text-foreground'
                 )}
               >
                 <Icon
-                  className="relative z-10 h-[26px] w-[26px] shrink-0"
+                  className="relative z-10 h-[var(--dock-icon-size)] w-[var(--dock-icon-size)] shrink-0"
                   strokeWidth={active ? 2 : 1.8}
                 />
-                <span className="relative z-10 whitespace-nowrap text-[11px] font-medium leading-tight">
+                <span className="relative z-10 whitespace-nowrap text-[length:var(--dock-font-size)] font-medium leading-tight">
                   {t(labelKey)}
                 </span>
               </button>
@@ -134,13 +143,13 @@ export function BottomNav({ tab, onChange }: {
         >
           <div
             data-dock-magnify-inner
-            className="flex h-full items-center justify-around gap-2 p-1.5"
+            className="flex h-full items-center justify-around gap-[var(--dock-gap)] p-[var(--dock-pad)]"
             style={{ willChange: 'transform' }}
           >
             {tabs.map(({ id, labelKey, Icon }) => (
-              <div key={id} className="flex h-14 min-w-0 max-w-[64px] flex-1 flex-col items-center justify-center gap-0.5">
-                <Icon className="h-[26px] w-[26px] shrink-0" />
-                <span className="whitespace-nowrap text-[11px] font-medium leading-tight">{t(labelKey)}</span>
+              <div key={id} className="flex h-[var(--dock-item-height)] min-w-0 max-w-[64px] flex-1 flex-col items-center justify-center gap-0.5">
+                <Icon className="h-[var(--dock-icon-size)] w-[var(--dock-icon-size)] shrink-0" />
+                <span className="whitespace-nowrap text-[length:var(--dock-font-size)] font-medium leading-tight">{t(labelKey)}</span>
               </div>
             ))}
           </div>
