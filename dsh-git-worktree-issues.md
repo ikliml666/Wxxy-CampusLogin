@@ -153,7 +153,53 @@ $ cmp …                                                    → DIFF
 
 当前只回一句「依赖声明不一致」，调用方无法判断是环境噪声还是真的版本漂移。建议附上差异摘要（例如首个不同行、是否仅空白/行尾差异），否则每次都只能像本轮这样逐字节排查。
 
-**结论**：在「Windows 本地工作区 CRLF + 隔离工作区 LF + ignored 锁文件」这个当前项目实况下，依赖共享不会成功，`linkedDeps` 恒为空。修掉上面两点后应能正常工作。
+**结论**（已于第五轮推翻，见下节）：在「Windows 本地工作区 CRLF + 隔离工作区 LF + ignored 锁文件」这个当前项目实况下，依赖共享不会成功，`linkedDeps` 恒为空。修掉上面两点后应能正常工作。
+
+---
+
+## 零点九、第五轮：依赖共享已修复（2026-11-12 22:19–22:23）
+
+### 修复效果
+
+| 项 | 结果 |
+|---|---|
+| 行尾归一化比较 | ✅ 生效（`tauri-app/node_modules`、`tauri-app/frontend/node_modules` 直接共享成功） |
+| ignored 的 `pnpm-lock.yaml` | ✅ 不再参与比较（否则这两个也会失败） |
+| 失败信息 | ✅ 带定位：`…（package.json）… (line 19 …)` |
+| 三个依赖目录全部共享 | ✅ `linkedDeps: [android/frontend/node_modules, tauri-app/node_modules, tauri-app/frontend/node_modules]`，`linkFailures: []` |
+
+### 验收
+
+```text
+$ ls -l android/frontend/node_modules
+android/frontend: junction -> E:\ik\…\android\frontend\node_modules
+tauri-app:       junction -> E:\ik\…\tauri-app\node_modules
+tauri-app/frontend: junction -> E:\ik\…\tauri-app\frontend\node_modules
+
+$ cd android/frontend && npx tsc --noEmit --incremental
+exit=0          # 未执行 npm ci，直接跑通
+```
+
+### 上一轮那条「android/frontend 仍失败」是真实差异，不是误报
+
+`line 19` 指向依赖声明本身：
+
+```text
+主仓库（main, 含 2f3cc242 版本钉死）:
+  "@tauri-apps/api": "2.11.1"        "plugin-biometric": "2.3.3"
+  "plugin-notification": "2.4.0"     "plugin-opener": "2.5.5"
+工作区（会话分支 tip 停在 7116d96a）:
+  "@tauri-apps/api": "^2"            "plugin-biometric": "~2"
+  "plugin-notification": "^2.4.0"     "plugin-opener": "^2"
+```
+
+会话分支落后 main 一个提交，检出的自然是旧声明。把会话分支对齐 main（`git branch -f <session-branch> main`）后，三个依赖目录一次全部共享成功——判定逻辑本身是对的。
+
+### 结论
+
+第四轮列出的两个必败点都已解决，依赖共享功能现在按预期工作：在 Windows 本地工作区（CRLF）+ 隔离工作区（LF）+ ignored 锁文件的组合下也能正确判定并共享。
+
+**唯一残留**：交付后立即清理仍会因目录被占用（或删除超时）返回 `cleanup_pending`，隔 15–25 秒重试即成功。功能无损，但调用方体验上像「卡住」，建议改成后台异步删除或自动重试。
 
 ---
 
