@@ -5,7 +5,64 @@
 > 被测仓库：`Wxxy-CampusLogin`（Tauri 2 + React 19 双端项目，仓库 3000+ 文件，历史里混有 LF 内容）
 > 测试方式：在真实开发任务里连续使用 `worktree_*` 全套工具（创建 → 编辑 → 提交 → 交付 → 合并 → 清理），逐条复现上一轮报告的问题；本轮另开两轮隔离工作区做交叉验证。
 
-## 一、结论速览
+## 零、第二轮复测（2026-11-12 21:49–21:52）：两个 P0 已修复
+
+在同一台机器、同一个仓库上重建隔离工作区复测，结论如下。
+
+### 已修复
+
+| 用例 | 第一轮 | 第二轮 |
+|---|---|---|
+| 新建工作区的行尾 | CRLF，`git status` 774 个文件「已修改」 | `dirty=0`、`wt_crlf=0`、`head_crlf=0` |
+| `Set-Content .\p1.txt`（相对路径） | 判为 Local，拦截 | ✅ 放行 |
+| `touch p3.txt` | 判为 Local，拦截 | ✅ 放行 |
+| `tools.write(<Authoritative cwd>/p2.txt)` | 命中分支守卫 | ✅ 放行 |
+| `*>` 重定向到工作区绝对路径 | 判为 Local，拦截 | ✅ 放行 |
+| `node -e … 2>$null` | 判为要写文件 `$null` | ✅ 放行 |
+| `git restore -- <file>` | 已修复 | ✅ 仍正常 |
+| 工作区可用性（补依赖后） | — | `npx tsc --noEmit` exit 0 |
+
+工作区创建回执里已出现 `linkedDeps` / `linkFailures` 字段，说明已内建依赖继承逻辑。
+
+### 仍然存在的问题
+
+**1. 依赖自动继承失败（3 条 `linkFailures`）**
+
+`worktree_begin_next_iteration` 返回 `deps: []`、`fail: 3`；三个 `node_modules`、`android/build-apk.ps1`、`changelogs/` 仍然全部缺失。手动执行同样的联接是成功的：
+
+```text
+cmd /c mklink /J "android\frontend\node_modules" "E:\ik\…\android\frontend\node_modules"
+→ Junction created for android\frontend\node_modules <<===>> E:\ik\…
+```
+
+说明机制可行，失败出在插件侧的路径计算或调用方式（回执没有给出 `reason`，无法定位）。建议把每条 `linkFailures` 的 `reason` 打出来，并优先用 `cmd /c mklink /J`（junction 不需要管理员权限，symlink 需要）。
+
+**2. 清理偶尔退化，仍需两步兜底**
+
+同一版本的两次清理行为不一致：
+
+```text
+# 第一次（4157244a，finalized）
+worktree_cleanup → delivered / discarded            ✔ 一步完成
+
+# 第二次（2dae2210，finalized，目录里有 3 个 node_modules junction）
+worktree_cleanup → cleanup_pending / finalized
+                 「Worktree 的 Git 身份或路径已变化，未执行清理」   ✘
+worktree_force_cleanup (quarantine) → 目录被隔离              ✔
+worktree_cleanup → 台账清空                                   ✔
+```
+
+触发条件疑似与目录内存在 junction（`node_modules`）有关，值得在清理前对目录做一次「先卸载联接再删除」的处理。
+
+### 本轮结论
+
+- **两个 P0（写保护误判、CRLF 检出）已确认修复**，隔离工作区现在可以直接编辑、构建、提交；
+- P1 的依赖继承只做了一半（逻辑在跑，但全部失败且不给原因）；
+- 清理链路在常见路径下可用，偶发退化时 `force_cleanup` 兜底有效。
+
+---
+
+## 一、结论速览（第一轮，2026-11-12 21:24–21:32 · 修复前）
 
 | 问题 | 状态 | 严重度 |
 |---|---|---|
