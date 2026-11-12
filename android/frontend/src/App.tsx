@@ -72,15 +72,10 @@ function AppInner() {
   const accounts = useConfigStore((s) => s.accounts)
   const activeAccount = useConfigStore((s) => s.activeAccount)
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
-  const configLoaded = useConfigStore((s) => s.configLoaded)
-  // 方向性转场：底栏页签顺序（第 4 位随质量开关在 quality/monitor 间切换），索引差定方向
-  const tabOrder: MobileTab[] = [
-    'dashboard',
-    'account',
-    'selfservice',
-    configEnableNetworkQuality !== false ? 'quality' : 'monitor',
-    'more',
-  ]
+  // 方向性转场：底栏页签顺序（质量开启时 quality、monitor 各占一位，共六项），索引差定方向
+  const tabOrder: MobileTab[] = configEnableNetworkQuality !== false
+    ? ['dashboard', 'account', 'selfservice', 'quality', 'monitor', 'more']
+    : ['dashboard', 'account', 'selfservice', 'monitor', 'more']
   const [navDir, setNavDir] = useState<-1 | 0 | 1>(0)
   const tabRef = useRef(tab)
   useEffect(() => { tabRef.current = tab })
@@ -132,15 +127,6 @@ function AppInner() {
     setTab(next)
     safeStorage.set('campus-mobile-tab', next)
   }
-
-  // 质量开启后 monitor 不再是可见页签（第 4 位切回 quality），跨会话恢复出的
-  // monitor 会让底栏无高亮页签——配置就绪后归位到 quality（KI#14 配套）
-  useEffect(() => {
-    if (!configLoaded) return
-    if (configEnableNetworkQuality !== false && tab === 'monitor') {
-      handleTabChange('quality')
-    }
-  }, [configLoaded, configEnableNetworkQuality, tab])
 
   useEffect(() => {
     // 首次启动无账号 → 弹手机端新手向导（原实现是"直奔账号页"并立刻写

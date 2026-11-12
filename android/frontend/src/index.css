@@ -578,6 +578,13 @@
     backdrop-filter: none !important;
   }
 
+  /* 更多页的页签胶囊（.glass-chip 与 .glass-dock 同用）：选中态把主色膜叠在玻璃
+     上。必须走 background-image 而不是 background-color——.glass-dock 的底色约定
+     只由 background-color 承担（见上方注释），改它会把折射层的底色一起冲掉。 */
+  .glass-chip[data-active='true'] {
+    background-image: linear-gradient(hsl(var(--primary) / 0.16), hsl(var(--primary) / 0.16));
+  }
+
   /* 新手引导卡堆的卡面：与 glass-dock / app-outer-square 同一套语汇——
      只用柔光阴影 + 顶部亮线区分层次，不要描边线（深色主题下单独加深） */
   .onboarding-deck-card {

@@ -867,7 +867,6 @@
     "portalReachable": "reachable",
     "portalUnreachable": "unreachable",
     "checkCount": "{{count}} checks",
-    "moreMonitor": "Background Check",
     "moreSettings": "Settings",
     "moreLog": "Logs"
   },
