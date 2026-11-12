@@ -455,6 +455,7 @@
     "emptyDetailsTitle": "No details yet",
     "emptyDetailsDesc": "Latency details for each node will appear here after a test",
     "testDetailsDesc": "Latency test results for each node",
+    "metricHelp": "Metric details",
     "refreshQualityTest": "Refresh Network Quality Test",
     "totalElapsed": "Total detection time: {{time}}ms",
     "notYetTested": "Not Yet Tested",

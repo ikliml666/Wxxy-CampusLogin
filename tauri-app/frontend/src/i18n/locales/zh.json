@@ -479,6 +479,7 @@
     "autoCheck": "自动检测",
     "testDetails": "测试详情",
     "testDetailsDesc": "各节点延迟检测结果",
+    "metricHelp": "检测项说明",
     "refreshQualityTest": "刷新网络质量检测",
     "totalElapsed": "检测总耗时: {{time}}ms",
     "notYetTested": "尚未检测",

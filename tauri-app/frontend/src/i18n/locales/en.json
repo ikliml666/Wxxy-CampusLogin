@@ -479,6 +479,7 @@
     "autoCheck": "Auto Check",
     "testDetails": "Test Details",
     "testDetailsDesc": "Latency test results for each node",
+    "metricHelp": "Metric details",
     "refreshQualityTest": "Refresh Network Quality Test",
     "totalElapsed": "Total detection time: {{time}}ms",
     "notYetTested": "Not Yet Tested",

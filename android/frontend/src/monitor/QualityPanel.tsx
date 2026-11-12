@@ -1,5 +1,6 @@
 import type { Config } from '@/settings'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
@@ -131,6 +132,8 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
   // 手指拖拽由 drag="x" 直接驱动 x（跟手），松手按位移/速度判定落页（spring 结转速度）。
   // 指示条进度连续派生自 x，拖拽中标签高亮取最近页——双向联动，无逐页进出场。
   const [activeIdx, setActiveIdx] = useState(0)
+  // 检测项说明：点击问号就地展开。触屏没有 hover，Tooltip 在手机上打不开。
+  const [helpOpen, setHelpOpen] = useState(false)
   const viewportRef = useRef<HTMLDivElement>(null)
   const [viewportW, setViewportW] = useState(0)
 
@@ -286,34 +289,20 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {/* 主操作移到标题下方：窄屏下标题与说明不再被按钮挤成竖排 */}
-            <div className="ml-auto flex items-center gap-1.5">
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button className="w-6 h-6 rounded-full bg-muted/50 flex items-center justify-center hover:bg-muted transition-colors">
-                      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left" className="max-w-[380px]">
-                    <div className="space-y-2 text-[11px]">
-                      <div>
-                        <span className="font-semibold text-foreground">{t('quality.tlsExplanation')}</span>
-                        <span className="text-muted-foreground ml-1">{t('quality.tlsExplanationDetail')}</span>
-                      </div>
-                      <div>
-                        <span className="font-semibold text-foreground">{t('quality.ttfbExplanation')}</span>
-                        <span className="text-muted-foreground ml-1">{t('quality.ttfbExplanationDetail')}</span>
-                      </div>
-                      <div>
-                        <span className="font-semibold text-emerald-500">{t('quality.contentTransferExplanation')}</span>
-                        <span className="text-muted-foreground ml-1">{t('quality.contentTransferExplanationDetail')}</span>
-                      </div>
-
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            {/* 主操作右对齐：窄屏下标题与说明不再被按钮挤成竖排 */}
+            <div className="flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                aria-label={t('quality.metricHelp')}
+                aria-haspopup="dialog"
+                onClick={() => setHelpOpen(true)}
+                className={cn(
+                  'w-6 h-6 rounded-full flex items-center justify-center transition-colors',
+                  helpOpen ? 'bg-primary/15 text-primary' : 'bg-muted/50 text-muted-foreground hover:bg-muted',
+                )}
+              >
+                <HelpCircle className="h-3.5 w-3.5" />
+              </button>
               <Button
                 size="sm"
                 variant="outline"
@@ -543,6 +532,28 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
         loading="lazy"
         className="mx-auto mt-6 w-64 opacity-[0.10] dark:opacity-[0.06] select-none pointer-events-none"
       />
+
+      <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+        <DialogContent className="max-w-[92vw] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('quality.metricHelp')}</DialogTitle>
+          </DialogHeader>
+          <div className="mt-3 space-y-2.5 text-[12px] leading-relaxed">
+            <p>
+              <span className="font-semibold text-foreground">{t('quality.tlsExplanation')}</span>
+              <span className="text-muted-foreground ml-1">{t('quality.tlsExplanationDetail')}</span>
+            </p>
+            <p>
+              <span className="font-semibold text-foreground">{t('quality.ttfbExplanation')}</span>
+              <span className="text-muted-foreground ml-1">{t('quality.ttfbExplanationDetail')}</span>
+            </p>
+            <p>
+              <span className="font-semibold text-emerald-500">{t('quality.contentTransferExplanation')}</span>
+              <span className="text-muted-foreground ml-1">{t('quality.contentTransferExplanationDetail')}</span>
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 })
