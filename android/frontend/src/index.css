@@ -421,7 +421,14 @@
     box-shadow:
       var(--glass-near),
       var(--glass-far),
-      0 0 0 0.67px rgba(0, 0, 0, calc(var(--glass-rim) * 0.69));
+      0 0 0 0.67px rgba(0, 0, 0, calc(var(--glass-rim) * 0.69)),
+      /* 左右两侧的内缘微光：::before 的亮线是垂直渐变，只存在于顶部 5px 的水平段，
+         圆角段天然没有光。药丸形的悬浮栏与更多页页签整条边都是弧，缺了这段就只剩
+         顶边一条光、两侧发黑；桌面悬浮栏两侧虽是直边，补上后与上下弧的过渡也才连得
+         上。两条 inset 沿边框绘制、在弧上自然收口，强度压到顶边约三分之一，读起来
+         是玻璃厚度的高光，不是闭合描边。 */
+      inset 1.3px 0 0 rgba(255, 255, 255, calc(var(--glass-shine) * 0.34)),
+      inset -1.3px 0 0 rgba(255, 255, 255, calc(var(--glass-shine) * 0.34));
     position: relative;
     /* 不裁切：::before 的光环要贴到圆角外侧才自然 */
     overflow: visible;
@@ -434,7 +441,7 @@
       opacity 240ms ease-out;
   }
 
-  /* 启动期**整条不可见**（JS 侧见 lib/glass-dock.tsx 的 .glass-live / .glass-ready）。
+  /* 启动期**整条不可见**（JS 侧见 lib/glass-dock.tsx 的 data-glass-live / data-glass-ready）。
      悬浮栏的入场补间（useStartupBoost.ts:117-123）会给它打 opacity/transform
      与 force3D，补间期间**任一祖先层的 opacity<1、transform、独立变换或
      will-change** 都会让 Chromium 把该层当作 backdrop root：悬浮栏的
@@ -444,23 +451,23 @@
 
      以前这里是把膜钉成实底（--glass-tint 100%）顶着，代价是先露出一条白膜、
      约 780ms 后才淡成玻璃——看起来就是「玻璃要等界面加载完才生效」。改成整条
-     opacity: 0：玻璃就绪（.glass-live）之前悬浮栏根本不出现，就绪那一帧直接就是
+     opacity: 0：玻璃就绪（data-glass-live）之前悬浮栏根本不出现，就绪那一帧直接就是
      成品玻璃，只走 240ms 的 opacity 淡入。
-     off 档与引擎不支持走 .glass-ready 分支，照旧立即可见，不会被这条藏住。 */
+     off 档与引擎不支持走 data-glass-ready 分支，照旧立即可见，不会被这条藏住。 */
 
-  /* 兜底路径的实底保护：等不到祖先链落干净时（MAX_WAIT_MS 超时）加 .glass-ready
+  /* 兜底路径的实底保护：等不到祖先链落干净时（MAX_WAIT_MS 超时）加 data-glass-ready
      让它以实底出现——导航栏不能整个缺席。祖先污染时半透会发黑，所以这条路径
-     必须钉回实底；正常路径（不可见 → .glass-live）不需要，见下一条。 */
-  .glass-dock.glass-ready:not(.glass-live),
-  .glass-nav.glass-ready:not(.glass-live) {
+     必须钉回实底；正常路径（不可见 → data-glass-live）不需要，见下一条。 */
+  .glass-dock[data-glass-ready]:not([data-glass-live]),
+  .glass-nav[data-glass-ready]:not([data-glass-live]) {
     --glass-tint: 100%;
   }
 
   /* 正常等待期整条不可见，所以不必用实底顶着：膜的色调（ultra 10% / standard 54%）
-     在不可见时就已经是终态，.glass-live 一加，第一帧呈现的就是成品玻璃，只走
+     在不可见时就已经是终态，data-glass-live 一加，第一帧呈现的就是成品玻璃，只走
      opacity 淡入（240ms），不会出现「先白膜、再慢慢变透」的两段式。 */
-  :root:not([data-glass="off"]) .glass-dock:not(.glass-live):not(.glass-ready),
-  :root:not([data-glass="off"]) .glass-nav:not(.glass-live):not(.glass-ready) {
+  :root:not([data-glass="off"]) .glass-dock:not([data-glass-live]):not([data-glass-ready]),
+  :root:not([data-glass="off"]) .glass-nav:not([data-glass-live]):not([data-glass-ready]) {
     opacity: 0;
     /* 不可见期间不该吃点击 */
     pointer-events: none;
