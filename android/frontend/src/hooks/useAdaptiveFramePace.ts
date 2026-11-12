@@ -6,14 +6,18 @@
 // RenderThread 40~44%):原实现用常驻 rAF 递归轮询 pace 变化,页面因此永远
 // 存在 pending rAF 回调——Chromium 视其为"持续动画"并按刷新率满帧派发
 // BeginFrame,合成器永不休眠。改为:
-//   ①档位回落后 setInterval 轮询(与 usePageIdle 的 500ms 轮询同款,不产生 rAF);
-//   ②交互起始由事件回调即时提帧(零感知延迟),轮询只负责松手后的静止回落。
+//   ①档位回落后用一次性 setTimeout 复核(不产生 rAF,也不常驻轮询);
+//   ②交互起始由事件回调即时提帧(零感知延迟),定时器只负责松手后的静止回落。
 //
 // 2026-11-12 高刷适配:活跃档不再固定 60 帧。gsap 的 fps(60) 把 ticker 限到
 // 60Hz,90/120/144Hz 屏上交互与氛围动画都只跑 60 帧;改为 fps(240)——tick 间隔
 // 4.17ms 短于任何屏幕的帧间隔,每个 rAF 都 tick,实际节拍由屏幕刷新率决定。
 // 国产 ROM 的智能刷新率会在 60/90/120/144 间随场景切换,档位由 lib/refreshRate
 // 实测,不写死;静止时回落 idleFps,无活跃 tween 时 gsap autoSleep 停表不再请求帧。
+//
+// 2026-11-12 计时优化: 静止窗口 2s→800ms；不再每 250ms 常驻轮询，改为交互时
+// 排一个一次性 setTimeout，到点复核 lastActiveAt；持续滚动只会在每个窗口末
+// 复核一次，静止后没有定时器。
 
 import { useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
@@ -21,9 +25,9 @@ import { gsap } from 'gsap'
 import { useDeviceProfile } from './useDeviceProfile'
 import { measureRefreshRate } from '@/lib/refreshRate'
 
-const ACTIVE_WINDOW_MS = 2000
-/** 静止回落轮询间隔:档位回落最迟延迟一拍(≤250ms),用户已松手无感知 */
-const PACE_POLL_MS = 250
+const ACTIVE_WINDOW_MS = 800
+/** 定时器到点后的复核余量：与最后一帧对齐，避免同一拍内反复调度 */
+const IDLE_CHECK_DELAY_MS = 16
 /**
  * 不限帧档位:gsap 以 1000/fps 作为 tick 间隔,240 对应 4.17ms——
  * 短于任何屏幕的帧间隔,因此每个 rAF 都 tick,节拍由屏幕刷新率决定。
@@ -34,12 +38,13 @@ let lastActiveAt = 0
 let idleFps = 30
 let measuredRate = 0
 let appliedPace = -1
+let idleTimer: number | null = null
 
-/** 交互/切换发生时调用:把活跃窗口再推 2s 并立即提帧(供面板切换等程序性交互标记) */
+/** 交互/切换发生时调用:把活跃窗口再推 800ms 并立即提帧(供面板切换等程序性交互标记) */
 export function markInteraction(): void {
   lastActiveAt = performance.now()
   applyPace()
-  void measureRefreshRate().then((fps) => rememberRate(fps))
+  scheduleIdle()
 }
 
 function rememberRate(fps: number): void {
@@ -66,6 +71,37 @@ function applyPace(): void {
   }
   applyRateHint(pace === UNLIMITED_FPS)
   gsap.ticker.fps(pace)
+  if (pace === UNLIMITED_FPS) {
+    void measureRefreshRate().then((fps) => rememberRate(fps))
+  }
+}
+
+/** 只在有交互时排一个一次性复核；静止后不再产生定时器唤醒 */
+function scheduleIdle(): void {
+  if (document.hidden) {
+    clearIdleTimer()
+    return
+  }
+  if (idleTimer !== null) return
+  if (performance.now() - lastActiveAt >= ACTIVE_WINDOW_MS) return
+  idleTimer = window.setTimeout(checkIdle, ACTIVE_WINDOW_MS + IDLE_CHECK_DELAY_MS)
+}
+
+function clearIdleTimer(): void {
+  if (idleTimer === null) return
+  window.clearTimeout(idleTimer)
+  idleTimer = null
+}
+
+function checkIdle(): void {
+  idleTimer = null
+  if (document.hidden) return
+  const remaining = lastActiveAt + ACTIVE_WINDOW_MS - performance.now()
+  if (remaining > 0) {
+    idleTimer = window.setTimeout(checkIdle, remaining + IDLE_CHECK_DELAY_MS)
+    return
+  }
+  applyPace()
 }
 
 /**
@@ -91,7 +127,7 @@ export function useAdaptiveFramePace(): void {
     appliedPace = -1
     lastActiveAt = performance.now()
     const mark = () => markInteraction()
-    // touchmove/scroll 确保持续拖动与惯性滚动期间始终满帧,而不是只有起手 2s
+    // touchmove/scroll 确保持续拖动与惯性滚动期间始终满帧,而不是只有起手 800ms
     const events: (keyof DocumentEventMap)[] = [
       'pointerdown',
       'touchstart',
@@ -103,10 +139,8 @@ export function useAdaptiveFramePace(): void {
     events.forEach((e) => document.addEventListener(e, mark, { passive: true, capture: true }))
 
     applyPace()
-    // 首帧即测一次:启动后的第一次交互就落在正确档位,不必先按兜底帧率跑再切
-    void measureRefreshRate(true).then((fps) => rememberRate(fps))
+    scheduleIdle()
 
-    const timer = window.setInterval(applyPace, PACE_POLL_MS)
     const onVisibility = () => {
       if (!document.hidden) {
         appliedPace = -1
@@ -118,6 +152,7 @@ export function useAdaptiveFramePace(): void {
     const onFocus = () => {
       appliedPace = -1
       applyPace()
+      scheduleIdle()
     }
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('focus', onFocus)
@@ -126,7 +161,7 @@ export function useAdaptiveFramePace(): void {
       events.forEach((e) => document.removeEventListener(e, mark, { capture: true }))
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('focus', onFocus)
-      window.clearInterval(timer)
+      clearIdleTimer()
       appliedPace = -1
       applyRateHint(false)
       gsap.ticker.fps(60)
