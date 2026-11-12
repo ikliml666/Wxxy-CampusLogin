@@ -283,47 +283,48 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                 <CardTitle>{t('quality.testDetails')}</CardTitle>
                 <CardDescription>{t('quality.testDetailsDesc')}</CardDescription>
               </div>
-              <div className="ml-auto flex items-center gap-1.5">
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button className="w-6 h-6 rounded-full bg-muted/50 flex items-center justify-center hover:bg-muted transition-colors">
-                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="left" className="max-w-[380px]">
-                      <div className="space-y-2 text-[11px]">
-                        <div>
-                          <span className="font-semibold text-foreground">{t('quality.tlsExplanation')}</span>
-                          <span className="text-muted-foreground ml-1">{t('quality.tlsExplanationDetail')}</span>
-                        </div>
-                        <div>
-                          <span className="font-semibold text-foreground">{t('quality.ttfbExplanation')}</span>
-                          <span className="text-muted-foreground ml-1">{t('quality.ttfbExplanationDetail')}</span>
-                        </div>
-                        <div>
-                          <span className="font-semibold text-emerald-500">{t('quality.contentTransferExplanation')}</span>
-                          <span className="text-muted-foreground ml-1">{t('quality.contentTransferExplanationDetail')}</span>
-                        </div>
-
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs gap-1.5"
-                  onClick={onRefreshQuality}
-                  disabled={isRefreshingQuality}
-                >
-                  <RefreshCw className={cn('h-3 w-3', isRefreshingQuality && 'animate-spin')} />
-                  {t('quality.runTestNow')}
-                </Button>
-              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
+            {/* 主操作移到标题下方：窄屏下标题与说明不再被按钮挤成竖排 */}
+            <div className="ml-auto flex items-center gap-1.5">
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button className="w-6 h-6 rounded-full bg-muted/50 flex items-center justify-center hover:bg-muted transition-colors">
+                      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="max-w-[380px]">
+                    <div className="space-y-2 text-[11px]">
+                      <div>
+                        <span className="font-semibold text-foreground">{t('quality.tlsExplanation')}</span>
+                        <span className="text-muted-foreground ml-1">{t('quality.tlsExplanationDetail')}</span>
+                      </div>
+                      <div>
+                        <span className="font-semibold text-foreground">{t('quality.ttfbExplanation')}</span>
+                        <span className="text-muted-foreground ml-1">{t('quality.ttfbExplanationDetail')}</span>
+                      </div>
+                      <div>
+                        <span className="font-semibold text-emerald-500">{t('quality.contentTransferExplanation')}</span>
+                        <span className="text-muted-foreground ml-1">{t('quality.contentTransferExplanationDetail')}</span>
+                      </div>
+
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs gap-1.5"
+                onClick={onRefreshQuality}
+                disabled={isRefreshingQuality}
+              >
+                <RefreshCw className={cn('h-3 w-3', isRefreshingQuality && 'animate-spin')} />
+                {t('quality.runTestNow')}
+              </Button>
+            </div>
             {/* 控制条：自动检测开关 + 检测间隔输入（实底 bg-muted 替代 glass-dock：
                 卡内不再叠玻璃层；开启时底缘细线按检测间隔匀速推进、每轮检测完成回卷重来——周期进度轨） */}
             <div className="relative overflow-hidden flex items-center gap-2 rounded-xl bg-muted px-3 py-2">
@@ -379,12 +380,12 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
                       type="button"
                       onClick={() => goTo(idx)}
                       className={cn(
-                        'relative z-10 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors duration-200',
+                        'relative z-10 flex items-center justify-center gap-0.5 py-1.5 rounded-lg text-[10px] font-medium tracking-tight transition-colors duration-200',
                         isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
                       )}
                     >
-                      <Icon className={cn('h-3 w-3 shrink-0', isActive ? cat.color : '')} />
-                      <span className="truncate">{t(cat.labelKey)}</span>
+                      <Icon className={cn('h-2.5 w-2.5 shrink-0', isActive ? cat.color : '')} />
+                      <span className={cn('truncate', !isActive && 'hidden min-[520px]:inline')}>{t(cat.labelKey)}</span>
                     </button>
                   )
                 })}
