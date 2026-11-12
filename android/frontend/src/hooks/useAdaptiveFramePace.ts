@@ -16,6 +16,7 @@
 // 实测,不写死;静止时回落 idleFps,无活跃 tween 时 gsap autoSleep 停表不再请求帧。
 
 import { useEffect } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import { gsap } from 'gsap'
 import { useDeviceProfile } from './useDeviceProfile'
 import { measureRefreshRate } from '@/lib/refreshRate'
@@ -59,8 +60,23 @@ function applyPace(): void {
   const pace = currentPace()
   if (pace === appliedPace) return
   appliedPace = pace
-  if (pace === 0) return
+  if (pace === 0) {
+    applyRateHint(false)
+    return
+  }
+  applyRateHint(pace === UNLIMITED_FPS)
   gsap.ticker.fps(pace)
+}
+
+/**
+ * 请求系统切换窗口刷新率：仅靠 gsap.fps 只能让 WebView 产帧，屏幕仍可能停在
+ * 60Hz（实测该机默认 mode 4 = 60Hz）。活跃档交给原生选同分辨率最高模式，
+ * 静止档回落最低模式；档位未变不发命令。
+ */
+function applyRateHint(active: boolean): void {
+  void invoke('set_refresh_rate_hint', { active }).catch((e) => {
+    if (import.meta.env.DEV) console.warn('[FramePace] 切换屏幕刷新率失败', e)
+  })
 }
 
 /**
@@ -91,13 +107,28 @@ export function useAdaptiveFramePace(): void {
     void measureRefreshRate(true).then((fps) => rememberRate(fps))
 
     const timer = window.setInterval(applyPace, PACE_POLL_MS)
-    document.addEventListener('visibilitychange', mark)
+    const onVisibility = () => {
+      if (!document.hidden) {
+        appliedPace = -1
+        markInteraction()
+        return
+      }
+      mark()
+    }
+    const onFocus = () => {
+      appliedPace = -1
+      applyPace()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', onFocus)
 
     return () => {
       events.forEach((e) => document.removeEventListener(e, mark, { capture: true }))
-      document.removeEventListener('visibilitychange', mark)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', onFocus)
       window.clearInterval(timer)
       appliedPace = -1
+      applyRateHint(false)
       gsap.ticker.fps(60)
     }
   }, [profile.idleFps])

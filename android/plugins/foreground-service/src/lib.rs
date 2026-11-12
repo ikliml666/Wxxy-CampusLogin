@@ -71,6 +71,12 @@ impl<R: Runtime> CampusMonitorService<R> {
         self.0.run_mobile_plugin("installApk", serde_json::json!({ "text": file_path }))
     }
 
+    /// 切换窗口刷新率档位(活跃最高档 / 静止最低档)
+    pub fn set_refresh_rate_hint(&self, active: bool) -> Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin("setRefreshRateHint", serde_json::json!({ "active": active }))
+    }
+
     /// UI → :core 命令转发(经 Binder + Messenger,返回 JSON 字符串)
     pub fn core_command(&self, action: &str, args: &str) -> std::result::Result<String, String> {
         #[derive(Deserialize)]

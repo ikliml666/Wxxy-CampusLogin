@@ -110,6 +110,7 @@ pub fn run() {
             system_cmds::set_log_retention_days,
             system_cmds::get_debug_mode,
             system_cmds::set_debug_mode,
+            system_cmds::set_refresh_rate_hint,
             battery_cmds::get_battery_optimization_info,
             battery_cmds::request_ignore_battery_optimizations,
             battery_cmds::open_vendor_battery_settings,

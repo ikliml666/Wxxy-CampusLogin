@@ -45,6 +45,11 @@ class TextArgs {
 }
 
 @InvokeArg
+class RefreshRateArgs {
+  var active: Boolean = false
+}
+
+@InvokeArg
 class BoolArgs {
   var enabled: Boolean = false
 }
@@ -82,6 +87,71 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
             ret.put("result", result)
             invoke.resolve(ret)
         }, "campus-core-command").start()
+    }
+
+    /**
+     * 按交互档位切换窗口刷新率：活跃时选当前分辨率下最高档，静止时回落最低档。
+     * 只改窗口模式偏好，不涉及应用内容；WebView 的 rAF 节拍随系统模式一起变化。
+     */
+    @Command
+    fun setRefreshRateHint(invoke: Invoke) {
+        invoke.resolve(applyRefreshRate(invoke.parseArgs(RefreshRateArgs::class.java).active))
+    }
+
+    override fun onPause() {
+        super.onPause()
+        applyRefreshRate(false)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        applyRefreshRate(false)
+    }
+
+    private fun applyRefreshRate(active: Boolean): JSObject {
+        val display = activity.window.decorView.display
+        if (display == null) {
+            return JSObject().put("changed", false)
+        }
+        val current = display.mode
+        val candidates = display.supportedModes.filter {
+            it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
+        }
+        val target = if (active) candidates.maxByOrNull { it.refreshRate } else candidates.minByOrNull { it.refreshRate }
+        if (target == null) {
+            return JSObject().put("changed", false)
+        }
+        val attrs = activity.window.attributes
+        val changed = attrs.preferredDisplayModeId != target.modeId
+        if (changed) {
+            attrs.preferredDisplayModeId = target.modeId
+            attrs.preferredRefreshRate = target.refreshRate
+            activity.window.attributes = attrs
+        }
+        setRootSurfaceFrameRate(target.refreshRate)
+        Log.i(TAG, "刷新率提示 active=$active mode=${target.modeId} rate=${target.refreshRate} changed=$changed")
+        val ret = JSObject()
+        ret.put("changed", changed)
+        ret.put("modeId", target.modeId)
+        ret.put("refreshRate", target.refreshRate)
+        return ret
+    }
+
+    /**
+     * ViewRootImpl 的窗口 Surface 是隐藏字段；显示模式切到 120Hz 后，
+     * 只有 Surface 的 frameRate 也更新，SurfaceFlinger 才会按新档位调度该层。
+     */
+    private fun setRootSurfaceFrameRate(rate: Float) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        try {
+            val root = activity.window.decorView.parent ?: return
+            val field = root.javaClass.getDeclaredField("mSurface").apply { isAccessible = true }
+            val surface = field.get(root) as? android.view.Surface ?: return
+            surface.setFrameRate(rate, android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
+            Log.i(TAG, "surface frameRate=$rate")
+        } catch (e: Exception) {
+            Log.w(TAG, "设置窗口 Surface 帧率失败: ${e.javaClass.simpleName}: ${e.message}")
+        }
     }
 
     @Command

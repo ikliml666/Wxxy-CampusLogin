@@ -64,3 +64,21 @@ pub fn get_debug_mode() -> Result<bool, String> {
 pub fn set_debug_mode(enabled: bool) -> Result<bool, String> {
     campus_login_lib::infra::logger::set_debug_mode(enabled)
 }
+
+/// 交互期请求屏幕最高刷新率、静止后回落最低档(仅安卓有实际动作)
+#[tauri::command]
+pub async fn set_refresh_rate_hint(app: tauri::AppHandle, active: bool) -> Result<(), String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+        app.campus_monitor_service()
+            .set_refresh_rate_hint(active)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, active);
+        Ok(())
+    }
+}
