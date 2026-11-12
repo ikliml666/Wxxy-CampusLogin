@@ -15,7 +15,9 @@ import './i18n'
 // force3D 不设全局默认：transform 相关 tween 均已在各处显式声明 force3D: true，
 // 全局强制反而让每个 tween 结束后合成层不易回收。仅保留 ease 与 ticker 配置。
 gsap.defaults({ ease: 'expo.out' })
-gsap.config({ autoSleep: 5, nullTargetWarn: false })
+// autoSleep 收紧到 2s：静止后氛围 tween 已被 idle 暂停，尽快停表才不会让
+// ticker 在 30fps 上空转——停表后不再请求帧，系统才能把面板降到最低刷新率。
+gsap.config({ autoSleep: 2, nullTargetWarn: false })
 gsap.ticker.lagSmoothing(500, 33)
 
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
