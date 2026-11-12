@@ -62,6 +62,58 @@ worktree_cleanup → 台账清空                                   ✔
 
 ---
 
+## 零点五、第三轮：依赖共享失败的根因与编辑链路验证（2026-11-12 22:03–22:07）
+
+### 1. 依赖共享被拒的真因是行尾字节比较（误报）
+
+三处 `linkFailures` 都报「依赖声明不一致（package.json）」，逐字节对比后确认是误报：
+
+```text
+$ cmp "E:/…/android/frontend/package.json" "android/frontend/package.json"
+1,51c1,51                       # 51 行全部“不同”
+$ head -c 40 "E:/…/android/frontend/package.json" | od -c | head -2
+{  \r  \n  …                   # 主仓库工作区是 CRLF
+$ grep -c $'\r' android/frontend/package.json
+0                               # 隔离工作区检出是 LF
+```
+
+内容完全一致，只是行尾不同。共享前的漂移检查按字节比较，于是三个依赖目录全部拒绝共享，`linkedDeps` 恒为空。
+
+**建议**：比较前归一化行尾（`content.replace(/\r\n/g, "\n")`），或解析 JSON 后深比较；需要覆盖锁文件漂移时再单独比 `package-lock.json` 的 `packages` 树。
+
+### 2. 编辑链路已经完全正常
+
+```text
+$ tools.edit(android/frontend/src/hooks/useAsyncLock.ts, 追加一行注释)
+$ git diff --stat
+ android/frontend/src/hooks/useAsyncLock.ts | 1 +
+ 1 file changed, 1 insertion(+)
+$ grep -c $'\r' android/frontend/src/hooks/useAsyncLock.ts
+0
+```
+
+这正是前几轮被记成「edit 工具强制 CRLF」的现象——根因是工作区检出为 CRLF，与编辑工具无关。第一轮报告里这两条可以合并为一条（已修）。
+
+### 3. 工作区可直接开发
+
+```text
+$ npm ci             → added 200 packages in 6s
+$ npx tsc --noEmit   → exit 0
+```
+
+### 4. 清理失败是瞬时占用，重试即可
+
+```text
+$ worktree_cleanup（交付后立即，目录含完整 node_modules）
+  → cleanup_pending「目录仍被进程占用」，耗时 2.1s
+$ 等待 25s 后重试
+  → delivered / phase=discarded，耗时 1.1s
+```
+
+数千文件的 `node_modules` 第一次删不完；重试有效，不需要 `force_cleanup`。建议把「有限重试」改成后台异步删除 + 完成回调，或首次失败即标记 `cleanup_pending` 并在下次会话启动时自动重试。
+
+---
+
 ## 一、结论速览（第一轮，2026-11-12 21:24–21:32 · 修复前）
 
 | 问题 | 状态 | 严重度 |
