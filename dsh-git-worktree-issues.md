@@ -114,6 +114,49 @@ $ 等待 25s 后重试
 
 ---
 
+## 零点七、第四轮：依赖共享仍失败，且新增一个必败项（2026-11-12 22:12–22:15）
+
+回执的三条 `linkFailures` 中有两条改报 `pnpm-lock.yaml`，说明检查文件集变了，但结论仍是拒绝共享：
+
+```text
+android/frontend/node_modules   → 依赖声明不一致（package.json）
+tauri-app/node_modules          → 依赖声明不一致（pnpm-lock.yaml）
+tauri-app/frontend/node_modules → 依赖声明不一致（pnpm-lock.yaml）
+```
+
+逐文件对比后确认是**两个互相独立的必败点**：
+
+### 1. `pnpm-lock.yaml` 是 ignored 文件，工作区里永远不存在
+
+```text
+$ git ls-files --error-unmatch tauri-app/frontend/pnpm-lock.yaml  → untracked
+$ git check-ignore tauri-app/frontend/pnpm-lock.yaml             → 命中（IGNORED）
+```
+
+三个依赖目录的 `pnpm-lock.yaml` 都是「本地有、未被 git 跟踪、且被 .gitignore 忽略」。隔离工作区只检出 git 跟踪内容，所以这一侧必然没有该文件；只要把它纳入比较，结论就永远是「不一致」。
+
+**建议**：只比较 git 跟踪的清单文件；对 ignored/untracked 的锁文件直接跳过（或视为「工作区侧缺失，以 package.json 为准」）。
+
+### 2. 行尾仍然是字节比较
+
+```text
+$ grep -c $'\r' "E:/…/tauri-app/frontend/package.json"   → 51   （本地工作区 CRLF）
+$ grep -c $'\r' "tauri-app/frontend/package.json"         → 0    （工作区检出 LF）
+$ cmp …                                                    → DIFF
+```
+
+三个目录的 `package.json`、`package-lock.json` 全部如此：内容一致、只有行尾不同。上一轮已经提过这条，本轮复测仍未生效。
+
+**建议**：比较前统一 `content.replace(/\r\n/g, "\n")`，或解析后深比较。
+
+### 3. 失败信息应能区分「仅行尾不同」与「真实漂移」
+
+当前只回一句「依赖声明不一致」，调用方无法判断是环境噪声还是真的版本漂移。建议附上差异摘要（例如首个不同行、是否仅空白/行尾差异），否则每次都只能像本轮这样逐字节排查。
+
+**结论**：在「Windows 本地工作区 CRLF + 隔离工作区 LF + ignored 锁文件」这个当前项目实况下，依赖共享不会成功，`linkedDeps` 恒为空。修掉上面两点后应能正常工作。
+
+---
+
 ## 一、结论速览（第一轮，2026-11-12 21:24–21:32 · 修复前）
 
 | 问题 | 状态 | 严重度 |
