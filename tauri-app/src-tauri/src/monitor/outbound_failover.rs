@@ -21,7 +21,7 @@ struct FailoverState {
     recovery_running: bool,
     recovery_adapter: Option<String>,
     recovery_result: Option<RecoveryOutcome>,
-    recovery_done: bool,
+    recovery_attempted: bool,
 }
 
 static STATE: std::sync::Mutex<FailoverState> = std::sync::Mutex::new(FailoverState {
@@ -30,7 +30,7 @@ static STATE: std::sync::Mutex<FailoverState> = std::sync::Mutex::new(FailoverSt
     recovery_running: false,
     recovery_adapter: None,
     recovery_result: None,
-    recovery_done: false,
+    recovery_attempted: false,
 });
 
 fn next_failure_round(state: &FailoverState, adapter: &str, healthy: bool) -> u32 {
@@ -43,12 +43,38 @@ fn next_failure_round(state: &FailoverState, adapter: &str, healthy: bool) -> u3
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecoveryAction {
+    Wait,
+    Recovered,
+    AttemptLogin,
+    Switch,
+}
+
+fn recovery_action(result: Option<RecoveryOutcome>, managed: bool, attempted: bool) -> RecoveryAction {
+    match result {
+        Some(RecoveryOutcome::Busy) => RecoveryAction::Wait,
+        Some(RecoveryOutcome::Succeeded) => RecoveryAction::Recovered,
+        Some(RecoveryOutcome::Failed) | Some(RecoveryOutcome::NotNeeded) => RecoveryAction::Switch,
+        None if managed && !attempted => RecoveryAction::AttemptLogin,
+        None => RecoveryAction::Switch,
+    }
+}
+
+fn failover_pending(failures: u32, recovery_running: bool) -> bool {
+    failures >= REQUIRED_FAILURE_ROUNDS || recovery_running
+}
+
 fn failover_hold_day(today: i32, now_minutes: u32, restore_start: u32) -> i32 {
     if now_minutes < restore_start {
         today - 1
     } else {
         today
     }
+}
+
+fn is_managed_adapter(config: &Config, adapter_name: &str, adapter1: &str, adapter2: &str) -> bool {
+    adapter_name == adapter1 || (config.dual_adapter && adapter_name == adapter2)
 }
 
 fn should_attempt_login(managed: bool, reachable: bool, login_available: bool, online: bool) -> bool {
@@ -62,11 +88,11 @@ fn reset_state() {
 /// 运营商夜切在出口故障待决时让位，避免在切换前发起必然失败的校园认证。
 pub(super) fn outbound_failover_pending() -> bool {
     let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-    state.failures > 0 || state.recovery_running
+    failover_pending(state.failures, state.recovery_running)
 }
 
-/// 并行执行逐卡双目标 HTTPS，返回 source IP -> 公网可达。候选严格绑源；当前物理
-/// 出口允许系统路由复核以兼容 TUN。不经过质量检测单飞锁，不写历史或推送 UI。
+/// 并行执行逐卡双目标 HTTPS，返回 source IP -> 公网可达。
+/// 当前物理出口允许系统路由复核以兼容 TUN/代理，候选始终严格绑源。不经过质量检测单飞锁，不写历史或推送 UI。
 pub(super) fn probe_internet_access(
     app_handle: &AppHandle,
     config: &Config,
@@ -102,8 +128,11 @@ pub(super) fn probe_internet_access(
         }
         let mut results = std::collections::HashMap::new();
         while let Some(result) = tasks.join_next().await {
-            if let Ok((ip, ok)) = result {
-                results.insert(ip, ok);
+            match result {
+                Ok((ip, ok)) => {
+                    results.insert(ip, ok);
+                }
+                Err(e) => crate::log_warn!("outbound", "网卡公网探测任务失败: {e}"),
             }
         }
         results
@@ -130,6 +159,7 @@ fn spawn_recovery(app_handle: &AppHandle, config: &Config, adapter_name: &str) {
     {
         let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
         state.recovery_running = true;
+        state.recovery_attempted = true;
         state.recovery_adapter = Some(adapter_name.to_string());
         state.recovery_result = None;
     }
@@ -157,40 +187,67 @@ fn recover_current_adapter(app_handle: &AppHandle, config: &Config, adapter_name
     }
     let adapters = match crate::network::get_adapters_cached() {
         Ok(adapters) => adapters,
-        Err(_) => return RecoveryOutcome::Busy,
+        Err(e) => {
+            crate::log_warn!("outbound", "登录恢复获取适配器失败: {e}");
+            return RecoveryOutcome::Busy;
+        }
     };
     let Some(adapter) = adapters.iter().find(|adapter| adapter.name == adapter_name && !adapter.ip.is_empty()) else {
         return RecoveryOutcome::NotNeeded;
     };
     let (adapter1, adapter2) = crate::network::resolve_adapter_names(&adapters, config);
-    let managed = adapter_name == adapter1 || (config.dual_adapter && adapter_name == adapter2);
-    let Ok(portal) = crate::auth::portal::check_portal_full(&adapter.ip, Some(&adapter.name)) else {
-        return RecoveryOutcome::NotNeeded;
-    };
-    if !should_attempt_login(managed, portal.reachable, portal.login_available, portal.online) {
-        return RecoveryOutcome::NotNeeded;
-    }
-    crate::log_info!("outbound", "当前出口 {} 开始登录恢复并进行 Portal 复核", adapter_name);
+    let managed = is_managed_adapter(config, adapter_name, &adapter1, &adapter2);
     let Some(_check_guard) = state.tasks.is_checking.try_acquire() else {
         return RecoveryOutcome::Busy;
     };
     let Some(_login_guard) = state.tasks.is_logging_in.try_acquire() else {
         return RecoveryOutcome::Busy;
     };
+    // 获取适配器和等待锁期间其他登录可能已更新冷却时间，获锁后必须再次复核。
     if state.network.load().last_auto_login_attempt.elapsed().as_secs() < config.auto_login_cooldown_secs {
         return RecoveryOutcome::Busy;
     }
+    let portal = match crate::auth::portal::check_portal_full(&adapter.ip, Some(&adapter.name)) {
+        Ok(portal) => portal,
+        Err(e) => {
+            crate::log_warn!("outbound", "登录恢复前 Portal 检测失败: {e}");
+            return RecoveryOutcome::Busy;
+        }
+    };
+    if !should_attempt_login(managed, portal.reachable, portal.login_available, portal.online) {
+        return RecoveryOutcome::NotNeeded;
+    }
+    crate::log_info!("outbound", "当前出口 {} 开始登录恢复并进行 Portal 复核", adapter_name);
     state.network.update(|network| network.last_auto_login_attempt = std::time::Instant::now());
     let result = crate::auth::service::full_login(&state, app_handle, Some(adapter_name));
     if !result.success {
         return RecoveryOutcome::Failed;
     }
-    match crate::auth::portal::check_portal_full(&adapter.ip, Some(&adapter.name)) {
-        Ok(status) if status.online => {
-            crate::auth::service::mark_login_success(&state);
-            RecoveryOutcome::Succeeded
-        }
-        _ => RecoveryOutcome::Failed,
+    if super::auto_auth::verify_adapter_portal_online(adapter_name, state.exit.is_quitting.as_ref()) {
+        crate::auth::service::mark_login_success(&state);
+        RecoveryOutcome::Succeeded
+    } else {
+        RecoveryOutcome::Failed
+    }
+}
+
+fn persist_failover_hold(app_handle: &AppHandle, config: &Config) {
+    let now = chrono::Local::now();
+    let hold_day = failover_hold_day(
+        now.date_naive().num_days_from_ce(),
+        now.hour() * 60 + now.minute(),
+        crate::config::night_switch::restore_start_minutes(config.night_restore_minutes),
+    );
+    let state = app_handle.state::<AppState>();
+    if let Err(e) = crate::config::persist::mutate_config_and_save(app_handle, &state, move |fresh| {
+        fresh.outbound_manual_hold_day = hold_day;
+        Ok(())
+    }) {
+        // 快照已存在时不能在下一拍立即还原；落盘失败仅在内存保持并明确告警。
+        let mut fresh = (*state.config.load()).clone();
+        fresh.outbound_manual_hold_day = hold_day;
+        state.config.store(fresh);
+        crate::log_warn!("outbound", "故障切换保持标记落盘失败: {e}；已在当前进程内保持");
     }
 }
 
@@ -213,10 +270,18 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
         Ok(adapters) => adapters,
         Err(e) => {
             crate::log_warn!("outbound", "出口健康评估获取适配器失败: {e}");
+            reset_state();
             return;
         }
     };
-    let details = crate::network::get_adapter_details_cached().unwrap_or_default();
+    let details = match crate::network::get_adapter_details_cached() {
+        Ok(details) => details,
+        Err(e) => {
+            crate::log_warn!("outbound", "出口健康评估获取网关详情失败: {e}");
+            reset_state();
+            return;
+        }
+    };
     let candidates: Vec<(Adapter, String)> = adapters
         .iter()
         .map(|adapter| {
@@ -252,11 +317,15 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
     if app_handle.state::<AppState>().exit.is_quitting.load(std::sync::atomic::Ordering::Acquire) {
         return;
     }
-    let current_healthy = probe_candidates
+    let Some(current_healthy) = probe_candidates
         .iter()
         .find(|(adapter, _)| adapter.name == current_name)
         .and_then(|(adapter, _)| health.get(&adapter.ip).copied())
-        .unwrap_or(false);
+    else {
+        crate::log_warn!("outbound", "当前出口 {} 公网探测未完成，本轮不计为断网", current_name);
+        reset_state();
+        return;
+    };
 
     let (failures, previous_failures) = {
         let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
@@ -269,7 +338,7 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
             *state = FailoverState::default();
         } else if adapter_changed {
             state.recovery_result = None;
-            state.recovery_done = false;
+            state.recovery_attempted = false;
         }
         (failures, previous_failures)
     };
@@ -286,48 +355,36 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
         return;
     }
 
-    let recovery_result = {
+    let (recovery_result, recovery_attempted) = {
         let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-        if state.recovery_adapter.as_deref() == Some(current_name.as_str()) {
+        let result = if state.recovery_adapter.as_deref() == Some(current_name.as_str()) {
             state.recovery_result.take()
         } else {
             None
-        }
+        };
+        (result, state.recovery_attempted)
     };
-    if recovery_result == Some(RecoveryOutcome::Busy) {
-        return;
-    }
-    if recovery_result.is_some() {
-        STATE.lock().unwrap_or_else(|e| e.into_inner()).recovery_done = true;
-    }
-
-    let recovery_done = STATE.lock().unwrap_or_else(|e| e.into_inner()).recovery_done;
-    if !recovery_done {
-        let managed = current_name == adapter1 || (config.dual_adapter && current_name == adapter2);
-        if managed {
+    let managed = is_managed_adapter(config, &current_name, &adapter1, &adapter2);
+    match recovery_action(recovery_result, managed, recovery_attempted) {
+        RecoveryAction::Wait => {
+            STATE.lock().unwrap_or_else(|e| e.into_inner()).recovery_attempted = false;
+            return;
+        }
+        RecoveryAction::Recovered => {
+            crate::log_info!("outbound", "当前出口 {} 登录与 Portal 复核已恢复，本轮不切换", current_name);
+            reset_state();
+            return;
+        }
+        RecoveryAction::AttemptLogin => {
             spawn_recovery(app_handle, config, &current_name);
             return;
         }
+        RecoveryAction::Switch => {}
     }
 
     let switch_result = super::outbound_night::apply_outbound_switch_with_health(app_handle, config, Some(health));
     if super::outbound_night::outbound_switch_active(app_handle) {
-        let now = chrono::Local::now();
-        let hold_day = failover_hold_day(
-            now.date_naive().num_days_from_ce(),
-            now.hour() * 60 + now.minute(),
-            crate::config::night_switch::restore_start_minutes(config.night_restore_minutes),
-        );
-        let state = app_handle.state::<AppState>();
-        if let Err(e) = crate::config::persist::mutate_config_and_save(app_handle, &state, move |fresh| {
-            fresh.outbound_manual_hold_day = hold_day;
-            Ok(())
-        }) {
-            let mut fresh = (*state.config.load()).clone();
-            fresh.outbound_manual_hold_day = hold_day;
-            state.config.store(fresh);
-            crate::log_warn!("outbound", "故障切换当日保持标记落盘失败: {e}；已在当前进程内保持");
-        }
+        persist_failover_hold(app_handle, config);
     }
     match switch_result {
         Ok(()) => {
@@ -360,6 +417,24 @@ mod tests {
         assert_eq!(next_failure_round(&state, "以太网", false), REQUIRED_FAILURE_ROUNDS);
         state.failures = REQUIRED_FAILURE_ROUNDS;
         assert_eq!(next_failure_round(&state, "以太网", false), REQUIRED_FAILURE_ROUNDS);
+    }
+
+    #[test]
+    fn 登录恢复成功直接结束_busy可重试_失败才切换() {
+        assert_eq!(recovery_action(Some(RecoveryOutcome::Succeeded), true, true), RecoveryAction::Recovered);
+        assert_eq!(recovery_action(Some(RecoveryOutcome::Busy), true, true), RecoveryAction::Wait);
+        assert_eq!(recovery_action(None, true, false), RecoveryAction::AttemptLogin);
+        assert_eq!(recovery_action(Some(RecoveryOutcome::Failed), true, true), RecoveryAction::Switch);
+        assert_eq!(recovery_action(None, true, true), RecoveryAction::Switch);
+        assert_eq!(recovery_action(None, false, false), RecoveryAction::Switch);
+    }
+
+    #[test]
+    fn 连续两轮或恢复进行中才抑制运营商切侧() {
+        assert!(!failover_pending(0, false));
+        assert!(!failover_pending(1, false));
+        assert!(failover_pending(REQUIRED_FAILURE_ROUNDS, false));
+        assert!(failover_pending(0, true));
     }
 
     #[test]

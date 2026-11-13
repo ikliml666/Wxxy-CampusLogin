@@ -37,6 +37,7 @@ export interface Config {
   enableNightOperatorSwitch: boolean
   /** 切至无锡学院前暂存的原运营商；空 = 未处于切换态（后端内部状态） */
   nightOperatorRestore: string
+  /** 自动出站切换总开关（保留旧字段名以兼容既有配置） */
   enableNightOutboundSwitch: boolean
   /** 夜间切换的恢复时刻（当日分钟数，如 450=07:30）：恢复窗自此刻开启还原出站与运营商。0=未自定义，回落默认 07:30 */
   nightRestoreMinutes: number

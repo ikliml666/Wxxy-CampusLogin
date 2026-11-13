@@ -128,7 +128,6 @@ pub async fn run_scheduled_action_loop(
             // 恢复时刻可配置（默认 07:30）：原始值直传，归一化在判定函数内部完成
             config_snapshot.night_restore_minutes,
         ) {
-            NightOutboundAction::Switch => {}
             NightOutboundAction::Restore => {
                 let restored = run_outbound_blocking(
                     app_h.clone(),
@@ -144,9 +143,9 @@ pub async fn run_scheduled_action_loop(
                     );
                 }
             }
-            NightOutboundAction::None => {
+            NightOutboundAction::Switch | NightOutboundAction::None => {
                 // 切换态下的"未生效补齐"：helper 部分失败时快照已保留（切换态成立），
-                // Switch 分支不会再触发（restore_active 下判定恒为 None）→ 由这里按退避重试。
+                // Switch/None 统一走这里；restore_active 下判定恒为 None，按退避重试。
                 // 终止条件看 needs_replay：切换成功后失败计数清零，稳态（夜间约 900 拍）
                 // 不再每拍提权重写跃点/刷日志——只有确实留有失败历史才补
                 let switch_fails = OUTBOUND_SWITCH_FAIL_COUNT.load(Ordering::Acquire);

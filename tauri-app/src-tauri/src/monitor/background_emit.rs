@@ -166,8 +166,17 @@ pub(super) fn emit_background_check_result(
     }
 }
 
-pub(super) fn all_adapters_online(online: bool, secondary_online: Option<bool>) -> bool {
-    online && secondary_online != Some(false)
+pub(super) fn any_adapter_online(online: bool, secondary_online: Option<bool>) -> bool {
+    online || secondary_online == Some(true)
+}
+
+fn reset_recovered_reconnect_counts(snapshot: &mut crate::infra::state::network::NetworkSnapshot, online: bool, secondary_online: Option<bool>) {
+    if online {
+        snapshot.disconnect_reconnect_count = 0;
+    }
+    if secondary_online == Some(true) {
+        snapshot.secondary_disconnect_reconnect_count = 0;
+    }
 }
 
 pub(super) fn update_network_state(
@@ -179,7 +188,7 @@ pub(super) fn update_network_state(
 ) {
     state.network.update(|s| s.server_available = reachable);
 
-    let any_online = online || secondary_online == Some(true);
+    let any_online = any_adapter_online(online, secondary_online);
 
     let protected_until = state.network.load().logout_protected_until;
     let is_logout_protected = std::time::Instant::now() < protected_until;
@@ -192,10 +201,8 @@ pub(super) fn update_network_state(
     state.network.update(|s| {
         s.any_adapter_online = any_online;
         s.last_a1_online = online;
-        // 另一张卡仍在线不能清零目标卡的重连计数；全部在线才进入新在线周期。
-        if all_adapters_online(online, secondary_online) {
-            s.disconnect_reconnect_count = 0;
-        }
+        s.last_a2_online = secondary_online == Some(true);
+        reset_recovered_reconnect_counts(s, online, secondary_online);
     });
 
     if reachable && !state.network.load().has_logged_online && online {
@@ -211,14 +218,33 @@ pub(super) fn update_network_state(
 
 #[cfg(test)]
 mod tests {
-    use super::all_adapters_online;
+    use super::{any_adapter_online, reset_recovered_reconnect_counts};
 
     #[test]
-    fn 全部适配器在线才清零重连计数() {
-        assert!(all_adapters_online(true, None));
-        assert!(all_adapters_online(true, Some(true)));
-        assert!(!all_adapters_online(true, Some(false)));
-        assert!(!all_adapters_online(false, Some(true)));
-        assert!(!all_adapters_online(false, None));
+    fn 任一适配器在线即进入在线周期() {
+        assert!(any_adapter_online(true, None));
+        assert!(any_adapter_online(true, Some(true)));
+        assert!(any_adapter_online(true, Some(false)), "副卡离线不得阻止主卡恢复在线周期");
+        assert!(any_adapter_online(false, Some(true)));
+        assert!(!any_adapter_online(false, Some(false)));
+        assert!(!any_adapter_online(false, None));
+    }
+
+    #[test]
+    fn 主副卡重连计数只在各自恢复时清零() {
+        let mut snapshot = crate::infra::state::network::NetworkSnapshot::default();
+        snapshot.disconnect_reconnect_count = 2;
+        snapshot.secondary_disconnect_reconnect_count = 3;
+        reset_recovered_reconnect_counts(&mut snapshot, true, Some(false));
+        assert_eq!(snapshot.disconnect_reconnect_count, 0);
+        assert_eq!(snapshot.secondary_disconnect_reconnect_count, 3, "主卡在线不得清零副卡重试配额");
+
+        snapshot.disconnect_reconnect_count = 2;
+        reset_recovered_reconnect_counts(&mut snapshot, false, Some(true));
+        assert_eq!(snapshot.disconnect_reconnect_count, 2, "副卡在线不得清零主卡重试配额");
+        assert_eq!(snapshot.secondary_disconnect_reconnect_count, 0);
+
+        reset_recovered_reconnect_counts(&mut snapshot, true, Some(true));
+        assert_eq!(snapshot.disconnect_reconnect_count, 0);
     }
 }

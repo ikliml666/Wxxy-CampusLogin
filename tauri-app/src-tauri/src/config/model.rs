@@ -58,8 +58,8 @@ pub struct Config {
     /// 切至无锡学院前暂存的原运营商；空 = 未处于切换态。恢复后清空
     #[serde(rename = "nightOperatorRestore", default)]
     pub night_operator_restore: String,
-    /// 夜间出站自动切换总开关：到点把出站切到排序中的非校园网网卡（默认关——
-    /// 修改系统路由属侵入性动作）；判定逻辑见 config::outbound_switch
+    /// 自动出站切换总开关（桌面，默认关）：连续两轮公网失败且登录无法恢复时，
+    /// 按优先级切到确认可上网的非校园网卡；定时切换时刻仅是附加检测触发。
     #[serde(rename = "enableNightOutboundSwitch", default)]
     pub enable_night_outbound_switch: bool,
     /// 夜间切换的恢复时刻（当日分钟数，如 450 = 07:30）：恢复窗自此刻开启，

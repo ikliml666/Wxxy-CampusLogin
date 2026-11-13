@@ -89,16 +89,19 @@ pub enum ReconnectTarget {
     Secondary,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ReconnectObservation {
+    pub online: bool,
+    pub secondary_online: Option<bool>,
+    pub a1_has_ip: bool,
+    pub a2_has_ip: bool,
+}
+
 /// 只选择实际掉线且有 IP 的适配器，避免另一张卡的成功掩盖目标卡失败。
-pub fn reconnect_target(
-    online: bool,
-    secondary_online: Option<bool>,
-    a1_has_ip: bool,
-    a2_has_ip: bool,
-) -> Option<ReconnectTarget> {
-    if !online && a1_has_ip {
+pub fn reconnect_target(observation: ReconnectObservation) -> Option<ReconnectTarget> {
+    if !observation.online && observation.a1_has_ip {
         Some(ReconnectTarget::Primary)
-    } else if secondary_online == Some(false) && a2_has_ip {
+    } else if observation.secondary_online == Some(false) && observation.a2_has_ip {
         Some(ReconnectTarget::Secondary)
     } else {
         None
@@ -107,7 +110,7 @@ pub fn reconnect_target(
 
 /// 登录端点响应成功后，以目标卡的 Portal 页面确认会话已生效。
 /// 立即探测，未生效时短轮询，避免固定等待拖慢正常恢复。
-fn verify_reconnect_online(adapter_name: &str, is_quitting: &std::sync::atomic::AtomicBool) -> bool {
+pub(super) fn verify_adapter_portal_online(adapter_name: &str, is_quitting: &std::sync::atomic::AtomicBool) -> bool {
     const MAX_ATTEMPTS: u32 = 3;
     for attempt in 1..=MAX_ATTEMPTS {
         if is_quitting.load(Ordering::Acquire) {
@@ -119,17 +122,17 @@ fn verify_reconnect_online(adapter_name: &str, is_quitting: &std::sync::atomic::
                     Ok(status) if status.online => return true,
                     Ok(status) => crate::log_debug!(
                         "auto_login",
-                        "断线重连Portal复核 [{}/{}]: {} 仍未在线（{}）",
+                        "登录后Portal复核 [{}/{}]: {} 仍未在线（{}）",
                         attempt,
                         MAX_ATTEMPTS,
                         adapter_name,
                         status.message
                     ),
-                    Err(e) => crate::log_warn!("auto_login", "断线重连Portal复核失败 [{}/{}]: {}: {}", attempt, MAX_ATTEMPTS, adapter_name, e),
+                    Err(e) => crate::log_warn!("auto_login", "登录后Portal复核失败 [{}/{}]: {}: {}", attempt, MAX_ATTEMPTS, adapter_name, e),
                 },
-                None => crate::log_warn!("auto_login", "断线重连Portal复核 [{}/{}]: 未找到适配器 {}", attempt, MAX_ATTEMPTS, adapter_name),
+                None => crate::log_warn!("auto_login", "登录后Portal复核 [{}/{}]: 未找到适配器 {}", attempt, MAX_ATTEMPTS, adapter_name),
             },
-            Err(e) => crate::log_warn!("auto_login", "断线重连复核获取适配器失败 [{}/{}]: {}", attempt, MAX_ATTEMPTS, e),
+            Err(e) => crate::log_warn!("auto_login", "登录后复核获取适配器失败 [{}/{}]: {}", attempt, MAX_ATTEMPTS, e),
         }
         if attempt < MAX_ATTEMPTS {
             for _ in 0..5 {
@@ -271,7 +274,12 @@ pub(super) fn try_disconnect_reconnect(
     secondary_result: Option<&super::portal_check::PortalCheckResult>,
     config: &crate::config::model::Config,
 ) -> bool {
-    let Some(target) = reconnect_target(online, secondary_online, a1.is_some(), a2.is_some()) else {
+    let Some(target) = reconnect_target(ReconnectObservation {
+        online,
+        secondary_online,
+        a1_has_ip: a1.is_some(),
+        a2_has_ip: a2.is_some(),
+    }) else {
         return false;
     };
     let (offline_adapter, target_reachable, target_login_available) = match target {
@@ -310,9 +318,15 @@ pub(super) fn try_disconnect_reconnect(
     };
 
     // 历史缺陷：读-增-取值非原子（对齐 failure_tracker.rs 的 update_with_result 模式）
-    let reconnect_count = state.network.update_with_result(|s| {
-        s.disconnect_reconnect_count += 1;
-        s.disconnect_reconnect_count
+    let reconnect_count = state.network.update_with_result(|s| match target {
+        ReconnectTarget::Primary => {
+            s.disconnect_reconnect_count += 1;
+            s.disconnect_reconnect_count
+        }
+        ReconnectTarget::Secondary => {
+            s.secondary_disconnect_reconnect_count += 1;
+            s.secondary_disconnect_reconnect_count
+        }
     });
     // 上限内照常重连；超限后每 RECONNECT_REMINDER_INTERVAL 个周期再放行一次
     // （修复：原"超限即只提醒、永不重连"的终态会让断线后到可登录时段也无法恢复）
@@ -340,7 +354,7 @@ pub(super) fn try_disconnect_reconnect(
             reconnect_count, config.max_disconnect_reconnect, reconnect_result.success, elapsed.as_millis());
 
         let portal_online = reconnect_result.success
-            && verify_reconnect_online(offline_adapter, state.exit.is_quitting.as_ref());
+            && verify_adapter_portal_online(offline_adapter, state.exit.is_quitting.as_ref());
         reconnect_success = reconnect_should_report(reconnect_result.success, portal_online, within_limit);
 
         if reconnect_success {
@@ -689,11 +703,17 @@ mod tests {
 
     #[test]
     fn reconnect_target_selects_only_offline_adapter_with_ip() {
-        assert_eq!(reconnect_target(false, Some(true), true, true), Some(ReconnectTarget::Primary));
-        assert_eq!(reconnect_target(true, Some(false), true, true), Some(ReconnectTarget::Secondary));
-        assert_eq!(reconnect_target(false, Some(false), false, true), Some(ReconnectTarget::Secondary));
-        assert_eq!(reconnect_target(true, Some(false), true, false), None);
-        assert_eq!(reconnect_target(true, Some(true), true, true), None);
+        let observation = |online, secondary_online, a1_has_ip, a2_has_ip| ReconnectObservation {
+            online,
+            secondary_online,
+            a1_has_ip,
+            a2_has_ip,
+        };
+        assert_eq!(reconnect_target(observation(false, Some(true), true, true)), Some(ReconnectTarget::Primary));
+        assert_eq!(reconnect_target(observation(true, Some(false), true, true)), Some(ReconnectTarget::Secondary));
+        assert_eq!(reconnect_target(observation(false, Some(false), false, true)), Some(ReconnectTarget::Secondary));
+        assert_eq!(reconnect_target(observation(true, Some(false), true, false)), None);
+        assert_eq!(reconnect_target(observation(true, Some(true), true, true)), None);
     }
 
     #[test]

@@ -520,7 +520,7 @@ pub async fn check_internet_access_async(
         }
     };
 
-    // 候选卡必须严格绑源；只有已识别的当前物理出口允许复核 TUN 使用的系统路由。
+    // 候选卡必须严格绑源；只有已识别的当前物理出口允许复核系统真实路由。
     let mut set = tokio::task::JoinSet::new();
     for host in ["www.baidu.com", "cn.bing.com"] {
         set.spawn(async move {

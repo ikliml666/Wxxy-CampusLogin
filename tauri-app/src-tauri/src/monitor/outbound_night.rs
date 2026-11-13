@@ -12,7 +12,7 @@ use crate::monitor::outbound_switch::{
     disabled_adapters_json, effective_outbound_priority, is_campus_adapter, parse_disabled_adapters,
     parse_standby_route, portal_probe_host, select_campus_to_disable,
     select_outbound_candidate, snapshot_json, standby_route_cleanup, DisabledRow, StandbyCleanup,
-    OUTBOUND_PROBE_HOST,
+    OUTBOUND_INTERNET_HEALTH_KEY,
 };
 use crate::network::Adapter;
 use crate::platform::metric::MetricRow;
@@ -406,7 +406,7 @@ impl ProbeCache {
         match self.0.get(&(dest.to_string(), source.to_string())) {
             Some(ok) => *ok,
             // 公网健康只接受 TCP/HTTPS 结果，缺失不得退回 ICMP 造成假阳性。
-            None if dest == OUTBOUND_PROBE_HOST => false,
+            None if dest == OUTBOUND_INTERNET_HEALTH_KEY => false,
             None => crate::network::check_gateway_reachable_from(dest, Some(source)),
         }
     }
@@ -563,7 +563,13 @@ fn build_outbound_plan(
         }
     };
     // 逐卡补齐网关：Adapter 无 gateway 字段（在 AdapterDetail 里），按名字 join
-    let details = crate::network::get_adapter_details_cached().unwrap_or_default();
+    let details = match crate::network::get_adapter_details_cached() {
+        Ok(details) => details,
+        Err(e) => {
+            crate::log_warn!("outbound", "出站切换获取网关详情失败: {e}");
+            return Err(format!("获取网关详情失败: {e}"));
+        }
+    };
     let candidates: Vec<(Adapter, String)> = adapters
         .iter()
         .map(|a| {
@@ -591,7 +597,7 @@ fn build_outbound_plan(
         None => super::outbound_failover::probe_internet_access(app_handle, config, &candidates, None),
     };
     for (source_ip, ok) in internet_health {
-        probe_cache.0.insert((OUTBOUND_PROBE_HOST.to_string(), source_ip), ok);
+        probe_cache.0.insert((OUTBOUND_INTERNET_HEALTH_KEY.to_string(), source_ip), ok);
     }
     let probe = |gateway: &str, source_ip: &str| probe_cache.get(gateway, source_ip);
     let Some(target) = select_outbound_candidate(
@@ -672,10 +678,6 @@ fn build_outbound_plan(
         campus_to_disable,
         empty_disable_warn,
     })
-}
-
-pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) -> Result<(), String> {
-    apply_outbound_switch_with_health(app_handle, config, None)
 }
 
 pub(super) fn apply_outbound_switch_with_health(
@@ -1420,7 +1422,7 @@ pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), Strin
     // 用户显式重试：清退避闸，不做自动路径的阶梯等待
     clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
     set_outbound_manual_hold(app_handle, today);
-    if let Err(reason) = apply_outbound_switch(app_handle, &config) {
+    if let Err(reason) = apply_outbound_switch_with_health(app_handle, &config, None) {
         // 切换失败（无候选/退避等）按原语义清 hold，恢复当日自动切换。
         // 2026-10-26 前还有「登录闸挂起不算失败、保留 hold 让补驱动接管」的分支；
         // 挂起机制已随登录闸一起移除，失败即失败。
@@ -1550,16 +1552,16 @@ mod tests {
         // 校园卡不再靠网段短路：校园网关与 portal 同样要预热
         assert!(has("10.2.127.254", "10.2.100.5"));
         assert!(has("10.1.99.100", "10.2.100.5"));
-        assert!(!has(OUTBOUND_PROBE_HOST, "10.2.100.5"), "公网健康由 TCP/HTTPS 单独并行，不再发 ICMP");
+        assert!(!has(OUTBOUND_INTERNET_HEALTH_KEY, "10.2.100.5"), "公网健康由 TCP/HTTPS 单独并行，不再发 ICMP");
         // 非校园卡：校园网关与 portal 都要探
         assert!(has("10.2.127.254", "192.168.6.119"));
         assert!(has("10.1.99.100", "192.168.6.119"));
         // 自身网关走 ICMP 预热；公网健康走独立 TCP/HTTPS 批次
         assert!(has("192.168.6.1", "192.168.6.119"));
-        assert!(!has(OUTBOUND_PROBE_HOST, "192.168.6.119"));
+        assert!(!has(OUTBOUND_INTERNET_HEALTH_KEY, "192.168.6.119"));
         // 无网关的卡出不了站，判定阶段不查它
         assert!(!has("10.2.127.254", "192.168.6.115"));
-        assert!(!has(OUTBOUND_PROBE_HOST, "192.168.6.115"));
+        assert!(!has(OUTBOUND_INTERNET_HEALTH_KEY, "192.168.6.115"));
     }
 
     /// 无 IP / 不在优先级内的卡不进预热集合（判定阶段也不会查它们）。

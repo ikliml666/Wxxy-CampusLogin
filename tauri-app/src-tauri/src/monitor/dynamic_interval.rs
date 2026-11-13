@@ -3,7 +3,7 @@
 //!
 //! 三档语义（用户需求）：
 //! - 未登录：从配置基础间隔起 ×2 逐步退避，封顶 [`BACKOFF_CAP_MS`]（5 分钟）；
-//! - 已登录（门户可达）：间隔固定 [`ONLINE_INTERVAL_MS`]（1 分钟）；
+//! - 已登录（门户可达）：间隔固定 [`ONLINE_INTERVAL_MS`]（1 分钟），优先于更长的用户基础配置与轻量化长间隔；
 //! - 已登录但无法访问门户（http://10.1.99.100/）：间隔降为 [`FAST_INTERVAL_MS`]
 //!   （1 分钟）快速排查，并由巡检联动一次网络质量检测（是否连上互联网）。
 //!
@@ -57,8 +57,7 @@ impl DynamicInterval {
             }
             CheckOutcome::Online => {
                 self.offline_streak = 0;
-                // 已登录档取 1 分钟与用户配置基础间隔的较大者：用户配得更长时尊重用户
-                ONLINE_INTERVAL_MS.max(base_ms)
+                ONLINE_INTERVAL_MS
             }
             CheckOutcome::NotOnline => {
                 self.offline_streak = self.offline_streak.saturating_add(1);
@@ -134,6 +133,7 @@ mod tests {
     fn 在线巡检最迟60秒发现掉线() {
         let mut d = DynamicInterval::default();
         assert_eq!(d.next_ms(CheckOutcome::Online, 15_000), 60_000);
+        assert_eq!(d.next_ms(CheckOutcome::Online, 600_000), 60_000, "较大的基础配置不得拖慢在线巡检");
     }
 
     #[test]
@@ -161,9 +161,9 @@ mod skipped_tests {
     }
 
     #[test]
-    fn 已登录档尊重更大的用户配置() {
+    fn 已登录档不被更大的用户配置拖慢() {
         let mut d = DynamicInterval::default();
-        assert_eq!(d.next_ms(CheckOutcome::Online, 900_000), 900_000);
+        assert_eq!(d.next_ms(CheckOutcome::Online, 900_000), 60_000);
         assert_eq!(d.next_ms(CheckOutcome::Online, 15_000), ONLINE_INTERVAL_MS);
     }
 }

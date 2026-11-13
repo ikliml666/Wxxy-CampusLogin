@@ -27,7 +27,7 @@ static CONFLICT_FIX_DAY: std::sync::atomic::AtomicI32 = std::sync::atomic::Atomi
 pub(crate) const CAMPUS_FAIL_EXIT_THRESHOLD: u32 = 2;
 use crate::auth::failure_tracker::handle_portal_request_failure;
 use super::dynamic_interval::{portal_reset_window_open, CheckOutcome};
-use super::background_emit::{handle_status_change, emit_background_check_result, update_network_state, all_adapters_online, BackgroundCheckResult};
+use super::background_emit::{handle_status_change, emit_background_check_result, update_network_state, any_adapter_online, BackgroundCheckResult};
 
 /// 巡检是否应把「已登录过」标记复位（会话失效判定，纯函数便于单测）。
 ///
@@ -482,14 +482,14 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     }
 
     // 动态间隔结局分类（dynamic_interval.rs）：
-    // - 门户可达且全部适配器在线 → Online（1 分钟常规拍）；有卡离线/重连失败 → NotOnline
+    // - 门户可达且任一适配器在线 → Online（1 分钟常规拍）；全部离线/重连失败 → NotOnline
     // - 门户不可达但此前在线 → OnlineButPortalUnreachable（1 分钟快排查），
     //   并联动一次网络质量检测（确认是否仍连着互联网），5 分钟节流防重复
-    let all_online = all_adapters_online(online, secondary_online);
+    let any_online = any_adapter_online(online, secondary_online);
     let outcome = if reconnected {
         CheckOutcome::Online
     } else if reachable {
-        if all_online { CheckOutcome::Online } else { CheckOutcome::NotOnline }
+        if any_online { CheckOutcome::Online } else { CheckOutcome::NotOnline }
     } else if prev_online {
         CheckOutcome::OnlineButPortalUnreachable
     } else {

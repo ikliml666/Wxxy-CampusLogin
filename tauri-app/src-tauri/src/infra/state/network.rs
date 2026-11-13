@@ -11,6 +11,7 @@ pub struct NetworkSnapshot {
     pub last_a2_online: bool,
     pub has_logged_online: bool,
     pub disconnect_reconnect_count: u32,
+    pub secondary_disconnect_reconnect_count: u32,
     pub background_check_count: u32,
     pub last_auto_login_attempt: Instant,
     /// 质量与 SSID 用 `Arc<str>`：快照在 CAS 循环里整份 clone，
@@ -53,6 +54,7 @@ impl Default for NetworkSnapshot {
             last_a2_online: false,
             has_logged_online: false,
             disconnect_reconnect_count: 0,
+            secondary_disconnect_reconnect_count: 0,
             background_check_count: 0,
             last_auto_login_attempt: now,
             last_network_quality: None,

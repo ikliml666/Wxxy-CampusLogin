@@ -379,6 +379,7 @@ pub(crate) fn begin_full_logout(state: &AppState) {
     state.network.update(|n| {
         n.has_logged_online = false;
         n.disconnect_reconnect_count = 0;
+        n.secondary_disconnect_reconnect_count = 0;
         n.last_auto_login_attempt = std::time::Instant::now();
         n.logout_protected_until = protected_until;
     });
@@ -413,6 +414,7 @@ pub(crate) fn mark_login_success(state: &AppState) {
         s.has_logged_online = true;
         s.prep_login_failures = 0;
         s.disconnect_reconnect_count = 0;
+        s.secondary_disconnect_reconnect_count = 0;
     });
 }
 
