@@ -89,23 +89,22 @@ pub(super) fn spawn_auth_recovery(app_handle: &AppHandle, config: &Config, adapt
         adapter_name
     );
     let app_h = app_handle.clone();
-    let config = config.clone();
     let name = adapter_name.to_string();
     tauri::async_runtime::spawn(async move {
-        let _ = tauri::async_runtime::spawn_blocking(move || run_recovery(&app_h, &config, &name)).await;
+        let _ = tauri::async_runtime::spawn_blocking(move || run_recovery(&app_h, &name)).await;
     });
 }
 
 #[cfg(target_os = "windows")]
-fn run_recovery(app_handle: &AppHandle, _config: &Config, adapter_name: &str) -> bool {
+fn run_recovery(app_handle: &AppHandle, adapter_name: &str) {
     let state = app_handle.state::<AppState>();
     let Some(_check) = state.tasks.is_checking.try_acquire() else {
         crate::log_debug!("auth_recovery", "巡检进行中，本拍跳过认证恢复");
-        return false;
+        return;
     };
     let Some(_login) = state.tasks.is_logging_in.try_acquire() else {
         crate::log_debug!("auth_recovery", "登录进行中，本拍跳过认证恢复");
-        return false;
+        return;
     };
     match crate::network::dhcp::dhcp_release_renew_single(adapter_name) {
         Ok(value) => {
@@ -114,18 +113,18 @@ fn run_recovery(app_handle: &AppHandle, _config: &Config, adapter_name: &str) ->
             let reason = value.get("reason").and_then(|v| v.as_str()).unwrap_or("");
             if skipped {
                 crate::log_info!("auth_recovery", "{} 跳过换 MAC：{}", adapter_name, reason);
-                return false;
+                return;
             }
             if !success {
                 crate::log_warn!("auth_recovery", "{} 换 MAC 取新 IP 未成功：{}", adapter_name, reason);
-                return false;
+                return;
             }
             let ip = value.get("ip").and_then(|v| v.as_str()).unwrap_or("");
             crate::log_info!("auth_recovery", "{} 已换 MAC 取到新 IP {}", adapter_name, ip);
         }
         Err(e) => {
             crate::log_warn!("auth_recovery", "{} 换 MAC 失败: {e}", adapter_name);
-            return false;
+            return;
         }
     }
     // 换址后立刻重新认证：Portal 此时通常已恢复响应
@@ -133,17 +132,13 @@ fn run_recovery(app_handle: &AppHandle, _config: &Config, adapter_name: &str) ->
     if result.success {
         crate::auth::service::mark_login_success(&state);
         crate::log_info!("auth_recovery", "{} 认证恢复成功", adapter_name);
-        true
     } else {
         crate::log_warn!("auth_recovery", "{} 换址后重新认证仍失败", adapter_name);
-        false
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn run_recovery(_app_handle: &AppHandle, _config: &Config, _adapter_name: &str) -> bool {
-    false
-}
+fn run_recovery(_app_handle: &AppHandle, _adapter_name: &str) {}
 
 #[cfg(test)]
 mod tests {

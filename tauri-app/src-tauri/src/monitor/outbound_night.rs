@@ -18,7 +18,7 @@ use crate::network::Adapter;
 use crate::platform::metric::MetricRow;
 
 /// 夜间出站切换：提权 helper 执行超时（改跃点/禁网卡/加路由都是即时操作，超时即判失败走退避）
-const OUTBOUND_HELPER_TIMEOUT_SECS: u64 = 30;
+const OUTBOUND_HELPER_TIMEOUT_SECS: u64 = 10;
 
 /// 夜间出站切换退避阶梯：首败 60s 起步、每失败翻倍、封顶 300s
 /// （1→60s、2→120s、3→240s、≥4→300s）——避免 30s 循环整夜重试刷日志/弹通知
@@ -303,6 +303,9 @@ fn enable_campus_adapter(_name: &str, _allow_uac_prompt: bool) -> Result<(), Hel
 /// 提权降级策略照 adapter_watch 的自动启用：首试静默（CMSTPLUA 可用时零 UAC 打扰），
 /// 仅在**确因提权通道失败**后允许降级弹 UAC（静默通道被系统封堵时 UAC 是唯一恢复通道），
 /// 频率由退避阶梯限制；失败原因经 Err(原因) 上报调用方（手动入口透传前端 toast）。
+/// raise_origin：同时把原出口卡的跃点抬到 SWITCHED_ORIGIN_METRIC。与目标卡的写入
+/// 合成同一次 helper 调用——分两次的好处只是日志更细，代价是多一次提权往返
+/// （每次超时 10s），而切换对耗时有硬要求。
 fn write_outbound_metric(
     app_handle: &AppHandle,
     name: &str,
@@ -310,6 +313,7 @@ fn write_outbound_metric(
     families: &[u16],
     notify_success: bool,
     notify_suffix: &str,
+    raise_origin: Option<(&str, &[u16])>,
 ) -> Result<(), String> {
     if families.is_empty() {
         // 卡在但跃点行缺失：写不进去。同样记退避，避免 30s 一拍刷日志；
@@ -322,10 +326,19 @@ fn write_outbound_metric(
         );
         return Err("当前无可用跃点行（网卡已拔出或协议栈缺失）".to_string());
     }
-    let encoded: Vec<String> = families
+    let mut encoded: Vec<String> = families
         .iter()
         .map(|family| format!("{guid}:{family}:0:1"))
         .collect();
+    if let Some((origin_guid, origin_families)) = raise_origin {
+        // 抬高必须与压低同批下发：分开调用时中间态是「两张卡都低」，出口会跳到
+        // routeMetric 更小的那张，验证步骤就会偶发判失败
+        encoded.extend(
+            origin_families
+                .iter()
+                .map(|family| format!("{origin_guid}:{family}:0:{SWITCHED_ORIGIN_METRIC}")),
+        );
+    }
     let allow_uac = outbound_allow_uac();
     match run_helper_op("set_metric", &encoded, allow_uac) {
         Ok(()) => {
@@ -411,6 +424,78 @@ fn portal_route_delete_row(route: &PortalRoute) -> String {
     )
 }
 
+/// 切换态下重建旁路路由：目标仍是 Portal，下一跳取「跃点被抬到
+/// SWITCHED_ORIGIN_METRIC 的那张卡」的网关，也就是刚被切走的原出口。
+/// 不能用 build_portal_bypass_route——它按当前默认出口取卡，切换后那就是新卡，
+/// 会把去 Portal 的流量钉在错误的链路上。
+fn rebuild_portal_bypass_from_snapshot(config: &crate::config::Config) -> Option<PortalRoute> {
+    let dest = portal_probe_host(&config.portal_url);
+    if dest.is_empty() {
+        return None;
+    }
+    let rows = parse_outbound_snapshot(&config.outbound_metric_restore).ok()?;
+    let guid = rows
+        .iter()
+        .find(|row| row.metric == SWITCHED_ORIGIN_METRIC)?
+        .guid.clone();
+    let adapter = crate::network::get_adapters_cached()
+        .ok()?
+        .into_iter()
+        .find(|adapter| adapter.guid == guid)?;
+    let gateway = crate::network::get_adapter_details_cached()
+        .ok()?
+        .into_iter()
+        .find(|detail| detail.name == adapter.name)
+        .map(|detail| detail.gateway)?;
+    if gateway.is_empty() {
+        return None;
+    }
+    Some(PortalRoute {
+        dest,
+        gateway,
+        if_index: adapter.if_index,
+        metric: 1,
+    })
+}
+
+/// 切换态下确保 Portal 旁路路由就绪（快照为空 = 首次添加失败，补一次）。
+/// 登录恢复依赖这条路由：缺了就到不了 Portal，登录前置判定会把恢复降级成
+/// NotNeeded，于是整夜不再尝试登录原卡。返回是否已就绪。
+pub(super) fn ensure_portal_bypass_route(
+    app_handle: &AppHandle,
+    config: &crate::config::Config,
+) -> bool {
+    if !config.outbound_portal_route.trim().is_empty() {
+        return true;
+    }
+    let Some(route) = rebuild_portal_bypass_from_snapshot(config) else {
+        crate::log_warn!("outbound", "切换态旁路路由无法重建（快照缺原出口卡或网关）");
+        return false;
+    };
+    let row = route.encode();
+    if let Err(failure) = run_helper_op("route_add", &[row], outbound_allow_uac()) {
+        note_channel_failure(&failure);
+        crate::log_warn!("outbound", "切换态补加 Portal 旁路路由失败: {}", failure.reason);
+        return false;
+    }
+    let json = serde_json::to_string(&route).unwrap_or_default();
+    let state = app_handle.state::<AppState>();
+    if let Err(e) = crate::config::persist::mutate_config_and_save(app_handle, &state, move |fresh| {
+        fresh.outbound_portal_route = json;
+        Ok(())
+    }) {
+        crate::log_warn!("outbound", "切换态旁路路由快照落盘失败: {e}");
+    }
+    crate::log_info!(
+        "outbound",
+        "切换态旁路路由已补加 {} via {} if {}",
+        route.dest,
+        route.gateway,
+        route.if_index
+    );
+    true
+}
+
 /// 解析旁路路由快照（空串/非法 JSON → None）。
 fn parse_portal_route(json: &str) -> Option<PortalRoute> {
     if json.trim().is_empty() {
@@ -427,18 +512,13 @@ fn build_portal_bypass_route(config: &crate::config::Config) -> Option<PortalRou
     if dest.is_empty() {
         return None;
     }
-    // 与出口判定同一口径：物理出口（排除 TUN/代理虚拟卡）。GetBestRoute 会返回
-    // metric=0 的 TUN 接口，那张卡不在适配器列表里，旁路路由会被静默跳过。
-    let current = crate::platform::best_route::current_outbound_v4().ok()?;
-    let adapters = crate::network::get_adapters_cached().ok()?;
-    let adapter = adapters
+    // 与出口判定同一口径（current_origin_adapter 内部走 current_outbound_v4，
+    // 排除 TUN/代理虚拟卡），别再各写一份「读出口再查卡」。
+    let (origin_name, _guid, if_index) = current_origin_adapter()?;
+    let gateway = crate::network::get_adapter_details_cached()
+        .ok()?
         .iter()
-        .find(|a| a.if_index == current.if_index || a.name == current.alias)?;
-    let if_index = adapter.if_index;
-    let details = crate::network::get_adapter_details_cached().ok()?;
-    let gateway = details
-        .iter()
-        .find(|d| d.name == adapter.name)
+        .find(|d| d.name == origin_name)
         .map(|d| d.gateway.clone())?;
     if gateway.is_empty() {
         return None;
@@ -467,18 +547,6 @@ fn current_origin_adapter() -> Option<(String, String, u32)> {
 /// 切换后原出口卡的 interfaceMetric：必须明显高于目标卡（目标卡压到 1），
 /// 让「routeMetric + interfaceMetric」的比较结果稳定落在目标卡上。
 const SWITCHED_ORIGIN_METRIC: u32 = 100;
-
-/// 抬高原出口卡的跃点（只改跃点，不禁用）。
-fn raise_origin_metric(guid: &str, families: &[u16]) -> Result<(), String> {
-    if families.is_empty() {
-        return Ok(());
-    }
-    let encoded: Vec<String> = families
-        .iter()
-        .map(|family| format!("{guid}:{family}:0:{SWITCHED_ORIGIN_METRIC}"))
-        .collect();
-    run_helper_op("set_metric", &encoded, outbound_allow_uac()).map_err(|failure| failure.reason)
-}
 
 /// 默认出口是否已落在指定接口：读系统默认路由的接口索引比对。
 /// 只改跃点时"写了跃点"与"出口真的换了"是两件事——TUN/代理可能持有 metric=0
@@ -861,27 +929,34 @@ pub(super) fn apply_outbound_switch_with_health(
     let portal_bypass = build_portal_bypass_route(config);
     let mut all_ok = true;
     let mut fail_reasons: Vec<String> = Vec::new();
-    if let Err(reason) = write_outbound_metric(app_handle, &plan.target_name, &plan.target_guid, &families, true, "") {
+    // 原出口卡只在「与目标卡不同」时抬高，两卡写入合并为一次 helper 调用
+    let origin_target = origin.as_ref().and_then(|(origin_name, origin_guid, _)| {
+        if origin_guid == &plan.target_guid {
+            return None;
+        }
+        let origin_families: Vec<u16> = origin_rows
+            .as_ref()
+            .map(|(_, rows)| rows.iter().map(|r| r.family).collect())
+            .unwrap_or_default();
+        Some((origin_name.clone(), origin_guid.clone(), origin_families))
+    });
+    let origin_write = origin_target.as_ref().map(|(_, guid, fams)| (guid.as_str(), fams.as_slice()));
+    if let Err(reason) = write_outbound_metric(
+        app_handle,
+        &plan.target_name,
+        &plan.target_guid,
+        &families,
+        true,
+        "",
+        origin_write,
+    ) {
         all_ok = false;
         fail_reasons.push(format!("设置网卡 {} 跃点失败: {reason}", plan.target_name));
-    }
-    // 抬高原出口卡：只在目标卡写入成功后做，失败不阻断切换判定（下面路由验证会暴露）
-    if all_ok {
-        if let Some((origin_name, origin_guid, _)) = &origin {
-            if origin_guid != &plan.target_guid {
-                let families: Vec<u16> = origin_rows
-                    .as_ref()
-                    .map(|(_, rows)| rows.iter().map(|r| r.family).collect())
-                    .unwrap_or_default();
-                match raise_origin_metric(origin_guid, &families) {
-                    Ok(()) => crate::log_info!(
-                        "outbound",
-                        "夜间出站切换: 已将原出口 {origin_name} 跃点抬到 {SWITCHED_ORIGIN_METRIC}"
-                    ),
-                    Err(e) => crate::log_warn!("outbound", "夜间出站切换: 抬高原出口 {origin_name} 跃点失败: {e}"),
-                }
-            }
-        }
+    } else if let Some((origin_name, _, _)) = &origin_target {
+        crate::log_info!(
+            "outbound",
+            "夜间出站切换: 已将原出口 {origin_name} 跃点抬到 {SWITCHED_ORIGIN_METRIC}"
+        );
     }
     // 切换后路由级验证：动作成功 ≠ 效果达成。只改跃点时，默认出口必须真的离开
     // 原卡、落到目标卡；若仍不是（典型是 TUN/代理接管了 metric=0 的默认路由），
@@ -1013,7 +1088,9 @@ pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::con
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| guid.clone())
         };
-        if !families.is_empty() && write_outbound_metric(app_handle, &name, &guid, &families, false, "").is_err() {
+        if !families.is_empty()
+            && write_outbound_metric(app_handle, &name, &guid, &families, false, "", None).is_err()
+        {
             any_fail = true;
         }
     }

@@ -19,6 +19,8 @@ export interface AdapterCampusStatus {
   onCampus: boolean
   /** 命中的判定腿：name / gateway / portal；全未命中为 null */
   matchedBy: string | null
+  /** 连通状态：online=Portal 可达；auth_broken=仅网关可达（认证异常）；off_campus=不在校园网 */
+  health?: 'online' | 'auth_broken' | 'off_campus'
   message: string
 }
 

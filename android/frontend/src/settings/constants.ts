@@ -17,7 +17,11 @@ export const DEFAULT_CONFIG: Config = {
   outboundMetricRestore: '',
   outboundDisabledAdapters: '',
   outboundStandbyRoute: '',
+  outboundPortalRoute: '',
   nightOutboundRestore: '',
+  enableMacRenewOnAuthError: true,
+  macRenewCooldownSecs: 900,
+  macRenewDailyLimit: 3,
   dnsOptimizeAdapters: [],
   autoLoginOnStart: true,
   // 开机自启（set_boot_autostart 真实生效；后端 enable_boot_autostart 默认 false）

@@ -104,7 +104,8 @@ pub fn is_night_outbound_guard_window_with_restore(
 /// metric 快照 / 禁用名单 / 兜底路由三份快照任一非空即处于切换态。
 /// 六期起切换动作=写 metric + 禁校园网卡一次落盘；兜底路由自 2026-10-18 事故后
 /// 不再创建，但字段仍参与判定——历史残留要能被识别出来走精确清理，避免只删了
-/// metric 快照就把待还原动作漏掉。
+/// metric 快照就把待还原动作漏掉。禁用名单同理：2026-11 起不再写（改为只调跃点），
+/// 但老版本升级上来的配置里可能还留着，漏判会让那些卡永远不被重新启用。
 pub fn outbound_restore_active(metric_restore: &str, disabled_adapters: &str, standby_route: &str) -> bool {
     !metric_restore.is_empty() || !disabled_adapters.is_empty() || !standby_route.is_empty()
 }

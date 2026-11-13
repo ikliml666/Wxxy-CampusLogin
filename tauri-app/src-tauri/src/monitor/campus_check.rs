@@ -132,16 +132,21 @@ where
     // 1. 名称（成本最低：netsh 结果已缓存，无网络 IO）。名称命中只说明「连的是校园网
     // 的无线/有线方案」，不保证认证入口可达，因此仍需后面的 Portal 探测确认状态。
     if let Some(msg) = ctx.name_hit(adapter) {
-        let health = judge_campus_health(ctx.campus_gw, &ctx.portal_host, |target| {
+        let mut health = judge_campus_health(ctx.campus_gw, &ctx.portal_host, |target| {
             probe(target, &adapter.ip)
         });
+        // 名称命中已经证明连的是校园网方案：Portal 不通属认证异常，不是离网。
+        // 网关未配置时 judge_campus_health 只会给出 OffCampus，这里要纠正回来，
+        // 否则「连上了校园无线但认证入口坏了」会被当成离网而跳过恢复。
+        if health == CampusHealth::OffCampus {
+            health = CampusHealth::AuthBroken;
+        }
         let message = match health {
             CampusHealth::Online => msg,
-            CampusHealth::AuthBroken => format!(
+            _ => format!(
                 "{}：已连接校园网但 Portal 不可达（认证异常）",
                 adapter.ip
             ),
-            CampusHealth::OffCampus => msg,
         };
         return build(true, Some("name"), health, message);
     }

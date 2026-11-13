@@ -493,18 +493,7 @@ fn build_quality_result<'a>(
     }
 }
 
-/// 轻量联网判定：两路 HTTPS 任一成功即可上网。候选严格绑源；当前物理出口可允许
-/// 系统路由复核以兼容 TUN。不经过质量检测单飞锁，不写历史或推送 UI。
-#[allow(dead_code)] // 供质量检测的轻量复核调用；bin target 无该调用链
-pub async fn check_internet_access_async(
-    adapter_ip: &str,
-    skip_ttfb: bool,
-    skip_content: bool,
-    is_quitting: Arc<std::sync::atomic::AtomicBool>,
-    allow_system_route_fallback: bool,
-) -> bool {
-    check_internet_access_with_if(adapter_ip, None, skip_ttfb, skip_content, is_quitting, allow_system_route_fallback).await
-}
+
 
 /// 带可选出接口的公网健康判定。传入 if_index 时用 IP_UNICAST_IF 把探测钉在该物理
 /// 网卡上，绕开代理/TUN 对默认路由的劫持——这是候选卡「自身能否上网」的可靠判据。
@@ -894,8 +883,9 @@ mod tests {
         let adapters = crate::network::get_adapters_cached().unwrap();
         let adapter = adapters.iter().find(|adapter| adapter.name == current.alias).unwrap();
         let started = std::time::Instant::now();
-        let ok = crate::infra::async_util::block_on_sync(super::check_internet_access_async(
+        let ok = crate::infra::async_util::block_on_sync(super::check_internet_access_with_if(
             &adapter.ip,
+            None,
             true,
             true,
             Arc::new(AtomicBool::new(false)),

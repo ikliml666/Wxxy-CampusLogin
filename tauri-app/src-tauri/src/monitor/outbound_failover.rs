@@ -6,6 +6,11 @@ use crate::network::Adapter;
 
 const REQUIRED_FAILURE_ROUNDS: u32 = 2;
 
+/// 切回原出口所需的连续健康轮数（滞回两轮，避免原卡闪断时来回切）。
+/// 与 REQUIRED_FAILURE_ROUNDS 同值但语义不同：那个是「连续失败多少轮判定故障」，
+/// 这个是「连续健康多少轮判定恢复」，借用会让两处改动互相牵连。
+const SWITCH_BACK_HEALTHY_ROUNDS: u32 = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RecoveryOutcome {
     Succeeded,
@@ -26,6 +31,8 @@ struct FailoverState {
     switch_back_adapter: Option<String>,
     /// 该出口连续健康的轮数
     switch_back_rounds: u32,
+    /// 切换态下轮转尝试登录的游标（多受管卡时依次轮换，不固定首张）
+    recovery_cursor: usize,
 }
 
 static STATE: std::sync::Mutex<FailoverState> = std::sync::Mutex::new(FailoverState {
@@ -37,6 +44,7 @@ static STATE: std::sync::Mutex<FailoverState> = std::sync::Mutex::new(FailoverSt
     recovery_attempted: false,
     switch_back_adapter: None,
     switch_back_rounds: 0,
+    recovery_cursor: 0,
 });
 
 fn next_failure_round(state: &FailoverState, adapter: &str, healthy: bool) -> u32 {
@@ -239,6 +247,24 @@ fn recover_current_adapter(app_handle: &AppHandle, config: &Config, adapter_name
     }
 }
 
+/// 指定网卡的 Portal 是否在线（切回前的认证前提）。取 IP 失败或探测出错一律按
+/// 未在线处理——没有正面证据就不动出口。
+fn adapter_portal_online(adapter_name: &str) -> bool {
+    let Ok(adapters) = crate::network::get_adapters_cached() else {
+        return false;
+    };
+    let Some(adapter) = adapters.iter().find(|a| a.name == adapter_name && !a.ip.is_empty()) else {
+        return false;
+    };
+    match crate::auth::portal::check_portal_full(&adapter.ip, Some(&adapter.name)) {
+        Ok(portal) => portal.online,
+        Err(e) => {
+            crate::log_debug!("outbound", "切回前 Portal 复核失败: {e}");
+            false
+        }
+    }
+}
+
 fn persist_failover_hold(app_handle: &AppHandle, config: &Config) {
     let now = chrono::Local::now();
     let hold_day = failover_hold_day(
@@ -289,12 +315,24 @@ fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
     // 切换后仍要尝试登录原卡：Portal 旁路路由已把去 Portal 的流量送回原卡，
     // 这里按受管卡逐张发起一次恢复（内部会先做 Portal 检测，未在线才真正认证）。
     // 不阻塞本拍：spawn_recovery 异步执行，结果由下一拍的 STATE 读取。
+    // 登录原卡依赖旁路路由：首次添加失败时快照为空，这里补一次。缺路由就到不了
+    // Portal，登录前置判定会把恢复降级成 NotNeeded，于是整夜不再尝试登录原卡
+    if !super::outbound_night::ensure_portal_bypass_route(app_handle, config) {
+        crate::log_warn!("outbound", "切换态旁路路由未就绪，原卡登录可能失败");
+    }
     let recovery_busy = STATE.lock().unwrap_or_else(|e| e.into_inner()).recovery_running;
     if !recovery_busy {
-        if let Some((adapter, _)) = managed.first() {
-            crate::log_debug!("outbound", "切换态下尝试登录原卡 {}", adapter.name);
-            spawn_recovery(app_handle, config, &adapter.name);
-        }
+        // 轮转选卡：固定取首张会让其余受管卡永远轮不到，而多卡时首张未必是刚被
+        // 切走的那张（真正需要恢复登录的是它）
+        let pick = {
+            let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+            let pick = state.recovery_cursor % managed.len();
+            state.recovery_cursor = state.recovery_cursor.wrapping_add(1);
+            pick
+        };
+        let (adapter, _) = &managed[pick];
+        crate::log_debug!("outbound", "切换态下尝试登录原卡 {}", adapter.name);
+        spawn_recovery(app_handle, config, &adapter.name);
     }
     let recovered = managed
         .iter()
@@ -319,13 +357,24 @@ fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
             }
         }
     };
-    if rounds < REQUIRED_FAILURE_ROUNDS {
+    if rounds < SWITCH_BACK_HEALTHY_ROUNDS {
         crate::log_debug!(
             "outbound",
             "原出口 {} 恢复中（{}/{} 轮）",
             recovered_name,
             rounds,
-            REQUIRED_FAILURE_ROUNDS
+            SWITCH_BACK_HEALTHY_ROUNDS
+        );
+        return;
+    }
+    // 公网可达不等于已认证：登录恢复失败时链路照样通，此时切回会让用户断网。
+    // Portal 在线才是切回的前提。
+    if !adapter_portal_online(&recovered_name) {
+        crate::log_info!(
+            "outbound",
+            "原出口 {} 连续 {} 轮公网可达但 Portal 未在线，暂不切回",
+            recovered_name,
+            rounds
         );
         return;
     }

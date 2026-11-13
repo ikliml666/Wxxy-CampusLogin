@@ -35,7 +35,13 @@ export interface Config {
   outboundDisabledAdapters: string
   /** 桌面夜间切换兜底路由（StandbyRoute JSON）；安卓端不消费，仅字段集同构 */
   outboundStandbyRoute: string
+  /** 桌面切换后保留的 Portal 旁路路由（PortalRoute JSON）；安卓端不消费，仅字段集同构 */
+  outboundPortalRoute: string
   nightOutboundRestore: string
+  /** 桌面认证异常时换 MAC 取新 IP 的开关与节流；安卓无 MAC 伪装能力，仅字段集同构 */
+  enableMacRenewOnAuthError: boolean
+  macRenewCooldownSecs: number
+  macRenewDailyLimit: number
   /** 桌面 DNS 优化目标适配器名单（安卓仅镜像配置结构，不消费） */
   dnsOptimizeAdapters: string[]
   /** 在线设备自定义名字（键 = 12 位 hex MAC，值 = 显示别名；自助服务面板设备卡卡头展示） */

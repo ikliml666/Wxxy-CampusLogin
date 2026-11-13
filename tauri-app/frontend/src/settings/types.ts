@@ -51,7 +51,15 @@ export interface Config {
   outboundManualHoldDay: number
   /** 待切换状态（PendingSwitchRow JSON，后端内部状态；非空=目标网卡未登录校园网、切换挂起等监测确认） */
   outboundPendingSwitch: string
+  /** 切换后为原校园卡保留的 Portal 旁路路由（PortalRoute JSON，后端内部状态） */
+  outboundPortalRoute: string
   nightOutboundRestore: string
+  /** 认证异常（网关可达、Portal 不可达）时自动换 MAC 取新 IP 并重新登录 */
+  enableMacRenewOnAuthError: boolean
+  /** 上面这项动作的最小间隔（秒） */
+  macRenewCooldownSecs: number
+  /** 上面这项动作的每日次数上限 */
+  macRenewDailyLimit: number
   /** DNS 优化目标适配器名单（网卡名，可多选）；空 = 未选择，优化/恢复时后端提示先选择 */
   dnsOptimizeAdapters: string[]
   /** 在线设备自定义名字（键 = 12 位 hex MAC，值 = 显示别名；自助服务面板设备卡卡头展示） */

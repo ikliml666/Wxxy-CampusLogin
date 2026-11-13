@@ -160,10 +160,12 @@ pub fn judge_campus_leg(
     portal_host: &str,
     mut probe: impl FnMut(&str) -> bool,
 ) -> Option<CampusLeg> {
-    campus_probe_targets(gateway, portal_host)
-        .into_iter()
-        .find(|(target, _)| probe_with_retry(target, &mut probe))
-        .map(|(_, leg)| leg)
+    // 与 judge_campus_health 同一份级联：腿是三态的投影，各写一遍迟早会分叉
+    match judge_campus_health(gateway, portal_host, &mut probe) {
+        CampusHealth::Online => Some(CampusLeg::Portal),
+        CampusHealth::AuthBroken => Some(CampusLeg::Gateway),
+        CampusHealth::OffCampus => None,
+    }
 }
 
 /// 校园网连通状态：在校园网内「认证链路是否正常」。
