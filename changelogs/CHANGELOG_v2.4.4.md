@@ -900,4 +900,27 @@
 - 新增用例：`verify_window_usb_is_longer_than_generic`（USB 前缀大小写两态 + PCI 对照）、`reenumerate_nonexistent_instance_errors`（虚构实例必须失败而非静默成功）、`build_op_reenumerate_device`、`instance_id_whitelist_rejects_injection`（`USB\X/remove-device` 等四种注入形态全部拒绝）。
 - **未做的实测**：真实 USB 幽灵态的端到端恢复无法在无故障机上复现，重枚举路径的正确性目前只由「虚构实例必失败」与「窗口选择」两个单测 + Win32 API 语义保证。下次同类故障的日志应出现 `设备实例不可定位(USB 幽灵态)，触发总线重枚举`，可据此确认。
 
+### 安卓「更多」页页签：修掉顶部被裁 + 每次进出先黑一下（2026-11-13，安卓）
 
+**为什么**：
+
+1. 页签行容器用 `overflow-x-auto` 却只有 `pb-1`，顶部没有内边距。`.glass-dock` 的外缘暗线（`0 0 0 0.67px`）与近影画在元素边界**外**，滚动容器按 padding box 裁切——顶部这条边界被整体裁掉，药丸顶边读成「被切平了一截」。实测容器 top 与页签 top 同为 78，没有任何余量。
+2. 页签照搬了悬浮栏「等祖先链干净再放开半透明」的就绪语义，并且挂了 Hyalite 折射。Hyalite 的位移图是 feImage 引用的 dataURL，贴图解码与首帧栅格化不在同一帧完成；悬浮栏在启动期从 attach 到首次可见隔着整段初始化，贴图早已就绪，而页签是在面板转场结束（祖先链刚变干净）后两帧就 live，可见后的 170–190ms 内 backdrop 采样为空，整颗药丸读成黑底。浅色主题逐帧实测：页签区域平均灰度 43/255（黑），正常态 89/255。
+
+**改了什么**：
+
+- `components/mobile/GlassTabChip.tsx`：不再调用 `useGlassRefraction`，改走 `.glass-dock` 的 CSS blur 降级路径——不挂折射时 `--hyalite` 不存在，`backdrop-filter: var(--hyalite, blur(...))` 自然落到 blur。页签只有 36px 高、圆角 18px（bevel 12 已占 2/3），折射在这个尺寸上本就分辨不出；两档实测平均灰度差 2/255（Hyalite 89.3 / blur 91.4）。
+- `index.css`：`.glass-chip` 从「就绪前整条不可见」的等待链里排除。它没有滤镜贴图要等，沿用该语义只会在放开可见的头 170ms 露出黑膜。
+- `components/mobile/MobileMore.tsx`：页签行容器 `pb-1` → `py-1`（顶部留 4px 给边界外的暗线与阴影）。
+
+**验证**：
+
+- 安卓 `npx tsc --noEmit --incremental` → EXIT=0。
+- vite mock + headless Chrome（412×892 @2x，浅色主题）逐帧 screencast，取页签区域平均灰度：
+  - 进入更多页：修复前 `98 → 43.2（持续约 190ms）→ 89.3`；修复后 `247 → 91.6` 单调下降，无黑帧（最小值 91.3）。
+  - 切走更多页：修复前 `89.3 → 43.2（约 97ms）→ 59.4 → 243`；修复后 `91.3 → 93.4 → 243` 平滑。
+  - 几何：容器 top 78 → 页签 top 82（顶部留出 4px），截图里顶部圆弧、暗线与内缘光完整。
+- 对照实验（排除 backdrop root 假设）：把 `.glass-dock` 换成纯 `blur(8px)` 后黑窗消失；把 attach 推迟到祖先干净之后、去掉 opacity 过渡，黑窗都不变——黑窗属于滤镜贴图就绪延迟，不是祖先合成层污染。
+- 悬浮栏（`.glass-nav`）：面板切换时它不重挂载、不重新 attach，实测切页全程底栏区域灰度 93.5 → 92.7，无黑帧；启动期从 attach 到首次可见隔着约 700ms 初始化，贴图已就绪，也不复现。故本次只改页签，不动悬浮栏。
+- 真机（RMX3300 / Android 15 / 1440×3216）装 release 包复测：更多页页签顶部圆弧与暗线完整（修复前顶部被裁成直边）；底栏切「总览」再切「更多」连拍，页签区域无黑帧。
+- 桌面端无此页签（桌面设置页没有「更多」聚合页），属安卓专属组件，未做双端同步。

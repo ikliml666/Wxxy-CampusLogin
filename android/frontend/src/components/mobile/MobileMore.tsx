@@ -33,7 +33,10 @@ export function MobileMore({ onShowOnboarding }: MobileMoreProps) {
 
   return (
     <div className="space-y-4">
-      <div className="scrollbar-none flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+      {/* py-1 而不是只有 pb-1：.glass-dock 的外缘暗线与近影画在元素边界外
+          （0.67px 暗线 + 4px 近影），滚动容器会按 padding box 裁切。顶部不留
+          内边距时这条边界整体被裁掉，药丸顶边读成「被切平了一截」。 */}
+      <div className="scrollbar-none flex gap-2 overflow-x-auto py-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
         {TABS.map(({ id, labelKey }) => (
           <GlassTabChip key={id} active={sub === id} onClick={() => setSub(id)}>
             {t(labelKey)}

@@ -1,11 +1,15 @@
-// 更多页的页签胶囊：材质与底部悬浮栏完全同源（.glass-dock + Hyalite 折射），
-// 只是尺寸小一号。悬浮栏那套「先等祖先链不透明、再放开半透明」的就绪语义也随之
-// 生效——面板转场动画期间祖先带 transform，玻璃会先不可见，转场结束才淡入，
-// 与悬浮栏的入场一致。
-import { useRef, type ReactNode } from 'react'
+// 更多页的页签胶囊：与底部悬浮栏同一套材质语汇（.glass-dock 的底色/光影/圆角），
+// 但**不挂 Hyalite 折射**，走 .glass-dock 的 CSS blur 降级路径。
+//
+// 为什么不复用悬浮栏的折射：Hyalite 的位移图是 feImage 引用的 dataURL，贴图解码
+// 与首帧栅格化不在同一帧完成。悬浮栏在启动期从 attach 到首次可见隔了整段初始化，
+// 贴图早已就绪；页签却在面板转场结束（祖先链刚变干净）后两帧就 live，实测可见后
+// 约 170ms 内 backdrop 采样为空，整颗药丸读成黑底。挪 attach 时机、去掉 opacity
+// 过渡都试过，黑窗口不变——它属于滤镜贴图就绪延迟，不是 backdrop root 问题。
+// 页签只有 36px 高、圆角 18px（bevel 12 已占 2/3），折射在这种尺寸上本来就看不出来，
+// 换成纯模糊后与悬浮栏的平均灰度差只有 2/255，且没有这条黑窗。
+import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
-import { useGlassRefraction } from '@/lib/glass-dock'
-import { useThemeStore } from '@/hooks/useThemeStore'
 
 export function GlassTabChip({
   active,
@@ -16,13 +20,8 @@ export function GlassTabChip({
   onClick: () => void
   children: ReactNode
 }) {
-  const glassLevel = useThemeStore((s) => s.glassLevel)
-  const ref = useRef<HTMLButtonElement>(null)
-  useGlassRefraction(ref, glassLevel)
-
   return (
     <button
-      ref={ref}
       type="button"
       data-active={active}
       aria-current={active ? 'true' : undefined}

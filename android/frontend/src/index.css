@@ -466,12 +466,17 @@
   /* 正常等待期整条不可见，所以不必用实底顶着：膜的色调（ultra 10% / standard 54%）
      在不可见时就已经是终态，data-glass-live 一加，第一帧呈现的就是成品玻璃，只走
      opacity 淡入（240ms），不会出现「先白膜、再慢慢变透」的两段式。 */
-  :root:not([data-glass="off"]) .glass-dock:not([data-glass-live]):not([data-glass-ready]),
+  :root:not([data-glass="off"]) .glass-dock:not(.glass-chip):not([data-glass-live]):not([data-glass-ready]),
   :root:not([data-glass="off"]) .glass-nav:not([data-glass-live]):not([data-glass-ready]) {
     opacity: 0;
     /* 不可见期间不该吃点击 */
     pointer-events: none;
   }
+
+  /* .glass-chip（更多页页签）不在这条等待链里：它不挂 Hyalite 折射，走下面的
+     CSS blur 降级路径，没有「等滤镜贴图就绪」这回事。若沿用悬浮栏的隐藏语义，
+     转场结束放开可见的头 170ms 里滤镜贴图还没解码完，backdrop 采样为空，整颗
+     药丸会读成黑底——实测就是线上那条「切进/切出更多页先黑一下」。 */
 
   /* ③ 内缘光·顶边（FlClash frag:426-445）。
      facing = normal.y²：顶边法线笔直朝上 → 1，进入圆角后法线转向侧边 → 掉到 0，
