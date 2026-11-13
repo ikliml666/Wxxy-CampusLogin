@@ -59,6 +59,12 @@ pub fn start(data_dir: PathBuf, platform: Arc<dyn CorePlatform>) {
         }
     };
     let ctx = CoreCtx::new(data_dir, platform);
+    // 旁路代理只在确有 VPN 接管时启用：判据走 Android API（TRANSPORT_VPN），
+    // 未开 VPN 时直连——代理会把请求源抹成 127.0.0.1，反而丢掉"本机从哪张卡出去"。
+    {
+        let p = ctx.platform_arc();
+        campus_login_lib::network::bound_socket::set_vpn_active_check(move || p.is_vpn_active());
+    }
     ctx.mark_status(|s| {
         s.core_alive = true;
         s.is_running = false;

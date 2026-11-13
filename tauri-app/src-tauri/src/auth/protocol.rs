@@ -13,6 +13,14 @@ pub fn random_v() -> String {
 /// HTTP 响应体读取上限（1MB）：所有响应体读取路径共用
 const MAX_HTTP_BODY: u64 = 1024 * 1024;
 
+/// Radius 注销单次请求超时。服务端正常回包几百毫秒，3s 已是 10 倍余量；
+/// 超时意味着请求没有回音（典型：NAT 下 AC 会话与参数对不上），
+/// 再等只会让用户干等一个完整超时周期。
+const LOGOUT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// MAC 解绑单次请求超时。best-effort 步骤，不计入注销结论。
+const UNBIND_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
+
 /// 校验响应体字节不超过 [`MAX_HTTP_BODY`] 并按 Content-Type charset 解码。
 ///
 /// 三条读取路径（[`read_bounded_body`] 同步版、[`read_bounded_body_async`]、
@@ -244,6 +252,15 @@ fn parse_login_result(response: &str) -> Result<serde_json::Value, String> {
                     Ok(serde_json::json!({ "code": "0", "message": msg, "success": true, "retryable": false }))
                 } else if msg.contains("认证成功") {
                     Ok(serde_json::json!({ "code": "0", "message": "登录成功", "success": true, "retryable": false }))
+                } else if msg.contains("终端数量超限") {
+                    // 运营商对同一账号限制在线终端数：旧会话没释放时，新设备登不进来。
+                    // 这不是凭据或网络问题，重试与 MAC 重置都无效，必须先在原设备注销。
+                    Ok(serde_json::json!({
+                        "code": "terminal_limit",
+                        "message": "该账号已有设备在线（运营商限制单账号终端数），请先在原设备注销后再登录",
+                        "success": false,
+                        "retryable": false
+                    }))
                 } else if msg.contains("AC认证失败") {
                     Ok(serde_json::json!({ "code": "ac_auth_failed", "message": format!("认证失败：{}", msg), "success": false, "retryable": false }))
                 } else {
@@ -294,7 +311,9 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
         crate::log_info!("logout", "检测到NAT内网IP({}), 不发送wlan_user_ip", adapter_ip_str);
     }
     let local_addr = adapter_ip.and_then(|ip| ip.parse::<std::net::IpAddr>().ok());
-    let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
+    // 注销是用户可感知的操作，客户端兜底超时压到 6s：单请求各有独立超时
+    // （Radius 3s / 解绑 1.5s），这里只防止极端情况下整体挂死。
+    let client = create_safe_http_client(std::time::Duration::from_secs(6), local_addr)?;
 
     // Radius 注销先行（主操作，最多 2 次、成功即止）。
     // 历史缺陷：旧实现每轮"先 MAC 解绑再 Radius 注销"×2 轮，外层再重试 2 次（最坏 4+4 次）。
@@ -304,47 +323,36 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
     // 换 MAC/换 IP 才恢复）。改为 logout 成功后至多补一次 unbind 清理 MAC 绑定；
     // logout 全败时 unbind 作兜底踢下线。
     let mut any_radius_ok = false;
-    for round in 1..=2 {
-        let logout_cb = format!("dr100{}", round + 2);
-
-        crate::log_info!("logout", "第{}轮: Radius注销: adapterIp={}", round, wlan_user_ip);
+    // 单轮：服务端正常回包在几百毫秒内，超时说明这条路径没有回音
+    // （典型是 NAT 下 AC 会话与请求参数对不上），重试只是让用户多等一个超时周期。
+    // 失败时由 MAC 解绑兜底（非 NAT 场景），因此不再叠加重试。
+    if !is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+        crate::log_info!("logout", "Radius注销: adapterIp={}", wlan_user_ip);
 
         let logout_url = format!(
             "{}/eportal/portal/logout?callback={}&login_method=1&user_account={}&user_password={}&ac_logout=1&register_mode=1&wlan_user_ip={}&wlan_user_ipv6=&wlan_vlan_id=1&wlan_user_mac=000000000000&wlan_ac_ip=&wlan_ac_name=&jsVersion=4.1.3&v={}&lang=zh",
             portal_base_url,
-            logout_cb,
+            "dr1003",
             LOGOUT_PLACEHOLDER_ACCOUNT,
             LOGOUT_PLACEHOLDER_PASSWORD,
             urlencoding::encode(wlan_user_ip),
             random_v(),
         );
 
-        // Radius 注销发送失败降级：记录并进入下一轮，避免单次网络抖动跳过重试
-        // (安卓旁路优先在 radius_logout_round 内部:旁路接管后成功/失败都不走 reqwest,避免翻倍超时)
-        if radius_logout_round(&client, &logout_url, round)? {
+        // 安卓旁路优先在 radius_logout_round 内部:旁路接管后成功/失败都不走 reqwest
+        if radius_logout_round(&client, &logout_url, 1)? {
             any_radius_ok = true;
-            break;
-        }
-
-        if round == 1 {
-            // 可中断等待 1.5s（15×100ms，每次检查退出标志）
-            for _ in 0..15 {
-                if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            // 退出标志被设置时跳过 round 2，避免阻塞应用退出
-            if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-                break;
-            }
         }
     }
 
     // MAC 解绑收尾（单次，best-effort）：清理 MAC 免认证绑定；Radius 注销全败时作
     // 兜底踢下线。请求失败/端点不可用只记录不中断——注销成败以 Radius 结果为准。
     let mut any_unbind_ok = false;
-    if !is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+    // NAT 下 wlan_user_ip 为空、wlan_user_mac 恒为 000000000000，服务端匹配不到任何
+    // 绑定，请求必然没有回音——旧实现就在这里空等满 15 秒后报「MAC解绑失败」。
+    // 没有可解的绑定，直接跳过。
+    let unbind_attempted = !nat_ip && !is_quitting.load(std::sync::atomic::Ordering::Acquire);
+    if unbind_attempted {
         let unbind_ip_param = ip_to_eportal_int(wlan_user_ip)
             .map(|v| v.to_string())
             .unwrap_or_else(|| wlan_user_ip.to_string());
@@ -363,7 +371,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
         }
     }
 
-    let combined_msg = merge_logout_results(any_radius_ok, any_unbind_ok);
+    let combined_msg = merge_logout_results(any_radius_ok, unbind_attempted, any_unbind_ok);
 
     Ok(serde_json::json!({
         "code": if any_radius_ok { "0" } else { "1" },
@@ -386,7 +394,7 @@ fn do_logout_request(user: &str, adapter_ip: Option<&str>, is_quitting: &std::sy
 fn radius_logout_round(client: &reqwest::Client, logout_url: &str, round: u32) -> Result<bool, String> {
     let t_logout = std::time::Instant::now();
     match crate::infra::async_util::block_on_sync(
-        client.get(logout_url).timeout(std::time::Duration::from_secs(15)).send()
+        client.get(logout_url).timeout(LOGOUT_REQUEST_TIMEOUT).send()
     ) {
         Ok(resp) => {
             let body_logout = read_bounded_body(resp, "Radius注销");
@@ -407,7 +415,7 @@ fn radius_logout_round(client: &reqwest::Client, logout_url: &str, round: u32) -
 fn mac_unbind_request(client: &reqwest::Client, unbind_url: &str) -> Result<bool, String> {
     let t_unbind = std::time::Instant::now();
     match crate::infra::async_util::block_on_sync(
-        client.get(unbind_url).timeout(std::time::Duration::from_secs(15)).send()
+        client.get(unbind_url).timeout(UNBIND_REQUEST_TIMEOUT).send()
     ) {
         Ok(resp) => {
             let body_unbind = read_bounded_body(resp, "MAC解绑");
@@ -426,12 +434,14 @@ fn mac_unbind_request(client: &reqwest::Client, unbind_url: &str) -> Result<bool
 ///
 /// Radius 注销是主操作（决定 success/retryable），MAC 解绑为 best-effort
 /// 辅助步骤：解绑失败不应使整体注销失败，但要在消息中如实反映。
-pub fn merge_logout_results(any_radius_ok: bool, any_unbind_ok: bool) -> &'static str {
-    match (any_radius_ok, any_unbind_ok) {
-        (true, true) => "注销成功",
-        (true, false) => "Radius注销成功，MAC解绑失败",
-        (false, true) => "Radius注销失败，MAC解绑成功",
-        (false, false) => "注销失败",
+pub fn merge_logout_results(any_radius_ok: bool, unbind_attempted: bool, any_unbind_ok: bool) -> &'static str {
+    match (any_radius_ok, unbind_attempted, any_unbind_ok) {
+        (true, true, true) => "注销成功",
+        // NAT 场景没有可解的绑定，跳过不算失败
+        (true, false, _) => "注销成功",
+        (true, true, false) => "Radius注销成功，MAC解绑失败",
+        (false, _, true) => "Radius注销失败，MAC解绑成功",
+        (false, _, false) => "注销失败",
     }
 }
 
@@ -571,6 +581,16 @@ mod tests {
     }
 
     #[test]
+    fn parse_login_result_terminal_limit() {
+        let response = r#"dr1003({"result":0,"msg":"运营商终端数量超限！","ret_code":1})"#;
+        let result = parse_login_result(response).unwrap();
+        assert_eq!(result["code"], "terminal_limit");
+        assert_eq!(result["success"], false);
+        assert_eq!(result["retryable"], false);
+        assert!(result["message"].as_str().unwrap().contains("已有设备在线"));
+    }
+
+    #[test]
     fn parse_login_result_auth_failed() {
         let response = r#"dr1003({"result":0,"msg":"AC认证失败"})"#;
         let result = parse_login_result(response).unwrap();
@@ -653,18 +673,20 @@ mod tests {
     #[test]
     fn merge_radius_success_unbind_failure_reports_success() {
         // 关键约束：MAC 解绑失败不得使整体注销失败（Radius 是主操作）
-        assert_eq!(merge_logout_results(true, false), "Radius注销成功，MAC解绑失败");
+        assert_eq!(merge_logout_results(true, true, false), "Radius注销成功，MAC解绑失败");
     }
 
     #[test]
     fn merge_both_success_is_full_success() {
-        assert_eq!(merge_logout_results(true, true), "注销成功");
+        assert_eq!(merge_logout_results(true, true, true), "注销成功");
+        // NAT 场景没有可解绑的绑定，跳过不算失败
+        assert_eq!(merge_logout_results(true, false, false), "注销成功");
     }
 
     #[test]
     fn merge_both_failure_is_failure() {
-        assert_eq!(merge_logout_results(false, false), "注销失败");
-        assert_eq!(merge_logout_results(false, true), "Radius注销失败，MAC解绑成功");
+        assert_eq!(merge_logout_results(false, true, false), "注销失败");
+        assert_eq!(merge_logout_results(false, true, true), "Radius注销失败，MAC解绑成功");
     }
 
     #[test]

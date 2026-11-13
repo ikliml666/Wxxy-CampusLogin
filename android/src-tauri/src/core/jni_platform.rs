@@ -154,6 +154,18 @@ impl CorePlatform for JniPlatform {
         }
     }
 
+    fn is_vpn_active(&self) -> bool {
+        match self.call_zero_str("isVpnActive") {
+            Ok(s) => s == "true",
+            Err(e) => {
+                // 平台方法不可用（旧 APK/Kotlin 侧缺方法）时回落到接口名推断，
+                // 不能因为一次 JNI 失败就断定"没有 VPN"而关掉旁路。
+                eprintln!("[core] isVpnActive 调用失败,回落接口名判定: {e}");
+                campus_login_lib::network::bound_socket::vpn_tun_present()
+            }
+        }
+    }
+
     fn bind_to_wifi(&self) -> Result<serde_json::Value, String> {
         self.call_json("bindToWifi")
     }

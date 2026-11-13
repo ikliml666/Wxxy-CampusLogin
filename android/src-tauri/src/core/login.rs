@@ -129,10 +129,12 @@ pub async fn run_logout(
     );
     let inner = match tokio::task::spawn_blocking(move || {
         let is_quitting = std::sync::atomic::AtomicBool::new(false);
+        // 单次即可：do_logout_request 内部已不再叠加轮次，外层再重试只会
+        // 成倍拉长用户等待（旧值 3 × 内层 2 轮 = 6 次请求、最坏 139s）。
         campus_login_lib::auth::protocol::do_logout_with_retry(
             &user,
             adapter_ip.as_deref(),
-            3,
+            1,
             &is_quitting,
         )
     })

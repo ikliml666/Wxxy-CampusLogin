@@ -16,6 +16,10 @@ mod portal_config {
     #[cfg(not(target_os = "android"))]
     pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 
+    /// 在线状态查询接口（只读，见 check_portal_chkstatus）的单次请求超时。
+    /// 实测 42ms 返回 731 字节，2s 已远超需要，且比页面探测快一个量级。
+    pub const CHKSTATUS_TIMEOUT: Duration = Duration::from_secs(2);
+
     // 页面特征字符串
     pub const PAGE_INDICATOR_LOGOUT: &str = "Dr.COMWebLoginID_1";
     pub const PAGE_INDICATOR_LOGIN_0: &str = "Dr.COMWebLoginID_0";
@@ -120,6 +124,14 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>) -> Result
     let portal_base = portal_url.trim_end_matches('/');
 
     log_portal_query_start(adapter_name, adapter_ip);
+
+    // 主判据：ePortal 在线状态接口（结构化 JSONP，不依赖页面编码与改版）。
+    if let Some(status) = check_portal_chkstatus(&client, &portal_url, adapter_name, adapter_ip) {
+        log_portal_page_result(t0.elapsed(), adapter_name, adapter_ip, &status);
+        return Ok(status);
+    }
+
+    // 兜底：页面特征探测（chkstatus 端点不可用或改版时的历史路径）。
     let page_result = check_portal_page(&client, portal_base);
 
     match page_result {
@@ -134,6 +146,67 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>) -> Result
         PageCheckResult::Failed(failure) => {
             log_portal_page_failed(adapter_name, adapter_ip, failure);
             Ok(build_request_failed_status(failure))
+        }
+    }
+}
+
+/// ePortal 在线状态的只读查询端点。与登录端点 `/eportal/portal/login`（:801，
+/// 带 user_account/user_password）是两个不相干的接口：本端点只有 callback 参数、
+/// 响应无 Set-Cookie，服务端不建立会话，纯查询。夜切验证（`monitor::scheduled`）
+/// 自 2026-09 起已在用同一端点。
+const CHKSTATUS_PATH: &str = "/drcom/chkstatus?callback=dr1003";
+
+/// 主判据：结构化在线状态。返回 Some 表示端点给出了明确结论（在线/离线）；
+/// None 表示端点不可用或响应无法解析，由调用方回落页面特征探测。
+///
+/// 优于页面 HTML 的地方：页面是 gb2312 编码的近 3KB 文档，特征串匹配对改版、
+/// 编码偏差、AC 注入都敏感；本接口返回 `dr1003({"result":..,"uid":..})`，结构化。
+fn check_portal_chkstatus(
+    client: &reqwest::Client,
+    portal_url: &str,
+    adapter_name: Option<&str>,
+    adapter_ip: &str,
+) -> Option<PortalStatus> {
+    let origin = crate::campus::rules::portal_origin(portal_url);
+    let url = format!("{origin}{CHKSTATUS_PATH}");
+    let resp = match block_on_http(
+        client
+            .get(&url)
+            .timeout(portal_config::CHKSTATUS_TIMEOUT)
+            .send(),
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            crate::log_warn!("network", "chkstatus 请求失败(回落页面探测): {e}");
+            return None;
+        }
+    };
+    if !resp.status().is_success() {
+        crate::log_warn!("network", "chkstatus 状态异常({}): {}", resp.status(), origin);
+        return None;
+    }
+    let body = crate::auth::protocol::read_bounded_body(resp, "chkstatus");
+    match crate::config::night_switch::parse_chkstatus(&body) {
+        Some(info) => {
+            let uid = if info.online && !info.uid.is_empty() {
+                Some(info.uid)
+            } else {
+                None
+            };
+            crate::log_debug!(
+                "network",
+                "chkstatus 判定: online={}, uid={:?}, adapter={:?}, ip={}",
+                info.online, uid, adapter_name, adapter_ip
+            );
+            Some(build_determined_status(info.online, uid))
+        }
+        None => {
+            crate::log_warn!(
+                "network",
+                "chkstatus 响应无法解析(回落页面探测): {}",
+                safe_truncate(&body, 200)
+            );
+            None
         }
     }
 }
@@ -387,6 +460,38 @@ fn log_page_indicator_found(indicator: &str, is_online: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 真机验证：本机在校园网时跑一次完整探测，确认走的是结构化状态接口
+    /// （返回 uid 而非页面特征）。cargo test -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn 真机_portal_探测走状态接口() {
+        // check_portal_full 内部经 Handle::block_on 驱动 reqwest：测试线程必须先有
+        // runtime context（应用里由 spawn_blocking 提供），否则 reqwest 构造超时
+        // 计时器时会 panic "there is no reactor running"。
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("测试 runtime");
+        let _guard = rt.enter();
+        let ip = std::env::var("CAMPUS_TEST_IP").unwrap_or_else(|_| "10.2.38.176".to_string());
+        let st = check_portal_full(&ip, None).expect("探测应返回状态");
+        println!(
+            "online={} reachable={} uid={:?} message={} error_kind={:?}",
+            st.online, st.reachable, st.uid, st.message, st.error_kind
+        );
+        assert!(st.reachable, "本机在校园网时应可达: {}", st.message);
+    }
+
+    /// 锁定探测端点的形状：一旦有人把在线探测改成登录端点（带凭据、:801），
+    /// 这里立即失败——查询接口绝不能携带账号密码。
+    #[test]
+    fn 在线状态探测只读且不带凭据() {
+        assert_eq!(CHKSTATUS_PATH, "/drcom/chkstatus?callback=dr1003");
+        assert!(!CHKSTATUS_PATH.contains("login"));
+        assert!(!CHKSTATUS_PATH.contains("user_account"));
+        assert!(!CHKSTATUS_PATH.contains("password"));
+    }
 
     #[test]
     fn ensure_portal_port_adds_default_port() {

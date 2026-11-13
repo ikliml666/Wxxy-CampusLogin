@@ -19,6 +19,8 @@ pub trait CorePlatform: Send + Sync {
     fn begin_probe_window(&self);
     fn end_probe_window(&self);
     fn power_state(&self) -> (bool, bool);
+    /// VPN 是否处于激活状态（安卓 ConnectivityManager + TRANSPORT_VPN）。
+    fn is_vpn_active(&self) -> bool;
     fn start_wifi_watcher(&self) -> Result<(), String>;
     fn stop_wifi_watcher(&self);
     fn stop_service(&self);
@@ -58,6 +60,12 @@ impl CoreCtx {
 
     pub fn platform(&self) -> &dyn CorePlatform {
         self.platform.as_ref()
+    }
+
+    /// 共享平台能力的引用计数副本：供需要跨线程长期持有的注入点使用
+    /// （如把 VPN 判据注入共享协议的旁路代理门控）。
+    pub fn platform_arc(&self) -> Arc<dyn CorePlatform> {
+        self.platform.clone()
     }
 
     pub fn stop_service(&self) {

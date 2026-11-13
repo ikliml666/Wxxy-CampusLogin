@@ -221,9 +221,37 @@ pub async fn tcp_connect_bounded(
 // reqwest 不复用连接;上游请求带 connection: close 使服务器响应后断开,转发
 // 读到 EOF 即完整响应。
 
-/// 取(或惰性启动)本地旁路代理地址;旁路不可用(能力被封堵/无物理网卡)返回 None。
+/// VPN 激活判据注入点：安卓端启动时注入 Android API 实现
+/// (ConnectivityManager + NetworkCapabilities.TRANSPORT_VPN)；未注入时回退
+/// 接口名匹配。两者都只回答"是否有 VPN 接管流量"。
+#[cfg(target_os = "android")]
+static VPN_ACTIVE_CHECK: std::sync::OnceLock<Box<dyn Fn() -> bool + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+/// 注入 VPN 激活查询（安卓 :core 进程在 runner 启动时注入）。
+#[cfg(target_os = "android")]
+pub fn set_vpn_active_check(check: impl Fn() -> bool + Send + Sync + 'static) {
+    let _ = VPN_ACTIVE_CHECK.set(Box::new(check));
+}
+
+/// 当前是否有 VPN 在接管流量：注入的 Android API 判据优先，未注入时按接口名推断。
+#[cfg(target_os = "android")]
+pub fn vpn_active() -> bool {
+    match VPN_ACTIVE_CHECK.get() {
+        Some(check) => check(),
+        None => vpn_tun_present(),
+    }
+}
+
+/// 取(或惰性启动)本地旁路代理地址;旁路不可用(无 VPN/能力被封堵/无物理网卡)返回 None。
 #[cfg(target_os = "android")]
 pub fn bypass_proxy_addr() -> Option<&'static std::net::SocketAddr> {
+    // 无 VPN 时系统默认路由就是 WiFi,直连即可:代理会把请求源变成 127.0.0.1,
+    // reqwest 的 local_address 随之失效,"本机从哪张卡出去"的判据被抹掉。
+    // 只有确实有 tun 接管时才值得多这一跳。
+    if !vpn_active() {
+        return None;
+    }
     use std::sync::OnceLock;
     static ADDR: OnceLock<Option<std::net::SocketAddr>> = OnceLock::new();
     ADDR.get_or_init(|| {

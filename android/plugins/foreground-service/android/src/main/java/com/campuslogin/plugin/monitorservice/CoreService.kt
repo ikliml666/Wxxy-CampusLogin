@@ -177,6 +177,19 @@ class CoreService : Service() {
     }
 
     /**
+     * VPN 是否处于激活状态。NetworkCapabilities.TRANSPORT_VPN 是 Android 官方判据
+     * （API 23+）：系统里存在被标记为 VPN 的网络即为 true，与具体实现无关。
+     * 异常不在这里吞掉——Rust 侧失败会回退到接口名判定。
+     */
+    fun isVpnActive(): String {
+        val cm = getSystemService(ConnectivityManager::class.java)
+        val active = cm.allNetworks.any { network ->
+            cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        }
+        return if (active) "true" else "false"
+    }
+
+    /**
      * 绑定本(:core)进程网络到 WiFi。登录/探测/注销都在本进程发起,UI 进程的绑定
      * 对本进程 socket 无效,所以绑定必须在这里执行。
      */
