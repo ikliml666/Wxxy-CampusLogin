@@ -159,14 +159,17 @@ fn do_login_request(user: &str, password: &str, operator: &str, adapter_ip: Opti
 
     let local_addr = adapter_ip.and_then(|ip| ip.parse::<std::net::IpAddr>().ok());
 
-    let client = create_safe_http_client(std::time::Duration::from_secs(15), local_addr)?;
+    // 登录是用户点按后等待的操作:真机实测正常 50~300ms,异常时(启动期质量检测
+    // 并发)会一直挂到客户端超时。超时按 6s 收紧,3 次重试仍有 18s 以上的总窗口,
+    // 但单次卡顿从 15s 降到 6s,重试通常 100~200ms 就成功。
+    let client = create_safe_http_client(std::time::Duration::from_secs(6), local_addr)?;
     let t_req = std::time::Instant::now();
 
     // 历史缺陷：错误串脱敏仅替换字面密码（URL 编码后的 %xx 无法匹配），
     // reqwest 错误一旦包含完整 URL 即泄漏编码后的凭据。错误信息中的完整 URL
     // 统一替换为 base_url?***，密码（明文与 URL 编码形式）替换为 ***。
     let resp = crate::infra::async_util::block_on_sync(
-        client.get(&url).timeout(std::time::Duration::from_secs(15)).send()
+        client.get(&url).timeout(std::time::Duration::from_secs(6)).send()
     ).map_err(|e| {
         let msg = crate::auth::portal::redact_credentials(e.to_string(), &url, &base_url, password);
         format!("登录请求失败: {}", crate::auth::portal::safe_truncate(&msg, 200))
