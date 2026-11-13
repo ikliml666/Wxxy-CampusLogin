@@ -94,17 +94,6 @@ pub async fn append_async(dir: PathBuf, entry: QualityHistoryEntry) -> Result<()
 }
 
 #[cfg(test)]
-fn append(dir: &Path, result: &NetworkQualityResult) -> Result<(), String> {
-    append_entry(dir, QualityHistoryEntry::from_result(result))
-}
-
-pub async fn append_async(dir: PathBuf, entry: QualityHistoryEntry) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || append_entry(&dir, entry))
-        .await
-        .map_err(|e| format!("质量历史任务失败: {e}"))?
-}
-
-#[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
     use super::*;
