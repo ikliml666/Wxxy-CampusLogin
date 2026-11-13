@@ -121,8 +121,9 @@ pub(super) fn probe_internet_access(
             let quitting = quitting.clone();
             let allow_fallback = current_adapter.as_deref() == Some(adapter.name.as_str());
             tasks.spawn(async move {
-                let ok = crate::network::quality::check_internet_access_async(
+                let ok = crate::network::quality::check_internet_access_with_if(
                     &adapter.ip,
+                    Some(adapter.if_index),
                     skip_ttfb,
                     skip_content,
                     quitting,
@@ -136,6 +137,7 @@ pub(super) fn probe_internet_access(
         while let Some(result) = tasks.join_next().await {
             match result {
                 Ok((ip, ok)) => {
+                    crate::log_info!("outbound", "公网探测结果: {ip} -> {ok}");
                     results.insert(ip, ok);
                 }
                 Err(e) => crate::log_warn!("outbound", "网卡公网探测任务失败: {e}"),

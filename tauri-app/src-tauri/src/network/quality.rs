@@ -495,8 +495,22 @@ fn build_quality_result<'a>(
 
 /// 轻量联网判定：两路 HTTPS 任一成功即可上网。候选严格绑源；当前物理出口可允许
 /// 系统路由复核以兼容 TUN。不经过质量检测单飞锁，不写历史或推送 UI。
+#[allow(dead_code)] // 供质量检测的轻量复核调用；bin target 无该调用链
 pub async fn check_internet_access_async(
     adapter_ip: &str,
+    skip_ttfb: bool,
+    skip_content: bool,
+    is_quitting: Arc<std::sync::atomic::AtomicBool>,
+    allow_system_route_fallback: bool,
+) -> bool {
+    check_internet_access_with_if(adapter_ip, None, skip_ttfb, skip_content, is_quitting, allow_system_route_fallback).await
+}
+
+/// 带可选出接口的公网健康判定。传入 if_index 时用 IP_UNICAST_IF 把探测钉在该物理
+/// 网卡上，绕开代理/TUN 对默认路由的劫持——这是候选卡「自身能否上网」的可靠判据。
+pub async fn check_internet_access_with_if(
+    adapter_ip: &str,
+    if_index: Option<u32>,
     skip_ttfb: bool,
     skip_content: bool,
     is_quitting: Arc<std::sync::atomic::AtomicBool>,
@@ -520,19 +534,29 @@ pub async fn check_internet_access_async(
         }
     };
 
+    let adapter_ip_owned = adapter_ip.to_string();
     // 候选卡必须严格绑源；只有已识别的当前物理出口允许复核系统真实路由。
     let mut set = tokio::task::JoinSet::new();
     for host in ["www.baidu.com", "cn.bing.com"] {
+        let adapter_ip_owned = adapter_ip_owned.clone();
         set.spawn(async move {
-            let bound = crate::network::timing::measure_https_timing(
+            let bound = crate::network::timing::measure_https_timing_with_if(
                 host,
                 443,
                 bind_addr,
+                if_index,
                 std::time::Duration::from_secs(3),
                 skip_ttfb,
                 skip_content,
             )
             .await;
+            if !bound.success {
+                crate::log_info!(
+                    "quality",
+                    "联网判定: {host} 绑源(if={if_index:?}, ip={adapter_ip_owned})失败: {}",
+                    bound.error.as_deref().unwrap_or("未知错误")
+                );
+            }
             if bound.success || !allow_system_route_fallback || bind_addr.is_none() {
                 return bound.success;
             }
@@ -547,6 +571,27 @@ pub async fn check_internet_access_async(
             )
             .await
             .success
+        });
+    }
+
+    // 代理/TUN 环境会把域名解析成 fake-ip（实测 FlClash 返回 198.18.0.x），绑接口
+    // 直连这类假地址必然超时，HTTPS 两路因此失真。补一路到公共 DNS 的 TCP/53：
+    // 目标是真实固定 IP，不依赖 DNS 解析与证书校验，只验证「这张卡能否出公网」。
+    {
+        let quitting = is_quitting.clone();
+        set.spawn(async move {
+            if quitting.load(Ordering::Acquire) {
+                return false;
+            }
+            let target: std::net::SocketAddr = ([223, 5, 5, 5], 53u16).into();
+            crate::network::timing::bind_and_connect_with_if(
+                target,
+                bind_addr,
+                if_index,
+                std::time::Duration::from_secs(3),
+            )
+            .await
+            .is_ok()
         });
     }
 

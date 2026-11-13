@@ -83,20 +83,32 @@ pub fn select_outbound_candidate(
 ) -> Option<Adapter> {
     for name in priority {
         let Some((adapter, gateway)) = details.iter().find(|(a, _)| a.name == *name) else {
+            crate::log_info!("outbound", "候选 {name}: 当前无对应卡（被禁用/拔出）");
             continue; // 该优先级名当前无对应卡（被禁用/拔出等），顺延下一优先级
         };
         // 无 IP 的卡不作出站目标；无网关的卡（APIPA/未完成 DHCP）出不了站，同样跳过
         if adapter.ip.is_empty() || gateway.is_empty() {
+            crate::log_info!("outbound", "候选 {name}: 无 IP 或无网关，跳过");
             continue;
         }
         // 校园网卡跳过，只切非校园出口；且候选自身网关必须可达——有 IP 有网关但
         // 网关失联（热点开着上游已断）的卡切过去也是死路
-        if !is_campus_adapter(&adapter.ip, gateway, campus_gateway, portal_host, &gateway_probe)
-            && gateway_probe(gateway, &adapter.ip)
-            && gateway_probe(OUTBOUND_INTERNET_HEALTH_KEY, &adapter.ip)
-        {
-            return Some(adapter.clone());
+        let campus = is_campus_adapter(&adapter.ip, gateway, campus_gateway, portal_host, &gateway_probe);
+        if campus {
+            crate::log_info!("outbound", "候选 {name}: 判定为校园网卡，跳过");
+            continue;
         }
+        let gw_ok = gateway_probe(gateway, &adapter.ip);
+        if !gw_ok {
+            crate::log_info!("outbound", "候选 {name}: 自身网关 {gateway} 不可达，跳过");
+            continue;
+        }
+        let net_ok = gateway_probe(OUTBOUND_INTERNET_HEALTH_KEY, &adapter.ip);
+        if !net_ok {
+            crate::log_info!("outbound", "候选 {name}: 公网探测失败，跳过");
+            continue;
+        }
+        return Some(adapter.clone());
     }
     None
 }
@@ -113,6 +125,7 @@ struct SnapshotRow {
 
 /// 序列化选中卡的接口跃点快照为 JSON（`[{guid, family, automatic, metric}]`）。
 /// 纯数据结构序列化不会失败，兜底返回 "[]"（合法空数组）防呆。
+#[allow(dead_code)] // 单测用：验证单卡快照形状；生产走 snapshot_json_multi
 pub fn snapshot_json(guid: &str, rows: &[crate::platform::metric::MetricRow]) -> String {
     let snapshot: Vec<SnapshotRow> = rows
         .iter()
@@ -121,6 +134,22 @@ pub fn snapshot_json(guid: &str, rows: &[crate::platform::metric::MetricRow]) ->
             family: r.family,
             automatic: r.automatic,
             metric: r.metric,
+        })
+        .collect();
+    serde_json::to_string(&snapshot).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// 多卡跃点快照：把若干张卡的行合并成一个数组（切换时既压目标卡、也抬原出口卡）。
+pub fn snapshot_json_multi(entries: &[(String, Vec<crate::platform::metric::MetricRow>)]) -> String {
+    let snapshot: Vec<SnapshotRow> = entries
+        .iter()
+        .flat_map(|(guid, rows)| {
+            rows.iter().map(move |row| SnapshotRow {
+                guid: guid.clone(),
+                family: row.family,
+                automatic: row.automatic,
+                metric: row.metric,
+            })
         })
         .collect();
     serde_json::to_string(&snapshot).unwrap_or_else(|_| "[]".to_string())

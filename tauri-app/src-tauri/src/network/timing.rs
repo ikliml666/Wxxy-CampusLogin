@@ -84,6 +84,20 @@ pub async fn measure_https_timing(
     skip_ttfb: bool,
     skip_content: bool,
 ) -> HttpTimingResult {
+    measure_https_timing_with_if(host, port, bind_addr, None, timeout, skip_ttfb, skip_content).await
+}
+
+/// 在绑源 IP 之外可选地绑出接口（ifIndex）。用于代理/TUN 环境下的单卡公网探测：
+/// 只绑源 IP 会被默认路由上的代理劫持，绑出接口才能确认该卡自身是否真能上网。
+pub async fn measure_https_timing_with_if(
+    host: &str,
+    port: u16,
+    bind_addr: Option<IpAddr>,
+    if_index: Option<u32>,
+    timeout: Duration,
+    skip_ttfb: bool,
+    skip_content: bool,
+) -> HttpTimingResult {
     let url = format!("https://{host}:{port}/");
     let mut result = HttpTimingResult {
         url: url.clone(),
@@ -104,13 +118,17 @@ pub async fn measure_https_timing(
     let dns_timeout = timeout / 3;
 
     let dns_start = Instant::now();
-    let ip = if let Some(cached) = super::dns::dns_cache_get(host, bind_addr) {
+    // 绑接口模式下 DNS 走系统默认路由解析：此刻 socket 还没建、绑不了接口，绑源查询会
+    // 从别的出口发出去再被丢弃，重试把 3 秒预算耗尽，TCP 阶段必然超时（实测：同一毫秒
+    // 六条探测全部超时，而独立绑接口 TCP 只需 8–90ms）。解析得到的 IP 与走哪条路无关。
+    let dns_bind = if if_index.is_some() { None } else { bind_addr };
+    let ip = if let Some(cached) = super::dns::dns_cache_get(host, dns_bind) {
         result.dns_ms = ms_from(dns_start);
         cached
     } else {
-        match super::dns::resolve_host_smart(host, dns_timeout, bind_addr).await {
+        match super::dns::resolve_host_smart(host, dns_timeout, dns_bind).await {
             Ok(ip) => {
-                super::dns::dns_cache_put(host, bind_addr, ip);
+                super::dns::dns_cache_put(host, dns_bind, ip);
                 result.dns_ms = ms_from(dns_start);
                 ip
             }
@@ -138,7 +156,7 @@ pub async fn measure_https_timing(
         deadline.saturating_duration_since(Instant::now()),
         timeout / 3,
     );
-    let tcp_stream = match bind_and_connect(addr, bind_addr, tcp_timeout).await {
+    let tcp_stream = match bind_and_connect_with_if(addr, bind_addr, if_index, tcp_timeout).await {
         Ok(s) => s,
         Err(e) => {
             result.error = Some(format!("TCP连接失败: {e}"));
@@ -249,8 +267,23 @@ pub(crate) async fn bind_and_connect(
     bind_addr: Option<IpAddr>,
     timeout: Duration,
 ) -> Result<TcpStream, String> {
-    let stream = if let Some(bind) = bind_addr {
-        let bind_addr = std::net::SocketAddr::new(bind, 0);
+    bind_and_connect_with_if(addr, bind_addr, None, timeout).await
+}
+
+/// 在绑源 IP 之外可选地绑出接口（IP_UNICAST_IF）。
+///
+/// 为什么需要它：绑源 IP 只是给 socket 一个源地址，路由选择仍由系统默认路由决定——
+/// 代理/TUN 接管默认路由时，绑源连接照样被劫持到代理出口，探测结果失真（实测：
+/// 热点卡绑源 TCP 全部超时，回退系统路由才成功）。IP_UNICAST_IF 把出接口钉在指定
+/// 物理网卡上，绕开默认路由的竞争，是代理环境下探测单卡连通性的可靠手段。
+pub(crate) async fn bind_and_connect_with_if(
+    addr: std::net::SocketAddr,
+    bind_addr: Option<IpAddr>,
+    if_index: Option<u32>,
+    timeout: Duration,
+) -> Result<TcpStream, String> {
+    let needs_socket = bind_addr.is_some() || if_index.is_some();
+    let stream = if needs_socket {
         let socket = match addr {
             std::net::SocketAddr::V4(_) => {
                 tokio::net::TcpSocket::new_v4().map_err(|e| format!("{e}"))?
@@ -259,7 +292,13 @@ pub(crate) async fn bind_and_connect(
                 tokio::net::TcpSocket::new_v6().map_err(|e| format!("{e}"))?
             }
         };
-        socket.bind(bind_addr).map_err(|e| format!("绑定失败: {e}"))?;
+        if let Some(idx) = if_index {
+            bind_outbound_interface(&socket, idx)?;
+        }
+        if let Some(bind) = bind_addr {
+            let bind_addr = std::net::SocketAddr::new(bind, 0);
+            socket.bind(bind_addr).map_err(|e| format!("绑定失败: {e}"))?;
+        }
         tokio::time::timeout(timeout, socket.connect(addr))
             .await
             .map_err(|_| "TCP连接超时".to_string())?
@@ -271,6 +310,33 @@ pub(crate) async fn bind_and_connect(
             .map_err(|e| format!("{e}"))?
     };
     Ok(stream)
+}
+
+/// 把 socket 的出接口固定到指定 ifIndex（Windows IP_UNICAST_IF，网络字节序）。
+#[cfg(target_os = "windows")]
+fn bind_outbound_interface(socket: &tokio::net::TcpSocket, if_index: u32) -> Result<(), String> {
+    use std::os::windows::io::AsRawSocket;
+    use windows::Win32::Networking::WinSock::{setsockopt, IPPROTO_IP, IP_UNICAST_IF, SOCKET};
+    let raw = socket.as_raw_socket();
+    // IP_UNICAST_IF 的入参是 4 字节网络字节序的 IF_INDEX（0,0,idx>>8,idx&0xFF）
+    let bytes: [u8; 4] = [0, 0, (if_index >> 8) as u8, (if_index & 0xFF) as u8];
+    let rc = unsafe {
+        setsockopt(
+            SOCKET(raw as usize),
+            IPPROTO_IP.0,
+            IP_UNICAST_IF,
+            Some(&bytes),
+        )
+    };
+    if rc != 0 {
+        return Err(format!("IP_UNICAST_IF 绑定出接口失败(ifIndex={if_index}): 错误码 {rc}"));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn bind_outbound_interface(_socket: &tokio::net::TcpSocket, _if_index: u32) -> Result<(), String> {
+    Err("当前平台不支持绑出接口".to_string())
 }
 
 pub(crate) async fn do_tls_handshake(

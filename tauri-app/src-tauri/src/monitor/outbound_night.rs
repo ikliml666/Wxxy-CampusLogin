@@ -11,7 +11,7 @@ use crate::infra::state::AppState;
 use crate::monitor::outbound_switch::{
     effective_outbound_priority, is_campus_adapter, parse_disabled_adapters,
     parse_standby_route, portal_probe_host,
-    select_outbound_candidate, snapshot_json, standby_route_cleanup, StandbyCleanup,
+    select_outbound_candidate, snapshot_json_multi, standby_route_cleanup, StandbyCleanup,
     OUTBOUND_INTERNET_HEALTH_KEY,
 };
 use crate::network::Adapter;
@@ -427,10 +427,14 @@ fn build_portal_bypass_route(config: &crate::config::Config) -> Option<PortalRou
     if dest.is_empty() {
         return None;
     }
-    let probe_dest: std::net::Ipv4Addr = OUTBOUND_INTERNET_HEALTH_KEY.parse().ok()?;
-    let if_index = crate::platform::best_route::best_route_if_index_v4(probe_dest).ok()?;
+    // 与出口判定同一口径：物理出口（排除 TUN/代理虚拟卡）。GetBestRoute 会返回
+    // metric=0 的 TUN 接口，那张卡不在适配器列表里，旁路路由会被静默跳过。
+    let current = crate::platform::best_route::current_outbound_v4().ok()?;
     let adapters = crate::network::get_adapters_cached().ok()?;
-    let adapter = adapters.iter().find(|a| a.if_index == if_index)?;
+    let adapter = adapters
+        .iter()
+        .find(|a| a.if_index == current.if_index || a.name == current.alias)?;
+    let if_index = adapter.if_index;
     let details = crate::network::get_adapter_details_cached().ok()?;
     let gateway = details
         .iter()
@@ -447,15 +451,43 @@ fn build_portal_bypass_route(config: &crate::config::Config) -> Option<PortalRou
     })
 }
 
+/// 当前默认出口卡的 (名称, GUID, ifIndex)。
+fn current_origin_adapter() -> Option<(String, String, u32)> {
+    // 必须用 current_outbound_v4（已按黑名单排除 TUN/代理虚拟卡、且按
+    // routeMetric+ifMetric 取最小）。GetBestRoute 会返回 metric=0 的 TUN 接口，
+    // 那张卡不在适配器列表里，导致原出口恒为 None、抬高动作整段被跳过。
+    let current = crate::platform::best_route::current_outbound_v4().ok()?;
+    let adapters = crate::network::get_adapters_cached().ok()?;
+    let adapter = adapters
+        .iter()
+        .find(|a| a.if_index == current.if_index || a.name == current.alias)?;
+    Some((adapter.name.clone(), adapter.guid.clone(), adapter.if_index))
+}
+
+/// 切换后原出口卡的 interfaceMetric：必须明显高于目标卡（目标卡压到 1），
+/// 让「routeMetric + interfaceMetric」的比较结果稳定落在目标卡上。
+const SWITCHED_ORIGIN_METRIC: u32 = 100;
+
+/// 抬高原出口卡的跃点（只改跃点，不禁用）。
+fn raise_origin_metric(guid: &str, families: &[u16]) -> Result<(), String> {
+    if families.is_empty() {
+        return Ok(());
+    }
+    let encoded: Vec<String> = families
+        .iter()
+        .map(|family| format!("{guid}:{family}:0:{SWITCHED_ORIGIN_METRIC}"))
+        .collect();
+    run_helper_op("set_metric", &encoded, outbound_allow_uac()).map_err(|failure| failure.reason)
+}
+
 /// 默认出口是否已落在指定接口：读系统默认路由的接口索引比对。
 /// 只改跃点时"写了跃点"与"出口真的换了"是两件事——TUN/代理可能持有 metric=0
 /// 的默认路由，此时跃点写入成功但出口不动，必须靠这一步暴露。
 #[cfg(target_os = "windows")]
 fn outbound_route_targets(target_if_index: u32) -> Result<bool, String> {
-    let dest: std::net::Ipv4Addr = OUTBOUND_INTERNET_HEALTH_KEY
-        .parse()
-        .map_err(|e| format!("健康探测目标地址非法: {e}"))?;
-    crate::platform::best_route::best_route_if_index_v4(dest).map(|idx| idx == target_if_index)
+    // 与原出口判定同一口径：current_outbound_v4 过滤掉 TUN/代理虚拟卡后再取最小跃点。
+    // 用 GetBestRoute 会拿到 metric=0 的 TUN 接口，验证永远判失败。
+    crate::platform::best_route::current_outbound_v4().map(|current| current.if_index == target_if_index)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -785,7 +817,31 @@ pub(super) fn apply_outbound_switch_with_health(
     // 目标卡自己的 DHCP 默认路由共存，Windows 判重复 → route add 每夜恒失败重放），
     // 历史值保留给还原步骤①按四元组精确清理，清空会让历史残留无人认领
     let state = app_handle.state::<AppState>();
-    let metric_restore = snapshot_json(&plan.target_guid, &plan.rows);
+    // Windows 比较默认路由用的是 routeMetric + interfaceMetric：实测目标卡（热点）
+    // routeMetric=30，只把 interfaceMetric 压到 1 仍是 31，输给原卡 0+25=25，出口
+    // 根本切不动。所以切换必须同时把原出口卡的 interfaceMetric 抬到较高值——
+    // 只调跃点、不禁卡，原卡仍保持启用可登录。两卡原值都进快照供还原写回。
+    let origin = current_origin_adapter();
+    let origin_rows: Option<(String, Vec<MetricRow>)> = origin.as_ref().and_then(|(_, guid, _)| {
+        if guid == &plan.target_guid {
+            return None;
+        }
+        let rows: Vec<MetricRow> = crate::platform::metric::read_interface_metrics(guid)
+            .ok()?
+            .into_iter()
+            .filter(|r| matches!(r.family, 2 | 23))
+            .collect();
+        if rows.is_empty() {
+            None
+        } else {
+            Some((guid.clone(), rows))
+        }
+    });
+    let mut restore_entries: Vec<(String, Vec<MetricRow>)> = vec![(plan.target_guid.clone(), plan.rows.clone())];
+    if let Some((guid, rows)) = &origin_rows {
+        restore_entries.push((guid.clone(), rows.clone()));
+    }
+    let metric_restore = snapshot_json_multi(&restore_entries);
     if let Err(e) = crate::config::persist::mutate_config_and_save(app_handle, &state, move |fresh| {
         fresh.outbound_metric_restore = metric_restore;
         Ok(())
@@ -808,6 +864,24 @@ pub(super) fn apply_outbound_switch_with_health(
     if let Err(reason) = write_outbound_metric(app_handle, &plan.target_name, &plan.target_guid, &families, true, "") {
         all_ok = false;
         fail_reasons.push(format!("设置网卡 {} 跃点失败: {reason}", plan.target_name));
+    }
+    // 抬高原出口卡：只在目标卡写入成功后做，失败不阻断切换判定（下面路由验证会暴露）
+    if all_ok {
+        if let Some((origin_name, origin_guid, _)) = &origin {
+            if origin_guid != &plan.target_guid {
+                let families: Vec<u16> = origin_rows
+                    .as_ref()
+                    .map(|(_, rows)| rows.iter().map(|r| r.family).collect())
+                    .unwrap_or_default();
+                match raise_origin_metric(origin_guid, &families) {
+                    Ok(()) => crate::log_info!(
+                        "outbound",
+                        "夜间出站切换: 已将原出口 {origin_name} 跃点抬到 {SWITCHED_ORIGIN_METRIC}"
+                    ),
+                    Err(e) => crate::log_warn!("outbound", "夜间出站切换: 抬高原出口 {origin_name} 跃点失败: {e}"),
+                }
+            }
+        }
     }
     // 切换后路由级验证：动作成功 ≠ 效果达成。只改跃点时，默认出口必须真的离开
     // 原卡、落到目标卡；若仍不是（典型是 TUN/代理接管了 metric=0 的默认路由），
@@ -1106,21 +1180,28 @@ pub(super) fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::con
     // ② 跃点写回（跃点快照非空才有此步）
     let mut metric_ok = true;
     if !snapshot.is_empty() {
-        let guid = snapshot[0].guid.clone();
         let adapters = crate::network::get_adapters_cached().unwrap_or_default();
+        // 快照可能含多张卡：目标卡（压到 1）+ 被抬高的原出口卡。逐卡分组写回。
+        let mut by_guid: std::collections::BTreeMap<String, Vec<&OutboundSnapshotRow>> =
+            std::collections::BTreeMap::new();
+        for row in &snapshot {
+            by_guid.entry(row.guid.clone()).or_default().push(row);
+        }
+        for (guid, rows) in by_guid {
         if !adapters.iter().any(|a| a.guid == guid) {
             // 终态出口：网卡已拔出/禁用，跃点设置随接口消失，无对象可写回
-            crate::log_info!("outbound", "夜间出站还原: 目标卡({guid})已不存在，视为已还原");
+            crate::log_info!("outbound", "夜间出站还原: 网卡({guid})已不存在，视为已还原");
+            continue;
         } else {
             // 只写回"快照有原值 + 当前仍存在"的协议栈：跃点行消失的条目无对象可写，
             // 系统重建该协议栈时按其默认值（与"已还原"同语义）；现值已与快照一致的
             // 协议栈不再重复提权写入——重试不会再弹 UAC，也不会把已还原的步骤反复执行
             let current = crate::platform::metric::read_interface_metrics(&guid).unwrap_or_default();
-            let present = snapshot
+            let present = rows
                 .iter()
                 .filter(|r| current.iter().any(|c| c.family == r.family))
                 .count();
-            let encoded: Vec<String> = snapshot
+            let encoded: Vec<String> = rows
                 .iter()
                 .filter(|r| {
                     current.iter().any(|c| {
@@ -1131,14 +1212,14 @@ pub(super) fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::con
                 .map(|r| format!("{}:{}:{}:{}", r.guid, r.family, u8::from(r.automatic), r.metric))
                 .collect();
             if present == 0 {
-                crate::log_info!("outbound", "夜间出站还原: 目标卡跃点行已消失，视为已还原");
+                crate::log_info!("outbound", "夜间出站还原: 网卡 {guid} 跃点行已消失，视为已还原");
             } else if encoded.is_empty() {
-                crate::log_info!("outbound", "夜间出站还原: 目标卡跃点已与快照一致，跳过写入");
+                crate::log_info!("outbound", "夜间出站还原: 网卡 {guid} 跃点已与快照一致，跳过写入");
             } else {
                 match run_helper_op("set_metric", &encoded, allow_uac) {
                     Ok(()) => {
                         clear_outbound_channel_failure();
-                        crate::log_info!("outbound", "夜间出站还原: 已恢复目标卡跃点设置");
+                        crate::log_info!("outbound", "夜间出站还原: 已恢复网卡 {guid} 跃点设置");
                     }
                     Err(failure) => {
                         note_channel_failure(&failure);
@@ -1162,6 +1243,7 @@ pub(super) fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::con
                     }
                 }
             }
+        }
         }
     }
     // Portal 旁路路由：还原后原卡重新成为默认出口，这条 /32 路由必须删掉，
