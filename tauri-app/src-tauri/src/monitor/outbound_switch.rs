@@ -10,6 +10,9 @@
 
 use crate::network::discovery::Adapter;
 
+/// 公网健康探测在 ProbeCache 中的键；实际检测使用绑源 TCP/HTTPS，而非 ICMP。
+pub(super) const OUTBOUND_PROBE_HOST: &str = "223.5.5.5";
+
 /// 逐卡判定该适配器是否处于校园网内：绑该卡源 IP 可达校园网关/portal 主机
 /// （经 probe 注入）。判定腿与去抖口径由 [`crate::campus::rules::judge_campus`]
 /// 统一提供，与 `campus_check` 完全同源。2026-11-10 起取消网段腿：网关基准落在
@@ -90,6 +93,7 @@ pub fn select_outbound_candidate(
         // 网关失联（热点开着上游已断）的卡切过去也是死路
         if !is_campus_adapter(&adapter.ip, gateway, campus_gateway, portal_host, &gateway_probe)
             && gateway_probe(gateway, &adapter.ip)
+            && gateway_probe(OUTBOUND_PROBE_HOST, &adapter.ip)
         {
             return Some(adapter.clone());
         }
@@ -367,7 +371,7 @@ mod tests {
         let priority = vec!["以太网 2".to_string(), "WLAN".to_string(), "以太网".to_string()];
         let details = vec![campus, offline, hotspot];
         // 探测按网关区分：自身网关（192.168.43.1）可达、校园网关（10.64.60.1）不可达
-        let probe = |gw: &str, _: &str| gw == "192.168.43.1";
+        let probe = |gw: &str, _: &str| gw == "192.168.43.1" || gw == OUTBOUND_PROBE_HOST;
         // 排序第一张无 IP → 跳过；第二张非校园网有 IP 且自身网关可达 → 选中
         let picked = select_outbound_candidate(&priority, &details, "10.64.60.1", "", probe).unwrap();
         assert_eq!(picked.name, "WLAN");
@@ -384,11 +388,43 @@ mod tests {
     }
 
     #[test]
+    fn candidate_with_gateway_but_no_internet_is_rejected() {
+        let hotspot = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
+        let picked = select_outbound_candidate(
+            &["WLAN".to_string()],
+            &[hotspot],
+            "10.64.60.1",
+            "",
+            |gateway, _| gateway == "192.168.43.1",
+        );
+        assert!(picked.is_none(), "网关可达但公网不可达的卡不得作为出口");
+    }
+
+    #[test]
+    fn candidate_skips_unhealthy_priority_and_uses_next_healthy_adapter() {
+        let first = (adapter("WLAN 2", "{G3}", "192.168.7.10", true), "192.168.7.1".to_string());
+        let second = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
+        let picked = select_outbound_candidate(
+            &["WLAN 2".to_string(), "WLAN".to_string()],
+            &[first, second],
+            "10.64.60.1",
+            "",
+            |target, source| match target {
+                OUTBOUND_PROBE_HOST => source == "192.168.43.10",
+                "192.168.7.1" | "192.168.43.1" => true,
+                _ => false,
+            },
+        )
+        .unwrap();
+        assert_eq!(picked.name, "WLAN");
+    }
+
+    #[test]
     fn candidate_priority_name_absent_from_details_skips() {
         // 优先级名在当前适配器列表里查不到（被拔出/禁用）→ 顺延到下一项
         let hotspot = (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string());
         let priority = vec!["已拔出的卡".to_string(), "WLAN".to_string()];
-        let picked = select_outbound_candidate(&priority, &[hotspot], "10.64.60.1", "", |gw: &str, _: &str| gw == "192.168.43.1")
+        let picked = select_outbound_candidate(&priority, &[hotspot], "10.64.60.1", "", |gw: &str, _: &str| gw == "192.168.43.1" || gw == OUTBOUND_PROBE_HOST)
             .unwrap();
         assert_eq!(picked.name, "WLAN");
     }
@@ -459,7 +495,7 @@ mod tests {
             &[apipa, dead, hotspot],
             "10.64.60.1",
             "",
-            |gw: &str, _: &str| gw == "192.168.43.1",
+            |gw: &str, _: &str| gw == "192.168.43.1" || gw == OUTBOUND_PROBE_HOST,
         )
         .unwrap();
         assert_eq!(picked.name, "WLAN", "无网关卡与网关失联卡都应顺延到健康候选");

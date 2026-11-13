@@ -12,6 +12,7 @@ use crate::monitor::outbound_switch::{
     disabled_adapters_json, effective_outbound_priority, is_campus_adapter, parse_disabled_adapters,
     parse_standby_route, portal_probe_host, select_campus_to_disable,
     select_outbound_candidate, snapshot_json, standby_route_cleanup, DisabledRow, StandbyCleanup,
+    OUTBOUND_PROBE_HOST,
 };
 use crate::network::Adapter;
 use crate::platform::metric::MetricRow;
@@ -62,14 +63,12 @@ static OUTBOUND_RESTORE_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 任一次 helper 成功即清零（通道可用）
 static OUTBOUND_CHANNEL_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 每天至多一次的提醒通知去重标记（num_days_from_ce；i32::MIN = 从未提醒）：
-/// 无候选/空禁用名单/跃点快照损坏/兜底路由是唯一默认路径/目标卡外网探测无响应
-/// 五类「不阻塞流程但该让用户知道」的问题各占一枚
+/// 无候选/空禁用名单/跃点快照损坏/兜底路由是唯一默认路径
+/// 四类「不阻塞流程但该让用户知道」的问题各占一枚
 static OUTBOUND_NO_CANDIDATE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_EMPTY_DISABLE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_METRIC_SNAPSHOT_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_LAST_PATH_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
-/// 外网探测无响应提醒日（探测不阻断切换，仅告知用户该出口可能被拦 ICMP）
-static OUTBOUND_PROBE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 
 /// 出站动作单飞闸：切换与还原互斥。手动入口（命令线程）与 30s 调度拍（后台线程）
 /// 可能同时进 `apply_outbound_*`；若还原拿着"切换前"读到的快照收尾，会把刚写入的
@@ -377,8 +376,7 @@ fn write_outbound_metric(
 ///
 /// 快照在 helper 之前落盘；helper 失败**不清快照**（裁决 Important-2：若 v4 已改成功而
 /// v6 失败，清快照会让已改的跃点无从还原）——切换态保留 + 退避重试写回，重试幂等。
-/// 本函数只由 `Switch` 动作调用（`evaluate_night_outbound` 仅在 restore_active=false 时
-/// 产出 `Switch`），故入口无需再判快照。
+/// 手动切换与故障自动切换共用；调用方保证当前不处于切换态，故入口无需再判快照。
 ///
 /// 六期新增两步（TUN 代理并存时的实测复盘）：
 /// - 禁用校园网卡是主力：网卡级下线后其路由/DNS/跃点竞争全部消失，代理内核
@@ -393,31 +391,7 @@ fn write_outbound_metric(
 /// - 切换完成后路由级验证（GetBestRoute）：到校园网关的最优路由仍指向校园卡
 ///   ifIndex 则判失败走重放；空禁用名单（误判漏禁）单独每天告警一次。
 ///
-/// 夜间切换目标卡的外网可达探测目标（阿里公共 DNS，纯 ICMP 目标，不涉任何凭据）。
-///
-/// 只作诊断信号：见 [`probe_target_internet`] 的"不阻断"说明。
-pub(super) const OUTBOUND_PROBE_HOST: &str = "223.5.5.5";
-
-/// 夜间切换目标卡的**外网可达探测**（2026-10-26 取代登录闸）。
-///
-/// 语义修正的背景：登录闸把「目标卡必须在校园 Portal 在线」当成切换前提，方向正好
-/// 相反——校园网 23:00 断网，此刻要做的事恰恰是切到**不经营校园认证**的出口
-/// （手机热点、其他宽带）。要求热点登录校园 Portal，这个条件永假，切换整夜不执行
-/// （2026-10-25 现场：WLAN 热点整夜挂起「待切换: 等待该网卡登录校园网」）。
-/// 登录判定只属于**早上还原后**那一侧（见 `finish_outbound_restore`）。
-///
-/// 探测用绑源 ICMP 直打公网地址，走 `check_gateway_reachable_from`（Windows 上即
-/// IcmpSendEcho2Ex，绑源可靠）。**结果不作为切换闸门**：
-/// - 候选筛选已保证目标卡 IP/网关齐备且判为非校园网（自身网关可达已实证）；
-/// - 运营商拦 ICMP 到公网是常态，把探测失败当阻断条件会重演"恒假条件整夜不切"。
-/// 因此只在不可达时记一次日志 + 每日一次提醒，切换照做。
-/// 探测本身并入 [`warm_probe_cache`] 的并行批次，此处只查结果。
-fn probe_target_internet(target: &Adapter, cache: &ProbeCache) -> bool {
-    if target.ip.is_empty() {
-        return false;
-    }
-    cache.get(OUTBOUND_PROBE_HOST, &target.ip)
-}
+/// 切换目标卡的公网健康结论由逐卡并行 TCP/HTTPS 提供，结果参与候选硬闸门。
 
 /// 一次并行预热的绑源探测结果：key = (目标主机, 绑源 IP)，value = 是否可达。
 ///
@@ -431,7 +405,8 @@ impl ProbeCache {
     fn get(&self, dest: &str, source: &str) -> bool {
         match self.0.get(&(dest.to_string(), source.to_string())) {
             Some(ok) => *ok,
-            // 判定范围外的组合（理论上不会出现）回落真实探测，宁可慢也不改判定语义
+            // 公网健康只接受 TCP/HTTPS 结果，缺失不得退回 ICMP 造成假阳性。
+            None if dest == OUTBOUND_PROBE_HOST => false,
             None => crate::network::check_gateway_reachable_from(dest, Some(source)),
         }
     }
@@ -504,7 +479,6 @@ fn collect_probe_targets(
             pairs.push((portal_host.to_string(), adapter.ip.clone()));
         }
         pairs.push((gateway.clone(), adapter.ip.clone()));
-        pairs.push((OUTBOUND_PROBE_HOST.to_string(), adapter.ip.clone()));
     }
     pairs
 }
@@ -560,82 +534,26 @@ pub(super) fn drive_pending_switch(
     Ok(())
 }
 
-/// 预判定计划的保鲜期：预判定在切换时刻前 1 分钟算好，正常到点消费约 60~90s
-/// （30s 一拍、窗口内两拍刷新），留 3 分钟吸收休眠唤醒/时钟漂移，超时即丢弃重判。
-const OUTBOUND_PLAN_MAX_AGE_MS: u64 = 180_000;
-
-/// 夜间出站切换的**预判定计划**：切换时刻前 1 分钟算好、到点只做落盘与提权写入。
-///
-/// 计划内每个字段都由**只读**查询得到（选卡绑源探测、跃点行读取、禁用名单判定），
-/// 不含任何系统写入——写入仍严格留到切换时刻那一拍。动机：切点（23:00/23:30，
-/// 周五周六 23:30）正是运营商断网的时刻，到点那一拍才做的绑源 ICMP 探测（每张候选卡
-/// × 网关/portal 各两次，实测数秒）与逐卡提权累计起来会把切换推后几秒到几十秒，
-/// 这段时间用户就在断网状态。预判定把这段耗时前置到 T-1 分钟。
+/// 出站切换计划：根据本轮健康结果选择目标，并记录可还原的跃点与禁用名单。
 struct OutboundSwitchPlan {
     /// 目标卡（出站切换的落点）
     target_name: String,
     target_guid: String,
-    /// 目标卡跃点行（预判定时刻读到的原值；执行阶段读不到现值时作兜底快照）
+    /// 目标卡跃点行（构建计划时读到的原值；执行阶段读不到现值时作兜底快照）
     rows: Vec<MetricRow>,
     /// 待临时禁用的校园网卡名单
     campus_to_disable: Vec<DisabledRow>,
     /// 空禁用名单是否该告警（有关系卡但一张校园网卡都没识别出来）
     empty_disable_warn: bool,
-    /// 目标卡外网可达探测结论（只作诊断信号，不阻断切换）
-    probe_ok: bool,
-    /// 生成时刻（epoch ms）与当日（num_days_from_ce）：跨日/超时即失效
-    prepared_ms: u64,
-    day: i32,
-}
-
-/// 预判定计划槽位：T-1 分钟的调度拍写入、切点那拍取走执行（一次性消费）。
-/// **进程内内存缓存、不落盘**——计划只是短时效加速器，重启后由现场判定兜底，
-/// 不需要也不应该进持久化配置（落盘反而会让陈旧计划跨重启复活）。
-static OUTBOUND_PREPARED_PLAN: std::sync::Mutex<Option<OutboundSwitchPlan>> =
-    std::sync::Mutex::new(None);
-
-/// 取走预判定计划：跨日或超过保鲜期即视为陈旧，丢弃并回落到现场判定。
-/// 一次性消费（take）：同一份计划绝不给两次执行用。
-fn take_prepared_plan() -> Option<OutboundSwitchPlan> {
-    let mut slot = OUTBOUND_PREPARED_PLAN.lock().unwrap_or_else(|e| e.into_inner());
-    let plan = slot.take()?;
-    let today = chrono::Local::now().num_days_from_ce();
-    let age = now_epoch_ms().saturating_sub(plan.prepared_ms);
-    if plan.day != today || age > OUTBOUND_PLAN_MAX_AGE_MS {
-        crate::log_debug!(
-            "outbound",
-            "夜间出站切换: 预判定计划已过期（跨日或距今 {age}ms），丢弃重判"
-        );
-        return None;
-    }
-    Some(plan)
-}
-
-/// 预判定计划的到点复核：目标卡当前仍在网（guid 命中且有 IP）才可执行。
-/// 计划算好到切点之间这 1 分钟里卡可能被拔出/断开/重命名（DHCP 续租失败、
-/// 热点掉线），此时按计划执行会对着不存在的卡提权写入，必须回落到现场判定。
-fn plan_target_still_valid(plan: &OutboundSwitchPlan) -> bool {
-    match crate::network::get_adapters_cached() {
-        Ok(adapters) => adapters
-            .iter()
-            .any(|a| a.guid == plan.target_guid && !a.ip.is_empty()),
-        Err(e) => {
-            crate::log_debug!("outbound", "夜间出站切换: 预判定复核时适配器查询失败: {e}");
-            false
-        }
-    }
 }
 
 /// 构建夜间出站切换计划：**纯只读**（选卡 + 绑源探测 + 读跃点 + 算禁用名单），
 /// 不做任何系统写入，也不落盘。
 ///
-/// `notify`：选不出可用候选时是否发每日一次提醒——预判定阶段传 `false`（只记日志，
-/// 到点真执行时会由现场重建负责告警，避免提前一分钟弹窗又到点再弹），
-/// 到点执行阶段传 `true`（与改造前行为一致）。
 fn build_outbound_plan(
     app_handle: &AppHandle,
     config: &crate::config::Config,
-    notify: bool,
+    internet_health: Option<std::collections::HashMap<String, bool>>,
 ) -> Result<OutboundSwitchPlan, String> {
     let adapters = match crate::network::get_adapters_cached() {
         Ok(a) => a,
@@ -662,12 +580,19 @@ fn build_outbound_plan(
     let portal_host = portal_probe_host(&config.portal_url);
     let priority = effective_outbound_priority(&config.outbound_priority, &candidates);
     // 并行预热本轮判定的全部绑源探测（逐卡串行探测是切换耗时主体，见 ProbeCache）
-    let probe_cache = warm_probe_cache(&collect_probe_targets(
+    let mut probe_cache = warm_probe_cache(&collect_probe_targets(
         &priority,
         &candidates,
         &config.campus_gateway,
         &portal_host,
     ));
+    let internet_health = match internet_health {
+        Some(health) => health,
+        None => super::outbound_failover::probe_internet_access(app_handle, config, &candidates, None),
+    };
+    for (source_ip, ok) in internet_health {
+        probe_cache.0.insert((OUTBOUND_PROBE_HOST.to_string(), source_ip), ok);
+    }
     let probe = |gateway: &str, source_ip: &str| probe_cache.get(gateway, source_ip);
     let Some(target) = select_outbound_candidate(
         &priority,
@@ -680,40 +605,19 @@ fn build_outbound_plan(
         // 30s 后自然重试。选不出候选多半是判定或环境问题（如绑源探测把热点
         // 误判成校园网），每天提醒一次，避免整夜静默失效
         crate::log_warn!("outbound", "夜间出站切换: 优先级内无可用非校园网候选，本拍不切换");
-        if notify {
-            notify_outbound_issue_once_per_day(
-                app_handle,
-                &OUTBOUND_NO_CANDIDATE_WARN_DAY,
-                "夜间出站切换未生效",
-                "未找到可用的非校园网网卡（可能被误判为校园网或网关不可达），出站未切换",
-            );
-        }
+        notify_outbound_issue_once_per_day(
+            app_handle,
+            &OUTBOUND_NO_CANDIDATE_WARN_DAY,
+            "夜间出站切换未生效",
+            "未找到可用的非校园网网卡（可能被误判为校园网或网关不可达），出站未切换",
+        );
         return Err("没有可用的非校园网网卡（可能被误判为校园网或网关不可达）".to_string());
     };
     if target.guid.is_empty() {
         crate::log_warn!("outbound", "夜间出站切换: 目标卡 {} 无 GUID，无法设置跃点", target.name);
         return Err(format!("目标网卡 {} 缺少 GUID，无法设置跃点", target.name));
     }
-    // 外网可达探测：只作诊断信号，**不阻断**切换（判定理由见 probe_target_internet）。
-    // 旧实现在此处挂一道「目标卡必须已在校园 Portal 在线」的登录闸，语义方向相反
-    // （夜间切换的目的正是切离已断的校园网），热点出口恒不满足 → 整夜不切。
-    // 这是预判定阶段最耗时的一步，也是提前一分钟重算的主要目标；告警留到执行阶段发
-    let probe_ok = probe_target_internet(&target, &probe_cache);
-    if probe_ok {
-        crate::log_info!(
-            "outbound",
-            "夜间出站切换: 目标卡 {} 绑源探测 {} 外网可达",
-            target.name,
-            OUTBOUND_PROBE_HOST
-        );
-    } else {
-        crate::log_warn!(
-            "outbound",
-            "夜间出站切换: 目标卡 {} 绑源探测 {} 无响应（运营商拦 ICMP 属常见现象），仍按候选结论继续",
-            target.name,
-            OUTBOUND_PROBE_HOST
-        );
-    }
+    crate::log_info!("outbound", "出站切换: 目标卡 {} 已通过双目标绑源 TCP/HTTPS 公网复核", target.name);
     // 只处理 IPv4+IPv6 两族（helper 的 set_metric 只认 2/23）
     let rows: Vec<MetricRow> = match crate::platform::metric::read_interface_metrics(&target.guid) {
         Ok(rows) => rows.into_iter().filter(|r| matches!(r.family, 2 | 23)).collect(),
@@ -767,40 +671,18 @@ fn build_outbound_plan(
         rows,
         campus_to_disable,
         empty_disable_warn,
-        probe_ok,
-        prepared_ms: now_epoch_ms(),
-        day: chrono::Local::now().num_days_from_ce(),
     })
 }
 
-/// 预判定入口（T-1 分钟那一拍的调度动作，经 `run_outbound_blocking` 进阻塞线程池）：
-/// 把 [`build_outbound_plan`] 的只读结论存进内存槽位，供切点那拍直接消费。
-///
-/// - 不取单飞闸：只读探测 + 读跃点，不写系统状态，与切换/还原并发无副作用；
-/// - 退避窗内不做：此时到点也多半切不了，省掉一次探测与日志；
-/// - 失败**不覆盖**已有计划：窗口内两拍（30s 间隔）都做预判定，后一拍失败时保留
-///   前一拍的成功结论（两拍相距 30s，结论仍然新鲜），由到点复核兜住失效；
-/// - 每拍重算、后者覆盖前者：越接近切点越可信（网卡状态在这 1 分钟内也可能变化）。
-pub(super) fn prepare_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) -> Result<(), String> {
-    if !switch_gate_open() {
-        crate::log_debug!("outbound", "夜间出站切换: 退避窗内，跳过预判定");
-        return Ok(());
-    }
-    let started = std::time::Instant::now();
-    let plan = build_outbound_plan(app_handle, config, false)?;
-    crate::log_info!(
-        "outbound",
-        "夜间出站切换: 预判定完成（目标卡 {}，待禁用校园网卡 {} 张，耗时 {}ms），到点直接执行",
-        plan.target_name,
-        plan.campus_to_disable.len(),
-        started.elapsed().as_millis()
-    );
-    let mut slot = OUTBOUND_PREPARED_PLAN.lock().unwrap_or_else(|e| e.into_inner());
-    *slot = Some(plan);
-    Ok(())
+pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) -> Result<(), String> {
+    apply_outbound_switch_with_health(app_handle, config, None)
 }
 
-pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) -> Result<(), String> {
+pub(super) fn apply_outbound_switch_with_health(
+    app_handle: &AppHandle,
+    config: &crate::config::Config,
+    internet_health: Option<std::collections::HashMap<String, bool>>,
+) -> Result<(), String> {
     let started = std::time::Instant::now();
     let Some(_busy) = OutboundActionGuard::try_acquire() else {
         crate::log_debug!("outbound", "夜间出站切换: 另一出站动作进行中，本拍跳过");
@@ -810,32 +692,8 @@ pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::conf
         crate::log_debug!("outbound", "夜间出站切换: 退避窗内，本拍跳过");
         return Err("正处于自动重试退避窗口，请稍后再试".to_string());
     }
-    // ① 取计划：优先消费 T-1 分钟算好的预判定结论（省掉绑源探测这一耗时项）；
-    //    计划缺失/过期/目标卡已不在网则现场完整判定——保底行为与改造前一致，
-    //    凌晨补切（错过的切换，立即执行）走的也是这条现场判定路径
-    let mut plan = match take_prepared_plan() {
-        Some(plan) if plan_target_still_valid(&plan) => {
-            crate::log_info!(
-                "outbound",
-                "夜间出站切换: 命中预判定计划（目标卡 {}），跳过判定直接执行",
-                plan.target_name
-            );
-            plan
-        }
-        Some(plan) => {
-            crate::log_info!(
-                "outbound",
-                "夜间出站切换: 预判定计划已失效（目标卡 {} 当前不在网），当场重新判定",
-                plan.target_name
-            );
-            build_outbound_plan(app_handle, config, true)?
-        }
-        None => build_outbound_plan(app_handle, config, true)?,
-    };
-    // ② 跃点现值复核：预判定到切点这 1 分钟里跃点可能被外部改动（用户手动设置、
-    //    虚拟网卡软件重装协议栈），还原快照必须以**执行时刻现值**为准。跃点读取是
-    //    本地协议栈查询（毫秒级、无网络 IO、无需提权），不抵消预判定省下的探测耗时；
-    //    读不到（卡刚消失）才回落到计划里缓存的原值
+    let mut plan = build_outbound_plan(app_handle, config, internet_health)?;
+    // 跃点现值复核：还原快照必须以执行时刻现值为准；读不到时才使用计划里的原值
     match crate::platform::metric::read_interface_metrics(&plan.target_guid) {
         Ok(rows) => {
             let fresh: Vec<MetricRow> = rows.into_iter().filter(|r| matches!(r.family, 2 | 23)).collect();
@@ -852,22 +710,10 @@ pub(super) fn apply_outbound_switch(app_handle: &AppHandle, config: &crate::conf
             }
             crate::log_warn!(
                 "outbound",
-                "夜间出站切换: 读取 {} 跃点现值失败（{e}），改用预判定缓存的原值做快照",
+                "夜间出站切换: 读取 {} 跃点现值失败（{e}），改用计划中的原值做快照",
                 plan.target_name
             );
         }
-    }
-    // ③ 诊断类提醒（预判定阶段只记日志，这里才弹：真到执行了才有必要打扰用户）
-    if !plan.probe_ok {
-        notify_outbound_issue_once_per_day(
-            app_handle,
-            &OUTBOUND_PROBE_WARN_DAY,
-            "夜间出站切换",
-            &format!(
-                "已切换到 {}，但该网络无法访问互联网（外网探测未响应）。切换已照常执行；若该出口实际可上网，可能是它拦截了 ICMP 探测，可忽略本提醒",
-                plan.target_name
-            ),
-        );
     }
     if plan.empty_disable_warn {
         notify_outbound_issue_once_per_day(
@@ -1704,13 +1550,13 @@ mod tests {
         // 校园卡不再靠网段短路：校园网关与 portal 同样要预热
         assert!(has("10.2.127.254", "10.2.100.5"));
         assert!(has("10.1.99.100", "10.2.100.5"));
-        assert!(has(OUTBOUND_PROBE_HOST, "10.2.100.5"));
+        assert!(!has(OUTBOUND_PROBE_HOST, "10.2.100.5"), "公网健康由 TCP/HTTPS 单独并行，不再发 ICMP");
         // 非校园卡：校园网关与 portal 都要探
         assert!(has("10.2.127.254", "192.168.6.119"));
         assert!(has("10.1.99.100", "192.168.6.119"));
-        // 自身网关（候选门槛）与外网探测（诊断信号）一并预热
+        // 自身网关走 ICMP 预热；公网健康走独立 TCP/HTTPS 批次
         assert!(has("192.168.6.1", "192.168.6.119"));
-        assert!(has(OUTBOUND_PROBE_HOST, "192.168.6.119"));
+        assert!(!has(OUTBOUND_PROBE_HOST, "192.168.6.119"));
         // 无网关的卡出不了站，判定阶段不查它
         assert!(!has("10.2.127.254", "192.168.6.115"));
         assert!(!has(OUTBOUND_PROBE_HOST, "192.168.6.115"));

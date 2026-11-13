@@ -493,6 +493,82 @@ fn build_quality_result<'a>(
     }
 }
 
+/// 轻量联网判定：两路 HTTPS 任一成功即可上网。候选严格绑源；当前物理出口可允许
+/// 系统路由复核以兼容 TUN。不经过质量检测单飞锁，不写历史或推送 UI。
+pub async fn check_internet_access_async(
+    adapter_ip: &str,
+    skip_ttfb: bool,
+    skip_content: bool,
+    is_quitting: Arc<std::sync::atomic::AtomicBool>,
+    allow_system_route_fallback: bool,
+) -> bool {
+    use std::sync::atomic::Ordering;
+
+    if is_quitting.load(Ordering::Acquire) {
+        return false;
+    }
+
+    let bind_addr: Option<std::net::IpAddr> = if adapter_ip.is_empty() {
+        None
+    } else {
+        match adapter_ip.parse() {
+            Ok(addr) => Some(addr),
+            Err(_) => {
+                crate::log_warn!("quality", "联网判定: 适配器IP解析失败: {}", adapter_ip);
+                return false;
+            }
+        }
+    };
+
+    // 候选卡必须严格绑源；只有已识别的当前物理出口允许复核 TUN 使用的系统路由。
+    let mut set = tokio::task::JoinSet::new();
+    for host in ["www.baidu.com", "cn.bing.com"] {
+        set.spawn(async move {
+            let bound = crate::network::timing::measure_https_timing(
+                host,
+                443,
+                bind_addr,
+                std::time::Duration::from_secs(3),
+                skip_ttfb,
+                skip_content,
+            )
+            .await;
+            if bound.success || !allow_system_route_fallback || bind_addr.is_none() {
+                return bound.success;
+            }
+            crate::log_debug!("quality", "联网判定: {} 绑源 TCP 失败，复核当前出口的系统路由", host);
+            crate::network::timing::measure_https_timing(
+                host,
+                443,
+                None,
+                std::time::Duration::from_secs(3),
+                skip_ttfb,
+                skip_content,
+            )
+            .await
+            .success
+        });
+    }
+
+    let mut reachable = false;
+    while let Some(res) = set.join_next().await {
+        if is_quitting.load(Ordering::Acquire) {
+            set.abort_all();
+            return false;
+        }
+        if matches!(res, Ok(true)) {
+            reachable = true;
+            break;
+        }
+    }
+    set.abort_all();
+
+    if is_quitting.load(Ordering::Acquire) {
+        return false;
+    }
+    reachable
+}
+
 /// `lightweight` 轻量复核模式：仅执行预览波（网关 + 1 个外网站点 baidu）即返回，
 /// 跳过 DNS/DoH 批次与 11 站 HTTPS 批次。供质量恶化复核轮使用——复核只需确认
 /// poor/bad 档位是否持续，全量 19 项外网目标会让单次恶化触发 3 倍外网流量。
@@ -764,6 +840,43 @@ mod tests {
         .await;
         assert_eq!(late, None, "完成与取消同时发生时不得交付结果");
         assert_eq!(run_with_cancellation(async { 42 }, None).await, Some(42));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "真机网络环境相关，仅显式运行"]
+    fn 真机当前出口双目标绑源探测() {
+        let current = crate::platform::best_route::current_outbound_v4().unwrap();
+        let adapters = crate::network::get_adapters_cached().unwrap();
+        let adapter = adapters.iter().find(|adapter| adapter.name == current.alias).unwrap();
+        let started = std::time::Instant::now();
+        let ok = crate::infra::async_util::block_on_sync(super::check_internet_access_async(
+            &adapter.ip,
+            true,
+            true,
+            Arc::new(AtomicBool::new(false)),
+            true,
+        ));
+        println!("当前出口={} 源IP={} 公网可达={} 耗时={}ms", current.alias, adapter.ip, ok, started.elapsed().as_millis());
+        let detail = crate::infra::async_util::block_on_sync(crate::network::timing::measure_https_timing(
+            "www.baidu.com",
+            443,
+            Some(adapter.ip.parse().unwrap()),
+            std::time::Duration::from_secs(3),
+            true,
+            true,
+        ));
+        println!("HTTPS诊断: success={} error={:?} dns={} tcp={} tls={} http={}", detail.success, detail.error, detail.dns_ms, detail.tcp_ms, detail.tls_ms, detail.ttfb_ms);
+        let system = crate::infra::async_util::block_on_sync(crate::network::timing::measure_https_timing(
+            "www.baidu.com",
+            443,
+            None,
+            std::time::Duration::from_secs(3),
+            true,
+            true,
+        ));
+        println!("系统路由复核: success={} error={:?}", system.success, system.error);
+        assert!(ok, "当前出口双目标绑源 HTTPS 均失败");
     }
 
     #[test]

@@ -22,16 +22,16 @@
 //!   不重试"会让登录时段刚开的瞬时拒绝直接吞掉当日登录；注销仍是单次语义。
 
 use super::outbound_night::{
-    apply_outbound_restore, apply_outbound_switch, drive_pending_switch, needs_replay,
-    outbound_switch_active, prepare_outbound_switch, reconcile_outbound_on_startup,
+    apply_outbound_restore, drive_pending_switch, needs_replay,
+    outbound_switch_active, reconcile_outbound_on_startup,
     replay_outbound_switch, run_outbound_blocking, watchdog_re_disable_campus,
     OUTBOUND_SWITCH_FAIL_COUNT,
 };
+use super::outbound_failover::{evaluate_outbound_failover, outbound_failover_pending};
 use crate::config::night_switch::{parse_chkstatus, uid_matches, NightSwitchAction};
 use crate::config::outbound_switch::{outbound_restore_active, NightOutboundAction};
 use crate::config::scheduled_tick::{
-    evaluate_night_switch_gated_with_restore, evaluate_outbound_action_with_restore,
-    evaluate_outbound_prep_with_restore, evaluate_scheduled_actions,
+    evaluate_night_switch_gated_with_restore, evaluate_outbound_action_with_restore, evaluate_scheduled_actions,
 };
 use crate::infra::events::EventBus;
 use crate::infra::state::AppState;
@@ -128,18 +128,7 @@ pub async fn run_scheduled_action_loop(
             // 恢复时刻可配置（默认 07:30）：原始值直传，归一化在判定函数内部完成
             config_snapshot.night_restore_minutes,
         ) {
-            NightOutboundAction::Switch => {
-                let switched = run_outbound_blocking(
-                    app_h.clone(),
-                    config_snapshot.clone(),
-                    apply_outbound_switch,
-                )
-                .await
-                .is_ok();
-                if switched {
-                    crate::log_debug!("outbound", "夜间出站切换已完成，本拍跳过运营商夜切判定");
-                }
-            }
+            NightOutboundAction::Switch => {}
             NightOutboundAction::Restore => {
                 let restored = run_outbound_blocking(
                     app_h.clone(),
@@ -156,26 +145,6 @@ pub async fn run_scheduled_action_loop(
                 }
             }
             NightOutboundAction::None => {
-                // 到点前预判定（T-1 分钟那一拍）：先把选卡/探测/跃点/禁用名单算好存内存，
-                // 切点那拍直接消费，省掉切点才做的绑源 ICMP 探测耗时（切点正是运营商
-                // 断网时刻，晚切几秒就是多断几秒）。只读、不写系统状态，失败不缓存；
-                // 窗口 1 分钟跨 2 拍，每拍重算并由后者覆盖（越接近切点越可信）
-                if evaluate_outbound_prep_with_restore(
-                    config_snapshot.enable_night_outbound_switch,
-                    now.weekday().num_days_from_sunday(),
-                    now_minutes as u32,
-                    restore_active,
-                    config_snapshot.outbound_manual_hold_day,
-                    today_day,
-                    config_snapshot.night_restore_minutes,
-                ) {
-                    let _ = run_outbound_blocking(
-                        app_h.clone(),
-                        config_snapshot.clone(),
-                        prepare_outbound_switch,
-                    )
-                    .await;
-                }
                 // 切换态下的"未生效补齐"：helper 部分失败时快照已保留（切换态成立），
                 // Switch 分支不会再触发（restore_active 下判定恒为 None）→ 由这里按退避重试。
                 // 终止条件看 needs_replay：切换成功后失败计数清零，稳态（夜间约 900 拍）
@@ -216,6 +185,14 @@ pub async fn run_scheduled_action_loop(
                 .await;
             }
         }
+        // 每拍统一评估出口健康；夜间 Switch 只是这里的一次额外触发，不再直接强制切卡。
+        let _ = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), |h, c| {
+            evaluate_outbound_failover(h, c);
+            Ok(())
+        })
+        .await;
+        let failover_pending = outbound_failover_pending();
+
         // 切换态（快照非空）：运营商夜切让位——切侧从热点出站登录校园 portal 必然失败；
         // 恢复侧快照非空即"还原未成功（重试中）"，同样不让运营商夜切恢复先跑
         let outbound_active = outbound_switch_active(&app_h);
@@ -238,9 +215,18 @@ pub async fn run_scheduled_action_loop(
                 config.night_restore_minutes,
             )
         };
+        let night_action = gate_operator_action_for_failover(night_action, failover_pending);
         if night_action != NightSwitchAction::None {
             apply_night_switch_action(&app_h, night_action).await;
         }
+    }
+}
+
+fn gate_operator_action_for_failover(action: NightSwitchAction, failover_pending: bool) -> NightSwitchAction {
+    if failover_pending && matches!(action, NightSwitchAction::SwitchToCampus) {
+        NightSwitchAction::None
+    } else {
+        action
     }
 }
 
@@ -730,6 +716,22 @@ mod tests {
         assert!(login_after, "还原成功后应补触发当日定时登录");
         mark_scheduled_day_fired(&state, true, false, TODAY);
         assert_eq!(state.scheduled.login_day.load(AOrd::Acquire), TODAY);
+    }
+
+    #[test]
+    fn 故障待决只抑制运营商切侧_不抑制恢复侧() {
+        assert_eq!(
+            gate_operator_action_for_failover(NightSwitchAction::SwitchToCampus, true),
+            NightSwitchAction::None
+        );
+        assert_eq!(
+            gate_operator_action_for_failover(NightSwitchAction::Restore, true),
+            NightSwitchAction::Restore
+        );
+        assert_eq!(
+            gate_operator_action_for_failover(NightSwitchAction::SwitchToCampus, false),
+            NightSwitchAction::SwitchToCampus
+        );
     }
 
     #[test]
