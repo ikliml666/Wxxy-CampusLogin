@@ -491,7 +491,7 @@ pub fn remove_boot_task_via_com() -> Result<(), String> {
 mod tests {
     use super::*;
 
-    /// 真实链路冒烟（默认忽略，本机手动执行）：
+    /// 真实链路冒烟（默认忽略：会注册 SYSTEM 计划任务，有系统副作用）：
     /// `cargo test task_proxy_register_and_selfcheck_smoke -- --ignored --nocapture`
     /// 经 CMSTPLUA 提权注册 SYSTEM 主体任务 → 自检（普通进程触发 + SYSTEM worker 回写）。
     /// 验证后如需清理：`schtasks /delete /tn CampusLoginPowerOps /f`（管理员）。

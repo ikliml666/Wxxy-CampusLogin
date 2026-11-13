@@ -99,14 +99,22 @@ mod tests {
         assert_eq!(ipaddr_dword(std::net::Ipv4Addr::LOCALHOST), 0x0100_007F);
     }
 
-    /// 真机验证（`cargo test --lib icmp_probe -- --ignored --nocapture`）：
+    /// 真机验证（默认执行，非该校园网络环境显式跳过）：
     /// 校园网关 + 绑副卡源地址必须可达（surge_ping 在同环境系统性失败），
     /// 绑一个不存在的本机源地址必须不可达。地址随环境失效时改常量即可。
     #[test]
-    #[ignore = "真机网络环境相关"]
     fn real_machine_bound_source_probe() {
         let gw = std::net::Ipv4Addr::new(10, 2, 127, 254);
         let src = std::net::Ipv4Addr::new(192, 168, 6, 109);
+        if !icmp_probe_v4(gw, None, 2000) {
+            println!("跳过：校园网关 {gw} 不可达，当前不在该校园网络环境");
+            return;
+        }
+        let adapters = crate::network::get_adapters_force().unwrap_or_default();
+        if !adapters.iter().any(|adapter| adapter.ip == src.to_string()) {
+            println!("跳过：本机没有绑源地址 {src}");
+            return;
+        }
         let diag = icmp_probe_v4_diag(gw, Some(src), 2000);
         println!("probe {gw} from {src}: replies={} status={:#x} gle={}", diag.replies, diag.status, diag.last_error);
         assert!(diag.replies != 0 && diag.status == IP_SUCCESS, "绑定真实源地址探测校园网关应可达");

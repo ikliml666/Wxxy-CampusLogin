@@ -844,7 +844,6 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    #[ignore = "真机网络环境相关，仅显式运行"]
     fn 真机当前出口双目标绑源探测() {
         let current = crate::platform::best_route::current_outbound_v4().unwrap();
         let adapters = crate::network::get_adapters_cached().unwrap();
@@ -876,6 +875,10 @@ mod tests {
             true,
         ));
         println!("系统路由复核: success={} error={:?}", system.success, system.error);
+        if !system.success {
+            println!("跳过：本机当前无外网连通（系统路由也不可达），不判定当前出口健康");
+            return;
+        }
         assert!(ok, "当前出口双目标绑源 HTTPS 均失败");
     }
 

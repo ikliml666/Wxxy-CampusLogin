@@ -158,13 +158,18 @@ mod tests {
         assert_eq!(dest_addr_dword(std::net::Ipv4Addr::LOCALHOST), 0x0100_007F);
     }
 
-    /// 真机验证（`cargo test --lib best_route -- --ignored --nocapture`）：
+    /// 真机验证（默认执行，没有物理默认路由的环境显式跳过）：
     /// 枚举真实路由表并打印当前出站接口；FlClash TUN 活跃时应取跃点次优的
     /// 物理网卡而非 TUN（与 `Get-NetRoute -DestinationPrefix 0.0.0.0/0` 比对）。
     #[test]
-    #[ignore = "真机路由表相关"]
     fn real_machine_current_outbound() {
-        let out = current_outbound_v4().expect("应能取到当前出站接口");
+        let out = match current_outbound_v4() {
+            Ok(out) => out,
+            Err(e) => {
+                println!("跳过：本机没有可用的物理默认路由（{e}）");
+                return;
+            }
+        };
         println!("当前出站: ifIndex {} alias {}", out.if_index, out.alias);
         assert!(!out.alias.is_empty(), "别名不应为空");
         assert!(

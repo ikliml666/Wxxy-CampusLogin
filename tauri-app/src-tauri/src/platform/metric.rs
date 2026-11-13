@@ -68,16 +68,17 @@ pub fn read_interface_metrics(guid: &str) -> Result<Vec<MetricRow>, String> {
 mod tests {
     use super::*;
 
-    /// 真机冒烟测试（默认忽略，本机手动执行）：
-    /// `cargo test read_interface_metrics_smoke -- --ignored --nocapture`
+    /// 真机冒烟测试（默认执行，无适配器的环境显式跳过）：
     /// 取本机首个适配器读跃点，验证表枚举 / 切片长度 / LUID→GUID 匹配。读路径无需管理员。
     #[test]
-    #[ignore = "真实网卡冒烟测试，仅本机手动执行"]
     fn read_interface_metrics_smoke() {
         let adapters = crate::network::get_adapters_force().expect("枚举适配器失败");
-        let guid = &adapters.first().expect("本机无适配器").guid;
-        let rows = read_interface_metrics(guid).unwrap_or_else(|e| panic!("读跃点失败: {e}"));
-        println!("{guid} -> {rows:?}");
+        let Some(adapter) = adapters.first() else {
+            println!("跳过：本机未枚举到任何适配器");
+            return;
+        };
+        let rows = read_interface_metrics(&adapter.guid).unwrap_or_else(|e| panic!("读跃点失败: {e}"));
+        println!("{} -> {rows:?}", adapter.guid);
         assert!(!rows.is_empty(), "真实适配器应至少有一个协议栈的跃点行");
         assert!(rows.iter().all(|r| matches!(r.family, 2 | 23)), "family 只应是 AF_INET/AF_INET6");
     }

@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(slot, 9, "shell_exec 必须在 vtable slot 9，当前位于 slot {slot}");
     }
 
-    /// 真实提权冒烟测试（默认忽略，本机非管理员环境手动执行）：
+    /// 真实提权冒烟测试（默认忽略：会走真实提权通道，不进日常测试套件）：
     /// `cargo test shell_exec_elevated_smoke -- --ignored --nocapture`
     /// 经 CMSTPLUA 静默提权跑 `cmd /c exit`（无副作用），验证 BIND_OPTS3 参数修复。
     #[test]

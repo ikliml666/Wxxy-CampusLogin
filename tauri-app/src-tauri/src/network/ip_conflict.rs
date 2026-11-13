@@ -68,10 +68,10 @@ mod tests {
         assert!(!is_ip_conflicted("192.0.2.123"));
     }
 
-    /// 真机验证：走一遍 GetUnicastIpAddressTable 的读表路径，确认不崩溃、
-    /// 正常在网地址不会被误报成冲突（表结构解析错误通常在这里暴露）。
+    /// 真机验证（默认执行，无在网地址的环境显式跳过）：走一遍
+    /// GetUnicastIpAddressTable 的读表路径，确认不崩溃、正常在网地址不会被
+    /// 误报成冲突（表结构解析错误通常在这里暴露）。
     #[test]
-    #[ignore = "真机网络环境相关"]
     fn 真机读取_在网卡地址不误报冲突() {
         let adapters = crate::network::get_adapters_force().unwrap_or_default();
         let Some(ip) = adapters.iter().find(|a| !a.ip.is_empty()).map(|a| a.ip.clone()) else {
