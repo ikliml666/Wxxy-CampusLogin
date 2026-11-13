@@ -1,12 +1,12 @@
 # AGENTS.md — 项目工作约定
 
-面向 AI 编码助手（ZCode 等）与贡献者的项目级约定。架构与模块详解见仓库内 `.codewiki/`（由 `cw` 工具维护，随仓库进 git、可评审可共享；入口是 `_architecture.md` 与 `_index.md`）；版本变更记录见 `changelogs/`（按版本文件维护，仅本地留存，不入 git）。
+面向 AI 编码助手（ZCode 等）与贡献者的项目级约定。架构与模块详解见仓库内 `.codewiki/`（由 `cw` 工具维护，随仓库进 git、可评审可共享；入口是 `_architecture.md` 与 `_index.md`）；版本变更记录见 `changelogs/`（按版本文件维护，随仓库进 git）。
 
 ## 必守约定
 
-1. **改动必须记入版本化 changelog（changelogs/）**：任何代码 / 配置 / 构建 / 文档改动，完成并验证后写入 `changelogs/CHANGELOG_v<版本>.md`（沿用既有分类：行为调整 / 缺陷修复 / 前端性能优化 / 架构改进 等），说清"改了什么 + 为什么 + 验证数据"。**写之前必须先确认当前版本号**：以 `tauri-app/src-tauri/tauri.conf.json` 的 `version` 字段为唯一权威源（见 CodeWiki 的 `decisions/version-single-source-build-rs`），不凭会话记忆或既有文件名顺延猜测。**目标文件 = 当前版本号 + 1**（如当前 2.4.1 → 写 `changelogs/CHANGELOG_v2.4.2.md`）；该文件即下一版发布时的更新日志——已存在就把新条目并入该文件（changelogs/ 里可能有多个未发布版本累积文件时，并入最早的那个），**绝不顺延开新的版本文件**，发布后封版，新内容再从新的"当前版本号 + 1"起步。`changelogs/` 在 .gitignore 中，仅本地留存、不提交；不再维护统一的 CHANGELOG.md（2026-09-15 起废弃），发布流程也没有快照步骤。
+1. **改动必须记入版本化 changelog（changelogs/）**：任何代码 / 配置 / 构建 / 文档改动，完成并验证后写入 `changelogs/CHANGELOG_v<版本>.md`（沿用既有分类：行为调整 / 缺陷修复 / 前端性能优化 / 架构改进 等），说清"改了什么 + 为什么 + 验证数据"。**写之前必须先确认当前版本号**：以 `tauri-app/src-tauri/tauri.conf.json` 的 `version` 字段为唯一权威源（见 CodeWiki 的 `decisions/version-single-source-build-rs`），不凭会话记忆或既有文件名顺延猜测。**目标文件 = 当前版本号 + 1**（如当前 2.4.1 → 写 `changelogs/CHANGELOG_v2.4.2.md`）；该文件即下一版发布时的更新日志——已存在就把新条目并入该文件（changelogs/ 里可能有多个未发布版本累积文件时，并入最早的那个），**绝不顺延开新的版本文件**，发布后封版，新内容再从新的"当前版本号 + 1"起步。`changelogs/` 随代码一起提交（2026-11-13 起从 .gitignore 移除，避免整文件重写后无从恢复）；不再维护统一的 CHANGELOG.md（2026-09-15 起废弃），发布流程也没有快照步骤。
 
-2. **分支纪律**：改动全在主题分支（`feat/xxx`、`fix/xxx`、`perf/xxx`、`chore/xxx`），不直接改 main；commit 说明用 `feat:` / `fix:` / `perf:` / `chore:` / `docs:` 前缀；任务收尾可自行将本会话主题分支 merge 回 main（优先 `--ff-only`，遇冲突即停），但**不擅自 push、删分支**——由用户决定（2026-10-12 用户修订：合并放开，push/删分支仍禁止）。
+2. **分支纪律**：改动全在主题分支（`feat/xxx`、`fix/xxx`、`perf/xxx`、`chore/xxx`），不直接改 main；commit 说明用 `feat:` / `fix:` / `perf:` / `chore:` / `docs:` 前缀；任务收尾可自行将本会话主题分支 merge 回 main（优先 `--ff-only`，遇冲突即停），但**不擅自 push、删分支**——由用户决定。
 
 3. **通用改进双端同步**：本项目是 Windows 桌面端 + 安卓端的双端应用，安卓前端（`android/frontend`）是独立复刻代码库，**桌面改动不会自动同步到安卓**。凡通用改进——前端 UI / 交互行为、文案与 i18n、图标与看板娘素材、IPC 命令面、配置字段与默认值、事件与日志类型等——必须在**同一次提交内双端各改一份**（桌面 `tauri-app/` + 安卓 `android/`），不允许只改一端留待"下次同步"；提交前用 `git diff --stat` 自检是否同时触及两端。两类例外：协议实现单点存在于桌面 crate（安卓经 Cargo path 依赖自动继承，禁止复制，见 CodeWiki 的 `decisions/protocol-core-single-source` 与 `concepts/dual-platform-sharing`）；平台专属能力（DPAPI/Keystore、托盘/前台服务等）各端自理。
 

@@ -54,9 +54,8 @@ config.json
 RELEASE_*.md
 v*.*.*-更新日志.md
 
-# Changelog (local only)
+# Legacy changelog (deprecated 2026-09-15; changelogs/ 随仓库提交)
 CHANGELOG.md
-changelogs/
 
 # Internal documents (not pushed to repo)
 ersikDocumentstrae_projects1
