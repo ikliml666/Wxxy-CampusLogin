@@ -11,6 +11,7 @@ import { useMonitor } from '@/monitor/useMonitor'
 import { useNetwork } from '@/network/useNetwork'
 import { useAccount } from '@/account/useAccount'
 import { useSettings } from '@/settings/useSettings'
+import { useDestructiveVerify } from '@/account/selfServiceState'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage } from '@/lib/utils'
 import { AnimatePresence, m } from 'framer-motion'
@@ -167,6 +168,8 @@ function AppInner() {
   const { handleToggleBackgroundCheck, handleTriggerCheck, handleToggleLatencyTest } = useMonitor()
   const { handleDhcpRenew, handleDhcpReleaseRenew, handleDhcpReleaseRenewAdapter } = useNetwork()
   const { handleAddAccount, handleDeleteAccount, handleSwitchAccount, handleRenameAccount } = useAccount()
+  // 删除账号属破坏性操作：二次确认开关开启时每次都要验证，不受验证时效影响
+  const ensureDestructiveVerified = useDestructiveVerify()
   const { handleToggleLightMode, handleToggleNotification, handleSetAutoLaunch, handleSetTheme } = useSettings()
 
   const { logs, toasts, removeToast, setLogs } = useLogToastStore(
@@ -550,7 +553,11 @@ function AppInner() {
         title={t('account.deleteAccountTitle')}
         // 展示文案用显示名（与列表一致，避免弹窗出现 id 让用户困惑）；删除调用仍传 id
         message={t('account.deleteAccountMessage', { name: confirmDelete.displayName })}
-        onConfirm={async () => { await handleDeleteAccount(confirmDelete.name); setConfirmDelete({ open: false, name: '', displayName: '' }) }}
+        onConfirm={async () => {
+          if (!(await ensureDestructiveVerified())) return
+          await handleDeleteAccount(confirmDelete.name)
+          setConfirmDelete({ open: false, name: '', displayName: '' })
+        }}
         onCancel={() => setConfirmDelete({ open: false, name: '', displayName: '' })}
       />
 

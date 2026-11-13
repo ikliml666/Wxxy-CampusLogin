@@ -16,6 +16,11 @@ pub struct Config {
     /// 开关影响，防止一键关闭保护后明文裸奔）
     #[serde(rename = "selfHelloEnabled", default = "default_true")]
     pub self_hello_enabled: bool,
+    /// 自助服务面板每次操作都二次验证（默认 false：切入面板验证一次后共用）；
+    /// 与 selfHelloTtlMinutes 叠加——开启后面板内每次刷新/注销/查询都验证，
+    /// 验证时效只作用于绑定门与查看明文等其他门
+    #[serde(rename = "selfReverifyEachAction", default)]
+    pub self_reverify_each_action: bool,
     /// Windows 身份验证时效（分钟，默认 10；0 = 每次操作都验证）：验证通过后在
     /// 该时长内执行敏感操作无需重复验证。修改该值本身需先通过身份验证（前端验证门），
     /// 后端按此校验 reveal 等敏感命令的时效
@@ -290,6 +295,7 @@ impl Default for Config {
             user: String::new(),
             password: String::new(),
             self_hello_enabled: true,
+            self_reverify_each_action: false,
             self_hello_ttl_minutes: default_verify_ttl_minutes(),
             operator: String::new(),
             adapter1: AUTO_DETECT_ADAPTER.to_string(),

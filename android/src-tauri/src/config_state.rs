@@ -31,6 +31,9 @@ pub struct Settings {
     pub user: String,
     pub password: String,
     pub self_hello_enabled: bool,
+    /// 自助服务面板每次操作都二次验证(默认 false:切入面板验证一次后共用);
+    /// 与 self_hello_ttl_minutes 叠加,时效只作用于绑定门与查看明文等其他门
+    pub self_reverify_each_action: bool,
     /// 身份验证时效(分钟,默认 10;0 = 每次操作都验证),与桌面 selfHelloTtlMinutes 同口径
     pub self_hello_ttl_minutes: u64,
     /// 2D 人脸验证开关(默认关):系统生物识别不可用且已录入人脸时,验证门回退到
@@ -168,6 +171,7 @@ impl Default for Settings {
             user: String::new(),
             password: String::new(),
             self_hello_enabled: true,
+            self_reverify_each_action: false,
             self_hello_ttl_minutes: 10,
             allow_2d_face_verify: false,
             operator: String::new(),

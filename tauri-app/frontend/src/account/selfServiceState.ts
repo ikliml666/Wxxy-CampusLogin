@@ -10,45 +10,45 @@ import { useConfigStore } from '@/hooks/useConfigStore'
 const helloEnabled = () => useConfigStore.getState().config.selfHelloEnabled !== false
 
 /**
- * 绑定运营商操作（绑定/查询绑定状态/查看明文密码）的 Windows Hello 验证门。
- * 与自助服务面板的会话门完全独立（互不共享状态：在自助服务面板验证过，
- * 绑定操作仍需单独验证，反之亦然）。首次操作即验证，通过后 TTL 内共用
- * （sudo timestamp 同款会话模式）；Hello 总开关关闭时直接放行。
+ * 全局身份验证门：一次验证通过后在验证时效内对所有安全操作生效——自助服务面板、
+ * 首页设备卡、绑定卡共用同一个时间戳，切面板或换入口操作不再各自重新验证
+ * （此前两套独立时间戳会让刚在自助服务验证过的用户，回首页看设备卡又被要求验证）。
  *
  * 时效取 config.selfHelloTtlMinutes（分钟，默认 10；0 = 每次操作都验证），与后端
- * reveal 门按同一配置校验（前端留 30s 时钟余量）：门过期即重新弹 Hello 并同步刷新
- * 后端时间戳，避免前端仍真而后端已过期导致的死锁。
- *
- * `ignoreToggle: true`（查看明文密码等明文特权场景）：门已验证仍直接放行，
- * 但门未验证/已过期时**无视总开关强制真实验证**——总开关关闭不能成为绕过
- * 明文保护的路径；后端 reveal 的 TTL 校验与此呼应。
+ * reveal 门按同一配置校验（前端留 30s 时钟余量）：门过期即重新验证并刷新后端
+ * 时间戳，避免前端仍真而后端已过期导致的死锁。
  */
+let verifiedAt = 0
+
 /** 验证时效（毫秒）：配置分钟值留 30s 时钟余量；0 分钟 → 门永不新鲜，每次操作都验证 */
 const verifyTtlMs = () =>
   Math.max(useConfigStore.getState().config.selfHelloTtlMinutes * 60_000 - 30_000, 0)
-/** 门新鲜判定：TTL 内且时钟未回拨（elapsed >= 0）。时钟回拨时视为过期——下次
- * 操作重弹 Hello，前后端时间戳在回拨后的时钟上重新对齐；后端 is_within_ttl
- * 同样拒绝 now < verified_at，两侧方向一致，避免前端永真而后端拒绝的死锁 */
-const gateFresh = (verifiedAt: number) => {
+
+/** 门新鲜判定：TTL 内且时钟未回拨（elapsed >= 0）。时钟回拨视为过期——下次操作
+ * 重弹 Hello，前后端时间戳在回拨后的时钟上重新对齐；后端 is_within_ttl 同样拒绝
+ * now < verified_at，两侧方向一致，避免前端永真而后端拒绝的死锁 */
+const gateFresh = () => {
   if (verifiedAt <= 0) return false
   const elapsed = Date.now() - verifiedAt
   return elapsed >= 0 && elapsed < verifyTtlMs()
 }
-let helloGateVerifiedAt = 0
 
-export function useHelloGate(options?: { ignoreToggle?: boolean }) {
-  const ignoreToggle = options?.ignoreToggle === true
+/** 重置全局门（登出与测试用；面板切换不再重置，时效内跨面板互认） */
+export function resetSelfSessionGate() {
+  verifiedAt = 0
+}
+
+/** 弹一次身份验证，通过后刷新全局门时间戳 */
+function useVerifyOnce(messageKey: string) {
   const { t } = useTranslation()
   const addToast = useLogToastStore((s) => s.addToast)
   return useCallback(async (): Promise<boolean> => {
-    if (gateFresh(helloGateVerifiedAt)) return true
-    if (!ignoreToggle && !helloEnabled()) return true
     try {
       const verified = await tauriApiWithRetry.verifyWindowsIdentity({
-        consentMessage: t('account.identityVerifyPrompt'),
+        consentMessage: t(messageKey),
       })
       if (verified.success) {
-        helloGateVerifiedAt = Date.now()
+        verifiedAt = Date.now()
         return true
       }
       addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
@@ -57,44 +57,45 @@ export function useHelloGate(options?: { ignoreToggle?: boolean }) {
       addToast(extractErrorMessage(err) || t('account.bindStatusRevealFailed'), 'error')
       return false
     }
-  }, [ignoreToggle, addToast, t])
+  }, [addToast, t, messageKey])
 }
 
 /**
- * 自助服务面板会话门：切入面板验证一次（面板卸载时 resetSelfSessionGate 重置，
- * 下次进入重新验证），面板内后续操作（刷新/踢下线/上网记录查询）在 TTL 内共用
- * （与上方绑定门同款，对齐后端 600s——绑定/注销会话命令有后端验证门，前端
- * 缓存永真会在配置的验证时效过后撞上后端过期错误）；
- * config.selfHelloTtlMinutes = 0 时每次操作都验证；
- * config.selfHelloEnabled = false 时整体放行。
+ * 通用安全操作门（绑定运营商、查看明文、自助服务查询等）：全局门在时效内直接放行。
+ * `ignoreToggle: true`（查看明文密码等明文特权场景）：门有效仍直接放行，但门未验证/
+ * 已过期时**无视总开关强制真实验证**——总开关关闭不能成为绕过明文保护的路径；
+ * 后端 reveal 的时效校验与此呼应。
  */
-let selfSessionVerifiedAt = 0
-
-/** 面板卸载时重置会话门（下次切入面板重新验证） */
-export function resetSelfSessionGate() {
-  selfSessionVerifiedAt = 0
+export function useHelloGate(options?: { ignoreToggle?: boolean }) {
+  const ignoreToggle = options?.ignoreToggle === true
+  const verify = useVerifyOnce('account.identityVerifyPrompt')
+  return useCallback(async (): Promise<boolean> => {
+    if (gateFresh()) return true
+    if (!ignoreToggle && !helloEnabled()) return true
+    return verify()
+  }, [ignoreToggle, verify])
 }
 
-/** 自助服务面板操作执行前调用：返回 false 表示验证未通过，操作应中止 */
+/** 自助服务面板操作前调用：返回 false 表示验证未通过，操作应中止（与全局门共享） */
 export function useSelfServiceVerify() {
-  const { t } = useTranslation()
-  const addToast = useLogToastStore((s) => s.addToast)
+  const verify = useVerifyOnce('account.identityVerifyPrompt')
   return useCallback(async (): Promise<boolean> => {
     if (!helloEnabled()) return true
-    if (gateFresh(selfSessionVerifiedAt)) return true
-    try {
-      const verified = await tauriApiWithRetry.verifyWindowsIdentity({
-        consentMessage: t('account.identityVerifyPrompt'),
-      })
-      if (verified.success) {
-        selfSessionVerifiedAt = Date.now()
-        return true
-      }
-      addToast(verified.message || t('account.bindStatusRevealFailed'), 'error')
-      return false
-    } catch (err) {
-      addToast(extractErrorMessage(err) || t('account.bindStatusRevealFailed'), 'error')
-      return false
-    }
-  }, [addToast, t])
+    if (gateFresh()) return true
+    return verify()
+  }, [verify])
+}
+
+/**
+ * 高危操作二次确认门（注销在线会话、删除账号等）：config.selfReverifyEachAction
+ * 开启时每次执行都验证，不受验证时效影响；关闭时与通用门一样在时效内免重复验证。
+ */
+export function useDestructiveVerify() {
+  const verify = useVerifyOnce('account.identityVerifyPrompt')
+  return useCallback(async (): Promise<boolean> => {
+    if (!helloEnabled()) return true
+    const always = useConfigStore.getState().config.selfReverifyEachAction === true
+    if (!always && gateFresh()) return true
+    return verify()
+  }, [verify])
 }

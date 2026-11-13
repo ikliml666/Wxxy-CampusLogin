@@ -293,6 +293,22 @@ export const SettingsPanel = memo(function SettingsPanel({
             <Separator />
             <div className="flex items-center justify-between">
               <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="self-reverify" className="text-sm font-medium cursor-pointer">{t('settings.selfReverify')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.selfReverifyDesc')}</p>
+              </div>
+              <Switch
+                id="self-reverify"
+                disabled={config.selfHelloEnabled === false}
+                checked={config.selfReverifyEachAction === true}
+                onCheckedChange={checked => {
+                  if (checked) { onUpdateConfig({ selfReverifyEachAction: true }); return }
+                  void handleSecurityDisable(() => onUpdateConfig({ selfReverifyEachAction: false }))
+                }}
+                className="shrink-0"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="self-hello-ttl" className="text-sm font-medium cursor-pointer">{t('settings.selfHelloTtl')}</Label>
                 <p className="text-[11px] text-muted-foreground">{t('settings.selfHelloTtlDesc')}</p>
               </div>

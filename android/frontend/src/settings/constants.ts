@@ -6,6 +6,7 @@ export const DEFAULT_CONFIG: Config = {
   user: '',
   password: '',
   selfHelloEnabled: true,
+  selfReverifyEachAction: false,
   selfHelloTtlMinutes: 10,
   allow2dFaceVerify: false,
   operator: '',

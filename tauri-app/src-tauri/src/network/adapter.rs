@@ -259,6 +259,7 @@ mod tests {
             user: String::new(),
             password: String::new(),
             self_hello_enabled: true,
+            self_reverify_each_action: false,
             self_hello_ttl_minutes: 10,
             operator: String::new(),
             adapter1: adapter1.to_string(),

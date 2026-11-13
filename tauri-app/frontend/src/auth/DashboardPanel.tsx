@@ -32,7 +32,7 @@ import { useGlowAnimation } from '@/hooks/useGlowAnimation'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
-import { useHelloGate } from '@/account/selfServiceState'
+import { useHelloGate, useDestructiveVerify } from '@/account/selfServiceState'
 import { formatEpoch, localDateStr, formatMac, formatTerminalType, formatUseTimeMinutes, formatFlowMb } from '@/account/selfServiceTypes'
 import { OnlineDeviceCard, OnlineDeviceCardStack } from '@/account/SelfOnlineCards'
 import { DeviceAliasDialog } from '@/account/DeviceAliasDialog'
@@ -539,8 +539,10 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
     return () => clearInterval(timer)
   }, [hasCred, refetch])
 
+  const ensureDestructiveVerified = useDestructiveVerify()
   const handleOffline = useCallback(async (item: SelfOnlineItem) => {
     if (offlineBusy) return
+    if (!(await ensureDestructiveVerified())) return
     setOfflineBusy(true)
     try {
       // 密码空串，后端 resolve_credential_password 回退登录信息中已保存的密码
@@ -559,7 +561,7 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
       setOfflineBusy(false)
       setOfflineTarget(null)
     }
-  }, [offlineBusy, config.user, addToast, t, refetch])
+  }, [offlineBusy, ensureDestructiveVerified, config.user, addToast, t, refetch])
 
   const renderBody = () => {
     if (querying && onlineList === null) return (

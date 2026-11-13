@@ -22,7 +22,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
-import { useSelfServiceVerify, resetSelfSessionGate } from '@/account/selfServiceState'
+import { useSelfServiceVerify, useDestructiveVerify } from '@/account/selfServiceState'
 
 // 自助服务 dashboard 协议字段（逆向于 2026-09-05 页面 JS，原始 JSON 透传）
 interface SelfOnlineItem {
@@ -105,8 +105,9 @@ export function SelfServicePanel() {
   const [logSummary, setLogSummary] = useState<SelfLogSummary | null>(null)
   const [logQuerying, setLogQuerying] = useState(false)
   const mountedRef = useRef(true)
-  // 切入面板验证一次后操作共用；面板卸载时重置会话门
+  // 查询/刷新走通用门（与首页、绑定卡共享验证时效）；注销会话等破坏性操作走二次确认门
   const ensureSelfVerified = useSelfServiceVerify()
+  const ensureDestructiveVerified = useDestructiveVerify()
   const autoRefreshedRef = useRef(false)
   // 初始配置是否已加载（getInitData 完成）：加载窗口期内不判断凭据/不弹验证
   const configLoaded = useConfigStore((s) => s.configLoaded)
@@ -115,8 +116,7 @@ export function SelfServicePanel() {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
-      // 下次切入面板重新验证（会话门只在面板存活期内有效）
-      resetSelfSessionGate()
+      // 全局门跨面板共享，切走不重置（验证时效内切回面板不再重复验证）
       autoRefreshedRef.current = false
     }
   }, [])
@@ -164,7 +164,7 @@ export function SelfServicePanel() {
 
   const handleOffline = useCallback(async (item: SelfOnlineItem) => {
     if (offlineSessionId) return
-    if (!(await ensureSelfVerified())) return
+    if (!(await ensureDestructiveVerified())) return
     setOfflineSessionId(item.sessionId)
     try {
       const result = await tauriApiWithRetry.selfOfflineSession({
@@ -187,7 +187,7 @@ export function SelfServicePanel() {
         setConfirmTarget(null)
       }
     }
-  }, [offlineSessionId, ensureSelfVerified, configUser, addToast, t])
+  }, [offlineSessionId, ensureDestructiveVerified, configUser, addToast, t])
 
   // 保存设备名字：写 config.deviceAliases[mac]（留空 = 删除该键），saveConfigDirect 合并落盘
   const handleSaveAlias = useCallback(async (mac: string, name: string) => {

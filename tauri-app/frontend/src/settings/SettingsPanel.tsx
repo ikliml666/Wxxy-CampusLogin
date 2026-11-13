@@ -447,6 +447,21 @@ export const SettingsPanel = memo(function SettingsPanel({
                 />
               </SettingRow>
               <SettingRow
+                htmlFor="self-reverify"
+                label={t('settings.selfReverify')}
+                description={t('settings.selfReverifyDesc')}
+              >
+                <Switch
+                  id="self-reverify"
+                  disabled={config.selfHelloEnabled === false}
+                  checked={config.selfReverifyEachAction === true}
+                  onCheckedChange={checked => {
+                    if (checked) { onUpdateConfig({ selfReverifyEachAction: true }); return }
+                    void handleSecurityDisable(() => onUpdateConfig({ selfReverifyEachAction: false }))
+                  }}
+                />
+              </SettingRow>
+              <SettingRow
                 htmlFor="self-hello-ttl"
                 label={t('settings.selfHelloTtl')}
                 description={t('settings.selfHelloTtlDesc')}

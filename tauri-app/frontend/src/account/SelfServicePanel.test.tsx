@@ -41,7 +41,7 @@ const mockReverifyEach = { current: false }
 const storeState = {
   configLoaded: true,
   passwordSaved: true,
-  config: { user: '', selfHelloEnabled: true, selfHelloTtlMinutes: 10 },
+  config: { user: '', selfHelloEnabled: true, selfReverifyEachAction: false, selfHelloTtlMinutes: 10 },
 }
 vi.mock('@/hooks/useConfigStore', () => ({
   useConfigStore: Object.assign(
@@ -81,6 +81,7 @@ beforeEach(() => {
   storeState.passwordSaved = true
   storeState.config.user = ''
   storeState.config.selfHelloEnabled = true
+  storeState.config.selfReverifyEachAction = false
   storeState.config.selfHelloTtlMinutes = 10
   // 面板会话门是模块级单例，跨用例重置
   resetSelfSessionGate()
@@ -186,6 +187,30 @@ describe('SelfServicePanel', () => {
     expect(verifyWindowsIdentity.mock.calls.length).toBe(verifyCountAfterFirst)
     // 切入面板自动刷新 1 次 + 两次手动点击各 1 次
     expect(querySelfDashboard).toHaveBeenCalledTimes(3)
+  })
+
+  it('高危操作二次验证开启时，注销不再复用验证时效、每次都验证', async () => {
+    storeState.config.selfReverifyEachAction = true
+    storeState.passwordSaved = true
+    mockConfigUser.current = '24380002'
+    storeState.config.user = '24380002'
+    querySelfDashboard.mockResolvedValue({
+      success: true,
+      data: { onlineList: ONLINE, loginHistory: [] },
+    })
+    selfOfflineSession.mockResolvedValue({ success: true, message: '注销成功' })
+    const { container } = render(<SelfServicePanel />)
+    await act(async () => { await Promise.resolve() })
+    // 切入面板自动刷新已过通用门一次
+    expect(verifyWindowsIdentity).toHaveBeenCalledTimes(1)
+    const offlineBtn = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('account.selfOffline'))!
+    await act(async () => { fireEvent.click(offlineBtn) })
+    const confirmBtn = screen.getByText('confirmDialog.confirm')
+    await act(async () => { fireEvent.click(confirmBtn) })
+    // 门仍新鲜，但高危操作要求再次验证
+    await waitFor(() => expect(verifyWindowsIdentity).toHaveBeenCalledTimes(2))
+    expect(selfOfflineSession).toHaveBeenCalled()
+    storeState.config.selfReverifyEachAction = false
   })
 
   it('切入面板自动刷新失败静默降级（不弹错误 toast），手动刷新失败才弹', async () => {

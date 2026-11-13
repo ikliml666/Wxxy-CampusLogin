@@ -23,7 +23,7 @@ vi.mock('@/hooks/useLogToastStore', () => ({
     selector({ addToast: () => {} }),
 }))
 const storeState = {
-  config: { user: '24380002', selfHelloEnabled: true, selfHelloTtlMinutes: 10 } as Record<string, unknown>,
+  config: { user: '24380002', selfHelloEnabled: true, selfReverifyEachAction: false, selfHelloTtlMinutes: 10 } as Record<string, unknown>,
   passwordSaved: true,
 }
 vi.mock('@/hooks/useConfigStore', () => ({
@@ -72,7 +72,7 @@ beforeEach(() => {
     success: true,
     data: { rows: [{ loginTime: 1788000000000, time: 65, flow: 123.45 }], total: 1 },
   })
-  storeState.config = { user: '24380002', selfHelloEnabled: true, selfHelloTtlMinutes: 10 }
+  storeState.config = { user: '24380002', selfHelloEnabled: true, selfReverifyEachAction: false, selfHelloTtlMinutes: 10 }
   storeState.passwordSaved = true
   // 只挂两张自助卡，隔离其他卡片的数据依赖
   localStorage.setItem('campus-dashboard-layout', JSON.stringify(['selfOnline', 'selfLog']))

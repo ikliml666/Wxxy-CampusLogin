@@ -7,6 +7,7 @@ export const DEFAULT_CONFIG: Config = {
   user: '',
   password: '',
   selfHelloEnabled: true,
+  selfReverifyEachAction: false,
   selfHelloTtlMinutes: 10,
   operator: '',
   adapter1: AUTO_DETECT_ADAPTER,

@@ -26,7 +26,7 @@ vi.mock('@/hooks/useLogToastStore', () => ({
 const storeState = {
   configLoaded: true,
   passwordSaved: true,
-  config: { user: '24380002', operator: '', adapter1: '', selfHelloEnabled: true, selfHelloTtlMinutes: 10 },
+  config: { user: '24380002', operator: '', adapter1: '', selfHelloEnabled: true, selfReverifyEachAction: false, selfHelloTtlMinutes: 10 },
   saveConfigDirect: () => Promise.resolve({} as never),
   syncPasswordSaved: () => {},
 }
@@ -88,7 +88,7 @@ const findQueryBtn = () =>
   [...document.body.querySelectorAll('button')].find((b) => b.textContent?.includes('account.bindStatusQuery'))!
 
 describe('AccountPanel Windows Hello 验证门', () => {
-  it('首次查询即触发验证；通过后后续查询共用不再验证（与自助服务门独立）', async () => {
+  it('首次查询即触发验证；通过后后续查询共用不再验证（全局门）', async () => {
     const { container } = await renderPanel()
     await openBindDialog(container)
     const queryBtn = findQueryBtn
