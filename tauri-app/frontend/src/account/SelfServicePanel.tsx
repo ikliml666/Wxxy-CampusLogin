@@ -1,4 +1,4 @@
-import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Globe, Loader2, RefreshCw, ShieldCheck } from 'lucide-react'
@@ -303,7 +303,6 @@ export function SelfServicePanel() {
                 </CardIcon>
                 <div className="min-w-0">
                   <CardTitle>{t('account.selfDashboardTitle')}</CardTitle>
-                  <CardDescription>{t('account.selfDashboardDesc')}</CardDescription>
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0 max-sm:basis-full max-sm:justify-end">

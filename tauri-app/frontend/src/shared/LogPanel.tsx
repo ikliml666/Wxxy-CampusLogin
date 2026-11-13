@@ -1,4 +1,4 @@
-import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -406,7 +406,6 @@ export const LogPanel = memo(function LogPanel({ api, initialDebugMode, initialL
               </CardIcon>
               <div className="flex-1 min-w-0">
                 <CardTitle>{t('log.systemLog')}</CardTitle>
-                <CardDescription>{t('log.systemLogDesc')}</CardDescription>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 <Select

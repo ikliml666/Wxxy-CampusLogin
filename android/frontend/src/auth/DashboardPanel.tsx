@@ -4,7 +4,7 @@ import { useDailyMascots } from '@/shared/dailyMascot'
 import type { Config } from '@/settings'
 import type { AccountItem } from '@/settings/types'
 import type { NetworkQuality } from '@/monitor'
-import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -157,7 +157,6 @@ const QuickActionsCard = memo(function QuickActionsCard({
           </div>
           <div>
             <CardTitle>{t('dashboard.quickActions')}</CardTitle>
-            <CardDescription>{t('dashboard.quickActionsDesc')}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -225,7 +224,6 @@ const AccountManageCard = memo(function AccountManageCard({ accounts, activeAcco
           </div>
           <div>
             <CardTitle>{t('dashboard.accountManage')}</CardTitle>
-            <CardDescription>{t('dashboard.accountManageDesc')}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -315,7 +313,6 @@ const NetworkQualityCard = memo(function NetworkQualityCard({ networkQuality, is
           </div>
           <div>
             <CardTitle>{t('dashboard.networkQuality')}</CardTitle>
-            <CardDescription>{t('dashboard.networkQualityDesc')}</CardDescription>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Badge variant="outline" className={cn(qualityConfig?.color ?? 'text-muted-foreground')}>{t(qualityConfig?.labelKey ?? 'common.unknown')}</Badge>
@@ -559,7 +556,6 @@ const SelfOnlineCard = memo(function SelfOnlineCard({ noAnimation, noEnterAnimat
           </div>
           <div>
             <CardTitle>{t('dashboard.selfOnline')}</CardTitle>
-            <CardDescription>{t('dashboard.selfOnlineDesc')}</CardDescription>
           </div>
           {hasCred && (onlineList !== null || loadError) && (
             <Button variant="ghost" size="icon-sm" className="ml-auto rounded-xl" onClick={() => void toggleReveal()}
@@ -656,7 +652,6 @@ const SelfLogCard = memo(function SelfLogCard({ noAnimation, noEnterAnimation }:
           </div>
           <div>
             <CardTitle>{t('dashboard.selfLog')}</CardTitle>
-            <CardDescription>{t('dashboard.selfLogDesc')}</CardDescription>
           </div>
           {hasCred && (rows !== null || loadError) && (
             <Button variant="ghost" size="icon-sm" className="ml-auto rounded-xl" onClick={() => void toggleReveal()}
@@ -691,7 +686,6 @@ function SelfServiceMergedEmptyCard() {
           </div>
           <div className="min-w-0">
             <CardTitle>{t('dashboard.selfServiceMergedTitle')}</CardTitle>
-            <CardDescription className="truncate">{t('dashboard.selfServiceMergedDesc')}</CardDescription>
           </div>
         </div>
       </CardHeader>

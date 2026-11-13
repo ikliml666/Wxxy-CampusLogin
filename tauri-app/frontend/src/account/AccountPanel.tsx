@@ -1,7 +1,7 @@
 import type { Config } from '@/settings'
 import type { AccountItem } from '@/settings/types'
 import type { Adapter } from '@/network'
-import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { SettingRow } from '@/components/ui/setting-row'
 import { Button } from '@/components/ui/button'
@@ -219,7 +219,6 @@ export const AccountPanel = memo(function AccountPanel({
                 </CardIcon>
                 <div className="min-w-0">
                   <CardTitle>{t('account.accountManage')}</CardTitle>
-                  <CardDescription>{t('account.accountManageDesc')}</CardDescription>
                 </div>
               </div>
               <Button
@@ -393,7 +392,6 @@ export const AccountPanel = memo(function AccountPanel({
               </CardIcon>
               <div className="min-w-0">
                 <CardTitle>{t('account.autoSwitchTitle')}</CardTitle>
-                <CardDescription>{t('account.autoSwitchDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -401,7 +399,6 @@ export const AccountPanel = memo(function AccountPanel({
             <SettingRow
               htmlFor="auto-login"
               label={t('account.autoLoginCampus')}
-              description={t('account.autoLoginCampusDesc')}
             >
               <Switch
                 id="auto-login"
@@ -416,7 +413,6 @@ export const AccountPanel = memo(function AccountPanel({
             <SettingRow
               htmlFor="auto-login-ready"
               label={t('monitor.autoLoginWhenReady')}
-              description={t('monitor.autoLoginWhenReadyDesc')}
             >
               <Switch
                 id="auto-login-ready"

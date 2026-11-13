@@ -1,12 +1,12 @@
 import type { Config } from '@/settings'
 import { requestNotificationPermission } from '@/lib/notificationPermission'
-import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   Rocket, Gauge, Clock, Compass, ShieldCheck, Zap, ChevronRight
 } from 'lucide-react'
@@ -118,7 +118,6 @@ export const SettingsPanel = memo(function SettingsPanel({
                 </div>
                 <div>
                   <CardTitle>{t('settings.onboardingGuide')}</CardTitle>
-                  <CardDescription>{t('settings.onboardingGuideDesc')}</CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -152,7 +151,6 @@ export const SettingsPanel = memo(function SettingsPanel({
               </div>
               <div>
                 <CardTitle>{t('settings.startupNotification')}</CardTitle>
-                <CardDescription>{t('settings.startupNotificationDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -173,7 +171,6 @@ export const SettingsPanel = memo(function SettingsPanel({
             <div className="flex items-center justify-between">
               <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="auto-login-startup" className="text-sm font-medium cursor-pointer">{t('settings.autoLoginCampus')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.autoLoginCampusDesc')}</p>
               </div>
               <Switch
                 id="auto-login-startup"
@@ -213,7 +210,6 @@ export const SettingsPanel = memo(function SettingsPanel({
               </div>
               <div>
                 <CardTitle>{t('settings.automationGroup')}</CardTitle>
-                <CardDescription>{t('settings.automationGroupDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -221,7 +217,6 @@ export const SettingsPanel = memo(function SettingsPanel({
             <div className="flex items-center justify-between">
               <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('monitor.autoLoginWhenReadyDesc')}</p>
               </div>
               <Switch
                 id="auto-login-ready"
@@ -270,7 +265,6 @@ export const SettingsPanel = memo(function SettingsPanel({
               </div>
               <div>
                 <CardTitle>{t('settings.security')}</CardTitle>
-                <CardDescription>{t('settings.securityDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -278,7 +272,6 @@ export const SettingsPanel = memo(function SettingsPanel({
             <div className="flex items-center justify-between">
               <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="self-hello-enabled" className="text-sm font-medium cursor-pointer">{t('settings.selfHello')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.selfHelloDesc')}</p>
               </div>
               <Switch
                 id="self-hello-enabled"
@@ -397,7 +390,6 @@ export const SettingsPanel = memo(function SettingsPanel({
               </div>
               <div>
                 <CardTitle>{t('settings.networkGroup')}</CardTitle>
-                <CardDescription>{t('settings.networkGroupDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -450,7 +442,6 @@ export const SettingsPanel = memo(function SettingsPanel({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('settings.latencyCalcOptions')}</DialogTitle>
-            <DialogDescription>{t('settings.qualityDetectionDesc')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="flex items-center justify-between">

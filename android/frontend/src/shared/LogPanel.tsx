@@ -1,4 +1,4 @@
-import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -398,7 +398,6 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
               </div>
               <div className="flex-1 min-w-0">
                 <CardTitle>{t('log.systemLog')}</CardTitle>
-                <CardDescription>{t('log.systemLogDesc')}</CardDescription>
               </div>
               <div className="flex flex-wrap items-center gap-1.5 shrink-0 max-sm:basis-full">
                 <Select

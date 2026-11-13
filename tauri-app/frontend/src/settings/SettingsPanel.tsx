@@ -1,6 +1,6 @@
 import type { Config } from '@/settings'
 import type { PanelName } from '@/shared'
-import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { SettingRow } from '@/components/ui/setting-row'
 import { Button } from '@/components/ui/button'
@@ -224,7 +224,6 @@ export const SettingsPanel = memo(function SettingsPanel({
                 </CardIcon>
                 <div className="min-w-0">
                   <p className="text-sm font-medium leading-tight">{t('settings.onboardingGuide')}</p>
-                  <p className="text-xs text-muted-foreground truncate">{t('settings.onboardingGuideDesc')}</p>
                 </div>
               </div>
               <button
@@ -255,7 +254,6 @@ export const SettingsPanel = memo(function SettingsPanel({
               </CardIcon>
               <div className="min-w-0">
                 <CardTitle>{t('settings.startupSettings')}</CardTitle>
-                <CardDescription>{t('settings.startupSettingsDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -303,7 +301,6 @@ export const SettingsPanel = memo(function SettingsPanel({
             <SettingRow
               htmlFor="auto-login-startup"
               label={t('settings.autoLoginCampus')}
-              description={t('settings.autoLoginCampusDesc')}
             >
               <Switch
                 id="auto-login-startup"
@@ -314,7 +311,6 @@ export const SettingsPanel = memo(function SettingsPanel({
             <SettingRow
               htmlFor="auto-exit-login"
               label={t('settings.autoExitAfterLogin')}
-              description={t('settings.autoExitAfterLoginDesc')}
             >
               <Switch
                 id="auto-exit-login"
@@ -377,7 +373,6 @@ export const SettingsPanel = memo(function SettingsPanel({
                   <LayoutList className="h-4 w-4 text-primary" />
                   <Label className="text-sm font-medium">{t('settings.defaultPanel')}</Label>
                 </div>
-                <p className="text-[11px] text-muted-foreground">{t('settings.defaultPanelDesc')}</p>
                 {/* '' 表示"记住上次"；Radix Item 不接受空串，用哨兵值映射 */}
                 <Select
                   value={config.defaultPanel || '__remember__'}
@@ -413,7 +408,6 @@ export const SettingsPanel = memo(function SettingsPanel({
               </CardIcon>
               <div className="min-w-0">
                 <CardTitle>{t('settings.notificationSecurity')}</CardTitle>
-                <CardDescription>{t('settings.notificationSecurityDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -435,8 +429,7 @@ export const SettingsPanel = memo(function SettingsPanel({
               <SettingRow
                 htmlFor="self-hello-enabled"
                 label={t('settings.selfHello')}
-                description={t('settings.selfHelloDesc')}
-              >
+                >
                 <Switch
                   id="self-hello-enabled"
                   checked={config.selfHelloEnabled !== false}
@@ -498,7 +491,6 @@ export const SettingsPanel = memo(function SettingsPanel({
               </CardIcon>
               <div className="min-w-0">
                 <CardTitle>{t('settings.dataManagement')}</CardTitle>
-                <CardDescription>{t('settings.dataManagementDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -550,7 +542,6 @@ export const SettingsPanel = memo(function SettingsPanel({
               </CardIcon>
               <div className="min-w-0">
                 <CardTitle>{t('settings.qualityDetection')}</CardTitle>
-                <CardDescription>{t('settings.qualityDetectionDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -641,7 +632,6 @@ export const SettingsPanel = memo(function SettingsPanel({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('settings.latencyCalcOptions')}</DialogTitle>
-            <DialogDescription>{t('settings.qualityDetectionDesc')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <SettingRow

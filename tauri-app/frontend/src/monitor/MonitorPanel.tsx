@@ -1,6 +1,6 @@
 import type { Config } from '@/settings'
 import type { AdapterOnlineStatus } from '@/monitor'
-import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -64,7 +64,7 @@ const AdapterStatusCard = memo(function AdapterStatusCard({ status, isPrimary }:
 })
 
 // 设置卡片头：图标片 + 标题/副题（两张设置卡的统一卡头，替代原组标题行）
-const GroupCardHeader = memo(function GroupCardHeader({ icon, titleKey, descKey }: { icon: React.ReactNode; titleKey: string; descKey: string }) {
+const GroupCardHeader = memo(function GroupCardHeader({ icon, titleKey }: { icon: React.ReactNode; titleKey: string }) {
   const { t } = useTranslation()
   return (
     <CardHeader className="pb-3">
@@ -72,7 +72,6 @@ const GroupCardHeader = memo(function GroupCardHeader({ icon, titleKey, descKey 
         <CardIcon className="w-9 h-9 rounded-xl">{icon}</CardIcon>
         <div className="min-w-0">
           <CardTitle className="text-[15px]">{t(titleKey)}</CardTitle>
-          <CardDescription className="text-xs">{t(descKey)}</CardDescription>
         </div>
       </div>
     </CardHeader>
@@ -131,9 +130,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                       {bgStatus.checkCount > 9999 ? `${(bgStatus.checkCount / 1000).toFixed(1)}k` : bgStatus.checkCount} {t('common.times')}
                     </Badge>
                   </div>
-                  <CardDescription className="text-xs">
-                    {bgStatus.isRunning ? t('monitor.detectionRunning') : t('monitor.detectionStopped')}
-                  </CardDescription>
                 </div>
               </div>
               <div className="flex items-center gap-4 shrink-0 max-sm:w-full max-sm:justify-between max-sm:flex-wrap">
@@ -202,14 +198,12 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
           <GroupCardHeader
             icon={<Rocket className="h-4 w-4 text-primary" />}
             titleKey="monitor.groupAutomation"
-            descKey="monitor.groupAutomationDesc"
           />
           <CardContent className="space-y-4">
             <SettingRow
               htmlFor="bg-auto"
               icon={<Rocket className="h-4 w-4 text-primary" />}
               label={t('monitor.autoStartDetection')}
-              description={t('monitor.autoStartDetectionDesc')}
             >
               <Switch
                 id="bg-auto"
@@ -233,7 +227,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
               htmlFor="auto-login-ready"
               icon={<LogIn className="h-4 w-4 text-blue-500" />}
               label={t('monitor.autoLoginWhenReady')}
-              description={t('monitor.autoLoginWhenReadyDesc')}
             >
               <Switch
                 id="auto-login-ready"
@@ -301,7 +294,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
           <GroupCardHeader
             icon={<Settings2 className="h-5 w-5 text-primary" />}
             titleKey="monitor.groupCampusCheck"
-            descKey="monitor.groupCampusCheckDesc"
           />
           <CardContent className="space-y-4">
             <SettingRow
@@ -349,7 +341,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                   htmlFor="campus-check-start-time"
                   icon={<AlarmClock className="h-4 w-4 text-sky-500" />}
                   label={t('monitor.campusCheckTimeRange')}
-                  description={t('monitor.campusCheckTimeRangeDesc')}
                 >
                   <Input
                     id="campus-check-start-time"

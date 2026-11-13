@@ -1,5 +1,5 @@
 import type { Config } from '@/settings'
-import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -89,9 +89,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
               </CardIcon>
               <div className="min-w-0 flex-1">
                 <CardTitle>{t('monitor.networkStatusDetection')}</CardTitle>
-                <CardDescription>
-                  {bgStatus.isRunning ? t('monitor.detectionRunning') : t('monitor.detectionStopped')}
-                </CardDescription>
               </div>
               <Badge variant={bgStatus.isRunning ? 'success' : 'secondary'} className="text-[10px] h-[20px] shrink-0">
                 <Clock className="h-2.5 w-2.5 mr-1" />
@@ -165,7 +162,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
               </CardIcon>
               <div className="min-w-0">
                 <CardTitle>{t('monitor.groupAutomation')}</CardTitle>
-                <CardDescription>{t('monitor.groupAutomationDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -174,7 +170,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
               htmlFor="bg-auto"
               icon={<Rocket className="h-4 w-4 text-primary" />}
               label={t('monitor.autoStartDetection')}
-              description={t('monitor.autoStartDetectionDesc')}
             >
               <Switch
                 id="bg-auto"
@@ -187,7 +182,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
               htmlFor="auto-login-ready"
               icon={<LogIn className="h-4 w-4 text-blue-500" />}
               label={t('monitor.autoLoginWhenReady')}
-              description={t('monitor.autoLoginWhenReadyDesc')}
             >
               <Switch
                 id="auto-login-ready"
@@ -210,7 +204,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
               </CardIcon>
               <div className="min-w-0">
                 <CardTitle>{t('monitor.groupCampusCheck')}</CardTitle>
-                <CardDescription>{t('monitor.groupCampusCheckDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -288,7 +281,6 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                     </div>
                     <div className="min-w-0">
                       <Label htmlFor="campus-check-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusCheckTimeRange')}</Label>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{t('monitor.campusCheckTimeRangeDesc')}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">

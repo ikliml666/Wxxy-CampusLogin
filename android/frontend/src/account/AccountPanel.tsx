@@ -1,6 +1,6 @@
 import type { Config } from '@/settings'
 import type { AccountItem } from '@/settings/types'
-import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -252,7 +252,6 @@ export const AccountPanel = memo(function AccountPanel({
               </div>
               <div className="min-w-0">
                 <CardTitle>{t('account.accountManage')}</CardTitle>
-                <CardDescription>{t('account.accountManageDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -430,7 +429,6 @@ export const AccountPanel = memo(function AccountPanel({
               </div>
               <div className="min-w-0">
                 <CardTitle>{t('account.autoSwitchTitle')}</CardTitle>
-                <CardDescription>{t('account.autoSwitchDesc')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -438,7 +436,6 @@ export const AccountPanel = memo(function AccountPanel({
             <div className="flex items-center justify-between">
               <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="auto-login" className="text-sm font-medium cursor-pointer">{t('account.autoLoginCampus')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('account.autoLoginCampusDesc')}</p>
               </div>
               <Switch
                 id="auto-login"
@@ -451,7 +448,6 @@ export const AccountPanel = memo(function AccountPanel({
             <div className="flex items-center justify-between">
               <div className="space-y-0.5 min-w-0">
                 <Label htmlFor="auto-login-ready" className="text-sm font-medium cursor-pointer">{t('monitor.autoLoginWhenReady')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('monitor.autoLoginWhenReadyDesc')}</p>
               </div>
               <Switch
                 id="auto-login-ready"

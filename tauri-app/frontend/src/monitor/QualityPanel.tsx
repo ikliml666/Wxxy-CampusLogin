@@ -1,7 +1,7 @@
 import type { Config } from '@/settings'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -212,7 +212,6 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
               </div>
               <div className="min-w-0">
                 <CardTitle>{t('quality.networkQuality')}</CardTitle>
-                <CardDescription>{t('quality.realtimeLatencyMonitor')}</CardDescription>
               </div>
               <div className="ml-auto flex items-center gap-2">
                 <Badge variant="outline" className={cn(qualityConfig?.bg ?? 'bg-muted', qualityConfig?.color ?? 'text-muted-foreground', qualityConfig?.border ?? 'border-border')}>
@@ -283,7 +282,6 @@ export const QualityPanel = memo(function QualityPanel({ onUpdateConfig, onRefre
               </CardIcon>
               <div className="min-w-0">
                 <CardTitle>{t('quality.testDetails')}</CardTitle>
-                <CardDescription>{t('quality.testDetailsDesc')}</CardDescription>
               </div>
               <div className="ml-auto flex items-center gap-1.5">
                 <button
