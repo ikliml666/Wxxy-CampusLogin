@@ -138,6 +138,7 @@ pub enum CampusLeg {
 /// 双端都从这里取「探哪些目标、优先级如何」：桌面逐腿同步探测（Portal 命中即
 /// 短路），安卓把同一批目标并行发 TCP（无 ICMP，串行会拉长通知翻转），
 /// 但腿的定义与优先级只有这一份。
+#[allow(dead_code)] // 桌面 bin 已改为经 judge_campus_health 直接探测；安卓端并行探测仍用这份腿定义
 pub fn campus_probe_targets<'a>(
     gateway: &'a str,
     portal_host: &'a str,
