@@ -62,6 +62,9 @@ pub struct Settings {
     /// 桌面夜间切换加的兜底默认路由(StandbyRoute JSON,runtime 路由重启即清);
     /// 非空=桌面存在待删除的兜底路由。安卓端不消费此字段
     pub outbound_standby_route: String,
+    /// 桌面出站切换后加的 Portal 旁路主机路由(JSON,让登录请求仍走原网卡);
+    /// 非空=桌面存在待删除的旁路路由。安卓端不消费此字段
+    pub outbound_portal_route: String,
     /// 安卓出站切换态标记(值恒 "logged_out",纯标记不暂存账号名):非空=处于出站
     /// 切换态(已注销等待晨间重登)。标记生效期间巡检整轮跳过、运营商夜切让位、
     /// 定时登录跳过(见 core::monitor::run_scheduled_actions);切账号、删除当前账号、
@@ -148,6 +151,7 @@ impl Settings {
         self.outbound_metric_restore = current.outbound_metric_restore.clone();
         self.outbound_disabled_adapters = current.outbound_disabled_adapters.clone();
         self.outbound_standby_route = current.outbound_standby_route.clone();
+        self.outbound_portal_route = current.outbound_portal_route.clone();
         self.night_outbound_restore = current.night_outbound_restore.clone();
     }
 }
@@ -172,6 +176,7 @@ impl Default for Settings {
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),
             outbound_standby_route: String::new(),
+            outbound_portal_route: String::new(),
             night_outbound_restore: String::new(),
             dns_optimize_adapters: Vec::new(),
             device_aliases: std::collections::HashMap::new(),

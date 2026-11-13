@@ -90,6 +90,12 @@ pub struct Config {
     /// 空 = 未加路由。导入配置时清空。安卓端不消费此字段
     #[serde(rename = "outboundStandbyRoute", default)]
     pub outbound_standby_route: String,
+    /// Portal 旁路路由快照：`{dest, gateway, ifIndex, metric}` JSON。出站切到别的
+    /// 网卡后，登录请求仍需到达校园 Portal——给原网卡加一条 /32 主机路由让这部分
+    /// 流量绕回原卡，其余流量照常走新出口。空 = 未加。导入配置时保留本机值。
+    /// 安卓端不消费此字段
+    #[serde(rename = "outboundPortalRoute", default)]
+    pub outbound_portal_route: String,
     /// 「立即切换」当日保持标记（num_days_from_ce；0=无）：手动立即切换先落盘
     /// 当日值再执行动作，冻结当日的自动 Switch/Restore 判定（防 23:00 自动切换
     /// 叠加成双重切换、防还原窗内自动还原撤销手动切换），次日 7:30 自动还原或
@@ -295,6 +301,7 @@ impl Default for Config {
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),
             outbound_standby_route: String::new(),
+            outbound_portal_route: String::new(),
             outbound_manual_hold_day: 0,
             outbound_pending_switch: String::new(),
             dns_optimize_adapters: Vec::new(),
@@ -360,6 +367,7 @@ impl Config {
         self.outbound_metric_restore = current.outbound_metric_restore.clone();
         self.outbound_disabled_adapters = current.outbound_disabled_adapters.clone();
         self.outbound_standby_route = current.outbound_standby_route.clone();
+        self.outbound_portal_route = current.outbound_portal_route.clone();
         self.outbound_manual_hold_day = current.outbound_manual_hold_day;
         self.outbound_pending_switch = current.outbound_pending_switch.clone();
         self.night_outbound_restore = current.night_outbound_restore.clone();

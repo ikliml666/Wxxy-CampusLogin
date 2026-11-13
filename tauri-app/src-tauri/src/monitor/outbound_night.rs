@@ -366,6 +366,87 @@ fn write_outbound_metric(
     }
 }
 
+/// Portal 旁路路由快照：出站切走后让登录请求仍从原网卡出去的 /32 主机路由。
+/// 与默认路由不同，它按目的地址精确匹配，不会与任何 DHCP 路由同键，因而不受
+/// 2026-10-18 同键判重事故影响。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct PortalRoute {
+    dest: String,
+    gateway: String,
+    #[serde(rename = "ifIndex")]
+    if_index: u32,
+    metric: u32,
+}
+
+impl PortalRoute {
+    /// helper 的 route_add / route_delete 条目编码：dest|mask|gateway|metric|if_index
+    fn encode(&self) -> String {
+        format!(
+            "{}|255.255.255.255|{}|{}|{}",
+            self.dest, self.gateway, self.metric, self.if_index
+        )
+    }
+}
+
+/// 删除旁路路由时使用的条目编码：跃点以**实时路由表**为准取。
+/// netsh 写入后表里的跃点未必等于请求值，用错跃点会让精确删除匹配不到、
+/// 返回 AlreadyGone 而静默残留一条钉住 Portal 的路由。
+fn portal_route_delete_row(route: &PortalRoute) -> String {
+    let metric = crate::platform::route_table::ipv4_forward_rows()
+        .ok()
+        .and_then(|rows| {
+            rows.iter()
+                .find(|r| {
+                    r.prefix_len == 32
+                        && r.dest.to_string() == route.dest
+                        && r.next_hop.to_string() == route.gateway
+                        && r.if_index == route.if_index
+                })
+                .map(|r| r.metric)
+        })
+        .unwrap_or(route.metric);
+    format!(
+        "{}|255.255.255.255|{}|{}|{}",
+        route.dest, route.gateway, metric, route.if_index
+    )
+}
+
+/// 解析旁路路由快照（空串/非法 JSON → None）。
+fn parse_portal_route(json: &str) -> Option<PortalRoute> {
+    if json.trim().is_empty() {
+        return None;
+    }
+    serde_json::from_str(json.trim()).ok()
+}
+
+/// 构造 Portal 旁路路由：目标 = portal 私网主机，下一跳 = 当前出口（原网卡）网关。
+/// 任一环缺失（portal 是域名/公网地址、出口读不到、网关为空）都返回 None——
+/// 此时不加路由，登录恢复会因到不了 Portal 而失败，日志写明原因。
+fn build_portal_bypass_route(config: &crate::config::Config) -> Option<PortalRoute> {
+    let dest = portal_probe_host(&config.portal_url);
+    if dest.is_empty() {
+        return None;
+    }
+    let probe_dest: std::net::Ipv4Addr = OUTBOUND_INTERNET_HEALTH_KEY.parse().ok()?;
+    let if_index = crate::platform::best_route::best_route_if_index_v4(probe_dest).ok()?;
+    let adapters = crate::network::get_adapters_cached().ok()?;
+    let adapter = adapters.iter().find(|a| a.if_index == if_index)?;
+    let details = crate::network::get_adapter_details_cached().ok()?;
+    let gateway = details
+        .iter()
+        .find(|d| d.name == adapter.name)
+        .map(|d| d.gateway.clone())?;
+    if gateway.is_empty() {
+        return None;
+    }
+    Some(PortalRoute {
+        dest,
+        gateway,
+        if_index,
+        metric: 1,
+    })
+}
+
 /// 默认出口是否已落在指定接口：读系统默认路由的接口索引比对。
 /// 只改跃点时"写了跃点"与"出口真的换了"是两件事——TUN/代理可能持有 metric=0
 /// 的默认路由，此时跃点写入成功但出口不动，必须靠这一步暴露。
@@ -719,6 +800,9 @@ pub(super) fn apply_outbound_switch_with_health(
         plan.target_guid,
     );
     let families: Vec<u16> = plan.rows.iter().map(|r| r.family).collect();
+    // 旁路路由必须在改跃点**之前**构造：改完之后默认出口已是新卡，再读到的网关
+    // 就是新卡的，会把去 Portal 的流量钉在错误的卡上。
+    let portal_bypass = build_portal_bypass_route(config);
     let mut all_ok = true;
     let mut fail_reasons: Vec<String> = Vec::new();
     if let Err(reason) = write_outbound_metric(app_handle, &plan.target_name, &plan.target_guid, &families, true, "") {
@@ -745,6 +829,39 @@ pub(super) fn apply_outbound_switch_with_health(
                 ));
             }
             Err(e) => crate::log_debug!("outbound", "夜间出站切换: 路由验证跳过: {e}"),
+        }
+    }
+    // Portal 旁路：默认出口已切到新卡，但登录请求仍需到达校园 Portal——给原卡加一条
+    // /32 主机路由，让这部分流量绕回原卡，其余流量照常走新出口。添加失败不阻断切换
+    // （系统出口已切好），只记录原因，登录恢复失败时日志能对上。
+    if all_ok {
+        match portal_bypass {
+            Some(portal_route) => {
+                let row = portal_route.encode();
+                match run_helper_op("route_add", &[row], outbound_allow_uac()) {
+                    Ok(()) => {
+                        let json = serde_json::to_string(&portal_route).unwrap_or_default();
+                        crate::log_info!(
+                            "outbound",
+                            "夜间出站切换: Portal 旁路路由已就绪 {} via {} if {}",
+                            portal_route.dest,
+                            portal_route.gateway,
+                            portal_route.if_index
+                        );
+                        if let Err(e) = crate::config::persist::mutate_config_and_save(app_handle, &state, move |fresh| {
+                            fresh.outbound_portal_route = json;
+                            Ok(())
+                        }) {
+                            crate::log_warn!("outbound", "夜间出站切换: 旁路路由快照落盘失败: {e}");
+                        }
+                    }
+                    Err(failure) => {
+                        note_channel_failure(&failure);
+                        crate::log_warn!("outbound", "夜间出站切换: Portal 旁路路由添加失败: {}", failure.reason);
+                    }
+                }
+            }
+            None => crate::log_debug!("outbound", "夜间出站切换: 无 Portal 主机或原出口网关，跳过旁路路由"),
         }
     }
     if all_ok {
@@ -1047,6 +1164,23 @@ pub(super) fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::con
             }
         }
     }
+    // Portal 旁路路由：还原后原卡重新成为默认出口，这条 /32 路由必须删掉，
+    // 否则它会继续把去 Portal 的流量钉在原卡网关上（原卡换 IP 后会变成黑洞）。
+    if let Some(portal_route) = parse_portal_route(&config.outbound_portal_route) {
+        match run_helper_op("route_delete", &[portal_route_delete_row(&portal_route)], outbound_allow_uac()) {
+            Ok(()) => crate::log_info!(
+                "outbound",
+                "夜间出站还原: 已删除 Portal 旁路路由 {}",
+                portal_route.dest
+            ),
+            Err(failure) => {
+                note_channel_failure(&failure);
+                route_ok = false;
+                crate::log_warn!("outbound", "夜间出站还原: 删除 Portal 旁路路由失败: {}", failure.reason);
+                fail_reasons.push(format!("删除 Portal 旁路路由失败: {}", failure.reason));
+            }
+        }
+    }
     // ③ 重新启用校园网卡（名单内有且当前存在的卡）。启用失败=还原未完成：保留整个
     // 切换态（含已写回的跃点快照，重试幂等）下一拍继续。
     // 名单快照损坏 ≠ 无禁用动作：按空处理会在收尾清快照后静默放走仍被 netsh
@@ -1196,6 +1330,7 @@ fn clear_outbound_snapshot(app_handle: &AppHandle) -> bool {
     if current.outbound_metric_restore.is_empty()
         && current.outbound_disabled_adapters.is_empty()
         && current.outbound_standby_route.is_empty()
+        && current.outbound_portal_route.is_empty()
         && current.outbound_pending_switch.is_empty()
     {
         return true;
@@ -1205,6 +1340,7 @@ fn clear_outbound_snapshot(app_handle: &AppHandle) -> bool {
         fresh.outbound_metric_restore = String::new();
         fresh.outbound_disabled_adapters = String::new();
         fresh.outbound_standby_route = String::new();
+        fresh.outbound_portal_route = String::new();
         fresh.outbound_pending_switch = String::new();
         Ok(())
     }) {

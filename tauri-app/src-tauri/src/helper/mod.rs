@@ -134,6 +134,11 @@ pub enum HelperOp {
     /// 自己的 DHCP 默认路由共存（Windows 判重复），兜底路由这一设计已废弃
     #[cfg(target_os = "windows")]
     RouteDelete { rows: Vec<String> },
+    /// 新增精确主机路由（Portal 旁路）：出站切到别的网卡后，让发往 Portal 的登录
+    /// 请求仍从原网卡出去。只用于 /32 目的地址——它与任何 DHCP 默认路由都不共享
+    /// 前缀，不会触发 2026-10-18 那类同键判重赔付；默认路由的 route_add 仍不提供
+    #[cfg(target_os = "windows")]
+    RouteAdd { rows: Vec<String> },
     /// PnP 设备级启用（pnputil /enable-device，含 problem 22 解除复核）
     #[cfg(target_os = "windows")]
     EnableDevice { instance_id: String },
@@ -236,6 +241,8 @@ fn build_op_from_args(op: &str, args: &[String]) -> Result<HelperOp, String> {
         #[cfg(target_os = "windows")]
         "route_delete" => HelperOp::RouteDelete { rows: positional },
         #[cfg(target_os = "windows")]
+        "route_add" => HelperOp::RouteAdd { rows: positional },
+        #[cfg(target_os = "windows")]
         "set_metric" => HelperOp::SetMetric { rows: positional },
         #[cfg(target_os = "windows")]
         "register_task" => HelperOp::RegisterTaskProxy,
@@ -301,6 +308,8 @@ pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
         HelperOp::DisableAdapter { name } => run_disable_adapter(name, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::RouteDelete { rows } => run_route_delete(rows, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::RouteAdd { rows } => run_route_add(rows, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::EnableDevice { instance_id } => run_enable_device(instance_id, &mut logs),
         #[cfg(target_os = "windows")]
@@ -424,6 +433,8 @@ fn process_request(path: &std::path::Path) -> i32 {
                 HelperOp::DisableAdapter { name } => run_disable_adapter(name, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::RouteDelete { rows } => run_route_delete(rows, &mut logs),
+                #[cfg(target_os = "windows")]
+                HelperOp::RouteAdd { rows } => run_route_add(rows, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::EnableDevice { instance_id } => run_enable_device(instance_id, &mut logs),
                 #[cfg(target_os = "windows")]
@@ -966,6 +977,99 @@ fn run_route_delete(rows: &[String], logs: &mut Vec<String>) -> HelperResult {
         }
     } else {
         fail(format!("路由删除失败: {}", failed.join("；")), logs)
+    }
+}
+
+/// 新增精确主机路由（Portal 旁路）。
+///
+/// 用 netsh 新增（IpHelper 未导出所需的协议常量），但**成功与否以新增后重新读表为准**：
+/// netsh 的退出码与中英文输出随系统语言变化，读表能给出确定答案；同一条目已存在时
+/// 同样视为成功（重放路径幂等）。
+#[cfg(target_os = "windows")]
+fn run_route_add(rows: &[String], logs: &mut Vec<String>) -> HelperResult {
+    let fail = |message: String, logs: &mut Vec<String>| HelperResult {
+        success: false,
+        message,
+        op: "route_add".to_string(),
+        logs: std::mem::take(logs),
+        details: None,
+    };
+    if rows.is_empty() {
+        return fail("route_add 缺少路由条目".to_string(), logs);
+    }
+    let mut decoded = Vec::new();
+    for row in rows {
+        match decode_route_row(row) {
+            Ok(d) => decoded.push(d),
+            Err(e) => return fail(format!("route_add 参数校验失败: {e}"), logs),
+        }
+    }
+    let mut failed: Vec<String> = Vec::new();
+    let mut added = 0usize;
+    for (dest, mask, gateway, metric, if_index) in &decoded {
+        let prefix_len = match crate::platform::route_table::mask_to_prefix_len(*mask) {
+            Ok(p) => p,
+            Err(e) => {
+                failed.push(format!("{dest} mask {mask}: {e}"));
+                continue;
+            }
+        };
+        let prefix = format!("{dest}/{prefix_len}");
+        let output = crate::network::discovery::new_command("netsh")
+            .args([
+                "interface",
+                "ipv4",
+                "add",
+                "route",
+                &prefix,
+                &format!("interface={if_index}"),
+                &format!("nexthop={gateway}"),
+                &format!("metric={metric}"),
+                "store=active",
+            ])
+            .output();
+        // 只按「前缀 + 下一跳 + 接口」确认存在：metric 在表里可能被接口跃点叠加
+        let present = crate::platform::route_table::ipv4_forward_rows()
+            .map(|rows| {
+                rows.iter().any(|r| {
+                    r.prefix_len == prefix_len
+                        && r.dest == *dest
+                        && r.next_hop == *gateway
+                        && r.if_index == *if_index
+                })
+            })
+            .unwrap_or(false);
+        if present {
+            added += 1;
+            logs.push(format!(
+                "helper: 路由 {prefix} via {gateway} if {if_index} metric {metric} 已在表中"
+            ));
+            continue;
+        }
+        let detail = match output {
+            Ok(o) => crate::platform::console_output::decode_console_bytes(&o.stderr)
+                .trim()
+                .to_string(),
+            Err(e) => format!("netsh 执行失败: {e}"),
+        };
+        failed.push(if detail.is_empty() {
+            format!("{prefix} via {gateway}: 新增后表中仍无该行")
+        } else {
+            format!("{prefix} via {gateway}: {detail}")
+        });
+    }
+    if failed.is_empty() {
+        let message = format!("主机路由已就绪（{added} 条）");
+        logs.push(format!("helper: {message}"));
+        HelperResult {
+            success: true,
+            message,
+            op: "route_add".to_string(),
+            logs: std::mem::take(logs),
+            details: None,
+        }
+    } else {
+        fail(format!("路由新增失败: {}", failed.join("；")), logs)
     }
 }
 

@@ -284,6 +284,16 @@ fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
         return;
     }
     let health = probe_internet_access(app_handle, config, &managed, Some(&current_name));
+    // 切换后仍要尝试登录原卡：Portal 旁路路由已把去 Portal 的流量送回原卡，
+    // 这里按受管卡逐张发起一次恢复（内部会先做 Portal 检测，未在线才真正认证）。
+    // 不阻塞本拍：spawn_recovery 异步执行，结果由下一拍的 STATE 读取。
+    let recovery_busy = STATE.lock().unwrap_or_else(|e| e.into_inner()).recovery_running;
+    if !recovery_busy {
+        if let Some((adapter, _)) = managed.first() {
+            crate::log_debug!("outbound", "切换态下尝试登录原卡 {}", adapter.name);
+            spawn_recovery(app_handle, config, &adapter.name);
+        }
+    }
     let recovered = managed
         .iter()
         .find(|(adapter, _)| health.get(&adapter.ip).copied().unwrap_or(false))
