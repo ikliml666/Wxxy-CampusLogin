@@ -43,22 +43,24 @@ export function biometricFailMessage(err: unknown, t: (key: string) => string): 
  * 绑定操作仍需单独验证，反之亦然）。首次操作即验证，通过后 TTL 内共用
  * （sudo timestamp 同款会话模式）；Hello 总开关关闭时直接放行。
  *
- * TTL 与后端 reveal 门的 IDENTITY_VERIFY_TTL_SECS=600s 对齐（留 30s 时钟余量）：
- * 前端门过期即重新弹 Hello 并同步刷新后端时间戳——此前缓存应用生命周期永真，
- * 后端 600s 过期后查看明文被永久拒绝且无重验入口，重启前功能死锁。
+ * 时效取 config.selfHelloTtlMinutes（分钟，默认 10；0 = 每次操作都验证），与后端
+ * reveal 门按同一配置校验（前端留 30s 时钟余量）：门过期即重新弹验证并同步刷新
+ * 后端时间戳，避免前端仍真而后端已过期导致的死锁。
  *
  * `ignoreToggle: true`（查看明文密码等明文特权场景）：门已验证仍直接放行，
  * 但门未验证/已过期时**无视总开关强制真实验证**——总开关关闭不能成为绕过
  * 明文保护的路径；后端 reveal 的 TTL 校验与此呼应。
  */
-const VERIFY_TTL_MS = 570_000
+/** 验证时效（毫秒）：配置分钟值留 30s 时钟余量；0 分钟 → 门永不新鲜，每次操作都验证 */
+const verifyTtlMs = () =>
+  Math.max(useConfigStore.getState().config.selfHelloTtlMinutes * 60_000 - 30_000, 0)
 /** 门新鲜判定：TTL 内且时钟未回拨（elapsed >= 0）。时钟回拨时视为过期——下次
- * 操作重弹 Hello，前后端时间戳在回拨后的时钟上重新对齐；后端 is_within_ttl
+ * 操作重弹验证，前后端时间戳在回拨后的时钟上重新对齐；后端 is_within_ttl
  * 同样拒绝 now < verified_at，两侧方向一致，避免前端永真而后端拒绝的死锁 */
 const gateFresh = (verifiedAt: number) => {
   if (verifiedAt <= 0) return false
   const elapsed = Date.now() - verifiedAt
-  return elapsed >= 0 && elapsed < VERIFY_TTL_MS
+  return elapsed >= 0 && elapsed < verifyTtlMs()
 }
 let helloGateVerifiedAt = 0
 
@@ -90,8 +92,8 @@ export function useHelloGate(options?: { ignoreToggle?: boolean }) {
  * 自助服务面板会话门：切入面板验证一次（面板卸载时 resetSelfSessionGate 重置，
  * 下次进入重新验证），面板内后续操作（刷新/踢下线/上网记录查询）在 TTL 内共用
  * （与上方绑定门同款，对齐后端 600s——绑定/注销会话命令有后端验证门，前端
- * 缓存永真会在 10 分钟后撞上后端过期错误）；
- * config.selfReverifyEachAction = true 时每次操作都验证；
+ * 缓存永真会在配置的验证时效过后撞上后端过期错误）；
+ * config.selfHelloTtlMinutes = 0 时每次操作都验证；
  * config.selfHelloEnabled = false 时整体放行。
  */
 let selfSessionVerifiedAt = 0
@@ -107,8 +109,7 @@ export function useSelfServiceVerify() {
   const addToast = useLogToastStore((s) => s.addToast)
   return useCallback(async (): Promise<boolean> => {
     if (!helloEnabled()) return true
-    const reverifyEach = useConfigStore.getState().config.selfReverifyEachAction === true
-    if (!reverifyEach && gateFresh(selfSessionVerifiedAt)) return true
+    if (gateFresh(selfSessionVerifiedAt)) return true
     try {
       const verified = await tauriApiWithRetry.verifyWindowsIdentity({
         consentMessage: t('account.identityVerifyPrompt'),

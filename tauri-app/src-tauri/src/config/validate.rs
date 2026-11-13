@@ -101,6 +101,8 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
         return Err("主题模式必须为\"dark\"、\"light\"或\"system\"".to_string());
     }
     config.background_check_interval = config.background_check_interval.clamp(10000, 3600000);
+    // 身份验证时效上限 1440 分钟：手改配置文件不得把敏感操作的免验证窗口放大到任意值
+    config.self_hello_ttl_minutes = config.self_hello_ttl_minutes.min(1440);
     config.latency_test_interval = config.latency_test_interval.clamp(10000, 3600000);
     normalize_portal_url(&mut config.portal_url);
     validate_portal_url(&config.portal_url)?;

@@ -34,6 +34,7 @@
     password: '***',
     operator: '@cmcc',
     selfHelloEnabled: true,
+    selfHelloTtlMinutes: 10,
     defaultPanel: (function () { try { var m = window.location.search.match(/panel=(\w+)/); if (m) return m[1] } catch (e) {} return 'account' })(), // ?panel= 覆盖启动面板
     // ?theme=light|dark 覆盖主题（浅色截图验证用；缺省走系统 prefers-color-scheme）
     themeMode: (function () { try { var m = window.location.search.match(/theme=(\w+)/); if (m && (m[1] === 'light' || m[1] === 'dark')) return m[1] } catch (e) {} return 'system' })(),

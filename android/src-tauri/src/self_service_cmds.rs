@@ -38,12 +38,18 @@ fn resolve_self_password(incoming: &str, settings: &crate::config_state::Setting
     }
 }
 
-/// 验证门:总开关关闭 → 放行;未在 TTL 内验证 → 拦截文案(桌面 ensure_identity_gate 同构)
+/// 身份验证时效(秒):配置里的分钟值钳制到 0..=1440(手改配置文件不得把免验证窗口
+/// 放大到任意值),0 表示每次操作都需验证
+fn identity_ttl_secs(settings: &crate::config_state::Settings) -> u64 {
+    settings.self_hello_ttl_minutes.min(1440) * 60
+}
+
+/// 验证门:总开关关闭 → 放行;未在配置时效内验证 → 拦截文案(桌面 ensure_identity_gate 同构)
 pub(crate) fn ensure_identity_gate(settings: &crate::config_state::Settings) -> Option<String> {
     if !settings.self_hello_enabled {
         return None;
     }
-    if crate::identity_gate::identity_verified_recently() {
+    if crate::identity_gate::identity_verified_recently(identity_ttl_secs(settings)) {
         None
     } else {
         Some("生物识别验证已过期,请重新验证".to_string())
@@ -322,7 +328,7 @@ pub async fn reveal_operator_credential(
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
     }
-    if !crate::identity_gate::identity_verified_recently() {
+    if !crate::identity_gate::identity_verified_recently(identity_ttl_secs(&settings)) {
         return Ok(CommandResult::err("生物识别验证已过期,请重新验证"));
     }
     let Some(password) = resolve_self_password(&password, &settings) else {

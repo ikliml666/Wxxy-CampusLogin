@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { Input } from '@/components/ui/input'
 import {
   Rocket, LayoutList, Gauge, Clock, Bell, Compass,
   Database, Upload, Download, ChevronRight, LogIn
@@ -72,16 +73,19 @@ export const SettingsPanel = memo(function SettingsPanel({
   const [latencyModalOpen, setLatencyModalOpen] = useState(false)
 
   // ===== 系统级自动登录（未登录 Windows 时由 SYSTEM 计划任务跑无头核心，桌面专属）=====
-  const [coreAutostart, setCoreAutostart] = useState(false)
+  // null = 尚未查到（合并开关在查询完成前不可点，避免误显示为关闭）
+  const [coreAutostart, setCoreAutostart] = useState<boolean | null>(null)
   const [coreAutostartBusy, setCoreAutostartBusy] = useState(false)
   useEffect(() => {
     let alive = true
-    tauriApiWithRetry.getCoreAutostart().then(v => { if (alive) setCoreAutostart(v === true) }).catch(() => {})
+    tauriApiWithRetry.getCoreAutostart()
+      .then(v => { if (alive) setCoreAutostart(v === true) })
+      .catch(() => { if (alive) setCoreAutostart(false) })
     return () => { alive = false }
   }, [])
 
-  const handleSetCoreAutostart = async (enabled: boolean) => {
-    if (coreAutostartBusy) return
+  const handleSetCoreAutostart = async (enabled: boolean): Promise<boolean> => {
+    if (coreAutostartBusy) return false
     const addToast = useLogToastStore.getState().addToast
     setCoreAutostartBusy(true)
     try {
@@ -89,14 +93,63 @@ export const SettingsPanel = memo(function SettingsPanel({
       if (result.success) {
         setCoreAutostart(enabled)
         addToast(t('settings.coreAutostartSetDone'), 'success')
-      } else {
-        addToast(result.message || t('settings.coreAutostartFailed'), 'error')
+        return true
       }
+      addToast(result.message || t('settings.coreAutostartFailed'), 'error')
+      return false
     } catch (err) {
       if (import.meta.env.DEV) console.error('设置系统级自动登录失败:', err)
       addToast(extractErrorMessage(err) || t('settings.coreAutostartFailed'), 'error')
+      return false
     } finally {
       setCoreAutostartBusy(false)
+    }
+  }
+
+  // ===== 开机自启合并项：系统级（SYSTEM 计划任务，需提权）先配，成功后再注册登录后自启；
+  // 系统级失败即中止，不改任何一边，避免出现"登录后自启开着、未登录场景没开"的半生效状态 =====
+  const handleSetBootAutostart = async (enabled: boolean) => {
+    if (enabled) {
+      if (!(await handleSetCoreAutostart(true))) return
+      await onSetAutoLaunch(true)
+    } else {
+      await handleSetCoreAutostart(false)
+      await onSetAutoLaunch(false)
+    }
+  }
+
+  // ===== 安全设置：身份验证时效（分钟，0 = 每次操作都验证）=====
+  const [ttlInput, setTtlInput] = useState(String(config.selfHelloTtlMinutes))
+  const [ttlBusy, setTtlBusy] = useState(false)
+  useEffect(() => { setTtlInput(String(config.selfHelloTtlMinutes)) }, [config.selfHelloTtlMinutes])
+
+  // 时效放宽方向（0 → 大值）与关闭安全开关同门：先验证身份再落盘；失败回滚显示值
+  const commitHelloTtl = async () => {
+    if (ttlBusy) return
+    const current = config.selfHelloTtlMinutes
+    const parsed = Number(ttlInput)
+    if (!Number.isFinite(parsed)) { setTtlInput(String(current)); return }
+    const next = Math.min(Math.max(Math.trunc(parsed), 0), 1440)
+    setTtlInput(String(next))
+    if (next === current) return
+    const addToast = useLogToastStore.getState().addToast
+    setTtlBusy(true)
+    try {
+      const verified = await tauriApiWithRetry.verifyWindowsIdentity({
+        consentMessage: t('settings.securityChangePrompt'),
+      })
+      if (verified.success) {
+        onUpdateConfig({ selfHelloTtlMinutes: next })
+        addToast(t('settings.securityChanged'), 'success')
+      } else {
+        setTtlInput(String(current))
+        addToast(verified.message || t('settings.securityVerifyFailed'), 'error')
+      }
+    } catch (err) {
+      setTtlInput(String(current))
+      addToast(extractErrorMessage(err) || t('settings.securityVerifyFailed'), 'error')
+    } finally {
+      setTtlBusy(false)
     }
   }
 
@@ -208,26 +261,15 @@ export const SettingsPanel = memo(function SettingsPanel({
           </CardHeader>
           <CardContent className="space-y-3">
             <SettingRow
-              htmlFor="auto-launch"
+              htmlFor="boot-autostart"
               label={t('settings.autoLaunch')}
               description={t('settings.autoLaunchDesc')}
             >
               <Switch
-                id="auto-launch"
-                checked={autoLaunch}
-                onCheckedChange={checked => onSetAutoLaunch(checked)}
-              />
-            </SettingRow>
-            <SettingRow
-              htmlFor="core-autostart"
-              label={t('settings.coreAutostart')}
-              description={t('settings.coreAutostartDesc')}
-            >
-              <Switch
-                id="core-autostart"
-                checked={coreAutostart}
-                disabled={coreAutostartBusy}
-                onCheckedChange={checked => handleSetCoreAutostart(checked)}
+                id="boot-autostart"
+                checked={autoLaunch && coreAutostart === true}
+                disabled={coreAutostartBusy || coreAutostart === null}
+                onCheckedChange={checked => void handleSetBootAutostart(checked)}
               />
             </SettingRow>
             <SettingRow
@@ -405,19 +447,25 @@ export const SettingsPanel = memo(function SettingsPanel({
                 />
               </SettingRow>
               <SettingRow
-                htmlFor="self-reverify"
-                label={t('settings.selfReverify')}
-                description={t('settings.selfReverifyDesc')}
+                htmlFor="self-hello-ttl"
+                label={t('settings.selfHelloTtl')}
+                description={t('settings.selfHelloTtlDesc')}
               >
-                <Switch
-                  id="self-reverify"
-                  disabled={config.selfHelloEnabled === false}
-                  checked={config.selfReverifyEachAction === true}
-                  onCheckedChange={checked => {
-                    if (checked) { onUpdateConfig({ selfReverifyEachAction: true }); return }
-                    void handleSecurityDisable(() => onUpdateConfig({ selfReverifyEachAction: false }))
-                  }}
-                />
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    id="self-hello-ttl"
+                    type="number"
+                    min={0}
+                    max={1440}
+                    value={ttlInput}
+                    disabled={config.selfHelloEnabled === false || ttlBusy}
+                    onChange={e => setTtlInput(e.target.value)}
+                    onBlur={() => void commitHelloTtl()}
+                    onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                    className="h-8 w-16 text-center"
+                  />
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">{t('settings.selfHelloTtlUnit')}</span>
+                </div>
               </SettingRow>
             </div>
           </CardContent>

@@ -13,13 +13,20 @@ use crate::self_service::{self, BindParams};
 /// 命令有意不设门——总览卡自动刷新依赖免验证拉取（数据本就存于本机，掩码属
 /// 渲染层），补门会破坏该体验且不构成实际防线。
 pub(crate) fn ensure_identity_gate(state: &AppState) -> Option<String> {
-    if !state.config.load().self_hello_enabled {
+    let config = state.config.load();
+    if !config.self_hello_enabled {
         return None;
     }
-    if crate::platform::identity::identity_verified_recently() {
+    if crate::platform::identity::identity_verified_recently(identity_ttl_secs(&config)) {
         return None;
     }
     Some("Windows 身份验证已过期，请重新验证后再操作".to_string())
+}
+
+/// 身份验证时效（秒）：配置里的分钟值钳制到 0..=1440（手改配置文件不得把
+/// 免验证窗口放大到任意值），0 表示每次操作都需验证
+fn identity_ttl_secs(config: &crate::config::model::Config) -> u64 {
+    config.self_hello_ttl_minutes.min(1440) * 60
 }
 
 /// 解析校园网适配器源 IP（与登录同源规则：配置名有效 → 有线优先 → 任意有 IP），
@@ -303,7 +310,7 @@ pub async fn change_self_password(
 /// Windows 本地身份验证（仅 Windows Hello，设备未配置时返回引导文案）。
 /// 弹窗文案由前端按场景传入（i18n）；主路径用官方 interop 接口把 Consent
 /// 对话框绑定到主窗口 HWND（Win11 天然置前，见 identity.rs 模块注释）；
-/// 通过后记录后端验证时间戳（时效 IDENTITY_VERIFY_TTL_SECS，reveal 等敏感
+/// 通过后记录后端验证时间戳（时效取配置 selfHelloTtlMinutes，reveal 等敏感
 /// 操作在后端校验，防 webview 绕过）。
 #[tauri::command]
 pub async fn verify_windows_identity(
@@ -334,7 +341,7 @@ pub async fn verify_windows_identity(
 }
 
 /// 查看某运营商的明文凭据（手机号 + 运营商账户密码）。
-/// 必须先通过 verify_windows_identity（后端校验时效 IDENTITY_VERIFY_TTL_SECS，
+/// 必须先通过 verify_windows_identity（后端校验配置的验证时效，
 /// 时间戳由 verify_windows_identity 成功路径写入——验证与明文返回在后端关联，
 /// 不依赖前端编排，webview 层无法绕过）；凭据仅本次响应返回，不落盘不写日志。
 #[tauri::command]
@@ -352,7 +359,7 @@ pub async fn reveal_operator_credential(
     let Some(password) = resolve_credential_password(&state, &password) else {
         return Ok(CommandResult::err("请先在登录信息填写并保存密码"));
     };
-    if !crate::platform::identity::identity_verified_recently() {
+    if !crate::platform::identity::identity_verified_recently(identity_ttl_secs(&state.config.load())) {
         return Ok(CommandResult::err(
             "Windows 身份验证已过期，请重新验证后再查看",
         ));

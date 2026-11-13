@@ -124,7 +124,7 @@ export function SelfServicePanel() {
   // 切入面板自动验证并刷新（2026-09-06 用户要求）：凭据就绪后弹 Hello，
   // 通过即自动拉取在线信息与近期上网记录；验证取消/失败则等用户手动刷新。
   // 直接调 fetchDashboard（内部自带验证门）——外层再验一次会让
-  // selfReverifyEachAction=true 的用户切入面板连弹两次 Hello。
+  // 验证时效设为 0 的用户切入面板连弹两次 Hello。
   useEffect(() => {
     // 配置未加载完（启动后立刻切过来）时凭据判断不可靠，等 configLoaded 再启动
     if (autoRefreshedRef.current || !configLoaded || !hasCred) return

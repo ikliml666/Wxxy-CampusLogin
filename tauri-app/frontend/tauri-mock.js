@@ -25,6 +25,7 @@
     password: '***',
     operator: '@cmcc',
     selfHelloEnabled: true,
+    selfHelloTtlMinutes: 10,
     defaultPanel: (function () { try { var m = window.location.search.match(/panel=(\w+)/); if (m) return m[1] } catch (e) {} return 'account' })(), // ?panel= 覆盖启动面板
     // ?theme=light|dark 覆盖主题（浅色截图验证用；缺省走系统 prefers-color-scheme）
     themeMode: (function () { try { var m = window.location.search.match(/theme=(\w+)/); if (m && (m[1] === 'light' || m[1] === 'dark')) return m[1] } catch (e) {} return 'system' })(),
@@ -53,6 +54,8 @@
     if (am && mockAccounts.some(function (a) { return a.id === am[1] })) activeAccountName = am[1]
   } catch (e) {}
   var accountSeq = 0
+  // 系统级自启（SYSTEM 计划任务）mock 状态：合并开关的"未登录时自动登录"半边
+  var coreAutostartEnabled = false
 
   // ---- mock 在线设备（可变：注销即移除）----
   var onlineList = [
@@ -122,6 +125,16 @@
     // 改密成功后真后端会强制下线（服务端语义）；mock 仅延时回成功消息
     change_self_password: function () { return sleep(800).then(function () { return ok(null, '密码修改成功') }) },
     verify_windows_identity: function () { return sleep(600).then(function () { return ok(null, 'Windows Hello 验证通过（mock）') }) },
+    // ---- 开机自启（登录后自启 + 系统级计划任务，设置页合并为一个开关）----
+    set_auto_launch: function (args) {
+      config.autoLaunch = !!(args && args.enabled)
+      return sleep(200).then(function () { return { success: true, message: '开机自启已更新（mock）' } })
+    },
+    get_core_autostart: function () { return coreAutostartEnabled },
+    set_core_autostart: function (args) {
+      coreAutostartEnabled = !!(args && args.enabled)
+      return sleep(500).then(function () { return { success: true, message: '系统级自动登录已更新（mock）' } })
+    },
     // ---- WebVPN 凭据（真契约见 commands/vpn.rs）----
     // ?vpnsaved=1 视为已保存凭据（缺省未保存 → VPN 按钮走「填充凭据」弹窗分支）
     vpn_credential_status: function () {

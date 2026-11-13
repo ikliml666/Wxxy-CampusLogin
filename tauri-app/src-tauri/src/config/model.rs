@@ -16,9 +16,11 @@ pub struct Config {
     /// 开关影响，防止一键关闭保护后明文裸奔）
     #[serde(rename = "selfHelloEnabled", default = "default_true")]
     pub self_hello_enabled: bool,
-    /// 自助服务面板每次操作都二次验证（默认 false：切入面板验证一次后操作共用）
-    #[serde(rename = "selfReverifyEachAction", default)]
-    pub self_reverify_each_action: bool,
+    /// Windows 身份验证时效（分钟，默认 10；0 = 每次操作都验证）：验证通过后在
+    /// 该时长内执行敏感操作无需重复验证。修改该值本身需先通过身份验证（前端验证门），
+    /// 后端按此校验 reveal 等敏感命令的时效
+    #[serde(rename = "selfHelloTtlMinutes", default = "default_verify_ttl_minutes")]
+    pub self_hello_ttl_minutes: u64,
     pub operator: String,
     pub adapter1: String,
     pub adapter2: String,
@@ -245,6 +247,9 @@ where
 
 fn default_true() -> bool { true }
 
+/// 身份验证时效默认 10 分钟（与 v2.4.x 硬编码的 600s 一致）
+fn default_verify_ttl_minutes() -> u64 { 10 }
+
 fn default_campus_check_start_minutes() -> u16 { 460 }
 
 /// 2026-09-13 起 1380=23:00（旧默认 0=仅开始时间限制），存量配置由
@@ -285,7 +290,7 @@ impl Default for Config {
             user: String::new(),
             password: String::new(),
             self_hello_enabled: true,
-            self_reverify_each_action: false,
+            self_hello_ttl_minutes: default_verify_ttl_minutes(),
             operator: String::new(),
             adapter1: AUTO_DETECT_ADAPTER.to_string(),
             adapter2: String::new(),

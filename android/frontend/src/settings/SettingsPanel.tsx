@@ -5,6 +5,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import {
   Rocket, Gauge, Clock, Compass, ShieldCheck, Zap, ChevronRight
@@ -17,7 +18,7 @@ import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { useFaceDialogStore } from '@/face/faceVerifyStore'
 import { hasTemplate, clearTemplate } from '@/face/faceService'
-import React, { memo, useState } from 'react'
+import React, { memo, useEffect, useState } from 'react'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useAdapterStore } from '@/hooks/useAdapterStore'
 import { useShallow } from 'zustand/react/shallow'
@@ -69,6 +70,40 @@ export const SettingsPanel = memo(function SettingsPanel({
     }
   }
   const { t } = useTranslation()
+
+  // 身份验证时效（分钟，0 = 每次操作都验证）：放宽方向与关闭安全开关同门，
+  // 修改前先验证身份，失败回滚显示值
+  const [ttlInput, setTtlInput] = useState(String(config.selfHelloTtlMinutes))
+  const [ttlBusy, setTtlBusy] = useState(false)
+  useEffect(() => { setTtlInput(String(config.selfHelloTtlMinutes)) }, [config.selfHelloTtlMinutes])
+
+  const commitHelloTtl = async () => {
+    if (ttlBusy) return
+    const current = config.selfHelloTtlMinutes
+    const parsed = Number(ttlInput)
+    if (!Number.isFinite(parsed)) { setTtlInput(String(current)); return }
+    const next = Math.min(Math.max(Math.trunc(parsed), 0), 1440)
+    setTtlInput(String(next))
+    if (next === current) return
+    setTtlBusy(true)
+    try {
+      const verified = await tauriApiWithRetry.verifyWindowsIdentity({
+        consentMessage: t('settings.securityChangePrompt'),
+      })
+      if (verified.success) {
+        onUpdateConfig({ selfHelloTtlMinutes: next })
+        addToast(t('settings.securityChanged'), 'success')
+      } else {
+        setTtlInput(String(current))
+        addToast(verified.message || t('settings.securityVerifyFailed'), 'error')
+      }
+    } catch (err) {
+      setTtlInput(String(current))
+      addToast(biometricFailMessage(err, t) || t('settings.securityVerifyFailed'), 'error')
+    } finally {
+      setTtlBusy(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -258,19 +293,24 @@ export const SettingsPanel = memo(function SettingsPanel({
             <Separator />
             <div className="flex items-center justify-between">
               <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="self-reverify" className="text-sm font-medium cursor-pointer">{t('settings.selfReverify')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('settings.selfReverifyDesc')}</p>
+                <Label htmlFor="self-hello-ttl" className="text-sm font-medium cursor-pointer">{t('settings.selfHelloTtl')}</Label>
+                <p className="text-[11px] text-muted-foreground">{t('settings.selfHelloTtlDesc')}</p>
               </div>
-              <Switch
-                id="self-reverify"
-                disabled={config.selfHelloEnabled === false}
-                checked={config.selfReverifyEachAction === true}
-                onCheckedChange={checked => {
-                  if (checked) { onUpdateConfig({ selfReverifyEachAction: true }); return }
-                  void handleSecurityDisable(() => onUpdateConfig({ selfReverifyEachAction: false }))
-                }}
-                className="shrink-0"
-              />
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Input
+                  id="self-hello-ttl"
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={ttlInput}
+                  disabled={config.selfHelloEnabled === false || ttlBusy}
+                  onChange={e => setTtlInput(e.target.value)}
+                  onBlur={() => void commitHelloTtl()}
+                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                  className="h-8 w-16 text-center"
+                />
+                <span className="text-xs text-muted-foreground whitespace-nowrap">{t('settings.selfHelloTtlUnit')}</span>
+              </div>
             </div>
             <Separator />
             <div className="space-y-2">

@@ -27,18 +27,15 @@ const DEFAULT_CONSENT_MESSAGE: &str = "请完成 Windows 身份验证";
 /// 敏感操作（查看明文凭据）在后端校验时效，防止 webview 层绕过前端验证编排。
 static LAST_VERIFY_EPOCH_SECS: AtomicU64 = AtomicU64::new(0);
 
-/// 验证时效（秒）：超时后敏感操作需重新验证
-pub const IDENTITY_VERIFY_TTL_SECS: u64 = 600;
-
 /// 验证通过后记录时间戳（verify_windows_identity 命令成功路径调用）
 pub fn note_identity_verified() {
     LAST_VERIFY_EPOCH_SECS.store(epoch_secs_now(), Ordering::Release);
 }
 
-/// 是否存在时效内的验证记录
-pub fn identity_verified_recently() -> bool {
+/// 是否存在 `ttl_secs` 内的验证记录（时效由配置 selfHelloTtlMinutes 决定）
+pub fn identity_verified_recently(ttl_secs: u64) -> bool {
     let verified_at = LAST_VERIFY_EPOCH_SECS.load(Ordering::Acquire);
-    is_within_ttl(verified_at, epoch_secs_now(), IDENTITY_VERIFY_TTL_SECS)
+    is_within_ttl(verified_at, epoch_secs_now(), ttl_secs)
 }
 
 /// TTL 判定（纯函数，0 哨兵表示从未验证）
@@ -209,7 +206,8 @@ mod tests {
 
     #[test]
     fn identity_ttl_boundary() {
-        let ttl = IDENTITY_VERIFY_TTL_SECS;
+        // 默认验证时效 10 分钟（Config.selfHelloTtlMinutes 默认值）
+        let ttl = 600;
         // 从未验证（0 哨兵）一律拒绝
         assert!(!is_within_ttl(0, 1000, ttl));
         // 时效内：边界值通过

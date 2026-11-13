@@ -41,7 +41,7 @@ const mockReverifyEach = { current: false }
 const storeState = {
   configLoaded: true,
   passwordSaved: true,
-  config: { user: '', selfHelloEnabled: true, selfReverifyEachAction: false },
+  config: { user: '', selfHelloEnabled: true, selfHelloTtlMinutes: 10 },
 }
 vi.mock('@/hooks/useConfigStore', () => ({
   useConfigStore: Object.assign(
@@ -81,7 +81,7 @@ beforeEach(() => {
   storeState.passwordSaved = true
   storeState.config.user = ''
   storeState.config.selfHelloEnabled = true
-  storeState.config.selfReverifyEachAction = false
+  storeState.config.selfHelloTtlMinutes = 10
   // 面板会话门是模块级单例，跨用例重置
   resetSelfSessionGate()
 })
