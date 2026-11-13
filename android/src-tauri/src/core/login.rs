@@ -57,6 +57,29 @@ pub async fn run_login(
     operator: &str,
     attempt: LoginAttempt,
 ) -> Result<serde_json::Value, String> {
+    // 刚登录成功后几秒内的重复请求直接跳过:同一时刻的手动点击/巡检/事件会各发一条,
+    // 第二条在 portal 侧对同 IP 重复认证不回包,要挂满整个客户端超时(真机日志
+    // 18:13:55.741 成功后 18:13:56.035 又发一条,挂到 18:14:02.038 才失败)。
+    // 只挡成功的重复请求:失败后重试不受限(成功时间戳只在成功时更新)。
+    const LOGIN_SUCCESS_COOLDOWN_MS: u64 = 5_000;
+    let since_success = crate::core::platform::now_ms().saturating_sub(
+        crate::core::monitor::MONITOR
+            .last_login_success_ms
+            .load(Ordering::Relaxed),
+    );
+    if since_success < LOGIN_SUCCESS_COOLDOWN_MS {
+        campus_login_lib::log_info!(
+            "login",
+            "登录成功 {}ms 内的重复登录请求已跳过",
+            since_success
+        );
+        return Ok(serde_json::json!({
+            "code": "0",
+            "message": "已登录",
+            "success": true,
+            "retryable": false
+        }));
+    }
     let adapter_ip = ctx.cached_source_ip();
     let user = user.to_string();
     let password = password.to_string();
