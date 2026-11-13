@@ -94,7 +94,8 @@ pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<Camp
 
     let portal_host = portal_host_of(portal_url);
 
-    // 判定腿(探哪些目标、优先级)与去抖次数由跨平台规则层统一给出：安卓非 root
+    // 判定腿(探哪些目标、优先级：Portal 优先、网关最后兜底)与去抖次数由跨平台
+    // 规则层统一给出：安卓非 root
     // 无 ICMP，探测手段换成 TCP 并行发出，但「哪几腿」「各发几次」「任一发可达
     // 即算命中」与桌面同一份实现，不再各写一套。
     // 2026-11-10 起取消网段腿：网关基准是核心出口 10.1.1.1、接入网在 10.2.x，

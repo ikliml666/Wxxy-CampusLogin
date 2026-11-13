@@ -123,12 +123,19 @@ pub enum CampusLeg {
     Portal,
 }
 
-/// 判定要探的目标与所属腿，按优先级排列（网关在前、Portal 在后）。
+/// 判定要探的目标与所属腿，按优先级排列（**Portal 在前、网关最后兜底**）。
+///
+/// 优先级理由：Portal 主机是该校园网内的私网入口，可达即说明「流量从校园侧出」，
+/// 归属证据比网关强；网关可能被子网边界设备代答、或按策略禁 ICMP，
+/// 命中它并不等于该卡真的在校园网内，因此降为最后一道兜底。
+///
+/// 两腿仍是「任一命中即判校园」的或关系，改的只是谁先命中、谁兜底，
+/// 判定结果不变；先探 Portal 也让常见的在网校园卡少发一轮网关探测。
 ///
 /// 空目标腿整体跳过：`campus_gateway` 未配置时只剩 Portal 腿；`portal_host`
 /// 为空（公网/域名 portal）时只剩网关腿。
 ///
-/// 双端都从这里取「探哪些目标、优先级如何」：桌面逐腿同步探测（成本低者优先
+/// 双端都从这里取「探哪些目标、优先级如何」：桌面逐腿同步探测（Portal 命中即
 /// 短路），安卓把同一批目标并行发 TCP（无 ICMP，串行会拉长通知翻转），
 /// 但腿的定义与优先级只有这一份。
 pub fn campus_probe_targets<'a>(
@@ -136,11 +143,11 @@ pub fn campus_probe_targets<'a>(
     portal_host: &'a str,
 ) -> Vec<(&'a str, CampusLeg)> {
     let mut targets = Vec::with_capacity(2);
-    if !gateway.is_empty() {
-        targets.push((gateway, CampusLeg::Gateway));
-    }
     if !portal_host.is_empty() {
         targets.push((portal_host, CampusLeg::Portal));
+    }
+    if !gateway.is_empty() {
+        targets.push((gateway, CampusLeg::Gateway));
     }
     targets
 }
@@ -243,6 +250,45 @@ mod tests {
         assert!(!probe_with_retry("10.1.1.1", |_| false));
         // 空目标不发探测
         assert!(!probe_with_retry("", |_| panic!("空目标不应发起探测")));
+    }
+
+    #[test]
+    fn campus_probe_targets_puts_portal_first_and_gateway_last() {
+        assert_eq!(
+            campus_probe_targets("10.1.1.1", "10.1.99.100"),
+            vec![
+                ("10.1.99.100", CampusLeg::Portal),
+                ("10.1.1.1", CampusLeg::Gateway)
+            ],
+            "Portal 必须是第一腿、网关必须是最后兜底"
+        );
+        assert_eq!(
+            campus_probe_targets("10.1.1.1", ""),
+            vec![("10.1.1.1", CampusLeg::Gateway)]
+        );
+        assert_eq!(
+            campus_probe_targets("", "10.1.99.100"),
+            vec![("10.1.99.100", CampusLeg::Portal)]
+        );
+        assert!(campus_probe_targets("", "").is_empty());
+    }
+
+    #[test]
+    fn judge_campus_prefers_portal_and_falls_back_to_gateway() {
+        // 两腿都可达：Portal 先命中即短路，网关不再探测
+        let probed = std::cell::RefCell::new(Vec::new());
+        let leg = judge_campus_leg("10.1.1.1", "10.1.99.100", |target| {
+            probed.borrow_mut().push(target.to_string());
+            true
+        });
+        assert_eq!(leg, Some(CampusLeg::Portal));
+        assert_eq!(*probed.borrow(), vec!["10.1.99.100".to_string()], "Portal 命中后不应再探网关");
+
+        // Portal 不可达：网关作为最后兜底仍能命中
+        assert_eq!(
+            judge_campus_leg("10.1.1.1", "10.1.99.100", |target| target == "10.1.1.1"),
+            Some(CampusLeg::Gateway)
+        );
     }
 
     #[test]

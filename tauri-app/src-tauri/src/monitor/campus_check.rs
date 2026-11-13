@@ -97,8 +97,9 @@ impl CampusContext<'_> {
     }
 }
 
-/// 逐卡判定：按探测成本从低到高短路，任一腿命中即该卡在校园网，
-/// 网关与 Portal 都失败才判该卡非校园网。
+/// 逐卡判定：名称 → Portal → 网关（兜底），任一腿命中即该卡在校园网。
+/// 网关排在最后：它可能被子网边界设备代答或按策略禁 ICMP，
+/// 命中不等于该卡真在校园网内，只作 Portal 不可达时的兜底证据。
 ///
 /// `probe(target, source)` 负责绑 `source`（该卡 IP）探 `target` 的可达性，由调用方
 /// 注入以便单测替换为桩函数，并共享 (target, source) 维度的结果缓存。
@@ -142,7 +143,7 @@ where
         None => build(
             false,
             None,
-            format!("{}未连接校园网(名称/网关/Portal 均未命中)", adapter.ip),
+            format!("{}未连接校园网(名称/Portal/网关 均未命中)", adapter.ip),
         ),
     }
 }

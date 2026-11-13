@@ -1,7 +1,7 @@
 //! 夜间出站切换的桌面侧动作层：目标卡选择、逐卡校园网判定、快照序列化。
 //! 判定规则与 campus_check 同源但按适配器粒度：绑该卡源 IP 的
-//! 网关可达 || 绑该卡源 IP 的 portal 主机可达（check_gateway_reachable_from；
-//! 不绑源会多卡归因错位）。SSID 不参与
+//! portal 主机可达 || 绑该卡源 IP 的网关可达（后者为最后兜底，
+//! 见 `campus::rules::campus_probe_targets`；不绑源会多卡归因错位）。SSID 不参与
 //! 逐卡判定——netsh wlan 只报当前连接的单个 SSID，多无线卡下归因不可靠。
 //!
 //! 网关可达探测经 `gateway_probe` 闭包注入：生产调用方传
