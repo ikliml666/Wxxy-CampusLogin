@@ -9,9 +9,9 @@ use crate::config::night_switch::{restore_start_minutes, RESTORE_END_MINUTES};
 use crate::config::outbound_switch::outbound_restore_active;
 use crate::infra::state::AppState;
 use crate::monitor::outbound_switch::{
-    disabled_adapters_json, effective_outbound_priority, is_campus_adapter, parse_disabled_adapters,
-    parse_standby_route, portal_probe_host, select_campus_to_disable,
-    select_outbound_candidate, snapshot_json, standby_route_cleanup, DisabledRow, StandbyCleanup,
+    effective_outbound_priority, is_campus_adapter, parse_disabled_adapters,
+    parse_standby_route, portal_probe_host,
+    select_outbound_candidate, snapshot_json, standby_route_cleanup, StandbyCleanup,
     OUTBOUND_INTERNET_HEALTH_KEY,
 };
 use crate::network::Adapter;
@@ -66,7 +66,6 @@ static OUTBOUND_CHANNEL_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 无候选/空禁用名单/跃点快照损坏/兜底路由是唯一默认路径
 /// 四类「不阻塞流程但该让用户知道」的问题各占一枚
 static OUTBOUND_NO_CANDIDATE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
-static OUTBOUND_EMPTY_DISABLE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_METRIC_SNAPSHOT_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_LAST_PATH_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 
@@ -367,6 +366,22 @@ fn write_outbound_metric(
     }
 }
 
+/// 默认出口是否已落在指定接口：读系统默认路由的接口索引比对。
+/// 只改跃点时"写了跃点"与"出口真的换了"是两件事——TUN/代理可能持有 metric=0
+/// 的默认路由，此时跃点写入成功但出口不动，必须靠这一步暴露。
+#[cfg(target_os = "windows")]
+fn outbound_route_targets(target_if_index: u32) -> Result<bool, String> {
+    let dest: std::net::Ipv4Addr = OUTBOUND_INTERNET_HEALTH_KEY
+        .parse()
+        .map_err(|e| format!("健康探测目标地址非法: {e}"))?;
+    crate::platform::best_route::best_route_if_index_v4(dest).map(|idx| idx == target_if_index)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn outbound_route_targets(_target_if_index: u32) -> Result<bool, String> {
+    Err("当前平台不支持默认出口查询".to_string())
+}
+
 /// 夜间出站切换动作（须在 spawn_blocking 线程内执行）：退避闸 → 选目标卡 → 读两族跃点
 /// → 快照落盘（metric/禁用名单，切换态成立的唯一凭据，落盘成功才进内存）
 /// → helper 写 Metric=1 → helper 禁用校园网卡。
@@ -534,17 +549,17 @@ pub(super) fn drive_pending_switch(
     Ok(())
 }
 
-/// 出站切换计划：根据本轮健康结果选择目标，并记录可还原的跃点与禁用名单。
+/// 出站切换计划：根据本轮健康结果选择目标，并记录可还原的跃点。
+/// 切换只写跃点（`SetIpInterfaceEntry`），**不禁用任何网卡**——禁卡会切断该卡、
+/// 使其无法继续登录，而只改跃点在真机实测 37–125ms 内即可完成出口迁移。
 struct OutboundSwitchPlan {
     /// 目标卡（出站切换的落点）
     target_name: String,
     target_guid: String,
+    /// 目标卡接口索引，用于切换后验证默认出口确实落在这张卡上
+    target_if_index: u32,
     /// 目标卡跃点行（构建计划时读到的原值；执行阶段读不到现值时作兜底快照）
     rows: Vec<MetricRow>,
-    /// 待临时禁用的校园网卡名单
-    campus_to_disable: Vec<DisabledRow>,
-    /// 空禁用名单是否该告警（有关系卡但一张校园网卡都没识别出来）
-    empty_disable_warn: bool,
 }
 
 /// 构建夜间出站切换计划：**纯只读**（选卡 + 绑源探测 + 读跃点 + 算禁用名单），
@@ -636,47 +651,11 @@ fn build_outbound_plan(
         crate::log_warn!("outbound", "夜间出站切换: {} 无 IPv4/IPv6 跃点行，本拍不切换", target.name);
         return Err(format!("网卡 {} 没有 IPv4/IPv6 跃点配置行", target.name));
     }
-    // 要临时禁用的校园网卡：目标卡之外、在生效优先级列表内（未排序默认无线
-    // 卡优先，全量参与）、在网且判定为校园网。
-    // bus_guard 平台注入（非 Windows 恒放行，本功能桌面侧仅 Windows 有完整实现）：
-    // 仅跳过「总线类型无法判定」的卡——USB 网卡不再排除（2026-10 用户确认其
-    // USB 副卡应参与禁用；运行期 disable/enable 对称性已实证，且 7:30 还原、
-    // 启动对账、看门狗、手动启用构成多重安全网）
-    #[cfg(target_os = "windows")]
-    let bus_guard: fn(&str) -> bool = crate::monitor::outbound_switch::unsafe_to_disable;
-    #[cfg(not(target_os = "windows"))]
-    let bus_guard: fn(&str) -> bool = |_| true;
-    let campus_to_disable = select_campus_to_disable(
-        &priority,
-        &candidates,
-        &config.campus_gateway,
-        &portal_host,
-        &target.guid,
-        probe,
-        bus_guard,
-    );
-    // 空禁用名单告警：有目标卡但没识别到任何可禁用的校园网卡——多半是绑源探测
-    // 把校园卡误判成非校园（网关禁 ICMP/瞬时丢包）或校园卡已离线。metric 写入对
-    // 无 TUN 场景仍有效，切换继续，但禁用没发生、代理不会跟随改绑：存在其他在网
-    // 优先级卡时每天提醒一次，让「整夜只切一半」可被发现（误判漏禁的唯一信号）。
-    // 结论进计划、告警留到执行阶段发（同 probe_ok）
-    let empty_disable_warn = if campus_to_disable.is_empty() {
-        let others_present = candidates.iter().any(|(a, _)| {
-            a.guid != target.guid && !a.ip.is_empty() && priority.contains(&a.name)
-        });
-        if others_present {
-            crate::log_warn!("outbound", "夜间出站切换: 有目标卡但未识别到校园网卡，本次未禁用任何网卡");
-        }
-        others_present
-    } else {
-        false
-    };
     Ok(OutboundSwitchPlan {
         target_name: target.name,
         target_guid: target.guid,
+        target_if_index: target.if_index,
         rows,
-        campus_to_disable,
-        empty_disable_warn,
     })
 }
 
@@ -717,28 +696,17 @@ pub(super) fn apply_outbound_switch_with_health(
             );
         }
     }
-    if plan.empty_disable_warn {
-        notify_outbound_issue_once_per_day(
-            app_handle,
-            &OUTBOUND_EMPTY_DISABLE_WARN_DAY,
-            "夜间出站切换可能未生效",
-            "未识别到校园网网卡，本次未临时禁用任何网卡；若出站仍走校园网，请检查校园网关配置",
-        );
-    }
     // 清掉历史版本遗留的待切换状态（旧登录闸写入的 waiting-login 行）：本版本不再
     // 产生挂起，残留只会让前端一直显示过期徽标，随后的切换落盘也会一并覆盖。
     set_pending_switch(app_handle, "");
-    let campus_to_disable = &plan.campus_to_disable;
     // 先落快照：落盘成功才认定切换态成立（沿夜切"落盘先行"语义，失败不 store 内存）。
     // 兜底路由字段不再写入：2026-10-18 事故后该能力废弃（同网关+接口的默认路由无法与
     // 目标卡自己的 DHCP 默认路由共存，Windows 判重复 → route add 每夜恒失败重放），
     // 历史值保留给还原步骤①按四元组精确清理，清空会让历史残留无人认领
     let state = app_handle.state::<AppState>();
     let metric_restore = snapshot_json(&plan.target_guid, &plan.rows);
-    let disabled_adapters = disabled_adapters_json(campus_to_disable);
     if let Err(e) = crate::config::persist::mutate_config_and_save(app_handle, &state, move |fresh| {
         fresh.outbound_metric_restore = metric_restore;
-        fresh.outbound_disabled_adapters = disabled_adapters;
         Ok(())
     }) {
         crate::log_warn!("outbound", "夜间出站切换: 切换态快照落盘失败: {e}");
@@ -746,73 +714,37 @@ pub(super) fn apply_outbound_switch_with_health(
     }
     crate::log_info!(
         "outbound",
-        "夜间出站切换: 目标卡 {} ({}), 已记录两族跃点快照（待禁用校园网卡 {} 张）",
+        "夜间出站切换: 目标卡 {} ({}), 已记录两族跃点快照",
         plan.target_name,
         plan.target_guid,
-        campus_to_disable.len(),
     );
     let families: Vec<u16> = plan.rows.iter().map(|r| r.family).collect();
-    let notify_suffix = if campus_to_disable.is_empty() {
-        String::new()
-    } else {
-        format!("，已临时禁用{}张校园网网卡", campus_to_disable.len())
-    };
     let mut all_ok = true;
     let mut fail_reasons: Vec<String> = Vec::new();
-    if let Err(reason) = write_outbound_metric(app_handle, &plan.target_name, &plan.target_guid, &families, true, &notify_suffix) {
+    if let Err(reason) = write_outbound_metric(app_handle, &plan.target_name, &plan.target_guid, &families, true, "") {
         all_ok = false;
         fail_reasons.push(format!("设置网卡 {} 跃点失败: {reason}", plan.target_name));
     }
-    // 禁用校园网卡（幂等：已禁用的卡重复 disable 无副作用）。失败记切换退避，
-    // 由补齐路径重试——名单已落盘，重试只补失败的卡
-    for row in campus_to_disable {
-        match run_helper_op("disable_adapter", std::slice::from_ref(&row.name), outbound_allow_uac()) {
-            Ok(()) => {
-                clear_outbound_channel_failure();
-                crate::log_info!("outbound", "夜间出站切换: 已临时禁用校园网卡 {}", row.name);
-            }
-            Err(failure) => {
-                note_channel_failure(&failure);
-                mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+    // 切换后路由级验证：动作成功 ≠ 效果达成。只改跃点时，默认出口必须真的离开
+    // 原卡、落到目标卡；若仍不是（典型是 TUN/代理接管了 metric=0 的默认路由），
+    // 判失败走退避重放，并明确指出原因，避免"日志说成功、实际没切"。
+    if all_ok {
+        match outbound_route_targets(plan.target_if_index) {
+            Ok(true) => crate::log_info!("outbound", "夜间出站切换: 路由验证通过，默认出口已指向 {}", plan.target_name),
+            Ok(false) => {
                 all_ok = false;
-                crate::log_warn!("outbound", "夜间出站切换: 禁用校园网卡 {} 失败: {}", row.name, failure.reason);
-                fail_reasons.push(format!("禁用校园网卡 {} 失败: {}", row.name, failure.reason));
+                mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+                crate::log_warn!(
+                    "outbound",
+                    "夜间出站切换: 路由验证失败——默认出口仍不在 {}（可能被 TUN/代理接管了默认路由）",
+                    plan.target_name
+                );
+                fail_reasons.push(format!(
+                    "默认出口仍未切到 {}（可能被 TUN/代理接管默认路由）",
+                    plan.target_name
+                ));
             }
-        }
-    }
-    // 切换后路由级验证：动作成功 ≠ 效果达成——到校园网关的最优路由若仍指向本次
-    // 判定为校园网的卡，说明禁用没有产生预期路由效果（netsh 谎报成功/路由表未
-    // 收敛），判失败走退避重放。TUN 活跃时最优路由是 TUN、天然通过。仅名单非空时
-    // 验证（名单为空=误判漏禁，由上面的空名单告警覆盖）；API 失败=无法验证，
-    // 不判失败（纯路由表查询，不产生流量）
-    if !campus_to_disable.is_empty() {
-        // 计划里只留 guid/name，if_index 从当前适配器快照重新取（廉价缓存查询）
-        let adapters = crate::network::get_adapters_cached().unwrap_or_default();
-        let campus_ifindexes: std::collections::HashSet<u32> = adapters
-            .iter()
-            .filter(|a| campus_to_disable.iter().any(|r| r.guid == a.guid))
-            .map(|a| a.if_index)
-            .collect();
-        match config.campus_gateway.parse::<std::net::Ipv4Addr>() {
-            Ok(dest) => match crate::platform::best_route::best_route_if_index_v4(dest) {
-                Ok(idx) if campus_ifindexes.contains(&idx) => {
-                    mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
-                    all_ok = false;
-                    crate::log_warn!(
-                        "outbound",
-                        "夜间出站切换: 路由验证失败——到校园网关的最优路由仍指向校园网卡(if {idx})，禁用可能未生效"
-                    );
-                    fail_reasons.push("路由验证失败——到校园网关的最优路由仍指向校园网卡，禁用可能未生效".to_string());
-                }
-                Ok(_) => {
-                    clear_outbound_channel_failure();
-                    crate::log_info!("outbound", "夜间出站切换: 路由验证通过，到校园网关的最优路由已离开校园网卡");
-                }
-                Err(e) => crate::log_debug!("outbound", "夜间出站切换: 路由验证跳过: {e}"),
-            },
-            Err(_) => {
-                crate::log_debug!("outbound", "夜间出站切换: 校园网关 {} 非合法 IPv4，路由验证跳过", config.campus_gateway)
-            }
+            Err(e) => crate::log_debug!("outbound", "夜间出站切换: 路由验证跳过: {e}"),
         }
     }
     if all_ok {
@@ -894,118 +826,11 @@ pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::con
             any_fail = true;
         }
     }
-    // —— 分支②：禁用补做 ——
-    // 快照损坏：补不了（无从知道该禁用哪些卡），跳过——还原路径会告警并保留状态
-    let disabled = match parse_disabled_adapters(&config.outbound_disabled_adapters) {
-        Ok(rows) => rows,
-        Err(e) => {
-            crate::log_warn!("outbound", "夜间出站切换: 禁用名单快照解析失败，跳过禁用补做: {e}");
-            Vec::new()
-        }
-    };
-    if !disabled.is_empty() {
-        let present: std::collections::HashSet<String> =
-            crate::network::get_adapters_cached().unwrap_or_default().into_iter().map(|a| a.name).collect();
-        for row in &disabled {
-            if !present.contains(&row.name) {
-                crate::log_debug!("outbound", "夜间出站切换: 禁用名单中的 {} 已不存在，跳过", row.name);
-                continue;
-            }
-            match run_helper_op("disable_adapter", std::slice::from_ref(&row.name), outbound_allow_uac()) {
-                Ok(()) => {
-                    clear_outbound_channel_failure();
-                    crate::log_info!("outbound", "夜间出站切换: 补做禁用校园网卡 {}", row.name);
-                }
-                Err(failure) => {
-                    note_channel_failure(&failure);
-                    any_fail = true;
-                    mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
-                    crate::log_warn!("outbound", "夜间出站切换: 补做禁用 {} 失败: {}", row.name, failure.reason);
-                }
-            }
-        }
-    }
     // 全部分支无新增失败：此前的失败已被补齐动作补救，清掉切换失败计数，
     // needs_replay 回稳态 false（否则每拍 60s 重放 + 提权空转直到天亮）
     if !any_fail {
         clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
     }
-}
-
-/// 夜间看门狗（P2-3）：切换态 ∧ 守护窗口内，逐行复核禁用名单——名单内校园网卡若
-/// 被外部重新启用（用户手动启用 / Windows 网络重置 / 驱动重装），此前无人再禁用，
-/// 校园线路恢复后 metric 压不住、切换被顶掉。发现即重新禁用（自然转换，通知一次）；
-/// 禁用失败记切换退避，由"未生效补齐"重放路径按退避重做。仅 None 拍调用
-/// （Switch/Restore 拍各自忙）；白天 / 非切换态 / 退避窗内直接返回。
-/// 名单快照损坏时无从复核，返回（损坏由还原路径告警）。
-/// 返回值恒为 Ok(())，仅为适配 [`run_outbound_blocking`] 的 `fn` 指针签名。
-pub(super) fn watchdog_re_disable_campus(app_handle: &AppHandle, config: &crate::config::Config) -> Result<(), String> {
-    // 同 replay：看门狗会重新禁用校园卡，与还原/手动切换并发会打乱快照状态。
-    // 每拍都会再调，拿不到闸直接跳过一次即可。
-    let Some(_busy) = OutboundActionGuard::try_acquire() else {
-        return Ok(());
-    };
-    if !config.enable_night_outbound_switch
-        || !outbound_restore_active(
-            &config.outbound_metric_restore,
-            &config.outbound_disabled_adapters,
-            &config.outbound_standby_route,
-        )
-    {
-        return Ok(());
-    }
-    let now = chrono::Local::now();
-    if !crate::config::outbound_switch::is_night_outbound_guard_window_with_restore(
-        config.enable_night_outbound_switch,
-        now.weekday().num_days_from_sunday(),
-        now.hour() * 60 + now.minute(),
-        // 原始值直传，归一化在判定函数内部完成
-        config.night_restore_minutes,
-    ) || !switch_gate_open()
-    {
-        return Ok(());
-    }
-    let Ok(disabled) = parse_disabled_adapters(&config.outbound_disabled_adapters) else {
-        return Ok(());
-    };
-    if disabled.is_empty() {
-        return Ok(());
-    }
-    let adapters = crate::network::get_adapters_cached().unwrap_or_default();
-    for row in &disabled {
-        // 卡不在枚举结果里（拔出/禁用后不可见）：无从判定状态，跳过
-        let Some(a) = adapters.iter().find(|a| a.name == row.name) else {
-            continue;
-        };
-        if matches!(a.status, crate::network::discovery::AdapterStatus::Disabled) {
-            continue; // 仍在禁用态：符合预期
-        }
-        // 状态非 Disabled = 被外部重新启用（EnabledNoIp/Disconnected 也说明有人动过）
-        match run_helper_op("disable_adapter", std::slice::from_ref(&row.name), outbound_allow_uac()) {
-            Ok(()) => {
-                clear_outbound_channel_failure();
-                crate::log_info!("outbound", "夜间看门狗: 校园网卡 {} 被外部重新启用，已自动再次禁用", row.name);
-                crate::infra::notification::emit_notification(
-                    app_handle,
-                    "夜间出站切换",
-                    &format!("校园网卡 {} 被重新启用，已自动再次禁用（夜间看门狗）", row.name),
-                    "mascot-portrait",
-                );
-            }
-            Err(failure) => {
-                note_channel_failure(&failure);
-                let count = mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
-                crate::log_warn!(
-                    "outbound",
-                    "夜间看门狗: 重新禁用 {} 失败(第 {count} 次)，{}s 后重试: {}",
-                    row.name,
-                    outbound_backoff_ms(count) / 1000,
-                    failure.reason
-                );
-            }
-        }
-    }
-    Ok(())
 }
 
 /// 夜间出站还原动作（须在 spawn_blocking 线程内执行）。切换态含快照，

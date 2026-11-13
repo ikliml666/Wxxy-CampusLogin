@@ -372,7 +372,7 @@
     "dnsResetFailed": "恢复自动获取失败",
     "dhcpRenewFailed": "DHCP 续租失败",
     "nightOutboundSwitch": "自动出站切换",
-    "nightOutboundSwitchDesc": "持续检测各网卡公网连通性；当前出口连续两轮失败且登录无法恢复时，按优先级切到可上网的非校园网卡。切换会临时禁用校园网卡，可手动还原，也会在下一恢复周期 {{time}} 自动还原",
+    "nightOutboundSwitchDesc": "持续检测各网卡公网连通性；当前出口连续两轮失败且登录无法恢复时，按优先级切到可上网的非校园网卡。切换只调整网卡跃点、不禁用任何网卡，原网卡恢复后自动切回，也可手动还原",
     "nightRestoreTime": "还原时刻",
     "nightRestoreTimeDesc": "次日恢复校园网出站并重新登录的时刻（默认 07:30）",
     "outboundBadge": "出站切换目标",

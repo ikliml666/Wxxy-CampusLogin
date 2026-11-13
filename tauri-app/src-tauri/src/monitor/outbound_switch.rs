@@ -135,11 +135,6 @@ pub struct DisabledRow {
     pub name: String,
 }
 
-/// 序列化待禁用校园网卡名单为 JSON。纯数据结构序列化不会失败，兜底返回 "[]"。
-pub fn disabled_adapters_json(rows: &[DisabledRow]) -> String {
-    serde_json::to_string(rows).unwrap_or_else(|_| "[]".to_string())
-}
-
 /// 解析禁用名单快照。空串 → 空名单（无禁用动作）；非法 JSON → Err——
 /// 「解析失败」≠「没有禁用动作」：按空处理会在快照损坏时静默放走仍被
 /// netsh 持久禁用的校园卡（还原流程会收尾清快照，此后无人认领），必须由
@@ -258,54 +253,6 @@ pub fn standby_route_cleanup(route: &StandbyRoute) -> Result<StandbyCleanup, Str
 #[cfg(not(target_os = "windows"))]
 pub fn standby_route_cleanup(_route: &StandbyRoute) -> Result<StandbyCleanup, String> {
     Ok(StandbyCleanup::AlreadyGone)
-}
-
-/// 该卡是否不能参与夜间禁用：实例 ID 都读不到的卡（总线无法判定）保守跳过。
-/// 注：USB 总线网卡不再排除——用户明确要求夜间禁用副适配器（本机副卡即 USB
-/// 2.5G 网卡），运行期 netsh disable/enable 对称已实证（2026-10-01 夜切日志），
-/// 7:30 还原/启动对账/看门狗/手动启用按钮（含 pnputil 设备级启用兜底）构成
-/// 安全网；跨重启残留由启动对账收敛。
-#[cfg(target_os = "windows")]
-pub(crate) fn unsafe_to_disable(guid: &str) -> bool {
-    crate::network::discovery::devnode::read_pnp_instance_id(guid).is_none()
-}
-
-/// 选出本次切换要临时禁用的校园网卡：在优先级列表内、已连接（有 IP）、判定为
-/// 校园网、有 GUID、非目标卡、总线可判定（经 `bus_guard` 注入：生产传
-/// [`unsafe_to_disable`]，单测传闭包），按优先级名序去重。
-pub fn select_campus_to_disable(
-    priority: &[String],
-    details: &[(Adapter, String)],
-    campus_gateway: &str,
-    portal_host: &str,
-    exclude_guid: &str,
-    gateway_probe: impl Fn(&str, &str) -> bool,
-    bus_guard: impl Fn(&str) -> bool,
-) -> Vec<DisabledRow> {
-    let mut rows: Vec<DisabledRow> = Vec::new();
-    for name in priority {
-        if rows.iter().any(|r| r.name == *name) {
-            continue; // 同名卡只取第一张
-        }
-        let Some((adapter, gateway)) = details.iter().find(|(a, _)| a.name == *name) else {
-            continue;
-        };
-        if adapter.guid == exclude_guid || adapter.guid.is_empty() {
-            continue;
-        }
-        // 无 IP（已断开/被禁用）的卡不值得禁用，跳过
-        if adapter.ip.is_empty() {
-            continue;
-        }
-        if !is_campus_adapter(&adapter.ip, gateway, campus_gateway, portal_host, &gateway_probe) {
-            continue;
-        }
-        if bus_guard(&adapter.guid) {
-            continue;
-        }
-        rows.push(DisabledRow { guid: adapter.guid.clone(), name: adapter.name.clone() });
-    }
-    rows
 }
 
 #[cfg(test)]
@@ -566,20 +513,6 @@ mod tests {
     }
 
     #[test]
-    fn disabled_adapters_json_round_trip() {
-        let rows = vec![
-            DisabledRow { guid: "{G1}".to_string(), name: "以太网".to_string() },
-            DisabledRow { guid: "{G2}".to_string(), name: "以太网 2".to_string() },
-        ];
-        let json = disabled_adapters_json(&rows);
-        assert_eq!(parse_disabled_adapters(&json).unwrap(), rows);
-        // 空串 → 空名单（无禁用动作）；非法 JSON → Err（快照损坏，调用方须告警）
-        assert!(parse_disabled_adapters("").unwrap().is_empty());
-        assert!(parse_disabled_adapters("not json").is_err());
-        assert_eq!(disabled_adapters_json(&[]), "[]");
-    }
-
-    #[test]
     fn standby_route_snapshot_parses_legacy_config_json() {
         // 历史配置的实际形态（2026-10-18 事故机器上的 outboundStandbyRoute 原文）：
         // 旧版本只读这个字段，本版本仍要能解析出四元组供精确清理
@@ -597,72 +530,6 @@ mod tests {
         );
         assert!(parse_standby_route("").is_none());
         assert!(parse_standby_route("bad").is_none());
-    }
-
-    #[test]
-    fn select_campus_to_disable_filters_everything_non_campus() {
-        // 场景：priority=[WLAN(目标), 以太网(校园), 以太网 2(校园,guard 命中),
-        // 以太网 3(非校园)]；目标卡/非校园卡/无 IP 卡/guard 命中卡都不入名单
-        let target = (adapter("WLAN", "{GT}", "192.168.43.10", true), "192.168.43.1".to_string());
-        let campus = (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string());
-        let campus_guarded = (adapter("以太网 2", "{G2}", "10.64.1.3", false), "10.64.60.1".to_string());
-        let off_campus = (adapter("以太网 3", "{G3}", "192.168.6.107", false), "192.168.6.1".to_string());
-        let ipless = (adapter("以太网 4", "{G4}", "", false), String::new());
-        let priority = vec![
-            "WLAN".to_string(),
-            "以太网".to_string(),
-            "以太网 2".to_string(),
-            "以太网 3".to_string(),
-            "以太网 4".to_string(),
-        ];
-        let details = vec![target, campus, campus_guarded, off_campus, ipless];
-        let rows = select_campus_to_disable(
-            &priority,
-            &details,
-            "10.64.60.1",
-            "",
-            "{GT}",
-            // 取消网段腿后校园卡靠绑源探测命中：10.64.x 两张校园卡可达，
-            // 目标是热点卡、以太网 3 是普通私网卡，均不可达
-            |_, src| src.starts_with("10.64."),
-            |g| g == "{G2}", // bus guard：{G2} 视为总线不可判定
-        );
-        assert_eq!(rows.len(), 1, "只应选中非目标的在网校园卡: {rows:?}");
-        assert_eq!(rows[0], DisabledRow { guid: "{G1}".to_string(), name: "以太网".to_string() });
-    }
-
-    #[test]
-    fn select_campus_to_disable_probe_reachable_counts_and_dedups() {
-        // 不同网段 但绑源可达校园网关 → 视为校园入选；重复名只取第一张
-        let a1 = (adapter("以太网", "{G1}", "192.168.6.109", false), "192.168.6.1".to_string());
-        let priority = vec!["以太网".to_string(), "以太网".to_string()];
-        let rows = select_campus_to_disable(
-            &priority,
-            &[a1],
-            "10.64.60.1",
-            "",
-            "{GT}",
-            |_, _| true,
-            |_| false,
-        );
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].guid, "{G1}");
-    }
-
-    #[test]
-    fn select_campus_to_disable_unknown_bus_is_skipped() {
-        // 实例 ID 读不到的卡（总线无法判定）保守跳过：bus_guard 返回 true → 不入名单
-        let campus = (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string());
-        let rows = select_campus_to_disable(
-            &["以太网".to_string()],
-            &[campus],
-            "10.64.60.1",
-            "",
-            "{GT}",
-            |_, _| false,
-            |_| true,
-        );
-        assert!(rows.is_empty());
     }
 
     #[test]

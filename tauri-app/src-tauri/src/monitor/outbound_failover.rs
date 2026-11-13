@@ -22,6 +22,10 @@ struct FailoverState {
     recovery_adapter: Option<String>,
     recovery_result: Option<RecoveryOutcome>,
     recovery_attempted: bool,
+    /// 切换态下正在判定"能否切回"的原校园网出口
+    switch_back_adapter: Option<String>,
+    /// 该出口连续健康的轮数
+    switch_back_rounds: u32,
 }
 
 static STATE: std::sync::Mutex<FailoverState> = std::sync::Mutex::new(FailoverState {
@@ -31,6 +35,8 @@ static STATE: std::sync::Mutex<FailoverState> = std::sync::Mutex::new(FailoverSt
     recovery_adapter: None,
     recovery_result: None,
     recovery_attempted: false,
+    switch_back_adapter: None,
+    switch_back_rounds: 0,
 });
 
 fn next_failure_round(state: &FailoverState, adapter: &str, healthy: bool) -> u32 {
@@ -251,15 +257,92 @@ fn persist_failover_hold(app_handle: &AppHandle, config: &Config) {
     }
 }
 
+/// 切换态下的切回判定：原校园网出口连续 [`REQUIRED_FAILURE_ROUNDS`] 轮公网可达时，
+/// 写回跃点快照把出口还原。滞回两轮，避免原卡闪断时在两块卡之间来回切。
+fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
+    let Some(current_name) = current_outbound_name() else {
+        reset_state();
+        return;
+    };
+    let adapters = match crate::network::get_adapters_cached() {
+        Ok(adapters) => adapters,
+        Err(e) => {
+            crate::log_debug!("outbound", "切回判定获取适配器失败: {e}");
+            reset_state();
+            return;
+        }
+    };
+    let (adapter1, adapter2) = crate::network::resolve_adapter_names(&adapters, config);
+    let managed: Vec<(Adapter, String)> = adapters
+        .iter()
+        .filter(|adapter| !adapter.ip.is_empty() && adapter.name != current_name)
+        .filter(|adapter| is_managed_adapter(config, &adapter.name, &adapter1, &adapter2))
+        .map(|adapter| (adapter.clone(), String::new()))
+        .collect();
+    if managed.is_empty() {
+        reset_state();
+        return;
+    }
+    let health = probe_internet_access(app_handle, config, &managed, Some(&current_name));
+    let recovered = managed
+        .iter()
+        .find(|(adapter, _)| health.get(&adapter.ip).copied().unwrap_or(false))
+        .map(|(adapter, _)| adapter.name.clone());
+    let (recovered_name, rounds) = {
+        let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+        match recovered {
+            Some(name) if state.switch_back_adapter.as_deref() == Some(name.as_str()) => {
+                state.switch_back_rounds = state.switch_back_rounds.saturating_add(1);
+                (name, state.switch_back_rounds)
+            }
+            Some(name) => {
+                state.switch_back_adapter = Some(name.clone());
+                state.switch_back_rounds = 1;
+                (name, 1)
+            }
+            None => {
+                state.switch_back_adapter = None;
+                state.switch_back_rounds = 0;
+                return;
+            }
+        }
+    };
+    if rounds < REQUIRED_FAILURE_ROUNDS {
+        crate::log_debug!(
+            "outbound",
+            "原出口 {} 恢复中（{}/{} 轮）",
+            recovered_name,
+            rounds,
+            REQUIRED_FAILURE_ROUNDS
+        );
+        return;
+    }
+    crate::log_info!(
+        "outbound",
+        "原出口 {} 连续 {} 轮公网可达，写回跃点切回原出口",
+        recovered_name,
+        rounds
+    );
+    match super::outbound_night::apply_outbound_restore(app_handle, config) {
+        Ok(()) => {
+            reset_state();
+            crate::log_info!("outbound", "已切回原出口 {}", recovered_name);
+        }
+        Err(e) => crate::log_warn!("outbound", "切回原出口失败: {e}"),
+    }
+}
+
 /// scheduled 30s 编排的统一入口：夜间切换时刻只是本函数的一次额外触发。
 /// 登录恢复跨拍完成，scheduled 不会因认证请求阻塞数十秒。
 pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config) {
     let today = chrono::Local::now().date_naive().num_days_from_ce();
-    if !config.enable_night_outbound_switch
-        || config.outbound_manual_hold_day == today
-        || super::outbound_night::outbound_switch_active(app_handle)
-    {
+    if !config.enable_night_outbound_switch || config.outbound_manual_hold_day == today {
         reset_state();
+        return;
+    }
+    // 已在切换态：只判定"原校园网出口是否已恢复、该切回"，不再触发新的故障切换。
+    if super::outbound_night::outbound_switch_active(app_handle) {
+        evaluate_switch_back(app_handle, config);
         return;
     }
     if STATE.lock().unwrap_or_else(|e| e.into_inner()).recovery_running {

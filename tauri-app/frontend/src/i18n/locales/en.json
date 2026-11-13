@@ -372,7 +372,7 @@
     "dnsResetFailed": "Failed to Restore Auto DNS",
     "dhcpRenewFailed": "DHCP renew failed",
     "nightOutboundSwitch": "Automatic Outbound Switch",
-    "nightOutboundSwitchDesc": "Monitors each adapter's internet access. After two failed rounds and unsuccessful login recovery, switches to the highest-priority reachable non-campus adapter. Campus adapters are temporarily disabled; manual restore is available, and automatic restore runs in the next restore window at {{time}}",
+    "nightOutboundSwitchDesc": "Monitors each adapter's internet access. After two failed rounds and unsuccessful login recovery, switches to the highest-priority reachable non-campus adapter by adjusting interface metrics only — no adapter is disabled. When the original adapter recovers it switches back automatically; manual restore is also available",
     "nightRestoreTime": "Restore Time",
     "nightRestoreTimeDesc": "When campus outbound is restored and re-logged-in the next morning (default 07:30)",
     "outboundBadge": "Outbound Switch Target",

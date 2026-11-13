@@ -24,7 +24,7 @@
 use super::outbound_night::{
     apply_outbound_restore, drive_pending_switch, needs_replay,
     outbound_switch_active, reconcile_outbound_on_startup,
-    replay_outbound_switch, run_outbound_blocking, watchdog_re_disable_campus,
+    replay_outbound_switch, run_outbound_blocking,
     OUTBOUND_SWITCH_FAIL_COUNT,
 };
 use super::outbound_failover::{evaluate_outbound_failover, outbound_failover_pending};
@@ -174,15 +174,6 @@ pub async fn run_scheduled_action_loop(
                     )
                     .await;
                 }
-                // 夜间看门狗：guard 窗口 ∧ 切换态下复核禁用名单，名单内校园网卡被
-                // 外部重新启用（用户手动启用/网络重置/驱动重装）时重新禁用（P2-3）。
-                // 提权结果轮询最长 30s/卡，与其他出站动作一样下放阻塞线程池
-                let _ = run_outbound_blocking(
-                    app_h.clone(),
-                    config_snapshot.clone(),
-                    watchdog_re_disable_campus,
-                )
-                .await;
             }
         }
         // 每拍统一评估出口健康；夜间 Switch 只是这里的一次额外触发，不再直接强制切卡。
