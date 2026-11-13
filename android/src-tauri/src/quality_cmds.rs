@@ -133,12 +133,29 @@ async fn latency_loop(app: tauri::AppHandle, settings: crate::config_state::Sett
     // 「先检测、后 sleep 当前间隔」:原实现每轮循环内重建 interval 只 await 首
     // tick(新建计时器首 tick 立即到期),等待从未真正发生——退避翻倍后仍按连发
     // 节奏打外网。改用 sleep 放循环尾部,天然支持退避变周期,无首 tick 陷阱
+    // 启动期让路:应用刚起来时用户多在点登录/看状态,首轮 19 项检测会和登录、
+    // Portal 探测抢校园网关的新连接(真机日志里的 6s 超时全部落在这个窗口)。
+    // 首轮延后 15s,之后按正常间隔走。
+    const FIRST_ROUND_DELAY_MS: u64 = 15_000;
+    let mut first_round = true;
     loop {
         if !LATENCY_RUNNING.load(Ordering::Relaxed)
             || !LATENCY_GENERATION.is_current(gen)
             || cancel.is_cancelled()
         {
             break;
+        }
+        if first_round {
+            first_round = false;
+            if run_with_cancellation(
+                tokio::time::sleep(std::time::Duration::from_millis(FIRST_ROUND_DELAY_MS)),
+                Some(&cancel),
+            )
+            .await
+            .is_none()
+            {
+                break;
+            }
         }
         let Some(result) = run_with_cancellation(run_quality_once(&app), Some(&cancel)).await else {
             break;

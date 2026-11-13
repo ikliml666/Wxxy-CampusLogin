@@ -766,7 +766,12 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
         ("douyinLive", "live.douyin.com"),
     ];
 
-    // HTTPS 测试分批并发：每批最多 4 个，减少校园网环境下并发 TLS 握手竞争带宽导致延迟叠加
+    // HTTPS 测试分批并发：每批最多 4 个，减少校园网环境下并发 TLS 握手竞争带宽导致延迟叠加。
+    // 安卓再压一档：请求要经本地旁路代理转发，启动期与登录/Portal 探测抢网关时
+    // 4 路 TLS 握手更容易把新连接挤掉。
+    #[cfg(target_os = "android")]
+    const HTTPS_BATCH_SIZE: usize = 2;
+    #[cfg(not(target_os = "android"))]
     const HTTPS_BATCH_SIZE: usize = 4;
     let mut phase2_results: Vec<LatencyResult> = Vec::new();
     for batch in https_hosts.chunks(HTTPS_BATCH_SIZE) {

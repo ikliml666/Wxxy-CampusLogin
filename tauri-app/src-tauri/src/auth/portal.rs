@@ -8,7 +8,12 @@ mod portal_config {
 
     /// HTTP 客户端创建超时
     pub const CLIENT_TIMEOUT: Duration = Duration::from_secs(8);
-    /// 单次 HTTP 请求超时
+    /// 单次 HTTP 请求超时。安卓比桌面多一跳本地旁路代理(127.0.0.1 转发 +
+    /// SO_BINDTODEVICE 重建上游连接),同一 3s 窗口更容易被启动期并发打满,
+    /// 真机日志里 Portal 探测失败都集中在这个窗口,故安卓放宽到 5s。
+    #[cfg(target_os = "android")]
+    pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+    #[cfg(not(target_os = "android"))]
     pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 
     // 页面特征字符串
@@ -126,9 +131,9 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>) -> Result
         PageCheckResult::Unknown => {
             Ok(handle_unknown_page_status(adapter_name, adapter_ip))
         }
-        PageCheckResult::Failed => {
-            log_portal_page_failed(adapter_name, adapter_ip);
-            Ok(build_request_failed_status())
+        PageCheckResult::Failed(failure) => {
+            log_portal_page_failed(adapter_name, adapter_ip, failure);
+            Ok(build_request_failed_status(failure))
         }
     }
 }
@@ -175,14 +180,14 @@ fn build_determined_status(online: bool, uid: Option<String>) -> PortalStatus {
 }
 
 /// 构建"页面请求失败"的 PortalStatus
-fn build_request_failed_status() -> PortalStatus {
+fn build_request_failed_status(failure: PortalFailure) -> PortalStatus {
     PortalStatus {
         reachable: false,
         login_available: false,
         online: false,
-        message: "Portal页面请求失败".to_string(),
+        message: failure.message().to_string(),
         uid: None,
-        error_kind: Some("request_failed".to_string()),
+        error_kind: Some(failure.error_kind().to_string()),
     }
 }
 
@@ -192,7 +197,52 @@ enum PageCheckResult {
     /// (是否在线, 页面携带的 uid——完整在线账号=账号+运营商后缀)
     Determined(bool, Option<String>),
     Unknown,
-    Failed,
+    Failed(PortalFailure),
+}
+
+/// 探测失败的具体原因:超时/连不上/其它(状态码异常、响应体读不出)。
+/// 三者对用户的含义完全不同,不能都报「Portal 不可达」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PortalFailure {
+    Timeout,
+    Connect,
+    Other,
+}
+
+impl PortalFailure {
+    fn from_reqwest_error(e: &reqwest::Error) -> Self {
+        if e.is_timeout() {
+            PortalFailure::Timeout
+        } else if e.is_connect() {
+            PortalFailure::Connect
+        } else {
+            PortalFailure::Other
+        }
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            PortalFailure::Timeout => "Portal 响应超时",
+            PortalFailure::Connect => "Portal 不可达",
+            PortalFailure::Other => "Portal页面请求失败",
+        }
+    }
+
+    fn error_kind(self) -> &'static str {
+        match self {
+            PortalFailure::Timeout => "timeout",
+            PortalFailure::Connect => "unreachable",
+            PortalFailure::Other => "request_failed",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            PortalFailure::Timeout => "超时",
+            PortalFailure::Connect => "连接失败",
+            PortalFailure::Other => "页面异常",
+        }
+    }
 }
 
 fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckResult {
@@ -211,8 +261,9 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
     ) {
         Ok(r) => r,
         Err(e) => {
-            crate::log_warn!("network", "Portal页面请求失败: {}", e);
-            return PageCheckResult::Failed;
+            let failure = PortalFailure::from_reqwest_error(&e);
+            crate::log_warn!("network", "Portal页面请求失败({}): {}", failure.label(), e);
+            return PageCheckResult::Failed(failure);
         }
     };
 
@@ -220,14 +271,14 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
     // （历史缺陷：状态码未校验，错误页无登录特征时被当作 Unknown/Offline）
     if !resp.status().is_success() {
         crate::log_warn!("network", "Portal页面请求状态异常: {}", resp.status());
-        return PageCheckResult::Failed;
+        return PageCheckResult::Failed(PortalFailure::Other);
     }
 
     // 复用协议路径的限长读取（1MB 上限 + charset 解码），防止异常 Portal 无限响应体
     // 读取失败/超限时 read_bounded_body 返回空串并已告警，按请求失败处理
     let html = crate::auth::protocol::read_bounded_body(resp, "Portal页面");
     if html.is_empty() {
-        return PageCheckResult::Failed;
+        return PageCheckResult::Failed(PortalFailure::Other);
     }
 
     crate::log_debug!("network", "Portal页面响应长度: {}", html.len());
@@ -318,9 +369,9 @@ fn log_portal_page_result(elapsed: std::time::Duration, adapter_name: Option<&st
         elapsed.as_millis(), adapter_name.unwrap_or("unknown"), adapter_ip, status.online, status.message);
 }
 
-fn log_portal_page_failed(adapter_name: Option<&str>, adapter_ip: &str) {
-    crate::log_debug!("network", "Portal页面请求失败: adapter={}, ip={}",
-        adapter_name.unwrap_or("unknown"), adapter_ip);
+fn log_portal_page_failed(adapter_name: Option<&str>, adapter_ip: &str, failure: PortalFailure) {
+    crate::log_debug!("network", "Portal页面请求失败({}): adapter={}, ip={}",
+        failure.label(), adapter_name.unwrap_or("unknown"), adapter_ip);
 }
 
 fn log_portal_no_credentials(adapter_name: Option<&str>, adapter_ip: &str) {
@@ -437,12 +488,21 @@ mod tests {
 
     #[test]
     fn build_request_failed_status_correct() {
-        let status = build_request_failed_status();
+        let status = build_request_failed_status(PortalFailure::Other);
         assert!(!status.reachable);
         assert!(!status.login_available);
         assert!(!status.online);
         assert_eq!(status.message, "Portal页面请求失败");
         assert_eq!(status.error_kind, Some("request_failed".to_string()));
+
+        // 超时与连不上必须和「页面异常」区分开:界面文案不同,排障也据此分流
+        let timeout = build_request_failed_status(PortalFailure::Timeout);
+        assert_eq!(timeout.message, "Portal 响应超时");
+        assert_eq!(timeout.error_kind, Some("timeout".to_string()));
+
+        let unreachable = build_request_failed_status(PortalFailure::Connect);
+        assert_eq!(unreachable.message, "Portal 不可达");
+        assert_eq!(unreachable.error_kind, Some("unreachable".to_string()));
     }
 
     #[test]
