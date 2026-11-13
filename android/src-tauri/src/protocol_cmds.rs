@@ -24,14 +24,15 @@ pub async fn check_portal_status(
     .map_err(|e| format!("Portal 探测任务执行失败: {e}"))?
 }
 
+/// Portal 探测的源 IP:按当前接口实时算并回写缓存(缓存值在 WiFi 换网后会滞留旧网段)。
 fn cached_adapter_ip(
     state: &tauri::State<'_, crate::android_state::AndroidState>,
 ) -> Option<String> {
-    state
-        .cached_source_ip
-        .lock()
-        .ok()
-        .and_then(|cached| cached.map(|ip| ip.to_string()))
+    let current = crate::campus_detect::current_source_ip();
+    if let Ok(mut cached) = state.cached_source_ip.lock() {
+        *cached = current;
+    }
+    current.map(|ip| ip.to_string())
 }
 
 #[tauri::command]

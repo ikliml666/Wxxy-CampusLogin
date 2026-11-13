@@ -54,6 +54,9 @@ pub struct MonitorState {
     /// 本次在线周期内自动重连次数(达 max_disconnect_reconnect 暂停,回到在线清零)
     pub reconnect_count: AtomicU32,
     pub last_login_attempt_ms: AtomicU64,
+    /// 最近一次登录成功(含手动登录)的 epoch ms:本拍探测开始后成功过,
+    /// 说明本拍 online 是登录前的旧结论,不再发起自动重登
+    pub last_login_success_ms: AtomicU64,
     pub was_online: AtomicBool,
     pub last_result: Mutex<Option<serde_json::Value>>,
     /// 运行中循环的目标检测间隔(ms):start_background_check 每次调用刷新,
@@ -1158,6 +1161,10 @@ pub async fn run_check_once(ctx: &CoreCtx) {
         ProbeWindowGuard(ctx.clone())
     };
 
+    // 本拍探测起点:探测结果到判定之间若已经登录成功(手动登录,或 WiFi 事件
+    // 触发的另一条自动登录),本拍的 online 就是登录前的旧结论
+    let tick_start_ms = crate::core::platform::now_ms();
+
     // 每拍探测/Portal 探测/掉线自动重登前强制绑 WiFi(同 auto_login_on_start;
     // WiFi 未认证被降分后默认路由可能落蜂窝)
     ctx.ensure_wifi_bound().await;
@@ -1240,7 +1247,13 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     let since = now.saturating_sub(MONITOR.last_login_attempt_ms.load(Ordering::Relaxed));
     let logout_protected = now < MONITOR.logout_protected_until_ms.load(Ordering::Relaxed);
     let failures_capped = MONITOR.consecutive_failures.load(Ordering::Relaxed) >= 5;
-    let should = !logout_protected
+    // 本拍探测开始后刚登录成功就别再登一次:真机日志里紧跟手动登录的第二次
+    // 请求会挂满 15s 客户端超时(portal 侧对同 IP 重复认证无响应),再重试才成功,
+    // 用户看到的是按钮卡住十几秒
+    let logged_in_during_tick =
+        MONITOR.last_login_success_ms.load(Ordering::Relaxed) >= tick_start_ms;
+    let should = !logged_in_during_tick
+        && !logout_protected
         && !failures_capped
         && should_attempt_login(
             online,

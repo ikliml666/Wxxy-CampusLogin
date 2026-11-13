@@ -36,6 +36,31 @@ pub fn pick_campus_source_ip(interfaces: &[(String, IpAddr)]) -> Option<Ipv4Addr
         .map(|(_, ip)| *ip)
 }
 
+/// 展开网卡列表为 (接口名, IPv4) 对:源地址挑选与探测共用同一份枚举口径。
+fn flatten_v4(interfaces: &[network_interface::NetworkInterface]) -> Vec<(String, IpAddr)> {
+    interfaces
+        .iter()
+        .flat_map(|i| {
+            i.addr
+                .iter()
+                .filter_map(|a| match a {
+                    network_interface::Addr::V4(v4) => Some(v4.ip),
+                    _ => None,
+                })
+                .map(move |ip| (i.name.clone(), IpAddr::V4(ip)))
+        })
+        .collect()
+}
+
+/// 登录/探测实际使用的源 IPv4:每次按当前接口重新挑。
+/// 不能当缓存事实用——WiFi 换网后旧网段的地址会滞留,拿它绑定本地地址时
+/// 请求根本发不出去,要等满 15s 连接超时才失败(真机日志只留下
+/// `error sending request for url`,没有任何可用线索)。
+pub fn current_source_ip() -> Option<Ipv4Addr> {
+    let interfaces = network_interface::NetworkInterface::show().ok()?;
+    pick_campus_source_ip(&flatten_v4(&interfaces))
+}
+
 /// Portal 服务器 TCP 可达性(替代 ICMP ping;portal 可达即视为校园网连通)。
 /// 连接被拒/超时 = 不通(返回 false),非调用错误。
 /// Android 走 bound_socket::tcp_connect_bounded:全量 VPN(Clash/UU 等)接管流量时,
@@ -65,18 +90,7 @@ pub struct CampusProbe {
 pub async fn probe_campus(campus_gateway: &str, portal_url: &str) -> Result<CampusProbe, String> {
     let interfaces = network_interface::NetworkInterface::show()
         .map_err(|e| format!("枚举网卡失败: {e}"))?;
-    let flat: Vec<(String, IpAddr)> = interfaces
-        .iter()
-        .flat_map(|i| {
-            i.addr
-                .iter()
-                .filter_map(|a| match a {
-                    network_interface::Addr::V4(v4) => Some(v4.ip),
-                    _ => None,
-                })
-                .map(move |ip| (i.name.clone(), IpAddr::V4(ip)))
-        })
-        .collect();
+    let flat = flatten_v4(&interfaces);
     let source = pick_campus_source_ip(&flat);
 
     // WiFi 未连接短路(2026-10-02 真机反馈:WiFi 关闭后检测一直在继续):无

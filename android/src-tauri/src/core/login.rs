@@ -42,6 +42,9 @@ impl LoginAttempt {
             monitor.was_online.store(true, Ordering::Relaxed);
             monitor.logout_protected_until_ms.store(0, Ordering::Relaxed);
             monitor.consecutive_failures.store(0, Ordering::Relaxed);
+            monitor
+                .last_login_success_ms
+                .store(crate::core::platform::now_ms(), Ordering::Relaxed);
         }
     }
 }

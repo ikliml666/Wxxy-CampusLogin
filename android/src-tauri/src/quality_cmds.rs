@@ -25,13 +25,18 @@ async fn run_quality_once(app: &tauri::AppHandle) -> NetworkQualityResult {
     let settings = crate::config_state::current_settings(app)
         .await
         .unwrap_or_default();
-    let adapter_ip = app
-        .state::<crate::android_state::AndroidState>()
-        .cached_source_ip
-        .lock()
-        .ok()
-        .and_then(|cached| cached.map(|ip| ip.to_string()))
-        .unwrap_or_default();
+    // 源 IP 按当前接口实时算:缓存值在 WiFi 换网后会滞留旧网段,绑它连不出去
+    let adapter_ip = {
+        let current = crate::campus_detect::current_source_ip();
+        if let Ok(mut cached) = app
+            .state::<crate::android_state::AndroidState>()
+            .cached_source_ip
+            .lock()
+        {
+            *cached = current;
+        }
+        current.map(|ip| ip.to_string()).unwrap_or_default()
+    };
     let is_quitting = Arc::new(AtomicBool::new(false));
     let result = check_network_quality_async(
         "wlan0",

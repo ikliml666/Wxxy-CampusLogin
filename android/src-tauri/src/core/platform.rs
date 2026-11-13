@@ -165,11 +165,13 @@ impl CoreCtx {
         }
     }
 
+    /// 登录/注销要用的源 IPv4:按当前接口实时算,再回写缓存。
+    /// 缓存只在探测那一刻成立,WiFi 换网后会滞留旧网段地址——拿它绑定本地
+    /// 地址时请求发不出去,要等满连接超时才报 `error sending request`。
     pub fn cached_source_ip(&self) -> Option<String> {
-        self.cached_source_ip
-            .lock()
-            .ok()
-            .and_then(|cached| cached.map(|ip| ip.to_string()))
+        let current = crate::campus_detect::current_source_ip();
+        self.cache_source_ip(current);
+        current.map(|ip| ip.to_string())
     }
 
     /// 绑定本进程(实际发起登录的 :core 进程)网络到 WiFi;JNI 阻塞调用走 spawn_blocking

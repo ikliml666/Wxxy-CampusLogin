@@ -56,12 +56,9 @@ pub(crate) fn ensure_identity_gate(settings: &crate::config_state::Settings) -> 
     }
 }
 
-fn local_addr_of(state: &tauri::State<'_, crate::android_state::AndroidState>) -> Option<std::net::IpAddr> {
-    state
-        .cached_source_ip
-        .lock()
-        .ok()
-        .and_then(|cached| cached.map(std::net::IpAddr::from))
+/// 自服务请求的绑定源地址:按当前接口实时算(缓存值在 WiFi 换网后会滞留旧网段)。
+fn local_addr_of(_state: &tauri::State<'_, crate::android_state::AndroidState>) -> Option<std::net::IpAddr> {
+    crate::campus_detect::current_source_ip().map(std::net::IpAddr::from)
 }
 
 /// 前端在生物识别/2D 人脸**认证成功后**调用;后端据 success 记 TTL 时间戳。
