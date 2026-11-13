@@ -474,8 +474,9 @@ pub(crate) fn auto_create_account_for_current(state: &AppState, app_handle: &App
 
 /// 自动建号核心（不依赖 AppHandle，可单测），规则见计划 §4.2：
 /// 1. user 或 password 为空 → 跳过；
-/// 2. id = sanitize(user)，为空 → 跳过；
-/// 3. 账号文件不存在 → 以当前配置快照创建，displayName = 原始 user 文本；
+/// 2. 目标档案：sanitize(user) 已有档案 → 用它；否则已有档案承载同一 user
+///    （用户以自定义 id 手工建过档）→ 写入那一份，不另建；都没有 → 新建；
+/// 3. 目标档案不存在 → 以当前配置快照创建，displayName = 原始 user 文本；
 /// 4. 已存在且 user 原文不同 → 撞库（不同用户名 sanitize 出同一 id），跳过并
 ///    log_warn，绝不覆盖他人账号凭据；
 /// 5. 已存在且 user 一致 → 读回比对 password/operator：一致则跳过（幂等短路，
@@ -492,19 +493,34 @@ fn auto_create_account_in(data_dir: &Path, config: &Config) -> Result<bool, Stri
         return Ok(false);
     }
 
-    if !persist::get_account_path(data_dir, &id).exists() {
+    // 按学号推导的 id 没有档案时，先看是否已有承载同一学号的档案：用户可能在账号页
+    // 用自定义 id 手工建过档（账号名 1 + 学号 24385214），再按学号建档就会出现两张
+    // 同学号卡片。命中则写入那一份。
+    let target_id = if persist::get_account_path(data_dir, &id).exists() {
+        id
+    } else {
+        match persist::list_account_items(data_dir)
+            .into_iter()
+            .find(|item| !item.user.is_empty() && item.user == config.user)
+        {
+            Some(item) => item.id,
+            None => id,
+        }
+    };
+
+    if !persist::get_account_path(data_dir, &target_id).exists() {
         let mut snapshot = config.clone();
         snapshot.display_name = config.user.clone();
-        snapshot.active_account = id.clone();
-        return persist::save_account_config(data_dir, &id, &snapshot).map(|_| true);
+        snapshot.active_account = target_id.clone();
+        return persist::save_account_config(data_dir, &target_id, &snapshot).map(|_| true);
     }
 
-    let existing = persist::load_account_config(data_dir, &id)?;
+    let existing = persist::load_account_config(data_dir, &target_id)?;
     if existing.user != config.user {
         crate::log_warn!(
             "account",
             "自动建号跳过: 账号 {} 已属于用户 {}，与当前输入用户名不同，不覆盖其凭据",
-            id,
+            target_id,
             existing.user
         );
         return Ok(false);
@@ -516,7 +532,7 @@ fn auto_create_account_in(data_dir: &Path, config: &Config) -> Result<bool, Stri
     updated.user = config.user.clone();
     updated.password = config.password.clone();
     updated.operator = config.operator.clone();
-    persist::save_account_config(data_dir, &id, &updated).map(|_| true)
+    persist::save_account_config(data_dir, &target_id, &updated).map(|_| true)
 }
 
 #[cfg(test)]
@@ -710,6 +726,29 @@ mod tests {
         let loaded = load_account_config(&dir, "2023_1").unwrap();
         assert_eq!(loaded.user, "2023.1", "既有账号的 user 原文保持不变");
         assert_eq!(loaded.password, "pwd-old", "既有账号的密码不被覆盖");
+    }
+
+    /// 回归：账号页「添加登录信息」用自定义账号名建过档（账号名 1 + 学号 24385214）后，
+    /// save_config 触发的自动建号曾再按学号建一份 24385214 档案，账号列表出现两张
+    /// 同学号卡片。修复后写入既有档案，不再新建。
+    #[test]
+    fn auto_create_reuses_existing_account_with_same_user() {
+        let dir = temp_data_dir("auto_same_user");
+        save_account_config(&dir, "1", &sample_account("24385214", "pwd-old", "1")).unwrap();
+
+        let config = sample_account("24385214", "pwd-new", "");
+        assert!(auto_create_account_in(&dir, &config).unwrap(), "命中既有档案算实际写盘");
+
+        let items = list_account_items(&dir);
+        assert_eq!(items.len(), 1, "同一学号不得出现第二个档案");
+        assert_eq!(items[0].id, "1");
+        assert_eq!(items[0].display_name, "1", "保留用户自定义显示名");
+        assert!(!get_account_path(&dir, "24385214").exists(), "不得按学号另建档案");
+        assert_eq!(
+            load_account_config(&dir, "1").unwrap().password,
+            "pwd-new",
+            "凭据同步进既有档案"
+        );
     }
 
     /// F1 路径穿越防护：非法 id（../config、a/b）在核心层即被拒绝，

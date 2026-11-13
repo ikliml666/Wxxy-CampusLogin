@@ -411,9 +411,10 @@ pub async fn auto_create_account_for_current(app: &tauri::AppHandle, current: &S
 
 /// 自动建号核心(不依赖 AppHandle,可单测),规则与桌面 auto_create_account_in 同构:
 /// 1. user 或 password 为空 → 跳过;
-/// 2. id = sanitize_account_id(user),为空 → 跳过;
-/// 3. 账号文件不存在 → 以当前配置快照创建,display_name = 原始 user 文本,
-///    文件内 active_account = id;
+/// 2. 目标档案:sanitize_account_id(user) 已有档案 → 用它;否则已有档案承载同一
+///    user(用户以自定义 id 手工建过档) → 写入那一份,不另建;都没有 → 新建;
+/// 3. 目标档案不存在 → 以当前配置快照创建,display_name = 原始 user 文本,
+///    文件内 active_account = 该 id;
 /// 4. 已存在且 user 原文不同 → 撞库(不同用户名 sanitize 出同一 id),跳过并
 ///    log_warn,绝不覆盖他人账号凭据;
 /// 5. 已存在且 user 一致 → 读回比对 password/operator:一致则跳过(幂等短路,
@@ -432,11 +433,24 @@ async fn auto_create_account_in(
     if id.is_empty() {
         return Ok(());
     }
-    let path = dir.join(format!("{id}.json"));
+    // 按学号推导的 id 没有档案时,先看是否已有承载同一学号的档案:用户可能用自定义
+    // id 手工建过档(账号名 1 + 学号 24385214),再按学号建档会出现两张同学号卡片。
+    let target_id = if dir.join(format!("{id}.json")).exists() {
+        id
+    } else {
+        match list_account_items_sync(dir)
+            .into_iter()
+            .find(|item| !item.user.is_empty() && item.user == config.user)
+        {
+            Some(item) => item.id,
+            None => id,
+        }
+    };
+    let path = dir.join(format!("{target_id}.json"));
     if !path.exists() {
         let mut snapshot = config.clone();
         snapshot.display_name = config.user.clone();
-        snapshot.active_account = id;
+        snapshot.active_account = target_id.clone();
         return config_state::save_file(&path, bridge, &snapshot).await;
     }
     let existing = config_state::load_file(&path, bridge).await?;
@@ -444,7 +458,7 @@ async fn auto_create_account_in(
         campus_login_lib::log_warn!(
             "account",
             "自动建号跳过: 账号 {} 已属于用户 {}，与当前输入用户名不同，不覆盖其凭据",
-            id,
+            target_id,
             existing.user
         );
         return Ok(());
@@ -645,6 +659,30 @@ mod tests {
         assert_eq!(loaded.password, "pwd-new", "有差异时更新凭据");
         assert_eq!(loaded.display_name, "我的专属名", "不得覆盖用户自定义显示名");
         assert_eq!(loaded.operator, "@cmcc", "operator 属比对更新字段");
+    }
+
+    /// 回归(与桌面同构):自定义 id 手工建过档(账号名 1 + 学号 24385214)后,
+    /// 自动建号不得再按学号建一份同学号档案。
+    #[tokio::test]
+    async fn 自动建号_同学号已有档案_复用不新建() {
+        let dir = tmp_dir("auto_same_user");
+        let bridge = test_bridge();
+        let mut manual = settings_with("24385214", "pwd-old");
+        manual.display_name = "1".to_string();
+        config_state::save_file(&dir.join("1.json"), &bridge, &manual).await.unwrap();
+
+        auto_create_account_in(&dir, &bridge, &settings_with("24385214", "pwd-new"))
+            .await
+            .unwrap();
+
+        let items = list_account_items_sync(&dir);
+        assert_eq!(items.len(), 1, "同一学号不得出现第二个档案");
+        assert_eq!(items[0].id, "1");
+        assert_eq!(items[0].display_name, "1");
+        assert!(!dir.join("24385214.json").exists(), "不得按学号另建档案");
+
+        let loaded = config_state::load_file(&dir.join("1.json"), &bridge).await.unwrap();
+        assert_eq!(loaded.password, "pwd-new", "凭据同步进既有档案");
     }
 
     #[tokio::test]
