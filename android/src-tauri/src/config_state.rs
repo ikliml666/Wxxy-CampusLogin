@@ -90,6 +90,11 @@ pub struct Settings {
     pub auto_login_on_preparation: bool,
     pub max_disconnect_reconnect: u32,
     pub auto_login_cooldown_secs: u64,
+    /// 桌面校园网认证异常时自动换 MAC 取新 IP 的开关与节流参数；安卓无 MAC 伪装
+    /// 能力，仅保持配置结构一致
+    pub enable_mac_renew_on_auth_error: bool,
+    pub mac_renew_cooldown_secs: u64,
+    pub mac_renew_daily_limit: u32,
     // 界面与通知
     pub theme_mode: String,
     pub enable_notification: bool,
@@ -190,6 +195,9 @@ impl Default for Settings {
             auto_login_on_preparation: true,
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
+            enable_mac_renew_on_auth_error: true,
+            mac_renew_cooldown_secs: 900,
+            mac_renew_daily_limit: 3,
             theme_mode: "dark".to_string(),
             enable_notification: true,
             custom_theme_color: "#6366f1".to_string(),

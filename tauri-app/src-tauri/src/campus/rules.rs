@@ -166,7 +166,42 @@ pub fn judge_campus_leg(
         .map(|(_, leg)| leg)
 }
 
-/// [`judge_campus_leg`] 的布尔版：只关心是否在校园网。
+/// 校园网连通状态：在校园网内「认证链路是否正常」。
+///
+/// 与 CampusLeg 的区别：那个回答「靠哪条腿判定在校园网」，这个回答「在校园网里
+/// 认证是否可用」。网关可达但 Portal 不可达，说明流量确实进了校园网、但认证/会话
+/// 侧有问题（Portal 未响应、被踢下线、绑定异常），此时需要重新认证，必要时换 MAC
+/// 重新获取 IP——这不是「不在校园网」，不能与真正的离网混为一谈。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CampusHealth {
+    /// Portal 可达：在校园网内且认证入口正常
+    Online,
+    /// 仅网关可达、Portal 不可达：在校园网内但认证异常
+    AuthBroken,
+    /// 两腿都不通：不在校园网
+    OffCampus,
+}
+
+/// 判定校园网连通状态：Portal 优先（强证据），网关仅作兜底辅助。
+///
+/// 顺序有语义：先 Portal 才能把「认证正常」与「进了校园网但认证不通」区分开；
+/// 若按网关优先，网关可达会先短路，认证异常就被当成正常在线。
+pub fn judge_campus_health(
+    gateway: &str,
+    portal_host: &str,
+    mut probe: impl FnMut(&str) -> bool,
+) -> CampusHealth {
+    if !portal_host.is_empty() && probe_with_retry(portal_host, &mut probe) {
+        return CampusHealth::Online;
+    }
+    if !gateway.is_empty() && probe_with_retry(gateway, &mut probe) {
+        return CampusHealth::AuthBroken;
+    }
+    CampusHealth::OffCampus
+}
+
+/// judge_campus_leg 的布尔版：只关心是否在校园网。
 pub fn judge_campus(gateway: &str, portal_host: &str, probe: impl FnMut(&str) -> bool) -> bool {
     judge_campus_leg(gateway, portal_host, probe).is_some()
 }
@@ -305,5 +340,29 @@ mod tests {
         // portal 主机不产生（公网/域名）→ 只剩网关腿
         assert!(judge_campus("10.1.1.1", "", |t| t == "10.1.1.1"));
         assert!(!judge_campus("", "", |_| panic!("两腿都空不应发起探测")));
+    }
+
+    #[test]
+    fn judge_campus_health_portal_wins_and_gateway_only_means_auth_broken() {
+        // Portal 可达 = 认证正常（Portal 是比网关更强的证据）
+        assert_eq!(
+            judge_campus_health("10.1.1.1", "10.1.99.100", |t| t == "10.1.99.100"),
+            CampusHealth::Online
+        );
+        // 只有网关可达 = 进了校园网但认证不通
+        assert_eq!(
+            judge_campus_health("10.1.1.1", "10.1.99.100", |t| t == "10.1.1.1"),
+            CampusHealth::AuthBroken
+        );
+        // 两腿都不通 = 不在校园网
+        assert_eq!(
+            judge_campus_health("10.1.1.1", "10.1.99.100", |_| false),
+            CampusHealth::OffCampus
+        );
+        // 网关未配置时 Portal 不通只能是离网，不会误判成认证异常
+        assert_eq!(
+            judge_campus_health("", "10.1.99.100", |_| false),
+            CampusHealth::OffCampus
+        );
     }
 }

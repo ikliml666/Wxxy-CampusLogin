@@ -26,6 +26,8 @@ pub struct AdapterCampusStatus {
     pub on_campus: bool,
     /// 命中的判定腿：`name` / `gateway` / `portal`；全部失败为 None
     pub matched_by: Option<String>,
+    /// 连通状态：online（Portal 可达）/ auth_broken（仅网关可达）/ off_campus
+    pub health: crate::campus::rules::CampusHealth,
     pub message: String,
 }
 
@@ -107,42 +109,67 @@ fn judge_adapter<F>(adapter: &Adapter, ctx: &CampusContext, probe: &mut F) -> Ad
 where
     F: FnMut(&str, &str) -> bool,
 {
-    let build = |on_campus: bool, matched_by: Option<&str>, message: String| AdapterCampusStatus {
+    let build = |on_campus: bool,
+                 matched_by: Option<&str>,
+                 health: crate::campus::rules::CampusHealth,
+                 message: String| AdapterCampusStatus {
         name: adapter.name.clone(),
         wireless: adapter.wireless,
         on_campus,
         matched_by: matched_by.map(str::to_string),
+        health,
         message,
     };
 
     // 0. 无 IP 的卡：任何探测都无法绑定它的源地址，且它本就无法通信。
     //    显式判非校园，杜绝此前「蹭」同类型其他卡的判定结论（截图错乱归因的直接来源）。
+    use crate::campus::rules::{judge_campus_health, CampusHealth};
+
     if adapter.ip.is_empty() {
-        return build(false, None, "无IP地址，无法判定".to_string());
+        return build(false, None, CampusHealth::OffCampus, "无IP地址，无法判定".to_string());
     }
 
-    // 1. 名称（成本最低：netsh 结果已缓存，无网络 IO）
+    // 1. 名称（成本最低：netsh 结果已缓存，无网络 IO）。名称命中只说明「连的是校园网
+    // 的无线/有线方案」，不保证认证入口可达，因此仍需后面的 Portal 探测确认状态。
     if let Some(msg) = ctx.name_hit(adapter) {
-        return build(true, Some("name"), msg);
+        let health = judge_campus_health(ctx.campus_gw, &ctx.portal_host, |target| {
+            probe(target, &adapter.ip)
+        });
+        let message = match health {
+            CampusHealth::Online => msg,
+            CampusHealth::AuthBroken => format!(
+                "{}：已连接校园网但 Portal 不可达（认证异常）",
+                adapter.ip
+            ),
+            CampusHealth::OffCampus => msg,
+        };
+        return build(true, Some("name"), health, message);
     }
 
-    // 2/3. 网关与 Portal（绑该卡源；判定腿与去抖口径由共享规则层统一）。
-    match crate::campus::rules::judge_campus_leg(ctx.campus_gw, &ctx.portal_host, |target| {
+    // 2/3. Portal 优先、网关兜底（绑该卡源；判定腿与去抖口径由共享规则层统一）。
+    // 仅网关可达 = 进了校园网但认证链路不通，标记为 auth_broken 供上层触发重整。
+    match judge_campus_health(ctx.campus_gw, &ctx.portal_host, |target| {
         probe(target, &adapter.ip)
     }) {
-        Some(crate::campus::rules::CampusLeg::Gateway) => build(
-            true,
-            Some("gateway"),
-            format!("通过网关{}连接校园网", ctx.campus_gw),
-        ),
-        Some(crate::campus::rules::CampusLeg::Portal) => build(
+        CampusHealth::Online => build(
             true,
             Some("portal"),
+            CampusHealth::Online,
             format!("通过 portal {} 连接校园网", ctx.portal_host),
         ),
-        None => build(
+        CampusHealth::AuthBroken => build(
+            true,
+            Some("gateway"),
+            CampusHealth::AuthBroken,
+            format!(
+                "通过网关{}进入校园网，但 Portal 不可达（认证异常）",
+                ctx.campus_gw
+            ),
+        ),
+        CampusHealth::OffCampus => build(
             false,
             None,
+            CampusHealth::OffCampus,
             format!("{}未连接校园网(名称/Portal/网关 均未命中)", adapter.ip),
         ),
     }
@@ -588,6 +615,7 @@ mod tests {
                 wireless: false,
                 on_campus: false,
                 matched_by: None,
+                health: crate::campus::rules::CampusHealth::OffCampus,
                 message: "失败A".into(),
             },
             AdapterCampusStatus {
@@ -595,6 +623,7 @@ mod tests {
                 wireless: false,
                 on_campus: true,
                 matched_by: Some("gateway".into()),
+                health: crate::campus::rules::CampusHealth::AuthBroken,
                 message: "成功B".into(),
             },
         ];

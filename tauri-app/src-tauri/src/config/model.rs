@@ -188,6 +188,18 @@ pub struct Config {
     pub max_disconnect_reconnect: u32,
     #[serde(rename = "autoLoginCooldownSecs", default = "default_auto_login_cooldown_secs")]
     pub auto_login_cooldown_secs: u64,
+    /// 校园网认证异常（网关可达、Portal 不可达）时自动换 MAC 重新获取 IP 并登录。
+    /// 认证入口坏掉后重复登录无效，换一个 DHCP 身份才能恢复；但换 MAC 会短暂断网
+    /// 且可能触发校方风控，因此节流（冷却 + 每日上限）并允许关闭
+    #[serde(rename = "enableMacRenewOnAuthError", default = "default_true")]
+    pub enable_mac_renew_on_auth_error: bool,
+    /// 上面这项动作的最小间隔（秒）：一次换 MAC 含网卡重启与 DHCP 等待，恢复期内
+    /// 反复触发只会把尚未稳定的链路再打断
+    #[serde(rename = "macRenewCooldownSecs", default = "default_mac_renew_cooldown_secs")]
+    pub mac_renew_cooldown_secs: u64,
+    /// 上面这项动作的每日次数上限：防止判定误报导致整日反复换 MAC
+    #[serde(rename = "macRenewDailyLimit", default = "default_mac_renew_daily_limit")]
+    pub mac_renew_daily_limit: u32,
     #[serde(rename = "skipSha256WhenMissing", default)]
     pub skip_sha256_when_missing: bool,
     /// WebVPN 登录账号（学号，明文；自助服务校外回退用，与校园网登录 user 允许不同）
@@ -252,6 +264,8 @@ pub fn default_log_retention_days() -> u32 { 7 }
 fn default_max_disconnect_reconnect() -> u32 { 3 }
 
 fn default_auto_login_cooldown_secs() -> u64 { 60 }
+fn default_mac_renew_cooldown_secs() -> u64 { 900 }
+fn default_mac_renew_daily_limit() -> u32 { 3 }
 
 pub fn default_portal_url() -> String {
     "http://10.1.99.100".to_string()
@@ -339,6 +353,9 @@ impl Default for Config {
             log_retention_days: 7,
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
+            enable_mac_renew_on_auth_error: true,
+            mac_renew_cooldown_secs: 900,
+            mac_renew_daily_limit: 3,
             skip_sha256_when_missing: false,
             vpn_account: String::new(),
             vpn_password_enc: String::new(),

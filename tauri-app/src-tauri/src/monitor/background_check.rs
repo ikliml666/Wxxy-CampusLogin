@@ -154,6 +154,21 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     // 校园网检测只看解析后的主/副适配器：其他适配器的连接不属本应用管理范围
     let op_adapters = crate::network::filter_operation_adapters(&adapters, &adapter1_name, &adapter2_name);
     let campus_result = check_campus_network(&config, &op_adapters);
+    // 认证异常：网关可达但 Portal 不可达，说明流量进了校园网、认证入口却不可用。
+    // 此时重复登录没有意义，先换 MAC 重新取址（节流与单飞在 auth_recovery 内）。
+    // 必须在下面的登录流程之前触发，否则每拍都会先撞一次必然失败的登录。
+    for name in [&adapter1_name, &adapter2_name] {
+        if name.is_empty() {
+            continue;
+        }
+        let Some(status) = adapter_campus_status(name, &adapters, &campus_result) else {
+            continue;
+        };
+        if status.health == crate::campus::rules::CampusHealth::AuthBroken {
+            super::auth_recovery::spawn_auth_recovery(app_handle, &config, name);
+            break;
+        }
+    }
     // 始终更新 on_campus_network，确保 emit 字段一致
     // 合并条件分支内的 any_adapter_online/last_a1_online 重置，减少 CAS 循环次数
     let campus_check_failed = config.enable_network_name_check && !campus_result.on_campus;
