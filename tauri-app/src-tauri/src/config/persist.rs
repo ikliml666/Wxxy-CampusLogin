@@ -20,6 +20,9 @@ static LOGIN_HISTORY_LOCK: Mutex<()> = Mutex::new(());
 // 广播路径与闭包内不得再次进入任何配置写口。
 static CONFIG_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
+/// 历史文件保留条数上限（登录历史与质量历史共用同一上限语义）
+const HISTORY_CAP: usize = 100;
+
 pub fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
     // 临时文件名带纳秒时间戳，避免并发保存时互相覆盖
     let tmp_path = path.with_extension(format!(
@@ -181,18 +184,28 @@ pub fn get_login_history_path(data_dir: &Path) -> PathBuf {
     data_dir.join("login-history.json")
 }
 
-pub fn append_login_history(app_handle: &tauri::AppHandle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
-    let _guard = LOGIN_HISTORY_LOCK.lock();
-    let data_dir = get_data_dir(app_handle);
-    let history_path = get_login_history_path(&data_dir);
-    std::fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
+/// 历史文件头插的共用实现（登录历史 / 质量历史同构）。
+///
+/// 读-改-写全程持 `lock`（调用方各自的静态锁，互斥粒度不变）；文件损坏/读取失败
+/// 先备份为 `<path>.bak` 再从空重建，避免一次坏文件把历史彻底丢掉；只保留最新
+/// [`HISTORY_CAP`] 条；写盘走 [`atomic_write`]（temp + fsync + rename）。
+/// `label` 同时决定日志与序列化错误文案（两种历史各自的原文案由此保持）。
+fn append_capped_history(
+    lock: &Mutex<()>,
+    data_dir: &Path,
+    history_path: &Path,
+    label: &str,
+    entry: serde_json::Value,
+) -> Result<(), String> {
+    let _guard = lock.lock();
+    std::fs::create_dir_all(data_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
 
     let mut history: Vec<serde_json::Value> = if history_path.exists() {
-        let content = match std::fs::read_to_string(&history_path) {
+        let content = match std::fs::read_to_string(history_path) {
             Ok(c) => c,
             Err(e) => {
-                crate::log_warn!("system", "读取登录历史失败，备份后重置: {}", e);
-                let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
+                crate::log_warn!("system", "读取{label}失败，备份后重置: {}", e);
+                let _ = std::fs::rename(history_path, format!("{}.bak", history_path.display()));
                 String::new()
             }
         };
@@ -202,8 +215,8 @@ pub fn append_login_history(app_handle: &tauri::AppHandle, success: bool, messag
             match serde_json::from_str(&content) {
                 Ok(v) => v,
                 Err(e) => {
-                    crate::log_warn!("system", "解析登录历史失败，备份后重置: {}", e);
-                    let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
+                    crate::log_warn!("system", "解析{label}失败，备份后重置: {}", e);
+                    let _ = std::fs::rename(history_path, format!("{}.bak", history_path.display()));
                     vec![]
                 }
             }
@@ -212,27 +225,39 @@ pub fn append_login_history(app_handle: &tauri::AppHandle, success: bool, messag
         vec![]
     };
 
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    history.insert(0, entry);
 
-    history.insert(0, serde_json::json!({
+    if history.len() > HISTORY_CAP {
+        history.truncate(HISTORY_CAP);
+    }
+
+    let json = serde_json::to_string_pretty(&history).map_err(|e| format!("序列化{label}失败: {e}"))?;
+
+    atomic_write(history_path, &json)
+}
+
+pub fn append_login_history(app_handle: &tauri::AppHandle, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
+    append_login_history_to(&get_data_dir(app_handle), success, message, adapter, user, login_type)
+}
+
+/// 供测试脱离 Tauri 环境验证历史落盘（生产路径走 [`append_login_history`]）
+fn append_login_history_to(data_dir: &Path, success: bool, message: &str, adapter: &str, user: &str, login_type: &str) -> Result<(), String> {
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let entry = serde_json::json!({
         "time": now,
         "success": success,
         "message": message,
         "adapter": adapter,
         "user": user,
         "type": login_type
-    }));
-
-    if history.len() > 100 {
-        history.truncate(100);
-    }
-
-    let json = serde_json::to_string_pretty(&history)
-        .map_err(|e| format!("序列化登录历史失败: {e}"))?;
-
-    atomic_write(&history_path, &json)?;
-
-    Ok(())
+    });
+    append_capped_history(
+        &LOGIN_HISTORY_LOCK,
+        data_dir,
+        &get_login_history_path(data_dir),
+        "登录历史",
+        entry,
+    )
 }
 
 // 质量历史的读-改-写全程互斥（理由同 LOGIN_HISTORY_LOCK）。
@@ -242,59 +267,26 @@ pub fn get_quality_history_path(data_dir: &Path) -> PathBuf {
     data_dir.join("quality_history.json")
 }
 
-/// 追加一条网络质量历史（头插法，上限 100，损坏备份后重置；与 append_login_history 同款）。
+/// 追加一条网络质量历史（头插法，上限 [`HISTORY_CAP`]，损坏备份后重置；与 append_login_history 同款）。
 /// 延迟 <0（检测失败/未执行，源数据为 -1）落盘为 null，区分"未测"与 0ms。
 pub fn append_quality_history(app_handle: &tauri::AppHandle, result: &crate::network::quality::NetworkQualityResult) -> Result<(), String> {
     append_quality_history_to(&get_data_dir(app_handle), result)
 }
 
 pub fn append_quality_history_to(data_dir: &Path, result: &crate::network::quality::NetworkQualityResult) -> Result<(), String> {
-    let _guard = QUALITY_HISTORY_LOCK.lock();
-    let history_path = get_quality_history_path(data_dir);
-    std::fs::create_dir_all(data_dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
-
-    let mut history: Vec<serde_json::Value> = if history_path.exists() {
-        let content = match std::fs::read_to_string(&history_path) {
-            Ok(c) => c,
-            Err(e) => {
-                crate::log_warn!("system", "读取质量历史失败，备份后重置: {}", e);
-                let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
-                String::new()
-            }
-        };
-        if content.is_empty() {
-            vec![]
-        } else {
-            match serde_json::from_str(&content) {
-                Ok(v) => v,
-                Err(e) => {
-                    crate::log_warn!("system", "解析质量历史失败，备份后重置: {}", e);
-                    let _ = std::fs::rename(&history_path, format!("{}.bak", history_path.display()));
-                    vec![]
-                }
-            }
-        }
-    } else {
-        vec![]
-    };
-
-    history.insert(0, serde_json::json!({
+    let entry = serde_json::json!({
         "timestamp": result.timestamp,
         "gatewayLatency": (result.gateway_latency >= 0).then_some(result.gateway_latency),
         "externalLatency": (result.external_latency >= 0).then_some(result.external_latency),
         "quality": result.quality,
-    }));
-
-    if history.len() > 100 {
-        history.truncate(100);
-    }
-
-    let json = serde_json::to_string_pretty(&history)
-        .map_err(|e| format!("序列化质量历史失败: {e}"))?;
-
-    atomic_write(&history_path, &json)?;
-
-    Ok(())
+    });
+    append_capped_history(
+        &QUALITY_HISTORY_LOCK,
+        data_dir,
+        &get_quality_history_path(data_dir),
+        "质量历史",
+        entry,
+    )
 }
 
 /// 落盘 + 掩码广播 config-changed 的统一出口（不刷托盘）。
@@ -457,6 +449,26 @@ mod tests {
         let entries: Vec<serde_json::Value> =
             serde_json::from_str(&std::fs::read_to_string(get_quality_history_path(&dir)).unwrap()).unwrap();
         assert_eq!(entries.len(), 1, "损坏文件备份后从空重写");
+        let baks: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".bak"))
+            .collect();
+        assert_eq!(baks.len(), 1, "损坏文件应被备份");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 登录历史：损坏文件备份为 .bak 后从空重建（与质量历史同款共用实现的回归锁；
+    /// `append_login_history` 需 AppHandle，走 `_to` 变体以便脱离 Tauri 环境测试）
+    #[test]
+    fn login_history_corrupt_backup_and_reset() {
+        let dir = temp_data_dir("lh_corrupt");
+        std::fs::write(get_login_history_path(&dir), "not-json{{{").unwrap();
+        append_login_history_to(&dir, true, "登录成功", "以太网", "u1", "login").unwrap();
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(get_login_history_path(&dir)).unwrap()).unwrap();
+        assert_eq!(entries.len(), 1, "损坏文件备份后从空重写");
+        assert_eq!(entries[0]["success"], true);
+        assert_eq!(entries[0]["type"], "login");
+        assert!(entries[0]["time"].is_string(), "时间字段应写入");
         let baks: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten()
             .filter(|e| e.file_name().to_string_lossy().ends_with(".bak"))
             .collect();

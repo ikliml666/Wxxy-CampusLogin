@@ -80,6 +80,19 @@ fn append_entry(dir: &Path, entry: QualityHistoryEntry) -> Result<(), String> {
     Ok(())
 }
 
+/// 同步追加入口供测试与离线工具复用；生产异步命令走 append_async，避免 worker 上同步 IO。
+#[cfg(test)]
+pub fn append(dir: &Path, result: &NetworkQualityResult) -> Result<(), String> {
+    append_entry(dir, QualityHistoryEntry::from_result(result))
+}
+
+/// 异步命令边界的追加入口：只移动轻量历史条目，不克隆完整质量检测明细。
+pub async fn append_async(dir: PathBuf, entry: QualityHistoryEntry) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || append_entry(&dir, entry))
+        .await
+        .map_err(|e| format!("质量历史任务失败: {e}"))?
+}
+
 #[cfg(test)]
 fn append(dir: &Path, result: &NetworkQualityResult) -> Result<(), String> {
     append_entry(dir, QualityHistoryEntry::from_result(result))

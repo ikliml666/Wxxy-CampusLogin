@@ -102,28 +102,9 @@ pub struct DownloadProgress {
     pub percent: f64,
 }
 
-/// 语义对齐桌面 compare_versions:latest 是否比 current 更新(去 v 前缀,按段数值比较)
-pub fn has_newer_version(current: &str, latest: &str) -> bool {
-    let parse = |s: &str| -> Vec<u32> {
-        s.trim_start_matches('v')
-            .split('.')
-            .map(|seg| {
-                let digits: String = seg.chars().take_while(|c| c.is_ascii_digit()).collect();
-                digits.parse().unwrap_or(0)
-            })
-            .collect()
-    };
-    let (c, l) = (parse(current), parse(latest));
-    let len = c.len().max(l.len());
-    for i in 0..len {
-        let cv = c.get(i).copied().unwrap_or(0);
-        let lv = l.get(i).copied().unwrap_or(0);
-        if lv != cv {
-            return lv > cv;
-        }
-    }
-    false
-}
+/// 版本比较:实现已上移到跨平台 `campus_login_lib::version`(桌面更新检查
+/// `update::updater` 与安卓共用同一份)。此处保留原函数名,调用点与既有断言不变。
+pub use campus_login_lib::version::compare_versions as has_newer_version;
 
 pub(crate) fn http_client() -> Result<reqwest::Client, String> {
     // 移动端用 rustls,避免 openssl 交叉编译问题;忽略证书校验关闭(白名单域名 TLS 正常校验)
@@ -686,19 +667,9 @@ pub async fn cleanup_stale_apks(app: &tauri::AppHandle) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn 版本比较_逐段数值() {
-        assert!(has_newer_version("2.3.2", "2.3.3"));
-        assert!(has_newer_version("2.3.2", "v2.4.0"));
-        assert!(has_newer_version("2.3.2", "3.0"));
-        assert!(!has_newer_version("2.3.2", "2.3.2"));
-        assert!(!has_newer_version("2.3.3", "2.3.2"));
-        assert!(has_newer_version("2.3", "2.3.1"), "短版本按 0 补齐");
-        assert!(
-            !has_newer_version("2.3.2", "2.3.2-beta"),
-            "预发布后缀段解析为 0,不视为更新"
-        );
-    }
+    // 版本比较的语义用例已随实现迁至 campus_login_lib::version（双端同一份，
+    // 含 hotfix 四段、v 前缀、短版本补零、预发布后缀），此处不再重复维护；
+    // 下方 version_json_真实形状解析 保留「version.json 解析 → 比较」的链路断言
 
     #[test]
     fn 白名单域名校验() {

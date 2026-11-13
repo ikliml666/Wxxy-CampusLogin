@@ -63,34 +63,9 @@ pub struct DownloadProgress {
     pub percent: f64,
 }
 
-pub fn compare_versions(current: &str, latest: &str) -> bool {
-    let parse_version = |s: &str| -> Vec<u32> {
-        s.trim_start_matches('v')
-            .split('.')
-            .map(|seg| {
-                // 提取段中的数字部分（处理 "2-beta" 等后缀），解析失败按 0
-                let digits: String = seg.chars().take_while(|c| c.is_ascii_digit()).collect();
-                digits.parse::<u32>().unwrap_or(0)
-            })
-            .collect()
-    };
-    let cur = parse_version(current);
-    let lat = parse_version(latest);
-
-    // 全段比较：截断为 3 段时 hotfix（如 2.3.0.1）与 2.3.0 判等，升级提示永不出现
-    let len = cur.len().max(lat.len());
-    for i in 0..len {
-        let c = cur.get(i).copied().unwrap_or(0);
-        let l = lat.get(i).copied().unwrap_or(0);
-        if l > c {
-            return true;
-        }
-        if l < c {
-            return false;
-        }
-    }
-    false
-}
+/// 版本比较已上移到跨平台 `crate::version`（安卓 APK 更新复用同一份，
+/// 不再各自维护）。此处保留原路径导出，调用点与既有测试不受影响。
+pub use crate::version::compare_versions;
 
 /// 短超时 HTTP 客户端（模块级缓存，首次构建后复用）。
 /// 不接入 network/client.rs 的 CLIENT_POOL：池内客户端强制 .no_proxy()，
@@ -631,21 +606,8 @@ mod tests {
         assert!(parsed.last_check_time.is_none());
     }
 
-    // ===== compare_versions =====
-
-    #[test]
-    fn hotfix_four_segment_version_is_detected() {
-        // 历史 bug：take(3) 截断使 2.3.0.1 与 2.3.0 判等，hotfix 永不提示
-        assert!(compare_versions("2.3.0", "2.3.0.1"));
-        assert!(!compare_versions("2.3.0.1", "2.3.0"));
-    }
-
-    #[test]
-    fn version_compare_numeric_and_v_prefix() {
-        assert!(compare_versions("2.9.0", "2.10.0"));
-        assert!(compare_versions("v2.3.0", "v2.4.0"));
-        assert!(!compare_versions("2.3.0", "2.3.0"));
-    }
+    // ===== compare_versions 的用例已随实现迁至 crate::version（单点覆盖，含
+    // hotfix 四段、v 前缀、短版本补零与预发布后缀），此处不再重复维护 =====
 
     #[test]
     fn extract_checksum_supports_bsd_style() {

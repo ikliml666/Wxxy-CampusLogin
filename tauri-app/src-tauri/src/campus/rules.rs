@@ -6,6 +6,34 @@
 //! 名称名单解析、portal 主机提取、去抖次数三处口径已经不一致，
 //! 其中安卓 `ssid_matches` 对三值默认名单整体比较字符串，名称腿恒假。
 
+/// portal_url 的 origin（chkstatus 与 portal 同源，eportal 按请求源 IP 判定本机）；
+/// 空值回退默认 portal 地址（`config::model::default_portal_url`）。
+///
+/// 双端共用同一份：桌面 `monitor::scheduled` 的夜切验证与安卓
+/// `monitor_loop::night_switch_check_once` 拼的是同一个 `chkstatus` URL，
+/// 各自维护会在 origin 提取口径上漂移（路径/端口/无 scheme 三个分支）。
+pub fn portal_origin(portal_url: &str) -> String {
+    let url = if portal_url.is_empty() {
+        crate::config::model::default_portal_url()
+    } else {
+        portal_url.to_string()
+    };
+    match url.split_once("://") {
+        Some((scheme, rest)) => format!("{scheme}://{}", rest.split('/').next().unwrap_or("")),
+        None => url.split('/').next().unwrap_or("").to_string(),
+    }
+}
+
+/// 期望运营商的展示名：空串=校方默认线路（无锡学院），其余原样（@telecom 等）。
+/// 双端共用于夜切验证的"在线账号与期望运营商不符"文案。
+pub fn expected_operator_display(expected_operator: &str) -> &str {
+    if expected_operator.is_empty() {
+        "无锡学院"
+    } else {
+        expected_operator
+    }
+}
+
 /// 单腿探测的去抖次数：单发丢包会把在网校园卡误判成非校园，导致禁用步骤静默
 /// 跳过、整夜只切一半。任一发可达即判该腿命中，容忍瞬时抖动。
 ///
@@ -175,6 +203,32 @@ mod tests {
         assert_eq!(portal_probe_host("http://portal.wxu.edu.cn"), "");
         assert_eq!(portal_probe_host("http://8.8.8.8"), "");
         assert_eq!(portal_probe_host(""), "");
+    }
+
+    #[test]
+    fn portal_origin_keeps_scheme_and_host_only() {
+        assert_eq!(portal_origin("http://10.1.99.100"), "http://10.1.99.100");
+        assert_eq!(portal_origin("http://10.1.99.100/"), "http://10.1.99.100");
+        // 端口保留、路径丢弃（chkstatus 与 portal 同源，但端口是 origin 的一部分）
+        assert_eq!(
+            portal_origin("http://10.1.99.100:8090/drcom/login"),
+            "http://10.1.99.100:8090"
+        );
+        assert_eq!(portal_origin("https://p.njupt.edu.cn/a79.htm"), "https://p.njupt.edu.cn");
+        // 无 scheme 时按首个 / 截断
+        assert_eq!(portal_origin("10.1.99.100/eportal/"), "10.1.99.100");
+    }
+
+    #[test]
+    fn portal_origin_falls_back_to_default_on_empty() {
+        // 空 origin 会让 chkstatus 请求落空，故回退默认 portal 地址
+        assert_eq!(portal_origin(""), crate::config::model::default_portal_url());
+    }
+
+    #[test]
+    fn expected_operator_display_defaults_to_school_line() {
+        assert_eq!(expected_operator_display(""), "无锡学院");
+        assert_eq!(expected_operator_display("@cmcc"), "@cmcc");
     }
 
     #[test]

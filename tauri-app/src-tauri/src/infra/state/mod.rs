@@ -57,35 +57,7 @@ impl Drop for TaskGuard<'_> {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref ACCOUNT_NAME_RE: regex::Regex = regex::Regex::new(r"^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$").expect("ACCOUNT_NAME_RE compilation failed");
-}
-
-pub fn validate_account_name(name: &str) -> Result<String, String> {
-    if name.is_empty() || name.chars().count() > 32 {
-        return Err("账号名称长度需在1-32之间".to_string());
-    }
-    if !ACCOUNT_NAME_RE.is_match(name) {
-        return Err("账号名称仅允许字母、数字、下划线、中文和连字符".to_string());
-    }
-    Ok(name.to_string())
-}
-
-/// 账号 id 生成（R2 自动建号）：把 validate_account_name 正则之外的字符替换为 '_'，
-/// 按字符截断 32 位。与 validate_account_name 的字符类必须保持一致
-///（此处为替换式宽松版：任何输入都有确定输出，不报错）。
-pub fn sanitize_account_id(user: &str) -> String {
-    user.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' || c == '-' || ('\u{4e00}'..='\u{9fff}').contains(&c) {
-                c
-            } else {
-                '_'
-            }
-        })
-        .take(32)
-        .collect()
-}
+pub use crate::account::identity::{sanitize_account_id, validate_account_name};
 
 pub struct TaskFlags {
     pub is_checking: TaskLock,

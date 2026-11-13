@@ -50,10 +50,6 @@ pub(crate) fn ensure_identity_gate(settings: &crate::config_state::Settings) -> 
     }
 }
 
-pub(crate) async fn load_settings(app: &tauri::AppHandle) -> Result<crate::config_state::Settings, String> {
-    crate::config_state::current_settings(app).await
-}
-
 fn local_addr_of(state: &tauri::State<'_, crate::android_state::AndroidState>) -> Option<std::net::IpAddr> {
     state
         .cached_source_ip
@@ -94,7 +90,7 @@ pub async fn bind_operator(
     phone: String,
     sms_password: String,
 ) -> Result<CommandResult, String> {
-    let settings = load_settings(&app).await?;
+    let settings = crate::config_state::current_settings(&app).await?;
     let account = account.trim().to_string();
     let operator = operator.trim().to_string();
     let phone = phone.trim().to_string();
@@ -138,7 +134,7 @@ pub async fn query_bind_status(
     account: String,
     password: String,
 ) -> Result<CommandResult, String> {
-    let settings = load_settings(&app).await?;
+    let settings = crate::config_state::current_settings(&app).await?;
     let account = account.trim().to_string();
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
@@ -172,7 +168,7 @@ pub async fn query_self_dashboard(
     account: String,
     password: String,
 ) -> Result<CommandResult, String> {
-    let settings = load_settings(&app).await?;
+    let settings = crate::config_state::current_settings(&app).await?;
     let account = account.trim().to_string();
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
@@ -216,7 +212,7 @@ pub async fn query_self_online_log(
     start_time: String,
     end_time: String,
 ) -> Result<CommandResult, String> {
-    let settings = load_settings(&app).await?;
+    let settings = crate::config_state::current_settings(&app).await?;
     let account = account.trim().to_string();
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
@@ -246,7 +242,7 @@ pub async fn self_offline_session(
     password: String,
     session_id: String,
 ) -> Result<CommandResult, String> {
-    let settings = load_settings(&app).await?;
+    let settings = crate::config_state::current_settings(&app).await?;
     let account = account.trim().to_string();
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
@@ -280,7 +276,7 @@ pub async fn change_self_password(
     password: String,
     new_password: String,
 ) -> Result<CommandResult, String> {
-    let settings = load_settings(&app).await?;
+    let settings = crate::config_state::current_settings(&app).await?;
     let account = account.trim().to_string();
     let new_password = new_password.trim().to_string();
     if account.is_empty() {
@@ -320,7 +316,7 @@ pub async fn reveal_operator_credential(
     password: String,
     operator: String,
 ) -> Result<CommandResult, String> {
-    let settings = load_settings(&app).await?;
+    let settings = crate::config_state::current_settings(&app).await?;
     let account = account.trim().to_string();
     let operator = operator.trim().to_string();
     if account.is_empty() {

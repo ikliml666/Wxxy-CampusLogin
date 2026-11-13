@@ -85,6 +85,7 @@ pub fn append(
     Ok(())
 }
 
+/// 异步命令边界的追加入口：同步文件 IO 与互斥锁统一放到阻塞线程，避免卡住 async worker。
 pub async fn append_async(
     dir: PathBuf,
     success: bool,

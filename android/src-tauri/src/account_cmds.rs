@@ -1,18 +1,14 @@
 //! 多账号命令面:与桌面 commands/account.rs 同构(一账号一 JSON、密码密文落盘、
 //! 切换合并登录字段)。账号文件与主配置同格式(EncodedSettings),仅目录不同。
 
-use lazy_static::lazy_static;
-use regex::Regex;
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::Manager;
 
 use crate::config_state::{self, CryptoBridge, Settings};
-
-lazy_static! {
-    static ref ACCOUNT_NAME_RE: Regex =
-        Regex::new(r"^[a-zA-Z0-9_\u{4e00}-\u{9fff}-]+$").expect("ACCOUNT_NAME_RE compilation failed");
-}
+pub use campus_login_lib::account::identity::{
+    sanitize_account_id, validate_account_name, validate_display_name,
+};
 
 /// 主配置/账号文件读改写互斥(跨命令共用)。
 /// 锁本体已迁至 config_state::CONFIG_IO_LOCK(save_config 自身也要持锁,
@@ -66,33 +62,6 @@ impl AccountResult {
     }
 }
 
-/// 账号 id 消毒(R2,与桌面 sanitize_account_id 同构):把账号文件名白名单
-/// (`[a-zA-Z0-9_\u{4e00}-\u{9fff}-]`)之外的字符替换为 `_`,按字符截断 32 位。
-/// 空输入 → 空输出(调用方跳过建号);全非法输入 → 全下划线(仍建号)。
-pub fn sanitize_account_id(user: &str) -> String {
-    user.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' || c == '-' || ('\u{4e00}'..='\u{9fff}').contains(&c) {
-                c
-            } else {
-                '_'
-            }
-        })
-        .take(32)
-        .collect()
-}
-
-/// 账号名消毒:1-32 字符,仅字母/数字/下划线/中文/连字符(桌面同款正则,防路径穿越)
-pub fn validate_account_name(name: &str) -> Result<String, String> {
-    if name.is_empty() || name.chars().count() > 32 {
-        return Err("账号名称长度需在1-32之间".to_string());
-    }
-    if !ACCOUNT_NAME_RE.is_match(name) {
-        return Err("账号名称仅允许字母、数字、下划线、中文和连字符".to_string());
-    }
-    Ok(name.to_string())
-}
-
 pub fn accounts_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
@@ -105,9 +74,8 @@ pub fn accounts_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// 列举路径无需走 Keystore)。返回 (display_name, user, operator, password_saved)。
 /// 读取失败返回 Err 由调用方 log_warn 后兜底。
 ///
-/// password_saved 必须走 `config_state::password_saved_at`(disk 形态的 passwordCipher),
-/// 不能取 `settings.password`:落盘时该外露字段被刻意清空,取它会让每张卡都显示
-/// "密码未保存"(用户真机反馈,见 config_state 同名判据注释)。
+/// password_saved 复用本次解析结果，由 config_state 按 disk 形态的 passwordCipher 判定，
+/// 不再为同一张账号卡重复读盘。
 fn read_account_card_info(path: &std::path::Path) -> Result<(String, String, String, bool), String> {
     let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
@@ -116,7 +84,7 @@ fn read_account_card_info(path: &std::path::Path) -> Result<(String, String, Str
         s["displayName"].as_str().unwrap_or("").to_string(),
         s["user"].as_str().unwrap_or("").to_string(),
         s["operator"].as_str().unwrap_or("").to_string(),
-        config_state::password_saved_at(path),
+        config_state::password_saved_in_json(&v),
     ))
 }
 
@@ -426,24 +394,6 @@ async fn rename_account_core(
     account_cfg.display_name = new_name.clone();
     config_state::save_file(&path, bridge, &account_cfg).await?;
     Ok(new_name)
-}
-
-/// 显示名校验(R3,与桌面 validate_display_name 同构):trim 后按字符数 1..=32;
-/// 不得含控制字符或换行;允许空格与 emoji。注意:不复用 validate_account_name
-/// 的文件名字符集校验(显示名与内部 id 分离,任意可见字符合法)。返回 trim 后的名称用于落盘。
-fn validate_display_name(name: &str) -> Result<String, String> {
-    let trimmed = name.trim();
-    let count = trimmed.chars().count();
-    if count == 0 {
-        return Err("显示名称不能为空".to_string());
-    }
-    if count > 32 {
-        return Err("显示名称长度需在1-32之间".to_string());
-    }
-    if trimmed.chars().any(char::is_control) {
-        return Err("显示名称不得包含控制字符或换行".to_string());
-    }
-    Ok(trimmed.to_string())
 }
 
 /// R2 自动建号入口:save_config 落盘成功后调用(不经命令层,避免递归)。

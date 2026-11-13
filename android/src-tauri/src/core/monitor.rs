@@ -3,6 +3,7 @@
 //! 循环体跑在 :core 进程的 tokio runtime 上。
 
 use chrono::{Datelike, Timelike};
+use campus_login_lib::campus::rules::{expected_operator_display, portal_origin};
 use lazy_static::lazy_static;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -950,30 +951,6 @@ const NIGHT_VERIFY_RETRY_SECS: u64 = 5;
 const NIGHT_VERIFY_ATTEMPTS: u32 = 3;
 const NIGHT_VERIFY_HTTP_TIMEOUT_SECS: u64 = 15;
 
-/// portal_url 的 origin(chkstatus 与 portal 同源,eportal 按请求源 IP 判定本机)
-fn portal_origin(portal_url: &str) -> String {
-    // 空值回退默认 portal 地址(与桌面 monitor/scheduled.rs 同款,双端语义一致):
-    // eportal 按请求源 IP 判定本机,空 origin 会让 chkstatus 验证请求落空
-    let url = if portal_url.is_empty() {
-        campus_login_lib::config::model::default_portal_url()
-    } else {
-        portal_url.to_string()
-    };
-    match url.split_once("://") {
-        Some((scheme, rest)) => format!("{scheme}://{}", rest.split('/').next().unwrap_or("")),
-        None => url.split('/').next().unwrap_or("").to_string(),
-    }
-}
-
-/// 期望运营商的展示名:空串=无锡学院,其余原样(@telecom 等)
-fn expected_operator_display(expected_operator: &str) -> &str {
-    if expected_operator.is_empty() {
-        "无锡学院"
-    } else {
-        expected_operator
-    }
-}
-
 /// 夜切后的登录生效自动验证(与桌面同构,独立 tokio 任务不阻塞监控循环):
 /// 等 15s → 查 eportal chkstatus(JSONP)核对在线账号 uid 与期望运营商后缀
 /// (重试 3 次、间隔 5s)→ 仍不符则注销重登一轮再复验 → 最终不符发告警日志
@@ -1555,25 +1532,8 @@ mod tests {
         assert_eq!(effective_interval_ms(1_000, 0, false, false), 5_000);
     }
 
-    #[test]
-    fn portal_origin_取scheme加host_去路径端口路径与查询() {
-        assert_eq!(portal_origin("http://10.1.99.100"), "http://10.1.99.100");
-        assert_eq!(portal_origin("http://10.1.99.100/"), "http://10.1.99.100");
-        assert_eq!(
-            portal_origin("http://10.1.99.100:8090/drcom/login"),
-            "http://10.1.99.100:8090"
-        );
-        assert_eq!(
-            portal_origin("https://p.njupt.edu.cn/a79.htm"),
-            "https://p.njupt.edu.cn"
-        );
-    }
-
-    #[test]
-    fn 期望运营商展示_空串为无锡学院_其余原样() {
-        assert_eq!(expected_operator_display(""), "无锡学院");
-        assert_eq!(expected_operator_display("@cmcc"), "@cmcc");
-    }
+    // portal_origin / expected_operator_display 的用例已随实现迁至
+    // campus_login_lib::campus::rules（双端同一份实现，单点覆盖）
 
     #[test]
     fn status_value_展平最近一次检测含运营商() {

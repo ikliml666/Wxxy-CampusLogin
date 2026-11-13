@@ -158,15 +158,9 @@ pub fn select_adapter_for_quality(adapters: &[Adapter], config: &crate::config::
     }
 }
 
-pub fn ensure_ethernet_ip_for_login(
-    app_handle: &AppHandle,
-    adapters: &[Adapter],
-    config: &Config,
-    is_quitting: &AtomicBool,
-) {
+fn dhcp_renew_candidates(adapters: &[Adapter], config: &Config) -> Vec<String> {
     let (a1_name, a2_name) = resolve_adapter_names(adapters, config);
-
-    let candidates: Vec<String> = [&a1_name, &a2_name]
+    [&a1_name, &a2_name]
         .iter()
         .filter_map(|name| {
             if name.is_empty() {
@@ -179,16 +173,32 @@ pub fn ensure_ethernet_ip_for_login(
                 None
             }
         })
-        .collect();
+        .collect()
+}
+
+pub fn should_refresh_adapter_snapshot(adapters: &[Adapter], config: &Config, renewed: bool) -> bool {
+    renewed || find_with_valid_ip(adapters, &resolve_adapter_names(adapters, config).0).is_none()
+}
+
+/// 尝试为登录作用域内无 IP 的有线卡续租；返回是否实际发起过续租，供调用方决定是否需要重查适配器。
+pub fn ensure_ethernet_ip_for_login(
+    app_handle: &AppHandle,
+    adapters: &[Adapter],
+    config: &Config,
+    is_quitting: &AtomicBool,
+) -> bool {
+    let candidates = dhcp_renew_candidates(adapters, config);
 
     if candidates.is_empty() {
-        return;
+        return false;
     }
 
+    let mut attempted = false;
     for name in &candidates {
         if is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-            return;
+            return attempted;
         }
+        attempted = true;
 
         let event_bus = EventBus::new(app_handle);
         let _ = event_bus.emit_login_log(
@@ -236,6 +246,7 @@ pub fn ensure_ethernet_ip_for_login(
             );
         }
     }
+    attempted
 }
 
 #[cfg(test)]
@@ -416,6 +427,35 @@ mod tests {
         // 手选适配器不在禁用列表：不纳入
         let c = make_test_config("蓝牙", true, "WLAN2");
         assert!(configured_disabled_adapters(&c, &disabled).is_empty());
+    }
+
+    #[test]
+    fn dhcp_renew_candidates_only_include_ipless_wired_adapters() {
+        let adapters = vec![
+            make_test_adapter("以太网", false, ""),
+            make_test_adapter("WLAN", true, ""),
+        ];
+        let config = make_test_config("以太网", true, "WLAN");
+        assert_eq!(dhcp_renew_candidates(&adapters, &config), vec!["以太网"]);
+
+        let wired_online = vec![make_test_adapter("以太网", false, "10.2.0.1")];
+        let config = make_test_config("以太网", false, "");
+        assert!(dhcp_renew_candidates(&wired_online, &config).is_empty());
+
+        let wireless_only = vec![make_test_adapter("WLAN", true, "")];
+        let config = make_test_config("WLAN", false, "");
+        assert!(dhcp_renew_candidates(&wireless_only, &config).is_empty());
+    }
+
+    #[test]
+    fn adapter_snapshot_refresh_covers_renewal_and_missing_primary_ip() {
+        let wireless_online = vec![make_test_adapter("WLAN", true, "10.2.0.2")];
+        let config = make_test_config("WLAN", false, "");
+        assert!(!should_refresh_adapter_snapshot(&wireless_online, &config, false));
+        assert!(should_refresh_adapter_snapshot(&wireless_online, &config, true));
+
+        let wireless_ipless = vec![make_test_adapter("WLAN", true, "")];
+        assert!(should_refresh_adapter_snapshot(&wireless_ipless, &config, false));
     }
 
     #[test]
