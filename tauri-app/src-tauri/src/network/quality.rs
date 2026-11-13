@@ -504,6 +504,7 @@ pub async fn check_internet_access_with_if(
     skip_content: bool,
     is_quitting: Arc<std::sync::atomic::AtomicBool>,
     allow_system_route_fallback: bool,
+    timeout: std::time::Duration,
 ) -> bool {
     use std::sync::atomic::Ordering;
 
@@ -534,7 +535,7 @@ pub async fn check_internet_access_with_if(
                 443,
                 bind_addr,
                 if_index,
-                std::time::Duration::from_secs(3),
+                timeout,
                 skip_ttfb,
                 skip_content,
             )
@@ -554,7 +555,7 @@ pub async fn check_internet_access_with_if(
                 host,
                 443,
                 None,
-                std::time::Duration::from_secs(3),
+                timeout,
                 skip_ttfb,
                 skip_content,
             )
@@ -577,7 +578,7 @@ pub async fn check_internet_access_with_if(
                 target,
                 bind_addr,
                 if_index,
-                std::time::Duration::from_secs(3),
+                timeout,
             )
             .await
             .is_ok()
@@ -895,6 +896,7 @@ mod tests {
             true,
             Arc::new(AtomicBool::new(false)),
             true,
+            std::time::Duration::from_secs(3),
         ));
         println!("当前出口={} 源IP={} 公网可达={} 耗时={}ms", current.alias, adapter.ip, ok, started.elapsed().as_millis());
         let detail = crate::infra::async_util::block_on_sync(crate::network::timing::measure_https_timing(

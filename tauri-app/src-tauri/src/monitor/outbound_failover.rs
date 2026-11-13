@@ -112,6 +112,7 @@ pub(super) fn probe_internet_access(
     config: &Config,
     candidates: &[(Adapter, String)],
     current_adapter: Option<&str>,
+    timeout: std::time::Duration,
 ) -> std::collections::HashMap<String, bool> {
     let state = app_handle.state::<AppState>();
     let quitting = state.exit.is_quitting.clone();
@@ -136,6 +137,7 @@ pub(super) fn probe_internet_access(
                     skip_content,
                     quitting,
                     allow_fallback,
+                    timeout,
                 )
                 .await;
                 (adapter.ip, ok)
@@ -233,7 +235,9 @@ fn recover_current_adapter(app_handle: &AppHandle, config: &Config, adapter_name
     if !should_attempt_login(managed, portal.reachable, portal.login_available, portal.online) {
         return RecoveryOutcome::NotNeeded;
     }
-    crate::log_info!("outbound", "当前出口 {} 开始登录恢复并进行 Portal 复核", adapter_name);
+    // 两条路径都会进这里：故障路径的「当前出口」与切换态下轮转的「原卡」。
+    // 文案必须中性——写成「当前出口 X」在切换态路径下会把正在恢复的原卡误报成当前出口。
+    crate::log_info!("outbound", "登录恢复: {} 开始 Portal 复核", adapter_name);
     state.network.update(|network| network.last_auto_login_attempt = std::time::Instant::now());
     let result = crate::auth::service::full_login(&state, app_handle, Some(adapter_name));
     if !result.success {
@@ -288,6 +292,18 @@ fn persist_failover_hold(app_handle: &AppHandle, config: &Config) {
 /// 切换态下的切回判定：原校园网出口连续 [`REQUIRED_FAILURE_ROUNDS`] 轮公网可达时，
 /// 写回跃点快照把出口还原。滞回两轮，避免原卡闪断时在两块卡之间来回切。
 fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
+    // 夜间守护窗口（当日切换时刻起至次日还原时刻）内不切回：到点切换后原卡可能
+    // 仍有短暂连通（学校断网时刻不精确）或探测偶发误判，两轮"健康"就切回会让
+    // 夜切变成「切了又切回」的抖动；切回统一交给还原时刻的还原动作。
+    let now = chrono::Local::now();
+    if crate::config::outbound_switch::is_night_outbound_guard_window_with_restore(
+        config.enable_night_outbound_switch,
+        now.weekday().num_days_from_sunday(),
+        crate::infra::local_now_minutes() as u32,
+        config.night_restore_minutes,
+    ) {
+        return;
+    }
     let Some(current_name) = current_outbound_name() else {
         reset_state();
         return;
@@ -311,7 +327,13 @@ fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
         reset_state();
         return;
     }
-    let health = probe_internet_access(app_handle, config, &managed, Some(&current_name));
+    let health = probe_internet_access(
+        app_handle,
+        config,
+        &managed,
+        Some(&current_name),
+        std::time::Duration::from_secs(3),
+    );
     // 切换后仍要尝试登录原卡：Portal 旁路路由已把去 Portal 的流量送回原卡，
     // 这里按受管卡逐张发起一次恢复（内部会先做 Portal 检测，未在线才真正认证）。
     // 不阻塞本拍：spawn_recovery 异步执行，结果由下一拍的 STATE 读取。
@@ -457,7 +479,13 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
         })
         .cloned()
         .collect();
-    let health = probe_internet_access(app_handle, config, &probe_candidates, Some(&current_name));
+    let health = probe_internet_access(
+        app_handle,
+        config,
+        &probe_candidates,
+        Some(&current_name),
+        std::time::Duration::from_secs(3),
+    );
     if app_handle.state::<AppState>().exit.is_quitting.load(std::sync::atomic::Ordering::Acquire) {
         return;
     }

@@ -1,3 +1,28 @@
+### 夜间出站切换恢复「到点即切」、切换后断开旧出口连接、切换耗时压到 2s 内（2026-11-14，桌面）
+
+**为什么**：三件事叠在一起，用户实测（2026-11-13 夜）暴露得很清楚：
+
+1. **夜切不执行，只剩还原时间**。`33a452b4`（按出口健康自动切换）把 `NightOutboundAction::Switch` 的动作体改成了空 `{}`，注释写「夜间 Switch 只是额外触发，不再直接强制切卡」——于是 23:00/23:30 到点什么都不做，要等故障探测连续两轮失败（约 1 分钟）才切。日志证据：23:30:19 才开始探测、23:30:52 判「连续 2/2 轮」，23:31 用户手动点切换才真正切走。同一提交还把界面文案从「夜间出站切换 / 周日至周四 23:00、周五六 23:30 …」改成「自动出站切换 / 持续检测各网卡公网连通性…」，界面上一眼看不出还有定时切换。
+2. **切了出口，已建立的连接不断**。切换只改接口跃点，既有 TCP 连接的 TCB 仍钉在原网卡上：原卡（校园网）断网后这些连接只会僵死到重传超时，应用层既收不到网络切换信号、也不会重连到新出口——用户看到的就是「出口切了但应用没恢复」。
+3. **切换耗时 4141ms**（`[outbound] 夜间出站切换: 动作完成，总耗时 4141ms`）。逐段拆日志：并行绑源探测 590ms + 公网健康探测 **3000ms**（两断网卡各走满 3s HTTPS 超时）+ 快照落盘 340ms + set_metric 150ms + Portal 旁路 180ms。
+
+**改了什么**
+
+- `monitor/scheduled.rs`：`NightOutboundAction::Switch` 恢复执行 `apply_outbound_switch_with_health(.., None)`——到点即切，不等当前出口探测失败；失败（无候选/helper 退避）时快照可能已落盘，下一拍转 None 走补齐分支续写。
+- `monitor/outbound_failover.rs`：`evaluate_switch_back` 增加夜间守护窗口门控（复用 `config::outbound_switch::is_night_outbound_guard_window_with_restore`）。不加会把夜切变成「切了又切回」：到点切换后校园网可能还没断（学校断网时刻不精确）或探测偶发误判，两轮「健康」就切回。白天故障切换后原卡恢复仍照常自动切回。
+- `platform/tcp_conns.rs`（新增）：`GetExtendedTcpTable(TCP_TABLE_OWNER_PID_ALL)` 枚举本机 IPv4 TCP 连接，对本地地址属于原出口卡的行走 `SetTcpEntry`（`MIB_TCP_STATE_DELETE_TCB`，对两端发 RST）。`SetTcpEntry` 对任意进程的 TCB 生效、需要管理员，因此走提权 helper。
+- `helper/mod.rs`：新增 `close_tcp_conns` op（参数为本地 IPv4 列表，逐行删 TCB，单行失败不中断），`--helper` 与 `--helper-task` 两条分发路径同步登记。
+- `monitor/outbound_night.rs`：切换动作在路由验证通过后调用 `close_tcp_conns`（失败只告警，不影响切换结果）；`build_outbound_plan` 把绑源网关探测与公网健康探测并行发起（原先串行，切点耗时是两者之和）；切换路径的公网探测超时 3s → 1s（`OUTBOUND_SWITCH_HEALTH_TIMEOUT`，正常卡实测 640ms 内完成，断网卡必然走满超时）。
+- `network/quality.rs` / `monitor/outbound_failover.rs`：`check_internet_access_with_if` 与 `probe_internet_access` 增加超时参数——故障切换（30s 一拍）仍用 3s 保证判定准，只有切换动作吃 1s。
+- `monitor/outbound_failover.rs` 的登录恢复日志从「当前出口 X 开始登录恢复」改为「登录恢复: X 开始 Portal 复核」：该函数被故障路径与切换态原卡轮转两条路径共用，旧文案会把「正在恢复的原卡」误报成当前出口（排障时被误导）。
+- 双端文案对齐：桌面 `nightOutboundSwitch` 恢复为「夜间出站切换」、描述恢复时段（周日至周四 23:00、周五六 23:30）并写明故障兜底，`outboundBadge`/`outboundDragHint` 同步回「夜间出站目标/优先级」；安卓文案本来就是夜间语义，未改。
+
+**耗时预期**：1.0s（探测上限，与 590ms 网关探测并行）+ 0.34s（快照落盘）+ 0.15s（set_metric）+ 0.15s（close_tcp_conns）+ 0.18s（Portal 旁路）≈ 1.8s，较 4141ms 降一半以上。
+
+**验证**：桌面 `cargo test --lib` 637 passed / 0 failed / 3 ignored（新增 `close_tcp_conns_round_trip` 与 `platform::tcp_conns` 的两项真机取表/空列表测试）；`npx tsc --noEmit --incremental` 通过；`npx vite build` 成功。**未实测**：真实夜切端到端（需挂机到 23:00 或次日 07:30）与连接关闭的实际条数——下次切换日志应出现「已关闭原出口 X(ip) 上的旧 TCP 连接，耗时 Yms」与总耗时 <2000ms，可据此复核。
+
+---
+
 ### 界面说明文案精简：删除复述布局的辅助标签（2026-11-13，双端）
 
 **为什么**：卡片副标题与设置项说明里有一批只是把标题换个说法（「网络质量 / 实时网络延迟监测」「账号管理 / 切换登录账号」「系统日志 / 查看应用运行日志，定位问题」），或在卡片里已经用开关、列表、图表表达过同一件事（「自动化设置 / 控制登录相关的自动行为」「测试详情 / 各节点延迟检测结果」）。这些文字不增加信息，只增加阅读负担——图标、分组、留白、控件位置已经把关系说清楚了。

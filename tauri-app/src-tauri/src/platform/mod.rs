@@ -26,6 +26,9 @@ pub mod identity;
 // 接口跃点读写（夜间出站切换）：全量 Win32 IpHelper，仅 Windows
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod metric;
+// 已建立 TCP 连接强制关闭（切换出口后旧连接仍钉在原网卡上）：仅 Windows
+#[cfg(all(desktop, target_os = "windows"))]
+pub mod tcp_conns;
 // 路由级切换验证（GetBestRoute，夜间出站切换完成后校验禁用效果）：仅 Windows
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod best_route;

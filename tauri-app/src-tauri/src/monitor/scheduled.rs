@@ -22,7 +22,7 @@
 //!   不重试"会让登录时段刚开的瞬时拒绝直接吞掉当日登录；注销仍是单次语义。
 
 use super::outbound_night::{
-    apply_outbound_restore, drive_pending_switch, needs_replay,
+    apply_outbound_restore, apply_outbound_switch_with_health, drive_pending_switch, needs_replay,
     outbound_switch_active, reconcile_outbound_on_startup,
     replay_outbound_switch, run_outbound_blocking,
     OUTBOUND_SWITCH_FAIL_COUNT,
@@ -144,11 +144,30 @@ pub async fn run_scheduled_action_loop(
                     );
                 }
             }
-            NightOutboundAction::Switch | NightOutboundAction::None => {
+            NightOutboundAction::Switch => {
+                // 到点即切：夜间切换的语义是「断网前先把出口挪走」，不等当前出口
+                // 探测失败。33a452b4 曾把它降级成空动作，实际要等故障探测连续两轮
+                // 失败（约一分钟）才切，用户侧表现为「到点不切、只剩还原时间」。
+                // 切换失败（无候选/helper 失败）时快照可能已落盘，下一拍判定转为
+                // None 走补齐分支按退避续写。
+                let switched = run_outbound_blocking(
+                    app_h.clone(),
+                    config_snapshot.clone(),
+                    |h, c| apply_outbound_switch_with_health(h, c, None),
+                )
+                .await
+                .is_ok();
+                if switched {
+                    crate::log_info!("outbound", "夜间出站切换: 已到切换时刻，完成出站切换");
+                } else {
+                    crate::log_debug!("outbound", "夜间出站切换: 本拍未完成(退避/无候选)，下一拍重试");
+                }
+            }
+            NightOutboundAction::None => {
                 // 切换态下的"未生效补齐"：helper 部分失败时快照已保留（切换态成立），
-                // Switch/None 统一走这里；restore_active 下判定恒为 None，按退避重试。
-                // 终止条件看 needs_replay：切换成功后失败计数清零，稳态（夜间约 900 拍）
-                // 不再每拍提权重写跃点/刷日志——只有确实留有失败历史才补
+                // 按退避重试。终止条件看 needs_replay：切换成功后失败计数清零，
+                // 稳态（夜间约 900 拍）不再每拍提权重写跃点/刷日志——只有确实留有
+                // 失败历史才补
                 let switch_fails = OUTBOUND_SWITCH_FAIL_COUNT.load(Ordering::Acquire);
                 if needs_replay(
                     &config_snapshot.outbound_metric_restore,
@@ -176,7 +195,8 @@ pub async fn run_scheduled_action_loop(
                 }
             }
         }
-        // 每拍统一评估出口健康；夜间 Switch 只是这里的一次额外触发，不再直接强制切卡。
+        // 每拍统一评估出口健康：到点切换已在上面直接执行，这里是故障兜底——当前
+        // 出口连续两轮不可达时按优先级切到可上网的非校园网卡。
         let _ = run_outbound_blocking(app_h.clone(), config_snapshot.clone(), |h, c| {
             evaluate_outbound_failover(h, c);
             Ok(())

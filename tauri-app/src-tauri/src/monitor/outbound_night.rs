@@ -20,6 +20,11 @@ use crate::platform::metric::MetricRow;
 /// 夜间出站切换：提权 helper 执行超时（改跃点/禁网卡/加路由都是即时操作，超时即判失败走退避）
 const OUTBOUND_HELPER_TIMEOUT_SECS: u64 = 10;
 
+/// 切换路径的公网健康探测超时。正常卡完成一次双目标 HTTPS 探测实测在 640ms 内，
+/// 断网卡必然走满超时——切点要的是「这张卡现在能不能上网」，不是精确延迟；
+/// 沿用全局 3s 会把切换拖到 4s 以上（2026-11-13 实测 4141ms）。
+const OUTBOUND_SWITCH_HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000);
+
 /// 夜间出站切换退避阶梯：首败 60s 起步、每失败翻倍、封顶 300s
 /// （1→60s、2→120s、3→240s、≥4→300s）——避免 30s 循环整夜重试刷日志/弹通知
 const OUTBOUND_BACKOFF_START_MS: u64 = 60_000;
@@ -544,6 +549,16 @@ fn current_origin_adapter() -> Option<(String, String, u32)> {
     Some((adapter.name.clone(), adapter.guid.clone(), adapter.if_index))
 }
 
+/// 按适配器名取本机 IPv4（关闭旧出口连接用；无地址返回 None）。
+fn adapter_ipv4_by_name(name: &str) -> Option<String> {
+    let adapters = crate::network::get_adapters_cached().ok()?;
+    adapters
+        .iter()
+        .find(|a| a.name == name)
+        .map(|a| a.ip.clone())
+        .filter(|ip| !ip.is_empty())
+}
+
 /// 切换后原出口卡的 interfaceMetric：必须明显高于目标卡（目标卡压到 1），
 /// 让「routeMetric + interfaceMetric」的比较结果稳定落在目标卡上。
 const SWITCHED_ORIGIN_METRIC: u32 = 100;
@@ -781,16 +796,29 @@ fn build_outbound_plan(
     // 见 effective_outbound_priority），且必须有 IP 且判定为非校园网
     let portal_host = portal_probe_host(&config.portal_url);
     let priority = effective_outbound_priority(&config.outbound_priority, &candidates);
-    // 并行预热本轮判定的全部绑源探测（逐卡串行探测是切换耗时主体，见 ProbeCache）
-    let mut probe_cache = warm_probe_cache(&collect_probe_targets(
-        &priority,
-        &candidates,
-        &config.campus_gateway,
-        &portal_host,
-    ));
-    let internet_health = match internet_health {
-        Some(health) => health,
-        None => super::outbound_failover::probe_internet_access(app_handle, config, &candidates, None),
+    let probe_targets = collect_probe_targets(&priority, &candidates, &config.campus_gateway, &portal_host);
+    // 绑源网关探测与公网健康探测互不依赖：串行时切点耗时是两者之和（实测
+    // 590ms + 3000ms），并行后只等较慢的一侧。公网健康探测走 HTTPS，断网卡
+    // 必然走满超时，因此这里用切换专用超时而非全局 3s。
+    let (mut probe_cache, internet_health) = match internet_health {
+        Some(health) => (warm_probe_cache(&probe_targets), health),
+        None => std::thread::scope(|scope| {
+            // 绑源网关探测放子线程（纯同步 ICMP），公网健康探测留在当前阻塞线程：
+            // 后者驱动 reqwest，必须在持有 runtime 上下文的线程上跑，挪到裸 std::thread
+            // 会退到兜底 runtime（能跑但多一层不必要的变量）。
+            let cache_handle = scope.spawn(|| warm_probe_cache(&probe_targets));
+            let health = super::outbound_failover::probe_internet_access(
+                app_handle,
+                config,
+                &candidates,
+                None,
+                OUTBOUND_SWITCH_HEALTH_TIMEOUT,
+            );
+            let cache = cache_handle
+                .join()
+                .unwrap_or_else(|_| ProbeCache(std::collections::HashMap::new()));
+            (cache, health)
+        }),
     };
     for (source_ip, ok) in internet_health {
         probe_cache.0.insert((OUTBOUND_INTERNET_HEALTH_KEY.to_string(), source_ip), ok);
@@ -978,6 +1006,30 @@ pub(super) fn apply_outbound_switch_with_health(
                 ));
             }
             Err(e) => crate::log_debug!("outbound", "夜间出站切换: 路由验证跳过: {e}"),
+        }
+    }
+    // 切换生效后关闭原出口卡上已建立的 TCP 连接：改跃点只影响新连接的选路，
+    // 既有连接仍钉在原卡上，原卡断网后只会僵死到重传超时（应用收不到切换信号、
+    // 也不会重连到新出口）。放在路由验证之后：出口真的换了才值得断；失败只告警。
+    if all_ok {
+        if let Some((origin_name, _, _)) = &origin {
+            if origin_name != &plan.target_name {
+                if let Some(ip) = adapter_ipv4_by_name(origin_name) {
+                    let close_started = std::time::Instant::now();
+                    match run_helper_op("close_tcp_conns", &[ip.clone()], false) {
+                        Ok(()) => crate::log_info!(
+                            "outbound",
+                            "夜间出站切换: 已关闭原出口 {origin_name}({ip}) 上的旧 TCP 连接，耗时 {}ms",
+                            close_started.elapsed().as_millis()
+                        ),
+                        Err(failure) => crate::log_warn!(
+                            "outbound",
+                            "夜间出站切换: 关闭原出口 {origin_name}({ip}) 旧连接失败: {}",
+                            failure.reason
+                        ),
+                    }
+                }
+            }
         }
     }
     // Portal 旁路：默认出口已切到新卡，但登录请求仍需到达校园 Portal——给原卡加一条

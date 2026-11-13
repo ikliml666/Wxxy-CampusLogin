@@ -153,6 +153,10 @@ pub enum HelperOp {
     /// ERROR_INVALID_PARAMETER，EasyTier/mullvad 同款实现）
     #[cfg(target_os = "windows")]
     SetMetric { rows: Vec<String> },
+    /// 关闭指定本地 IPv4 地址上的全部 TCP 连接（出站切换后旧连接仍钉在原网卡上，
+    /// 只会僵死到重传超时）：参数为本地地址列表，逐行 SetTcpEntry 删 TCB
+    #[cfg(target_os = "windows")]
+    CloseTcpConns { local_ips: Vec<String> },
     /// 注册计划任务提权代理（仅计划任务 worker 内执行，本身处于提权上下文）
     #[cfg(target_os = "windows")]
     RegisterTaskProxy,
@@ -245,6 +249,8 @@ fn build_op_from_args(op: &str, args: &[String]) -> Result<HelperOp, String> {
         #[cfg(target_os = "windows")]
         "set_metric" => HelperOp::SetMetric { rows: positional },
         #[cfg(target_os = "windows")]
+        "close_tcp_conns" => HelperOp::CloseTcpConns { local_ips: positional },
+        #[cfg(target_os = "windows")]
         "register_task" => HelperOp::RegisterTaskProxy,
         #[cfg(target_os = "windows")]
         "register_boot_task" => {
@@ -316,6 +322,8 @@ pub fn run_helper(op: HelperOp, result_path: Option<String>) -> i32 {
         HelperOp::ReenumerateDevice { instance_id } => run_reenumerate_device(instance_id, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::SetMetric { rows } => run_set_metric(rows, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::CloseTcpConns { local_ips } => run_close_tcp_conns(local_ips, &mut logs),
         #[cfg(target_os = "windows")]
         HelperOp::RegisterTaskProxy => run_register_task(&mut logs),
         #[cfg(target_os = "windows")]
@@ -441,6 +449,8 @@ fn process_request(path: &std::path::Path) -> i32 {
                 HelperOp::ReenumerateDevice { instance_id } => run_reenumerate_device(instance_id, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::SetMetric { rows } => run_set_metric(rows, &mut logs),
+                #[cfg(target_os = "windows")]
+                HelperOp::CloseTcpConns { local_ips } => run_close_tcp_conns(local_ips, &mut logs),
                 #[cfg(target_os = "windows")]
                 HelperOp::RegisterTaskProxy => run_register_task(&mut logs),
                 #[cfg(target_os = "windows")]
@@ -734,6 +744,36 @@ fn run_set_metric(rows: &[String], logs: &mut Vec<String>) -> HelperResult {
             format!("接口跃点设置失败（{} 条失败）: {}", failed.len(), failed.join("；")),
             logs,
         )
+    }
+}
+
+/// 关闭本地地址属于给定 IPv4 列表的 TCP 连接（出站切换后阻断旧出口上的僵死连接）。
+/// 逐行 SetTcpEntry 删 TCB；单行失败不中断（其余连接照关），失败明细进 message。
+#[cfg(target_os = "windows")]
+fn run_close_tcp_conns(local_ips: &[String], logs: &mut Vec<String>) -> HelperResult {
+    let fail = |message: String, logs: &mut Vec<String>| HelperResult {
+        success: false,
+        message,
+        op: "close_tcp_conns".to_string(),
+        logs: std::mem::take(logs),
+        details: None,
+    };
+    if local_ips.is_empty() {
+        return fail("close_tcp_conns 缺少本地地址".to_string(), logs);
+    }
+    match crate::platform::tcp_conns::close_tcp_connections(local_ips) {
+        Ok(closed) => {
+            let message = format!("已关闭 {} 条旧出口 TCP 连接", closed);
+            logs.push(format!("helper: {message}"));
+            HelperResult {
+                success: true,
+                message,
+                op: "close_tcp_conns".to_string(),
+                logs: std::mem::take(logs),
+                details: None,
+            }
+        }
+        Err(e) => fail(format!("关闭旧出口连接失败: {e}"), logs),
     }
 }
 
@@ -1591,6 +1631,27 @@ mod tests {
     #[test]
     fn build_op_unknown_is_err() {
         assert!(build_op_from_args("bogus", &[]).is_err());
+    }
+
+    // === close_tcp_conns（切换后关闭旧出口连接）：参数透传 ===
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn close_tcp_conns_round_trip() {
+        let (op, _) = parse_helper_args(&[
+            "--helper".to_string(),
+            "close_tcp_conns".to_string(),
+            "10.2.38.176".to_string(),
+            "192.168.6.107".to_string(),
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            op,
+            HelperOp::CloseTcpConns {
+                local_ips: vec!["10.2.38.176".to_string(), "192.168.6.107".to_string()]
+            }
+        );
     }
 
     // === set_metric（夜间出站切换）：编码条目 round-trip 与非法输入拒绝 ===
