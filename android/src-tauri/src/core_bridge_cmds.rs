@@ -30,7 +30,7 @@ fn parse_result(raw: String) -> Result<Value, String> {
 
 /// Binder 转发是同步阻塞调用（登录/注销最长 60s），必须在阻塞线程池执行，
 /// 不能占住 tokio worker。
-async fn call(app: &tauri::AppHandle, action: &str, args: &str) -> Result<Value, String> {
+pub(crate) async fn call(app: &tauri::AppHandle, action: &str, args: &str) -> Result<Value, String> {
     let app = app.clone();
     let action = action.to_string();
     let args = args.to_string();

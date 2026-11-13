@@ -140,6 +140,13 @@ pub fn command(action: &str, args_json: &str) -> String {
                     .await
                     .map(|_| serde_json::json!({ "triggered": true })),
                 "status" => Ok(crate::core::monitor::status_value(&ctx)),
+                // UI 的 check_portal_status 走这里:与巡检共用 net_state 的单次探测
+                "portalStatus" => {
+                    let force = args["force"].as_bool().unwrap_or(false);
+                    crate::core::net_state::portal_status(&ctx, force)
+                        .await
+                        .map(|s| serde_json::to_value(s).unwrap_or_default())
+                }
                 "restoreAvoidBadWifi" => {
                     ctx.restore_avoid_bad_wifi().await;
                     Ok(serde_json::json!({ "restored": true }))

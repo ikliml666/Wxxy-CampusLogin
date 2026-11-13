@@ -291,6 +291,8 @@ pub async fn trigger_background_check(ctx: &CoreCtx) -> Result<(), String> {
     if !is_running() {
         return Err("后台监控未运行,无法触发检测".to_string());
     }
+    // 用户点「立即检测」期望的是实时结果,不吃 net_state 的缓存窗口
+    crate::core::net_state::invalidate().await;
     run_check_once(ctx).await;
     Ok(())
 }
@@ -577,48 +579,7 @@ fn switch_logout_unconfirmed(ctx: &CoreCtx, reason: &str) -> bool {
     }
 }
 
-/// 周期检测的 Portal 全量探测:专用短命线程执行并绑定小核(检测是 60s 一拍的
-/// 稳态周期任务,线程创建 ~1ms 可忽略)。tokio worker 与 spawn_blocking 池都是
-/// 共享的,直接绑会把登录等前台任务一并拖到小核——所以用独立线程。绑核失败
-/// (节点缺失/无大小核拓扑)线程照常运行,仅回落内核自动调度。
-async fn portal_probe_on_little_cores(
-    ip: String,
-) -> Result<campus_login_lib::auth::portal::PortalStatus, String> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    let ip_for_thread = ip.clone();
-    // 裸线程不在 Tokio runtime 上下文内:check_portal_full 内部经 block_on_sync 驱动的
-    // reqwest,构造超时计时器(tokio::time::sleep → Handle::current)时必须有 reactor
-    // context,缺失即 panic "there is no reactor running"(2026-09-11 真机每拍必现)。
-    // 先在本 async 上下文取 handle,线程内 enter——与桌面 commands/login.rs 的
-    // scope 裸线程同款处理(2026-09-05 注销流程崩溃事故根因);绑小核意图不变。
-    let probe_handle = tokio::runtime::Handle::try_current().ok();
-    let spawned = std::thread::Builder::new()
-        .name("portal-probe".to_string())
-        .spawn(move || {
-            let _guard = probe_handle.as_ref().map(|h| h.enter());
-            crate::cpu_affinity::pin_current_thread_to_little_cores();
-            // panic 兜底:裸线程 panic 直接 unwind 时 rx.await 只会得到"探测线程提前
-            // 退出",真实原因(reactor context 缺失)就此丢失、每拍静默失败。捕获后
-            // 转为 Err 结果回传,默认 panic hook 仍会把消息打到 logcat。
-            let probed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                campus_login_lib::auth::portal::check_portal_full(&ip_for_thread, None)
-            }));
-            let result = probed.unwrap_or_else(|_| Err("探测线程 panic".to_string()));
-            let _ = tx.send(result);
-        });
-    match spawned {
-        Ok(_) => rx.await.map_err(|e| format!("探测线程提前退出: {e}"))?,
-        Err(e) => {
-            eprintln!("[portal_probe] 线程创建失败,降级共享阻塞池: {e}");
-            // 线程创建失败降级回共享阻塞池(仅保正确性;原始 ip 未被 move)
-            tokio::task::spawn_blocking(move || {
-                campus_login_lib::auth::portal::check_portal_full(&ip, None)
-            })
-            .await
-            .unwrap_or_else(|join| Err(format!("探测任务失败: {join}")))
-        }
-    }
-}
+
 
 /// 定时登录/定时注销(P2-32)判定与执行,附自动切换运营商（原晚间断网自动切换）:
 /// - 判定复用桌面 crate 的跨平台纯函数 `campus_login_lib::config::schedule::should_fire_scheduled_action`
@@ -1193,8 +1154,10 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     //    TCP 探测并行执行且全败(PORTAL_PORT=80),同一目标的 HTTP 请求必败,
     //    不再空转至多 8s(portal_config::CLIENT_TIMEOUT)——离网拍 11s→3s。
     //    校内 Portal 宕机(on_campus=true)仍走 HTTP 探测,由页面请求裁决。
+    // 走 net_state 单点:与 UI 的 check_portal_status 共用同一次探测(缓存窗口内复用、
+    // 失败退避),避免两个进程各建一条旁路连接把同一次抖动记成两条失败
     let portal = match (source_ip, on_campus) {
-        (Some(src), true) => portal_probe_on_little_cores(src.to_string()).await,
+        (Some(_), true) => crate::core::net_state::portal_status(ctx, false).await,
         (Some(_), false) => Err("不在校园网,跳过 Portal 探测".to_string()),
         (None, _) => Err("WiFi 未连接,跳过 Portal 探测".to_string()),
     };
@@ -1265,6 +1228,18 @@ pub async fn run_check_once(ctx: &CoreCtx) {
             since,
             settings.auto_login_cooldown_secs,
         );
+    // 启动首拍且「可登录时自动登录」关闭:明确告诉用户为什么只检测不登录,
+    // 否则用户只会看到状态是「未登录」却没有任何动作,也无从知道是开关没开
+    if !should
+        && MONITOR.check_count.load(Ordering::Relaxed) == 1
+        && !was_online
+        && !settings.auto_login_on_preparation
+    {
+        ctx.emit_log(
+            "启动检测:未开启「可登录时自动登录」,本轮只检测不登录(可在 设置→自动化 打开)",
+            "info",
+        );
+    }
     // 所有入口共享同一登录所有权；已有尝试时跳过，而不是等待后再登一次。
     let login_needed = should && !settings.user.is_empty() && !settings.password.is_empty();
     let attempt = if login_needed { crate::core::login::try_begin_login() } else { None };

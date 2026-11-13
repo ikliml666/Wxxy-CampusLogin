@@ -9,6 +9,7 @@
 
 pub mod login;
 pub mod monitor;
+pub mod net_state;
 pub mod platform;
 pub mod runner;
 pub mod status_file;

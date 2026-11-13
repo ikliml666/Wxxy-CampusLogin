@@ -4,35 +4,18 @@
 
 
 /// 桌面同名命令:Portal 状态页探测(端口 80 页面特征判在线,协议走 :801)
+///
+/// 探测收归 :core 单点(`core::net_state`):UI 不再自建旁路连接打同一个网关。
+/// 此前 UI 与巡检各探一次,一次网络抖动会被记成两条失败,界面还会在
+/// 「在线/不可达」之间闪;源地址与绑定也统一由 :core 按当前接口实时取。
 #[tauri::command]
 pub async fn check_portal_status(
     adapter_ip: Option<String>,
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::android_state::AndroidState>,
-) -> Result<campus_login_lib::auth::portal::PortalStatus, String> {
-    // 手动探测同样先绑 WiFi（此前漏绑：探测请求走系统默认路由，双网同开时落蜂窝）
-    ensure_wifi_bound(&app).await;
-    let ip = match adapter_ip {
-        Some(ip) if !ip.is_empty() => ip,
-        _ => cached_adapter_ip(&state).unwrap_or_default(),
-    };
-    // check_portal_full 为同步函数(内部 block_on_http),必须 spawn_blocking
-    tauri::async_runtime::spawn_blocking(move || {
-        campus_login_lib::auth::portal::check_portal_full(&ip, None)
-    })
-    .await
-    .map_err(|e| format!("Portal 探测任务执行失败: {e}"))?
-}
-
-/// Portal 探测的源 IP:按当前接口实时算并回写缓存(缓存值在 WiFi 换网后会滞留旧网段)。
-fn cached_adapter_ip(
-    state: &tauri::State<'_, crate::android_state::AndroidState>,
-) -> Option<String> {
-    let current = crate::campus_detect::current_source_ip();
-    if let Ok(mut cached) = state.cached_source_ip.lock() {
-        *cached = current;
-    }
-    current.map(|ip| ip.to_string())
+) -> Result<serde_json::Value, String> {
+    let _ = (adapter_ip, &state);
+    crate::core_bridge_cmds::call(&app, "portalStatus", "{\"force\":false}").await
 }
 
 #[tauri::command]
