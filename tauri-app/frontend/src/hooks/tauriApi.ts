@@ -98,16 +98,12 @@ interface TauriApi {
   dhcpRenewAll: () => Promise<DhcpRenewResult>
   dhcpReleaseRenew: () => Promise<DhcpReleaseRenewResult>
   dhcpReleaseRenewAdapter: (adapterName: string) => Promise<DhcpReleaseRenewResult>
-  /** 「立即切换出站」（绕过自动切换退避闸）；失败信息在 CommandResult 消息中 */
-  outboundSwitchNow: () => Promise<CommandResult>
   /** 「立即切换出站」到指定网卡（条目按钮：跳过优先级选卡） */
   outboundSwitchTo: (adapterName: string) => Promise<CommandResult>
   /** 各网卡当前 IPv4 跃点（展示与编辑） */
   getAdapterMetrics: () => Promise<AdapterMetric[]>
   /** 修改单张网卡跃点（IPv4/IPv6 同步写） */
   setAdapterMetric: (adapterName: string, metric: number) => Promise<CommandResult>
-  /** 「立即还原出站」（清当日保持标记并还原） */
-  outboundRestoreNow: () => Promise<CommandResult>
   /** 当前真实出站接口别名（默认路由 metric 求和最小者）；查询失败返回 null（软降级） */
   getCurrentOutboundName: () => Promise<string | null>
   checkNetworkQuality: () => Promise<NetworkQuality>
@@ -231,11 +227,9 @@ const tauriApi: TauriApi = {
   dhcpRenewAll: () => invoke<DhcpRenewResult>('dhcp_renew_all'),
   dhcpReleaseRenew: () => invoke<DhcpReleaseRenewResult>('dhcp_release_renew'),
   dhcpReleaseRenewAdapter: (adapterName) => invoke<DhcpReleaseRenewResult>('dhcp_release_renew_adapter', { adapterName }),
-  outboundSwitchNow: () => invoke<CommandResult>('outbound_switch_now'),
   outboundSwitchTo: (adapterName) => invoke<CommandResult>('outbound_switch_to', { adapterName }),
   getAdapterMetrics: () => invoke<AdapterMetric[]>('get_adapter_metrics'),
   setAdapterMetric: (adapterName, metric) => invoke<CommandResult>('set_adapter_metric', { adapterName, metric }),
-  outboundRestoreNow: () => invoke<CommandResult>('outbound_restore_now'),
   getCurrentOutboundName: () => invoke<string | null>('get_current_outbound_name'),
   checkNetworkQuality: () => invoke<NetworkQuality>('check_network_quality'),
   onNetworkQualityResult: createEventListener<NetworkQuality>('network-quality-result'),

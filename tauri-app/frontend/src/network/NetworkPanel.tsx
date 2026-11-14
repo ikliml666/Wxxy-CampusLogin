@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, RotateCcw, UserRound } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, UserRound, Gauge, Pencil } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
@@ -48,9 +48,10 @@ function formatSpeed(bps?: number): string {
   return `${Math.round(bps / 1e3)} Kbps`
 }
 
-/** 单卡跃点（优先级）展示与就地编辑：值越小优先级越高，排第一且有 IP 的卡即出站。
- *  编辑采用「本地草稿 + 失焦/回车提交」，提交成功后由父级刷新真实值。 */
-const MetricEditor = memo(function MetricEditor({
+/** 单卡跃点（优先级）：与行内按钮同排的轻量 chip（值越小优先级越高，排第一且
+ *  有 IP 的卡即出站）。默认只读，点击就地变输入框，回车/失焦保存、Esc 取消——
+ *  常驻输入框在按钮组里过于抢眼，chip 与操作区视觉一致。 */
+const MetricChip = memo(function MetricChip({
   value,
   saving,
   onCommit,
@@ -60,39 +61,66 @@ const MetricEditor = memo(function MetricEditor({
   onCommit: (metric: number) => void
 }) {
   const { t } = useTranslation()
-  const [draft, setDraft] = useState(value === null ? '' : String(value))
-  useEffect(() => {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  const begin = () => {
     setDraft(value === null ? '' : String(value))
-  }, [value])
+    setEditing(true)
+  }
+
   const commit = () => {
+    setEditing(false)
     const parsed = Number(draft)
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 9999) {
-      setDraft(value === null ? '' : String(value))
-      return
-    }
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 9999) return
     if (value !== null && parsed === value) return
     onCommit(parsed)
   }
-  return (
-    <div className="flex items-center gap-1 shrink-0 whitespace-nowrap" title={t('network.outboundMetricHint')}>
-      <span className="text-[11px] text-muted-foreground whitespace-nowrap">{t('network.outboundMetric')}</span>
+
+  if (editing) {
+    return (
       <Input
         type="number"
         min={1}
         max={9999}
         inputMode="numeric"
         value={draft}
-        disabled={saving}
+        autoFocus
+        onFocus={(e) => e.currentTarget.select()}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit()
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            setEditing(false)
+          }
         }}
-        className="h-7 w-16 px-2 text-xs font-mono"
+        className="h-7 w-16 shrink-0 rounded-lg px-2 text-[11px] font-mono tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         aria-label={t('network.outboundMetric')}
       />
-      {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-    </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={begin}
+      disabled={saving}
+      title={t('network.outboundMetricHint')}
+      className="group/metric inline-flex h-7 shrink-0 items-center gap-1 rounded-lg bg-muted/50 px-2 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+    >
+      {saving ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <Gauge className="h-3 w-3 opacity-60" aria-hidden />
+      )}
+      <span className="whitespace-nowrap">{t('network.outboundMetric')}</span>
+      <span className="font-mono tabular-nums text-foreground/80">{value === null ? '—' : value}</span>
+      <Pencil className="h-2.5 w-2.5 opacity-0 transition-opacity group-hover/metric:opacity-60" aria-hidden />
+    </button>
   )
 })
 
@@ -342,16 +370,12 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   // 出站查询/轮询与手动切换/还原（useOutboundManual.ts）
   const {
     currentOutbound,
-    switchingOutbound,
-    restoringOutbound,
     adapterMetrics,
     switchingToAdapter,
     savingMetricAdapter,
     refreshCurrentOutbound,
-    handleOutboundSwitchNow,
     handleOutboundSwitchTo,
     handleSaveMetric,
-    handleOutboundRestoreNow,
   } = useOutboundManual(adapters.length)
 
   // WebView2 最小化时定时器被节流，且夜间自动切换（改路由 metric/临时禁卡）多数
@@ -478,33 +502,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {/* 出站簇：切换/还原文字按钮（图标按钮不直观，用户反馈改文字） */}
-                {currentOutbound && (
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs gap-1 border-amber-500/40 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/60"
-                      onClick={handleOutboundSwitchNow}
-                      disabled={switchingOutbound || restoringOutbound || !config.enableNightOutboundSwitch}
-                      title={t('network.outboundSwitchNow')}
-                    >
-                      {switchingOutbound ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-                      {t('network.outboundSwitchNow')}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs gap-1"
-                      onClick={handleOutboundRestoreNow}
-                      disabled={switchingOutbound || restoringOutbound || !config.enableNightOutboundSwitch}
-                      title={t('network.outboundRestoreNow')}
-                    >
-                      {restoringOutbound ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-                      {t('network.outboundRestoreNow')}
-                    </Button>
-                  </div>
-                )}
                 <MoonStar className="h-4 w-4 text-primary" />
                 <Switch
                   checked={config.enableNightOutboundSwitch}
@@ -624,14 +621,13 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         {t('network.outboundBadge')}
                       </Badge>
                     )}
-                    {/* 跃点（优先级）：显示当前值并就地编辑 */}
-                    <MetricEditor
+                    <MetricChip
                       key="metric"
                       value={adapterMetrics[a.name] ?? null}
                       saving={savingMetricAdapter === a.name}
                       onCommit={(metric) => handleSaveMetric(a.name, metric)}
                     />
-                    {/* 「立即切换出站」到这张卡：跳过优先级选卡，只要求有 IP 且不是当前出站 */}
+                    {/* 「切换出站」到这张卡：跳过优先级选卡，只要求有 IP 且不是当前出站 */}
                     {a.ip && currentOutbound !== a.name && (
                       <Button
                         key="switch-to"
@@ -639,7 +635,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         size="sm"
                         className="h-7 text-[11px] gap-1 border-primary/30 text-primary hover:text-primary hover:bg-primary/10"
                         onClick={() => handleOutboundSwitchTo(a.name)}
-                        disabled={switchingToAdapter === a.name || switchingOutbound || restoringOutbound || !config.enableNightOutboundSwitch}
+                        disabled={switchingToAdapter === a.name || !config.enableNightOutboundSwitch}
                         title={t('network.outboundSwitchTo')}
                       >
                         {switchingToAdapter === a.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
