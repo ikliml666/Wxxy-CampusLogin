@@ -102,6 +102,8 @@ interface TauriApi {
   dhcpReleaseRenewAdapter: (adapterName: string) => Promise<DhcpReleaseRenewResult>
   /** 「立即切换出站」到指定网卡（条目按钮：跳过优先级选卡） */
   outboundSwitchTo: (adapterName: string) => Promise<CommandResult>
+  /** 「还原出口」：把跃点写回切换前快照（切换态下当前出口行的按钮） */
+  outboundRestoreNow: () => Promise<CommandResult>
   /** 各网卡当前 IPv4 跃点（展示与编辑） */
   getAdapterMetrics: () => Promise<AdapterMetric[]>
   /** 修改单张网卡跃点（IPv4/IPv6 同步写） */
@@ -231,6 +233,7 @@ const tauriApi: TauriApi = {
   dhcpReleaseRenew: () => invoke<DhcpReleaseRenewResult>('dhcp_release_renew'),
   dhcpReleaseRenewAdapter: (adapterName) => invoke<DhcpReleaseRenewResult>('dhcp_release_renew_adapter', { adapterName }),
   outboundSwitchTo: (adapterName) => invoke<CommandResult>('outbound_switch_to', { adapterName }),
+  outboundRestoreNow: () => invoke<CommandResult>('outbound_restore_now'),
   getAdapterMetrics: () => invoke<AdapterMetric[]>('get_adapter_metrics'),
   setAdapterMetric: (adapterName, metric) => invoke<CommandResult>('set_adapter_metric', { adapterName, metric }),
   getCurrentOutboundName: () => invoke<string | null>('get_current_outbound_name'),

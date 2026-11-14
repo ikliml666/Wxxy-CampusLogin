@@ -1,3 +1,25 @@
+### 切换态下当前出口行显示「还原出口」按钮（2026-11-14，桌面）
+
+**为什么**：上一版删掉头部「恢复原出口」按钮后，切换态没有任何手动还原入口——切换生效后想提前恢复只能等次日自动还原。用户要求「切换后当前条目的切换按钮改为还原按钮」。
+
+**改了什么**（前端）
+
+- `network/NetworkPanel.tsx`：切换态（`config.outboundMetricRestore` 非空）下，当前出口行渲染琥珀色「还原出口」按钮（`RotateCcw` 图标），点击调 `outbound_restore_now`；其它行仍是「切换出站」，非切换态的当前出口行保持原禁用样式。切换态判据读 `useConfigStore`，后端 `mutate_config_and_save` 的 config-changed 回传会把它自动刷新（切换成功置非空、还原收尾清空）。
+- `network/useOutboundManual.ts`：新增 `restoringOutbound` 状态与 `handleOutboundRestore`（成功/失败 toast，完成后强刷适配器列表、当前出站、跃点）。
+- `hooks/tauriApi.ts`：补回 `outboundRestoreNow` 封装——后端 `outbound_restore_now` 命令一直保留，只是上一版删了封装。
+- 文案（zh/en 各 4 键）：`outboundRestore` / `outboundRestoreHint` / `outboundRestoreSuccess` / `outboundRestoreFailed`。
+
+**验证**
+
+- `npx tsc --noEmit --incremental`：exit 0。
+- zh/en `network` 段各 130 键，集合完全一致（脚本比对 diff=[]）。
+- vite mock + headless Edge 实测（`?panel=network&nomotion=1&theme=light`，临时把 `outboundMetricRestore` 注入 mock 模拟切换态）：三行按钮文本依次为「切换出站 / 还原出口 / 切换出站」，`restoreCount=1`（只在当前出口行出现），截图确认琥珀色与其它行同尺寸。实测后已 `git checkout -- tauri-mock.js` 还原，`git status` 只剩 5 个前端文件。
+- **未实测**：真实 Tauri 环境下点击「还原出口」的端到端效果（需安装新构建；mock 只验证了渲染与命令接线）。
+
+**双端说明**：桌面专属面板，安卓端没有出站切换 UI 与命令，未做双端同步。
+
+---
+
 ### 出站切换评审修复轮：旧卡立即还原、快照保序、切换路径去重（2026-11-14，桌面）
 
 **为什么**：上一轮的「切换态可改切」过了一遍 Standards / Spec 两轴代码评审，暴露一个会破坏快照语义的真实缺陷（改切用 `BTreeMap` 落盘把快照按 GUID 字典序重排，而 `replay_outbound_switch` 与启动对账都以 `snapshot[0]` 认定目标卡），以及「旧卡只是被抬高、没有按用户诉求立即还原」「两条切换路径各写一份等价逻辑」等一批问题。

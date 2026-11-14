@@ -6,7 +6,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, Route, SlidersHorizontal } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, Route, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
@@ -446,7 +446,13 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     refreshCurrentOutbound,
     handleOutboundSwitchTo,
     handleSaveMetric,
+    restoringOutbound,
+    handleOutboundRestore,
   } = useOutboundManual(adapters.length)
+
+  // 切换态判据：切换成功必先落跃点快照（outboundMetricRestore），还原收尾清空。
+  // config 由后端 config-changed 事件回传，切换/还原后自动更新。
+  const outboundSwitched = config.outboundMetricRestore !== ''
 
   // WebView2 最小化时定时器被节流，且夜间自动切换（改路由 metric/临时禁卡）多数
   // 不改变适配器数量——恢复窗口时常看到陈旧的当前出站徽标与适配器列表。
@@ -710,19 +716,34 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         {enablingAdapter === a.name ? t('network.enabling') : t('network.enable')}
                       </Button>
                     )}
-                    {/* 「切换出站」到这张卡：跳过优先级选卡，只要求有 IP 且不是当前出站 */}
+                    {/* 切换态下当前出口行改为「还原出口」（否则界面没有任何手动还原入口）；
+                        其它行仍是「切换出站」——跳过优先级选卡，只要求有 IP 且不是当前出站 */}
                     {a.ip && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 gap-1 border-primary/30 text-[11px] text-primary hover:bg-primary/10 hover:text-primary"
-                        onClick={() => handleOutboundSwitchTo(a.name)}
-                        disabled={currentOutbound === a.name || switchingToAdapter === a.name || !config.enableNightOutboundSwitch}
-                        title={currentOutbound === a.name ? t('network.currentOutboundBadge') : t('network.outboundSwitchTo')}
-                      >
-                        {switchingToAdapter === a.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
-                        {t('network.outboundSwitchTo')}
-                      </Button>
+                      outboundSwitched && currentOutbound === a.name ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 border-amber-500/30 text-[11px] text-amber-600 hover:border-amber-500/50 hover:bg-amber-500/10 hover:text-amber-700"
+                          onClick={handleOutboundRestore}
+                          disabled={restoringOutbound || !config.enableNightOutboundSwitch}
+                          title={t('network.outboundRestoreHint')}
+                        >
+                          {restoringOutbound ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                          {t('network.outboundRestore')}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 border-primary/30 text-[11px] text-primary hover:bg-primary/10 hover:text-primary"
+                          onClick={() => handleOutboundSwitchTo(a.name)}
+                          disabled={currentOutbound === a.name || switchingToAdapter === a.name || !config.enableNightOutboundSwitch}
+                          title={currentOutbound === a.name ? t('network.currentOutboundBadge') : t('network.outboundSwitchTo')}
+                        >
+                          {switchingToAdapter === a.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                          {t('network.outboundSwitchTo')}
+                        </Button>
+                      )
                     )}
                   </SortableAdapterRow>
                 ))}

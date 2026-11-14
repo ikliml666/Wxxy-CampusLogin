@@ -23,6 +23,8 @@ export function useOutboundManual(adaptersCount: number) {
   const [adapterMetrics, setAdapterMetrics] = useState<Record<string, number | null>>({})
   /** 正在执行「立即切换到此卡」的网卡名 */
   const [switchingToAdapter, setSwitchingToAdapter] = useState<string | null>(null)
+  /** 是否正在执行「还原出口」 */
+  const [restoringOutbound, setRestoringOutbound] = useState(false)
   /** 正在提交跃点修改的网卡名 */
   const [savingMetricAdapter, setSavingMetricAdapter] = useState<string | null>(null)
 
@@ -111,13 +113,40 @@ export function useOutboundManual(adaptersCount: number) {
     }
   }, [ipc, t, refreshCurrentOutbound, refreshAdapterMetrics])
 
+  // 「还原出口」：把跃点写回切换前快照（后端 manual_outbound_restore）。
+  // 切换态已清时后端会改为按当前顺序重建出站，按钮只在切换态出现，正常不会走到。
+  const handleOutboundRestore = useCallback(async () => {
+    setRestoringOutbound(true)
+    try {
+      const result = await ipc.outboundRestoreNow?.()
+      if (!mountedRef.current) return
+      if (result?.success) {
+        useLogToastStore.getState().addToast(t('network.outboundRestoreSuccess'), 'success', result.message)
+      } else {
+        useLogToastStore.getState().addToast(t('network.outboundRestoreFailed'), 'error', result?.message)
+      }
+    } catch (e: unknown) {
+      if (!mountedRef.current) return
+      useLogToastStore.getState().addToast(t('network.outboundRestoreFailed'), 'error', extractErrorMessage(e))
+    } finally {
+      if (mountedRef.current) {
+        setRestoringOutbound(false)
+        void refreshAdapterData({ force: true })
+        void refreshCurrentOutbound()
+        void refreshAdapterMetrics()
+      }
+    }
+  }, [ipc, t, refreshCurrentOutbound, refreshAdapterMetrics])
+
   return {
     currentOutbound,
     adapterMetrics,
     switchingToAdapter,
     savingMetricAdapter,
+    restoringOutbound,
     refreshCurrentOutbound,
     handleOutboundSwitchTo,
     handleSaveMetric,
+    handleOutboundRestore,
   }
 }
