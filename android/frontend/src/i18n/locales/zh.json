@@ -358,7 +358,7 @@
     "wifiCurfewAllowedHint": "宿舍路由器等不随校园网断网的 WiFi；命中这里的一律不断开（优先于上行名单）",
     "wifiCurfewAddPlaceholder": "输入 WiFi 名称",
     "wifiCurfewRemove": "移除 {{name}}",
-    "wifiCurfewAndroidCaveat": "安卓不允许普通应用断开指定 WiFi：守则经 Shizuku 或 root 通道执行——到点把名单里的开放网络从系统中「忘记」（校园网三值都是开放网络，无需密码），次日按恢复时刻重新建回；加密网络不动。两者都没有授权时，本守则不会改动任何 WiFi",
+    "wifiCurfewAndroidCaveat": "安卓不允许普通应用断开指定 WiFi：守则经 Shizuku 或 root 通道执行——到点优先连到「仍可连接的 WiFi」，连不上就关闭 WiFi 改用流量，次日按恢复时刻重新打开。不删除系统里保存的任何网络与密码。两者都没有授权时，本守则不会改动任何 WiFi",
     "privateDns": "私人 DNS（DoT）",
     "privateDnsDesc": "把系统 DNS 升级为加密的 DoT（DNS over TLS），本机所有应用生效。改的是系统「私人 DNS」设置，不是本应用的 DNS",
     "privateDnsCurrent": "当前",

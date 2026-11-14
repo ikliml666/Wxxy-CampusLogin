@@ -5,7 +5,7 @@
 **改了什么**
 
 - **新增 `RemoteShellService`（Shizuku UserService）+ `IRemoteShell.aidl`**：UserService 在 shell(uid 2000)/root 身份进程里实例化，内部只用 `Runtime.exec`（README 明确该进程拿不到 ContentResolver）。AIDL 与实现在 `foreground-service` 库模块；模块 `build.gradle.kts` 加 `buildFeatures.aidl = true` 与 `dev.rikka.shizuku:api/provider:13.1.5`（`api` 而非 `implementation`，app 模块的 Application 要用 `ShizukuProvider`）。
-- **新增 `WifiCurfewRunner`**：窗口内 `cmd wifi list-networks` 解析固定列宽输出（`%-12d %-32s %-4s`），对命中排除列表且不在允许列表的网络执行 `forget-network <id>`；出窗按快照 `add-network <ssid> open` 重建配置。**只处理开放网络**——校园网三值都是 open，重建无需密码；加密网络忘记后没有密码回不来，跳过并写进返回的 detail。
+- **新增 `WifiCurfewRunner`**：窗口内若当前 SSID 命中「排除列表且不在允许列表」，先按 `cmd wifi list-networks`（固定列宽 `%-12d %-32s %-4s`）查出安全类型，对允许列表逐个 `cmd wifi connect-network <ssid> <security>`（**不传 passphrase**——网络已保存在系统里，密码沿用已有的）；一个都连不上就 `cmd wifi set-wifi-enabled disabled` 关 WiFi 走流量。出窗只在本程序关过 WiFi 时 `enabled` 打开。**不删除任何保存的网络配置**：`forget-network` 会连密码一起丢掉，恢复成本不可接受，整条路径不用。
 - **新增 `CampusLoginApplication`**：`ShizukuProvider.enableMultiProcessSupport(true)`。不这样做的话 `:core` 进程里 `Shizuku.pingBinder()` 恒为 false（provider 默认只在主进程实例化）。Manifest 加 `ShizukuProvider`（authorities = `${applicationId}.shizuku`）并把 `android:name` 指向新 Application。
 - **`CoreService` 新增 `setWifiCurfewConfig(json)` / `runWifiCurfew()`**：拆成 setter + 无参执行，刻意不走 String→String 签名——`platform_sig` 的回归测试锁死「该签名只留给 decrypt/encrypt」。
 - **JNI 面**：`platform_sig::METHOD_SIGNATURES` 加 `setWifiCurfewConfig`(StrToVoid) 与 `runWifiCurfew`(ZeroToStr)；`CorePlatform` trait 加两个方法；`JniPlatform` 实现。
@@ -21,8 +21,8 @@
 
 **评估后未做**
 
-- **`connect-network` 主动连白名单**：该命令用 `buildWifiConfiguration` 造新配置再 `connect`，对已保存的加密网络有覆盖掉密码的风险；「不连哪个」用 forget 已经够表达，不做。
-- **`set-wifi-enabled disabled` 兜底**：会整体关 WiFi，白名单直接失效，与 Windows 端「只影响名单内网络」的语义偏离，不做。
+- **用 `disconnect` 精确断开**：Android 10 起普通应用拿不到该能力，`cmd wifi` 也没有断开子命令，只能关 WiFi 或切到别的网络。
+- **`forget-network` 屏蔽**：能最彻底地让系统不再自动连某个 SSID，但会连密码一起删掉，恢复时加密网络要重新输入，代价不可接受。
 
 ### WiFi 就寝守则（双端）+ 安卓网络页签与私人 DNS（2026-11-14，桌面前后端 + 安卓前后端 + 安卓插件）
 

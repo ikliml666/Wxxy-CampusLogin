@@ -15,22 +15,24 @@ import java.util.concurrent.TimeUnit
 /**
  * WiFi 就寝守则的安卓执行器（跑在 `:core` 进程）。
  *
- * **为什么是「忘记网络」而不是「断开」**：Android 10 起第三方应用无法
- * disconnect / setWifiEnabled / removeNetwork（一律返回 false），只能借 shell 身份
- * 走 `cmd wifi`。而在 shell 能用的子命令里，没有「只断开这个 SSID」也没有
- * 「关闭它的自动连接」——能精确表达「到点不连这个 WiFi」的只有 `forget-network`
- * （连同 autojoin 一起消失），出来再把配置建回去。
+ * **动作只有两种，都不改变系统里保存的任何配置**：
+ * 1. 允许列表里有目标 → `cmd wifi connect-network <ssid> <security>` 直接连过去
+ *    （网络已保存在系统里，密码沿用已有的，所以不传 passphrase）；
+ * 2. 没有目标或连不上 → `cmd wifi set-wifi-enabled disabled` 关掉 WiFi 走流量，
+ *    次日恢复时刻 `enabled` 打开。
  *
- * **只处理开放网络**：校园网三值都是 open，`add-network <ssid> open` 能无痛重建；
- * 加密网络忘记后没有密码就回不来，所以跳过并记日志，不动它。
+ * 刻意**不用 `forget-network`**：那会删掉系统里的网络配置，加密网络恢复时还得
+ * 重新输密码，代价不可接受。
  *
- * 恢复时刻与夜切共用：调用方把 `restoreStart`（当日分钟数，0=默认 07:30）传进来。
+ * 为什么不能直接"断开"：Android 10 起第三方应用没有 disconnect 能力，`cmd wifi`
+ * 也没有断开子命令；能精确止住「继续连这个 SSID」的只有关 WiFi，或者切到别的网络。
  */
 class WifiCurfewRunner(private val context: Context) {
 
     companion object {
         private const val PREFS = "wifi_curfew"
-        private const val KEY_FORGOTTEN = "forgotten_ssids"
+        /** 本程序关掉过 WiFi（只有它置位才会在出窗时打开，避免误开用户自己关的 WiFi） */
+        private const val KEY_DISABLED = "disabled_wifi"
         private const val SHELL_WAIT_MS = 8000L
         private const val DEFAULT_RESTORE_START = 450
         private const val RESTORE_END = 1380
@@ -47,14 +49,52 @@ class WifiCurfewRunner(private val context: Context) {
         val excluded = readList(cfg.optJSONArray("excluded"))
         val allowed = readList(cfg.optJSONArray("allowed"))
         val restoreStart = normalizeRestoreStart(cfg.optInt("restoreStart", 0))
-
         val inWindow = inCurfewWindow(restoreStart)
-        val forgotten = readForgotten()
 
         if (!enabled || !inWindow) {
-            return if (forgotten.isNotEmpty()) restore(forgotten) else result("idle")
+            return restore()
         }
-        return applyCurfew(excluded, allowed, forgotten)
+
+        val current = currentSsid()
+        if (!isBlocked(excluded, allowed, current)) {
+            // 当前网络不在黑名单里（含本来就没连 WiFi）：不动
+            return result("keep").put("currentSsid", current).toString()
+        }
+
+        // 1) 有允许列表 → 直接连过去
+        if (allowed.isNotEmpty()) {
+            val saved = shellExec("cmd wifi list-networks")?.let { parseNetworks(it) }.orEmpty()
+            for (target in allowed) {
+                val security = saved.firstOrNull { it.ssid.equals(target, ignoreCase = true) }
+                    ?.security?.substringBefore('/')
+                    ?: "open"
+                val out = shellExec("cmd wifi connect-network \"$target\" $security") ?: continue
+                if (out.contains("Connection initiated")) {
+                    return result("connect").put("target", target).put("currentSsid", current).toString()
+                }
+            }
+        }
+
+        // 2) 兜底：关掉 WiFi 走流量（只记「本程序关的」，出窗才打开）
+        val out = shellExec("cmd wifi set-wifi-enabled disabled")
+        if (out != null && out.contains("exit=0")) {
+            prefs.edit().putBoolean(KEY_DISABLED, true).apply()
+            return result("wifi-off").put("currentSsid", current).toString()
+        }
+        return result("failed").put("detail", out?.trim()?.take(160) ?: "no_shell").toString()
+    }
+
+    /** 出窗/关功能：把本程序关掉的 WiFi 打开（不碰用户自己关的状态） */
+    private fun restore(): String {
+        if (!prefs.getBoolean(KEY_DISABLED, false)) {
+            return result("idle").toString()
+        }
+        val out = shellExec("cmd wifi set-wifi-enabled enabled")
+        if (out != null && out.contains("exit=0")) {
+            prefs.edit().putBoolean(KEY_DISABLED, false).apply()
+            return result("wifi-on").toString()
+        }
+        return result("restore-failed").put("detail", out?.trim()?.take(160) ?: "no_shell").toString()
     }
 
     // ===== 判定 =====
@@ -82,94 +122,29 @@ class WifiCurfewRunner(private val context: Context) {
         return excluded.any { it == "*" || it.equals(ssid, ignoreCase = true) }
     }
 
-    // ===== 动作 =====
-
-    private fun applyCurfew(excluded: List<String>, allowed: List<String>, forgotten: List<String>): String {
-        val networks = shellExec("cmd wifi list-networks") ?: return result("no_shell")
-        val saved = parseNetworks(networks)
-        val current = currentSsid()
-        var changed = false
-        val log = JSONArray()
-
-        for (net in saved) {
-            if (forgotten.any { it.equals(net.ssid, ignoreCase = true) }) continue
-            if (!isBlocked(excluded, allowed, net.ssid)) continue
-            if (!net.isOpen) {
-                log.put(JSONObject().put("ssid", net.ssid).put("skip", "secured"))
-                continue
-            }
-            val out = shellExec("cmd wifi forget-network ${net.id}") ?: continue
-            if (out.contains("Forget successful")) {
-                appendForgotten(net.ssid)
-                changed = true
-                log.put(JSONObject().put("ssid", net.ssid).put("action", "forget"))
-            } else {
-                log.put(JSONObject().put("ssid", net.ssid).put("error", out.trim().take(120)))
-            }
-        }
-
-        val ret = JSONObject()
-            .put("action", if (changed) "forget" else "keep")
-            .put("currentSsid", current)
-            .put("forgotten", JSONArray(readForgotten()))
-            .put("detail", log)
-        return ret.toString()
-    }
-
-    private fun restore(forgotten: List<String>): String {
-        val remaining = forgotten.filter { ssid ->
-            val out = shellExec("cmd wifi add-network "$ssid" open")
-            val ok = out != null && out.contains("Save successful")
-            !ok
-        }
-        writeForgotten(remaining)
-        return JSONObject()
-            .put("action", "restore")
-            .put("restored", JSONArray(forgotten - remaining.toSet()))
-            .put("remaining", JSONArray(remaining))
-            .toString()
-    }
-
-    private fun result(action: String): String = JSONObject().put("action", action).toString()
+    private fun result(action: String): JSONObject = JSONObject().put("action", action)
 
     // ===== list-networks 解析 =====
     // 输出为固定列宽：%-12d %-32s %-4s，首行是表头
-    private data class SavedNetwork(val id: Int, val ssid: String, val security: String) {
-        val isOpen: Boolean get() = security.startsWith("open") || security.startsWith("owe")
-    }
+    private data class SavedNetwork(val ssid: String, val security: String)
 
     private fun parseNetworks(raw: String): List<SavedNetwork> {
         val out = mutableListOf<SavedNetwork>()
         for (line in raw.lines()) {
             if (line.startsWith("Network Id") || line.isBlank()) continue
-            val idText = line.take(12).trim()
-            val id = idText.toIntOrNull() ?: continue
+            // 首列必须是 networkId 数字，用来排除表头/空行等非数据行
+            line.take(12).trim().toIntOrNull() ?: continue
             val ssid = line.drop(12).take(33).trim()
             val security = line.drop(45).trim()
             if (ssid.isEmpty()) continue
-            out.add(SavedNetwork(id, ssid, security))
+            out.add(SavedNetwork(ssid, security))
         }
         return out
     }
 
-    // ===== 状态 =====
-
-    private fun readForgotten(): List<String> =
-        prefs.getString(KEY_FORGOTTEN, "")?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
-
-    private fun appendForgotten(ssid: String) {
-        val next = (readForgotten() + ssid).distinct()
-        writeForgotten(next)
-    }
-
-    private fun writeForgotten(list: List<String>) {
-        prefs.edit().putString(KEY_FORGOTTEN, list.joinToString("\n")).apply()
-    }
-
     private fun currentSsid(): String = try {
         val manager = context.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
-        val info = manager?.connectionInfo
-        info?.ssid?.trim('"') ?: ""
+        manager?.connectionInfo?.ssid?.trim('"') ?: ""
     } catch (e: Throwable) {
         ""
     }
