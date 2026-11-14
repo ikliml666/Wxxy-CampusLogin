@@ -1708,43 +1708,216 @@ fn clear_outbound_manual_hold(app_handle: &AppHandle) {
     set_outbound_manual_hold(app_handle, 0);
 }
 
+/// 切换态内改切到另一张卡（夜间/手动切换生效后再点其它卡的「切换出站」）。
+/// 不重建快照：快照保存的是**切换前**的原值，只有首次切换与本次会被改写、
+/// 但尚未进快照的卡才写入。目标卡压到 1、当前出口抬到 SWITCHED_ORIGIN_METRIC
+/// （与首次切换对原出口的处理一致），旧目标卡的原值仍留在快照里，任一次还原
+/// 都会写回——因此不再要求用户先点「恢复原出口」才能改切。
+/// 改切时把"将被本次动作改写、但还没进快照"的卡按当前值补记进快照：
+/// 已在快照的卡保持原值（现值已被切换改过，写回去就把原值弄丢了）。
+/// 返回是否有新增条目（决定要不要落盘）。
+fn merge_retarget_snapshot(
+    snapshot: &mut std::collections::BTreeMap<String, Vec<MetricRow>>,
+    target_guid: &str,
+    target_rows: &[MetricRow],
+    origin: Option<(&str, &[MetricRow])>,
+) -> bool {
+    let mut dirty = false;
+    if !snapshot.contains_key(target_guid) {
+        snapshot.insert(target_guid.to_string(), target_rows.to_vec());
+        dirty = true;
+    }
+    if let Some((guid, rows)) = origin {
+        if !rows.is_empty() && !snapshot.contains_key(guid) {
+            snapshot.insert(guid.to_string(), rows.to_vec());
+            dirty = true;
+        }
+    }
+    dirty
+}
+
+fn retarget_outbound_switch(app_handle: &AppHandle, adapter_name: &str) -> Result<(), String> {
+    let Some(_busy) = OutboundActionGuard::try_acquire() else {
+        return Err("另一出站动作进行中，请稍后再试".to_string());
+    };
+    let config = app_handle.state::<AppState>().config.load_full();
+    let adapters = crate::network::get_adapters_cached()?;
+    let Some(adapter) = adapters.iter().find(|a| a.name == adapter_name) else {
+        return Err(format!("未找到网卡 {adapter_name}"));
+    };
+    if adapter.ip.is_empty() {
+        return Err(format!("网卡 {adapter_name} 当前没有 IP，无法作为出站目标"));
+    }
+    if adapter.guid.is_empty() {
+        return Err(format!("网卡 {adapter_name} 缺少 GUID，无法设置跃点"));
+    }
+    let target_rows: Vec<MetricRow> = crate::platform::metric::read_interface_metrics(&adapter.guid)?
+        .into_iter()
+        .filter(|r| matches!(r.family, 2 | 23))
+        .collect();
+    if target_rows.is_empty() {
+        return Err(format!("网卡 {adapter_name} 没有 IPv4/IPv6 跃点配置行"));
+    }
+    // 快照是原值的唯一凭据：损坏时拒绝改切（按错的「原值」写入会让还原还原出错误值）
+    let mut snapshot: std::collections::BTreeMap<String, Vec<MetricRow>> =
+        std::collections::BTreeMap::new();
+    for row in parse_outbound_snapshot(&config.outbound_metric_restore)? {
+        snapshot.entry(row.guid).or_default().push(MetricRow {
+            family: row.family,
+            automatic: row.automatic,
+            metric: row.metric,
+        });
+    }
+    let origin = current_origin_adapter();
+    // 当前出口卡本次会被抬到 SWITCHED_ORIGIN_METRIC，原值同样必须先有凭据
+    let origin_rows: Option<(String, Vec<MetricRow>)> = origin.as_ref().and_then(|(_, guid, _)| {
+        if guid == &adapter.guid {
+            return None;
+        }
+        let rows: Vec<MetricRow> = crate::platform::metric::read_interface_metrics(guid)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|r| matches!(r.family, 2 | 23))
+            .collect();
+        if rows.is_empty() {
+            None
+        } else {
+            Some((guid.clone(), rows))
+        }
+    });
+    let snapshot_dirty = merge_retarget_snapshot(
+        &mut snapshot,
+        &adapter.guid,
+        &target_rows,
+        origin_rows
+            .as_ref()
+            .map(|(guid, rows)| (guid.as_str(), rows.as_slice())),
+    );
+    if snapshot_dirty {
+        let entries: Vec<(String, Vec<MetricRow>)> = snapshot.into_iter().collect();
+        let json = snapshot_json_multi(&entries);
+        let state = app_handle.state::<AppState>();
+        if let Err(e) =
+            crate::config::persist::mutate_config_and_save(app_handle, &state, move |fresh| {
+                fresh.outbound_metric_restore = json;
+                Ok(())
+            })
+        {
+            crate::log_warn!("outbound", "出站切换: 切换态快照补记失败: {e}");
+            return Err(format!("切换状态快照写入失败: {e}"));
+        }
+        crate::log_info!(
+            "outbound",
+            "出站切换: {} 已补记进切换态快照（原值保持不变）",
+            adapter.name
+        );
+    }
+    let families: Vec<u16> = target_rows.iter().map(|r| r.family).collect();
+    let origin_families: Vec<u16> = origin_rows
+        .as_ref()
+        .map(|(_, rows)| rows.iter().map(|r| r.family).collect())
+        .unwrap_or_default();
+    let origin_write = origin_rows
+        .as_ref()
+        .filter(|_| !origin_families.is_empty())
+        .map(|(guid, _)| (guid.as_str(), origin_families.as_slice()));
+    write_outbound_metric(
+        app_handle,
+        &adapter.name,
+        &adapter.guid,
+        &families,
+        true,
+        "",
+        origin_write,
+    )?;
+    match outbound_route_targets(adapter.if_index) {
+        Ok(true) => crate::log_info!(
+            "outbound",
+            "出站切换: 路由验证通过，默认出口已指向 {}",
+            adapter.name
+        ),
+        Ok(false) => {
+            mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+            crate::log_warn!(
+                "outbound",
+                "出站切换: 路由验证失败——默认出口仍不在 {}（可能被 TUN/代理接管了默认路由）",
+                adapter.name
+            );
+            return Err(format!(
+                "默认出口仍未切到 {}（可能被 TUN/代理接管默认路由）",
+                adapter.name
+            ));
+        }
+        Err(e) => crate::log_debug!("outbound", "出站切换: 路由验证跳过: {e}"),
+    }
+    if let Some((origin_name, _, _)) = &origin {
+        if origin_name != &adapter.name {
+            if let Some(ip) = adapter_ipv4_by_name(origin_name) {
+                match run_helper_op("close_tcp_conns", &[ip.clone()], false) {
+                    Ok(()) => crate::log_info!(
+                        "outbound",
+                        "出站切换: 已关闭原出口 {origin_name}({ip}) 上的旧 TCP 连接"
+                    ),
+                    Err(failure) => crate::log_warn!(
+                        "outbound",
+                        "出站切换: 关闭原出口 {origin_name}({ip}) 旧连接失败: {}",
+                        failure.reason
+                    ),
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// 「立即切换」命令入口（桌面）：用户显式触发，覆盖自动切换的退避闸。先落 hold
 /// 再执行切换（hold 落盘后即使切换中途崩溃，当日的自动 Switch 也不会叠加，
-/// 残留快照由启动对账收敛）。已处于切换态时拒绝——此时重跑会把已被改动的
-/// 跃点当原值重新快照，覆盖原始跃点导致还原写入错误值。
+/// 残留快照由启动对账收敛）。已处于切换态时按优先级选卡后改切（沿用既有快照），
+/// 不要求先还原——夜间切换生效后用户仍可继续换卡。
 pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), String> {
     let config = app_handle.state::<AppState>().config.load_full();
     if !config.enable_night_outbound_switch {
         return Err("夜间出站切换未开启".to_string());
     }
-    if outbound_switch_active(app_handle) {
-        return Err("已处于出站切换状态，如需重试请先还原".to_string());
-    }
     let today = chrono::Local::now().date_naive().num_days_from_ce();
     // 用户显式重试：清退避闸，不做自动路径的阶梯等待
     clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
     set_outbound_manual_hold(app_handle, today);
-    if let Err(reason) = apply_outbound_switch_with_health(app_handle, &config, None, None) {
-        // 切换失败（无候选/退避等）按原语义清 hold，恢复当日自动切换。
-        // 2026-10-26 前还有「登录闸挂起不算失败、保留 hold 让补驱动接管」的分支；
-        // 挂起机制已随登录闸一起移除，失败即失败。
-        clear_outbound_manual_hold(app_handle);
-        Err(reason)
+    let result = if outbound_switch_active(app_handle) {
+        build_outbound_plan(app_handle, &config, None, None).and_then(|plan| {
+            if current_origin_adapter()
+                .map(|(name, _, _)| name == plan.target_name)
+                .unwrap_or(false)
+            {
+                crate::log_info!("outbound", "出站切换: 当前出口已是 {}", plan.target_name);
+                Ok(())
+            } else {
+                retarget_outbound_switch(app_handle, &plan.target_name)
+            }
+        })
     } else {
-        Ok(())
+        apply_outbound_switch_with_health(app_handle, &config, None, None)
+    };
+    match result {
+        Ok(()) => Ok(()),
+        Err(reason) => {
+            // 切换失败（无候选/退避等）按原语义清 hold，恢复当日自动切换。
+            // 2026-10-26 前还有「登录闸挂起不算失败、保留 hold 让补驱动接管」的分支；
+            // 挂起机制已随登录闸一起移除，失败即失败。
+            clear_outbound_manual_hold(app_handle);
+            Err(reason)
+        }
     }
 }
 
 /// 「立即切换出站」命令入口（桌面，条目按钮）：以**指定网卡**为目标直接切换，
 /// 跳过优先级选卡与公网复核——用户点名要哪张就切哪张，哪怕它是校园网卡。
-/// 成功后冻结当日自动动作（与手动切换同语义，避免 30s 后的自动判定把选择挪走）。
+/// 切换态内再点其它卡不再被拒：走 retarget_outbound_switch，原卡参数由既有
+/// 快照兜底还原，无需先点「恢复原出口」。成功后冻结当日自动动作。
 pub(crate) fn manual_outbound_switch_to(app_handle: &AppHandle, adapter_name: &str) -> Result<(), String> {
     let config = app_handle.state::<AppState>().config.load_full();
     if !config.enable_night_outbound_switch {
         return Err("夜间出站切换未开启".to_string());
-    }
-    if outbound_switch_active(app_handle) {
-        return Err("已处于出站切换状态，如需重试请先恢复原出口".to_string());
     }
     if current_origin_adapter().map(|(name, _, _)| name == adapter_name).unwrap_or(false) {
         return Err(format!("{adapter_name} 已是当前出站网卡"));
@@ -1752,13 +1925,17 @@ pub(crate) fn manual_outbound_switch_to(app_handle: &AppHandle, adapter_name: &s
     let today = chrono::Local::now().date_naive().num_days_from_ce();
     clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
     set_outbound_manual_hold(app_handle, today);
-    if let Err(reason) =
-        apply_outbound_switch_with_health(app_handle, &config, None, Some(adapter_name))
-    {
-        clear_outbound_manual_hold(app_handle);
-        Err(reason)
+    let result = if outbound_switch_active(app_handle) {
+        retarget_outbound_switch(app_handle, adapter_name)
     } else {
-        Ok(())
+        apply_outbound_switch_with_health(app_handle, &config, None, Some(adapter_name))
+    };
+    match result {
+        Ok(()) => Ok(()),
+        Err(reason) => {
+            clear_outbound_manual_hold(app_handle);
+            Err(reason)
+        }
     }
 }
 
@@ -1850,6 +2027,38 @@ pub(super) fn reconcile_outbound_on_startup(app_handle: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn metric_row(family: u16, metric: u32) -> MetricRow {
+        MetricRow { family, automatic: false, metric }
+    }
+
+    /// 改切只补记"将被改写但还没进快照"的卡，绝不覆盖快照里已有的原值——
+    /// 覆盖会让还原写回切换后的值，用户网卡参数被永久改掉。
+    #[test]
+    fn 改切快照_保留既有原值只补记新卡() {
+        let mut snapshot: std::collections::BTreeMap<String, Vec<MetricRow>> =
+            std::collections::BTreeMap::new();
+        snapshot.insert("A".to_string(), vec![metric_row(2, 30)]);
+
+        // A 已在快照：现值 1 不得覆盖原值 30
+        assert!(!merge_retarget_snapshot(&mut snapshot, "A", &[metric_row(2, 1)], None));
+        assert_eq!(snapshot["A"][0].metric, 30);
+
+        // B/C 不在快照：按传入的当前值补记
+        assert!(merge_retarget_snapshot(
+            &mut snapshot,
+            "B",
+            &[metric_row(2, 25)],
+            Some(("C", &[metric_row(2, 10)]))
+        ));
+        assert_eq!(snapshot["B"][0].metric, 25);
+        assert_eq!(snapshot["C"][0].metric, 10);
+
+        // 已进快照的卡重复调用不产生新增，原值不变
+        assert!(!merge_retarget_snapshot(&mut snapshot, "B", &[metric_row(2, 1)], None));
+        assert_eq!(snapshot["B"][0].metric, 25);
+    }
+
 
     fn adapter(name: &str, ip: &str, wireless: bool) -> Adapter {
         Adapter {
