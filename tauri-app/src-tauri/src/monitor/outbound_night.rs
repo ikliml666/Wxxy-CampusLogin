@@ -626,6 +626,15 @@ pub(crate) fn manual_set_adapter_metric(
 /// 让「routeMetric + interfaceMetric」的比较结果稳定落在目标卡上。
 const SWITCHED_ORIGIN_METRIC: u32 = 100;
 
+/// 绑源探测池的总预算（毫秒）：探测目标全是本机所在局域网/校园内网地址，正常 RTT
+/// 远小于 10ms，确认「不可达」本来只需等一次 ICMP 超时。但池子沿用 join 时会等最慢
+/// 那一发走满 GATEWAY_PROBE_TIMEOUT_MS(1000ms)，切换因此被整整拖慢一秒
+/// （2026-11-13 日志：并行绑源探测 929ms）。
+/// 改为给整个池一个预算：到点未返回的组合按「不可达」处理，语义与超时一致（没在预算
+/// 内回应就是不可达）。与配置 outboundProbeTimeoutMs 取小值——用户调低更激进，调高
+/// 也不会突破这个上限。
+const OUTBOUND_PROBE_BUDGET_MS: u32 = 600;
+
 /// 默认出口是否已落在指定接口：读系统默认路由的接口索引比对。
 /// 只改跃点时"写了跃点"与"出口真的换了"是两件事——TUN/代理可能持有 metric=0
 /// 的默认路由，此时跃点写入成功但出口不动，必须靠这一步暴露。
@@ -686,44 +695,62 @@ impl ProbeCache {
     }
 }
 
-/// 并行探测全部 (目标, 绑源) 组合。同一组合发 [`CAMPUS_PROBE_ATTEMPTS`] 次、
-/// 任一可达即判可达——与 [`crate::campus::rules::probe_with_retry`] 的抗丢包语义
-/// 同源（去抖次数由共享层统一规定），但各发同时发出，最坏只等一个超时。
-fn warm_probe_cache(pairs: &[(String, String)]) -> ProbeCache {
+/// 并行探测全部 (目标, 绑源) 组合，最多等 `budget`。
+/// 同一组合发 [`CAMPUS_PROBE_ATTEMPTS`] 次、任一可达即判可达——与
+/// [`crate::campus::rules::probe_with_retry`] 的抗丢包语义同源（去抖次数由共享层
+/// 统一规定），各发同时发出，且不再 join 全部：到预算点未返回的组合按「不可达」处理。
+fn warm_probe_cache(pairs: &[(String, String)], budget: Duration) -> ProbeCache {
     use std::collections::HashMap;
     if pairs.is_empty() {
         return ProbeCache(HashMap::new());
     }
-    let tasks: Vec<(String, String)> = pairs
-        .iter()
-        .flat_map(|(dest, source)| {
-            std::iter::repeat((dest.clone(), source.clone()))
-                .take(crate::campus::rules::CAMPUS_PROBE_ATTEMPTS)
-        })
-        .collect();
-    let started = std::time::Instant::now();
-    let results: Vec<((String, String), bool)> = std::thread::scope(|scope| {
-        let handles: Vec<_> = tasks
-            .into_iter()
-            .map(|(dest, source)| {
-                scope.spawn(move || {
-                    let ok =
-                        crate::network::check_gateway_reachable_from(&dest, Some(&source));
-                    ((dest, source), ok)
-                })
-            })
-            .collect();
-        handles.into_iter().filter_map(|h| h.join().ok()).collect()
-    });
+    // 先按不可达预填：留空会让 ProbeCache::get 回落到真实探测（再等一次 1000ms）。
     let mut map: HashMap<(String, String), bool> = HashMap::new();
-    for (key, ok) in results {
-        map.entry(key).and_modify(|v| *v |= ok).or_insert(ok);
+    for pair in pairs {
+        map.insert(pair.clone(), false);
+    }
+    let (tx, rx) = std::sync::mpsc::channel::<((String, String), bool)>();
+    let mut inflight = 0usize;
+    for (dest, source) in pairs {
+        for _ in 0..crate::campus::rules::CAMPUS_PROBE_ATTEMPTS {
+            let tx = tx.clone();
+            let dest = dest.clone();
+            let source = source.clone();
+            // 裸线程而非 scope：scope 会 join 全部，等于把「等最慢一发」写死回来。
+            // 超预算的线程最多在 GATEWAY_PROBE_TIMEOUT_MS 后自行结束。
+            std::thread::spawn(move || {
+                let ok = crate::network::check_gateway_reachable_from(&dest, Some(&source));
+                let _ = tx.send(((dest, source), ok));
+            });
+            inflight += 1;
+        }
+    }
+    drop(tx);
+    let started = std::time::Instant::now();
+    let deadline = started + budget;
+    let mut timed_out = false;
+    while inflight > 0 {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match (left.is_zero(), rx.recv_timeout(left)) {
+            (true, _) | (_, Err(_)) => {
+                timed_out = true;
+                break;
+            }
+            (false, Ok((key, ok))) => {
+                inflight -= 1;
+                if ok {
+                    map.entry(key).and_modify(|v| *v = true);
+                }
+            }
+        }
     }
     crate::log_info!(
         "outbound",
-        "夜间出站切换: 并行绑源探测 {} 组完成，耗时 {}ms",
+        "夜间出站切换: 并行绑源探测 {} 组完成，耗时 {}ms（预算 {}ms{}）",
         pairs.len(),
-        started.elapsed().as_millis()
+        started.elapsed().as_millis(),
+        budget.as_millis(),
+        if timed_out { "，超预算按不可达处理" } else { "" }
     );
     ProbeCache(map)
 }
@@ -908,13 +935,16 @@ fn build_outbound_plan(
     // 绑源网关探测与公网健康探测互不依赖：串行时切点耗时是两者之和（实测
     // 590ms + 3000ms），并行后只等较慢的一侧。公网健康探测走 HTTPS，断网卡
     // 必然走满超时，因此这里用切换专用超时而非全局 3s。
+    let probe_budget = Duration::from_millis(
+        config.outbound_probe_timeout_ms.min(OUTBOUND_PROBE_BUDGET_MS) as u64,
+    );
     let (mut probe_cache, internet_health) = match internet_health {
-        Some(health) => (warm_probe_cache(&probe_targets), health),
+        Some(health) => (warm_probe_cache(&probe_targets, probe_budget), health),
         None => std::thread::scope(|scope| {
             // 绑源网关探测放子线程（纯同步 ICMP），公网健康探测留在当前阻塞线程：
             // 后者驱动 reqwest，必须在持有 runtime 上下文的线程上跑，挪到裸 std::thread
             // 会退到兜底 runtime（能跑但多一层不必要的变量）。
-            let cache_handle = scope.spawn(|| warm_probe_cache(&probe_targets));
+            let cache_handle = scope.spawn(|| warm_probe_cache(&probe_targets, probe_budget));
             let health = super::outbound_failover::probe_internet_access(
                 app_handle,
                 config,
