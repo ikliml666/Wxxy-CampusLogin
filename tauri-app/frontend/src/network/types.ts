@@ -31,6 +31,8 @@ export interface AdapterTraffic {
   txBps: number
   /** 本次差分的采样间隔（毫秒）；0 = 首帧无历史 */
   intervalMs: number
+  /** 本次差分是否代表当前速率（断档后为 false，只显示累计） */
+  rateValid: boolean
 }
 
 export interface AdapterDetail {

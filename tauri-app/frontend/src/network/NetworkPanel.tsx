@@ -322,22 +322,24 @@ const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboun
           </div>
           {/* 行3：跃点 chip（单独一行） */}
           <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">{metricChip}</div>
-          {/* 行4：链路速率 + 实时上下行 + 接口累计字节 */}
-          {(traffic && traffic.intervalMs > 0) || formatSpeed(adapter.linkSpeed) ? (
+          {/* 行4：链路速率 + 实时上下行 + 接口累计字节（采样断档时只留累计） */}
+          {traffic || formatSpeed(adapter.linkSpeed) ? (
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] tabular-nums text-muted-foreground/80">
               {formatSpeed(adapter.linkSpeed) && (
                 <span className="text-muted-foreground/70">
                   {t('network.linkSpeed', { speed: formatSpeed(adapter.linkSpeed) })}
                 </span>
               )}
-              {traffic && traffic.intervalMs > 0 && (
+              {traffic?.rateValid && (
                 <>
                   <span className="text-emerald-600 dark:text-emerald-400">↓ {formatBps(traffic.rxBps)}</span>
                   <span className="text-sky-600 dark:text-sky-400">↑ {formatBps(traffic.txBps)}</span>
-                  <span className="text-muted-foreground/60">
-                    {t('network.trafficTotal', { down: formatBytes(traffic.rxBytes), up: formatBytes(traffic.txBytes) })}
-                  </span>
                 </>
+              )}
+              {traffic && (
+                <span className="text-muted-foreground/60">
+                  {t('network.trafficTotal', { down: formatBytes(traffic.rxBytes), up: formatBytes(traffic.txBytes) })}
+                </span>
               )}
             </div>
           ) : null}

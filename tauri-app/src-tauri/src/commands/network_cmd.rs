@@ -48,8 +48,10 @@ pub struct AdapterTrafficView {
     pub rx_bps: u64,
     /// 实时发送速率（bit/s）
     pub tx_bps: u64,
-    /// 本次差分的采样间隔（毫秒）；0 = 首帧无历史，速率为 0
+    /// 本次差分的采样间隔（毫秒）；0 = 首帧无历史
     pub interval_ms: u64,
+    /// 本次差分是否代表当前速率（间隔为 0 或超过断档阈值时为 false，前端只显示累计）
+    pub rate_valid: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -77,17 +79,23 @@ pub async fn get_adapter_traffic() -> Result<Vec<AdapterTrafficView>, String> {
         let mut views = Vec::with_capacity(samples.len());
         for sample in samples {
             let prev = last.get(&sample.if_index).copied();
-            let (rx_bps, tx_bps, interval_ms) = match prev {
+            let (rx_bps, tx_bps, interval_ms, rate_valid) = match prev {
                 Some((prev_in, prev_out, prev_at)) => {
                     let elapsed_ms = now.saturating_duration_since(prev_at).as_millis() as u64;
-                    let (rx, tx) = crate::platform::if_stats::compute_rates(
-                        (prev_in, prev_out),
-                        (sample.in_octets, sample.out_octets),
-                        elapsed_ms,
-                    );
-                    (rx, tx, elapsed_ms)
+                    let valid = crate::platform::if_stats::rate_is_representative(elapsed_ms);
+                    let (rx, tx) = if valid {
+                        crate::platform::if_stats::compute_rates(
+                            (prev_in, prev_out),
+                            (sample.in_octets, sample.out_octets),
+                            elapsed_ms,
+                        )
+                    } else {
+                        // 断档（最小化/切页/休眠）：不给速率，但仍然刷新采样基准
+                        (0, 0)
+                    };
+                    (rx, tx, elapsed_ms, valid)
                 }
-                None => (0, 0, 0),
+                None => (0, 0, 0, false),
             };
             last.insert(sample.if_index, (sample.in_octets, sample.out_octets, now));
             views.push(AdapterTrafficView {
@@ -97,6 +105,7 @@ pub async fn get_adapter_traffic() -> Result<Vec<AdapterTrafficView>, String> {
                 rx_bps,
                 tx_bps,
                 interval_ms,
+                rate_valid,
             });
         }
         Ok(views)

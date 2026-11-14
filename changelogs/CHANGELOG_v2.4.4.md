@@ -1,3 +1,19 @@
+### 页面不可见时暂停流量采样，断档不再给出假速率（2026-11-14，桌面）
+
+**为什么**：1s 轮询在窗口最小化/被遮挡时仍在跑（WebView2 只是节流，不是停），而那时读到的数没有意义；更实际的问题是恢复可见后第一次差分跨了几分钟，用这个大跨度算平均会把速率摊成接近 0，界面闪一下假读数。
+
+**改了什么**
+
+- `network/useAdapterTraffic.ts`：监听 `visibilitychange`，`document.hidden` 时清掉定时器停止采样，恢复可见立即补一帧而不是再等 1s；用 `inFlight` 防重入，避免恢复瞬间连发两次命令。
+- `platform/if_stats.rs`：新增 `MAX_RATE_INTERVAL_MS = 5_000` 与纯函数 `rate_is_representative`——间隔为 0 或超过 5s 的差分不代表「当前速率」。
+- `commands/network_cmd.rs`：`get_adapter_traffic` 返回体加 `rateValid`；断档时速率归零但仍刷新采样基准，前端只显示累计（`NetworkPanel.tsx` 行 4 按 `rateValid` 决定是否渲染 ↓/↑）。
+
+**验证**：`cargo test --lib` 645 passed / 4 ignored（新增 1 个间隔判定用例）；`npx tsc --noEmit --incremental` 通过；`npx vite build` 成功；headless Edge + CDP 实测（覆写 `document.hidden` 并派发 `visibilitychange`）：可见时速率文本每 2.3s 变化、隐藏后 5s 内恒定、恢复后重新变化（pollingVisible / pausedWhileHidden / resumed 三项均为 true）。**未实测**：真实窗口最小化或被其他窗口遮挡时的浏览器节流叠加效果（headless 下用事件模拟，不是真实可见性状态）。
+
+**双端说明**：桌面专属采集链路，安卓端无对应功能。
+
+---
+
 ### 适配器条目重设计 + 实时流量 + 出站判定参数可调（2026-11-14，桌面）
 
 **为什么**：条目右侧挤着「切换出站 / 获取新IP」两个按钮和一组徽标，信息区只有两行，再塞速率与流量就放不下；同时故障判定轮数、切回轮数、切换探测超时、退避阶梯全部硬编码在 monitor 模块里，想调「多久判故障 / 多快切回 / 切点最多等多久」只能改代码。

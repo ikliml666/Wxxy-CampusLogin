@@ -39,6 +39,15 @@ pub fn read_interface_octets() -> Result<Vec<InterfaceOctets>, String> {
     }
 }
 
+/// 断档阈值：两次采样间隔超过它就不给速率。窗口最小化、面板切走、机器休眠都会把间隔
+/// 拉长，用大跨度算平均只会得到一个假的低值（例如停 5 分钟再采样，速率被摊薄成零头）。
+pub const MAX_RATE_INTERVAL_MS: u64 = 5_000;
+
+/// 本次差分是否足以代表「当前速率」：间隔为 0（同一时刻重复调用）或超过断档阈值都不算。
+pub fn rate_is_representative(elapsed_ms: u64) -> bool {
+    elapsed_ms > 0 && elapsed_ms <= MAX_RATE_INTERVAL_MS
+}
+
 /// 两次采样之差换算成 bit/s（与 linkSpeed 同单位）。计数器回绕或接口重置时
 /// saturating_sub 得 0，不产生负值；elapsed 为 0 时返回 0 而非除零。
 pub fn compute_rates(prev: (u64, u64), cur: (u64, u64), elapsed_ms: u64) -> (u64, u64) {
@@ -83,6 +92,14 @@ mod tests {
         }
         let per_call = started.elapsed() / ROUNDS;
         println!("GetIfTable2 单次枚举 ≈ {per_call:?}（{ROUNDS} 次均值）");
+    }
+
+    #[test]
+    fn rate_is_representative_rejects_zero_and_stale_intervals() {
+        assert!(!rate_is_representative(0));
+        assert!(rate_is_representative(1000));
+        assert!(rate_is_representative(MAX_RATE_INTERVAL_MS));
+        assert!(!rate_is_representative(MAX_RATE_INTERVAL_MS + 1));
     }
 
     #[test]

@@ -270,6 +270,7 @@
           rxBps: Math.round((base[i] || 0) * wobble),
           txBps: Math.round((base[i] || 0) * 0.12 * wobble),
           intervalMs: 1000,
+          rateValid: true,
         }
       })
     },
