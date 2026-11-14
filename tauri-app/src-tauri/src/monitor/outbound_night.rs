@@ -695,6 +695,38 @@ impl ProbeCache {
     }
 }
 
+/// 单目标可达性探测：先 TCP(443) 拿明确应答，不成再用 ICMP 兜底，总耗时受 budget 约束。
+///
+/// TCP 覆盖「禁 ICMP 但 web 端口有回应」的校园网关/Portal（只用 ICMP 会把在网校园卡
+/// 误判成非校园），RST 也算可达——它证明报文确实到达了目标主机。两条腿都拿不到回应
+/// 才判不可达，与「超时即不可达」的旧语义一致。
+fn probe_target_reachable(
+    dest: &str,
+    source: &str,
+    if_index: Option<u32>,
+    budget: Duration,
+) -> bool {
+    let tcp_budget = budget * 3 / 5;
+    if crate::platform::tcp_probe::tcp_probe(
+        dest,
+        Some(source),
+        if_index,
+        crate::platform::tcp_probe::CAMPUS_PROBE_PORT,
+        tcp_budget,
+    ) {
+        return true;
+    }
+    let left = budget.saturating_sub(tcp_budget);
+    if left.is_zero() {
+        return false;
+    }
+    crate::network::check_gateway_reachable_from_with_timeout(
+        dest,
+        Some(source),
+        left.as_millis().max(1) as u32,
+    )
+}
+
 /// 并行探测全部 (目标, 绑源) 组合，最多等 `budget`。
 /// 同一组合发 [`CAMPUS_PROBE_ATTEMPTS`] 次、任一可达即判可达——与
 /// [`crate::campus::rules::probe_with_retry`] 的抗丢包语义同源（去抖次数由共享层
@@ -709,6 +741,12 @@ fn warm_probe_cache(pairs: &[(String, String)], budget: Duration) -> ProbeCache 
     for pair in pairs {
         map.insert(pair.clone(), false);
     }
+    // 绑源探测还须钉住出接口（IP_UNICAST_IF）：只绑源地址时 TUN/代理仍会劫持出口。
+    let if_by_ip: std::sync::Arc<std::collections::HashMap<String, u32>> = std::sync::Arc::new(
+        crate::network::get_adapters_cached()
+            .map(|list| list.into_iter().map(|a| (a.ip, a.if_index)).collect())
+            .unwrap_or_default(),
+    );
     let (tx, rx) = std::sync::mpsc::channel::<((String, String), bool)>();
     let mut inflight = 0usize;
     for (dest, source) in pairs {
@@ -716,10 +754,12 @@ fn warm_probe_cache(pairs: &[(String, String)], budget: Duration) -> ProbeCache 
             let tx = tx.clone();
             let dest = dest.clone();
             let source = source.clone();
+            let if_by_ip = std::sync::Arc::clone(&if_by_ip);
             // 裸线程而非 scope：scope 会 join 全部，等于把「等最慢一发」写死回来。
-            // 超预算的线程最多在 GATEWAY_PROBE_TIMEOUT_MS 后自行结束。
+            // 超预算的线程最多在一个 TCP/ICMP 超时后自行结束。
             std::thread::spawn(move || {
-                let ok = crate::network::check_gateway_reachable_from(&dest, Some(&source));
+                let if_index = if_by_ip.get(&source).copied();
+                let ok = probe_target_reachable(&dest, &source, if_index, budget);
                 let _ = tx.send(((dest, source), ok));
             });
             inflight += 1;
@@ -950,7 +990,7 @@ fn build_outbound_plan(
                 config,
                 &candidates,
                 None,
-                std::time::Duration::from_millis(config.outbound_probe_timeout_ms as u64),
+                probe_budget,
             );
             let cache = cache_handle
                 .join()
@@ -1144,32 +1184,39 @@ pub(super) fn apply_outbound_switch_with_health(
     // Portal 旁路：默认出口已切到新卡，但登录请求仍需到达校园 Portal——给原卡加一条
     // /32 主机路由，让这部分流量绕回原卡，其余流量照常走新出口。添加失败不阻断切换
     // （系统出口已切好），只记录原因，登录恢复失败时日志能对上。
+    // 放后台线程：旁路路由不决定切换是否生效（系统出口已切好），失败只记日志，却要
+    // 花掉一次 200–300ms 的提权往返。夜间守护窗口内不会触发登录，晚几百毫秒就绪不影响
+    // 下一次还原/登录；快照同线程落盘，还原时照样能精确删除。
     if all_ok {
         match portal_bypass {
             Some(portal_route) => {
-                let row = portal_route.encode();
-                match run_helper_op("route_add", &[row], outbound_allow_uac()) {
-                    Ok(()) => {
-                        let json = serde_json::to_string(&portal_route).unwrap_or_default();
-                        crate::log_info!(
-                            "outbound",
-                            "夜间出站切换: Portal 旁路路由已就绪 {} via {} if {}",
-                            portal_route.dest,
-                            portal_route.gateway,
-                            portal_route.if_index
-                        );
-                        if let Err(e) = crate::config::persist::mutate_config_and_save(app_handle, &state, move |fresh| {
-                            fresh.outbound_portal_route = json;
-                            Ok(())
-                        }) {
-                            crate::log_warn!("outbound", "夜间出站切换: 旁路路由快照落盘失败: {e}");
+                let app_handle_bg = app_handle.clone();
+                std::thread::spawn(move || {
+                    let row = portal_route.encode();
+                    match run_helper_op("route_add", &[row], outbound_allow_uac()) {
+                        Ok(()) => {
+                            let json = serde_json::to_string(&portal_route).unwrap_or_default();
+                            crate::log_info!(
+                                "outbound",
+                                "夜间出站切换: Portal 旁路路由已就绪 {} via {} if {}",
+                                portal_route.dest,
+                                portal_route.gateway,
+                                portal_route.if_index
+                            );
+                            let state = app_handle_bg.state::<AppState>();
+                            if let Err(e) = crate::config::persist::mutate_config_and_save(&app_handle_bg, &state, move |fresh| {
+                                fresh.outbound_portal_route = json;
+                                Ok(())
+                            }) {
+                                crate::log_warn!("outbound", "夜间出站切换: 旁路路由快照落盘失败: {e}");
+                            }
+                        }
+                        Err(failure) => {
+                            note_channel_failure(&failure);
+                            crate::log_warn!("outbound", "夜间出站切换: Portal 旁路路由添加失败: {}", failure.reason);
                         }
                     }
-                    Err(failure) => {
-                        note_channel_failure(&failure);
-                        crate::log_warn!("outbound", "夜间出站切换: Portal 旁路路由添加失败: {}", failure.reason);
-                    }
-                }
+                });
             }
             None => crate::log_debug!("outbound", "夜间出站切换: 无 Portal 主机或原出口网关，跳过旁路路由"),
         }

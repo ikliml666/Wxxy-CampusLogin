@@ -143,7 +143,7 @@ pub const GATEWAY_PROBE_TIMEOUT_MS: u32 = 1000;
 /// 网关 ICMP 可达性探测（surge_ping 异步实现，替代 spawn `ping` 子进程）。
 /// 需要绑定源 IP 时通过 Config::bind 绑定（对应原 `ping -S <src>`）。
 /// 返回 true 表示可达，语义等价原 `ping -n 1 -w <GATEWAY_PROBE_TIMEOUT_MS>`。
-async fn gateway_reachable_async(gateway: &str, source_ip: Option<&str>) -> bool {
+async fn gateway_reachable_async(gateway: &str, source_ip: Option<&str>, timeout_ms: u32) -> bool {
     let target: std::net::IpAddr = match gateway.parse() {
         Ok(ip) => ip,
         Err(_) => return false,
@@ -168,11 +168,11 @@ async fn gateway_reachable_async(gateway: &str, source_ip: Option<&str>) -> bool
         .unwrap_or_default()
         .subsec_nanos() & 0xFFFF) as u16;
     let mut pinger = client.pinger(target, surge_ping::PingIdentifier(ident)).await;
-    pinger.timeout(std::time::Duration::from_millis(GATEWAY_PROBE_TIMEOUT_MS as u64));
+    pinger.timeout(std::time::Duration::from_millis(timeout_ms as u64));
     // pinger.ping 内部已按 timeout 等待，外层 tokio timeout 仅作硬上限兜底
     matches!(
         tokio::time::timeout(
-            std::time::Duration::from_millis(GATEWAY_PROBE_TIMEOUT_MS as u64),
+            std::time::Duration::from_millis(timeout_ms as u64),
             pinger.ping(surge_ping::PingSequence(0), &[]),
         )
         .await,
@@ -181,6 +181,16 @@ async fn gateway_reachable_async(gateway: &str, source_ip: Option<&str>) -> bool
 }
 
 pub fn check_gateway_reachable_from(gateway: &str, source_ip: Option<&str>) -> bool {
+    check_gateway_reachable_from_with_timeout(gateway, source_ip, GATEWAY_PROBE_TIMEOUT_MS)
+}
+
+/// 同 check_gateway_reachable_from，但可指定单次超时。夜间切换的探测池有自己的总预算，
+/// ICMP 腿只能拿到「预算扣掉 TCP 腿」的剩余时间，不能再走全局 1000ms。
+pub fn check_gateway_reachable_from_with_timeout(
+    gateway: &str,
+    source_ip: Option<&str>,
+    timeout_ms: u32,
+) -> bool {
     if gateway.is_empty() {
         return false;
     }
@@ -191,12 +201,12 @@ pub fn check_gateway_reachable_from(gateway: &str, source_ip: Option<&str>) -> b
     #[cfg(target_os = "windows")]
     if let Ok(dest) = gateway.parse::<std::net::Ipv4Addr>() {
         let source = source_ip.and_then(|s| s.parse::<std::net::Ipv4Addr>().ok());
-        return crate::platform::icmp_probe::icmp_probe_v4(dest, source, GATEWAY_PROBE_TIMEOUT_MS);
+        return crate::platform::icmp_probe::icmp_probe_v4(dest, source, timeout_ms);
     }
     // 调用链（campus_check / failure_tracker / background_check）均运行在
     // spawn_blocking 线程内：block_on_sync 用 Handle::block_on 驱动 async 探测，
     // 不会在 async worker 线程上执行（后者会导致 panic）。
-    crate::infra::async_util::block_on_sync(gateway_reachable_async(gateway, source_ip))
+    crate::infra::async_util::block_on_sync(gateway_reachable_async(gateway, source_ip, timeout_ms))
 }
 
 /// 判断 IP 是否落在校园私网 `10.0.0.0/8`。

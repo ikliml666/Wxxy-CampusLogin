@@ -158,14 +158,27 @@ pub(super) fn probe_internet_access(
                 (adapter.ip, ok)
             });
         }
+        // 整体受 timeout 约束：逐卡探测本身就有这个超时，收集阶段不能再等「最慢那张卡」
+        // ——调用方只要目标卡那一格结果，其余卡未回来按「不可达」处理（调用方查表缺省即 false）。
         let mut results = std::collections::HashMap::new();
-        while let Some(result) = tasks.join_next().await {
-            match result {
-                Ok((ip, ok)) => {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if left.is_zero() {
+                crate::log_debug!("outbound", "公网探测超出预算，未返回的网卡按不可达处理");
+                break;
+            }
+            match tokio::time::timeout(left, tasks.join_next()).await {
+                Ok(Some(Ok((ip, ok)))) => {
                     crate::log_info!("outbound", "公网探测结果: {ip} -> {ok}");
                     results.insert(ip, ok);
                 }
-                Err(e) => crate::log_warn!("outbound", "网卡公网探测任务失败: {e}"),
+                Ok(Some(Err(e))) => crate::log_warn!("outbound", "网卡公网探测任务失败: {e}"),
+                Ok(None) => break,
+                Err(_) => {
+                    crate::log_debug!("outbound", "公网探测超出预算，未返回的网卡按不可达处理");
+                    break;
+                }
             }
         }
         results

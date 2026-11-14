@@ -44,6 +44,9 @@ pub mod route_table;
 // ICMP 绑源探测（IcmpSendEcho2Ex，网关可达性判定）：仅 Windows
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod icmp_probe;
+// 绑源 TCP connect 探测（校园判定补「明确拒绝」应答）：桌面
+#[cfg(desktop)]
+pub mod tcp_probe;
 // RTSS(MSI Afterburner) hook 注入致 WebView 白屏崩溃的预防(写排除 profile)
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod rtss_compat;
