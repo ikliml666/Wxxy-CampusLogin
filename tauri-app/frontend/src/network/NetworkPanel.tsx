@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, UserRound, Gauge, Pencil } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, UserRound, Route } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
@@ -78,8 +78,10 @@ const MetricChip = memo(function MetricChip({
   }
 
   if (editing) {
+    // 用原生 input：Input 组件外包了一层 relative w-full，放进按钮行会吞掉剩余宽度，
+    // 把后面的按钮推开一大段（用户反馈的间距问题）
     return (
-      <Input
+      <input
         type="number"
         min={1}
         max={9999}
@@ -98,7 +100,7 @@ const MetricChip = memo(function MetricChip({
             setEditing(false)
           }
         }}
-        className="h-7 w-16 shrink-0 rounded-lg px-2 text-[11px] font-mono tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        className="h-7 w-16 shrink-0 rounded-lg border border-input bg-card px-2 py-0 text-[11px] font-mono tabular-nums outline-none ring-offset-background transition-colors duration-150 hover:border-input/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         aria-label={t('network.outboundMetric')}
       />
     )
@@ -115,11 +117,10 @@ const MetricChip = memo(function MetricChip({
       {saving ? (
         <Loader2 className="h-3 w-3 animate-spin" />
       ) : (
-        <Gauge className="h-3 w-3 opacity-60" aria-hidden />
+        <Route className="h-3 w-3 opacity-60" aria-hidden />
       )}
       <span className="whitespace-nowrap">{t('network.outboundMetric')}</span>
       <span className="font-mono tabular-nums text-foreground/80">{value === null ? '—' : value}</span>
-      <Pencil className="h-2.5 w-2.5 opacity-0 transition-opacity group-hover/metric:opacity-60" aria-hidden />
     </button>
   )
 })
@@ -628,15 +629,15 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                       onCommit={(metric) => handleSaveMetric(a.name, metric)}
                     />
                     {/* 「切换出站」到这张卡：跳过优先级选卡，只要求有 IP 且不是当前出站 */}
-                    {a.ip && currentOutbound !== a.name && (
+                    {a.ip && (
                       <Button
                         key="switch-to"
                         variant="outline"
                         size="sm"
                         className="h-7 text-[11px] gap-1 border-primary/30 text-primary hover:text-primary hover:bg-primary/10"
                         onClick={() => handleOutboundSwitchTo(a.name)}
-                        disabled={switchingToAdapter === a.name || !config.enableNightOutboundSwitch}
-                        title={t('network.outboundSwitchTo')}
+                        disabled={currentOutbound === a.name || switchingToAdapter === a.name || !config.enableNightOutboundSwitch}
+                        title={currentOutbound === a.name ? t('network.currentOutboundBadge') : t('network.outboundSwitchTo')}
                       >
                         {switchingToAdapter === a.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
                         {t('network.outboundSwitchTo')}
