@@ -145,8 +145,8 @@ pub fn run(core_count: usize) {
         crate::infra::logger::flush();
         std::process::exit(1);
     });
-    app.run(|_app, event| {
-        if let tauri::RunEvent::ExitRequested { api, .. } = event {
+    app.run(|_app, event| match event {
+        tauri::RunEvent::ExitRequested { api, .. } => {
             // 仅拦截「轻量化关闭导致最后一个窗口销毁」的隐式退出：
             // 托盘退出（graceful_exit，is_quitting=true）与系统关机不拦截
             let expecting = crate::app::lightweight::take_lightweight_exit_guard();
@@ -163,6 +163,12 @@ pub fn run(core_count: usize) {
                 crate::app::lightweight::persist_window_geometry(_app);
             }
         }
+        // 主进程退出：通知常驻提权 worker 一并退出，不在用户注销后残留管理员进程
+        tauri::RunEvent::Exit => {
+            #[cfg(target_os = "windows")]
+            crate::platform::elevated_daemon::shutdown();
+        }
+        _ => {}
     });
 }
 

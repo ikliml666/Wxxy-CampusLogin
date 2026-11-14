@@ -28,6 +28,18 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
 
+    // 常驻提权 worker 模式：管理员身份常驻，后续提权操作经命名管道请求。
+    if args.iter().any(|a| a == "--helper-daemon") {
+        #[cfg(target_os = "windows")]
+        {
+            std::process::exit(platform::elevated_daemon::run_daemon());
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            std::process::exit(2);
+        }
+    }
+
     // 计划任务 worker 模式：SYSTEM 主体任务拉起本 exe 处理提权请求目录，
     // 优先于 --helper 拦截（无请求/目录不存在时空转安全退出）。
     if args.iter().any(|a| a == "--helper-task") {

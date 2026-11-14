@@ -1,3 +1,33 @@
+### 提权 ACL 自愈与常驻提权 worker（命名管道）（2026-11-14，桌面）
+
+**为什么**：上一轮把代理通道修活后，真机冒烟暴露两个剩余缺口：
+
+1. **SYSTEM 任务起不来时只有 0x80070005**：本机 `E:\ik\Documents\trae_projects` 的 ACL 缺 SYSTEM（继承被切断），SYSTEM 主体任务注册成功但每次启动都被拒。计划任务代理是唯一不受 UAC 体制变化影响的通道，这种环境缺陷会让它静默失效，而错误信息里看不出原因。
+2. **每次提权仍要起一个进程**：代理通道每次 `schtasks /run` + 拉起 worker，COM 通道每次拉起提权副本，单次开销数百毫秒；`IGNORE_NEW` 下并发请求还会被静默丢弃。
+
+**改了什么**（仅桌面端）
+
+- `task_proxy.rs`：新增 `ensure_system_can_execute_exe()`——注册代理任务与开机核心任务前，检测 exe 所在目录是否含 SYSTEM ACE，缺失则 `icacls /grant *S-1-5-18:(OI)(CI)RX` 补齐并复检；检测与修复都以 SID 为准，不受系统语言影响。安装到 Program Files 时直接命中，不产生任何改动。
+- 新增 `platform/elevated_daemon.rs`：常驻提权 worker。
+  - 经 CMSTPLUA 以当前用户提升身份拉起，写发现文件 `%LOCALAPPDATA%\com.campus.login\elevated-daemon.json`（pipe 名 + 随机 token + pid），客户端据此连接 `\\.\pipe\...`。
+  - 管道 DACL 显式按 SID 授权：SYSTEM/Administrators 全权 + 当前用户读写。实测 `OW`（OWNER RIGHTS）在只给 DACL、未显式设 owner 时客户端仍被拒（Access denied），必须用具体 SID。
+  - 请求/响应为单行 JSON；token 校验失败直接断开；`shutdown` op 立即退出。
+  - 生命周期：空闲 2 分钟退出；主进程 `RunEvent::Exit` 发 shutdown；连续 3 次空连接或单连接 30 秒不发言则主动退出重建，避免 daemon 被挂死。
+  - 只对管理员组账户启用：标准账户下 daemon 会以另一个管理员账户运行，管道跨用户不可连，不启动。
+- `helper_spawn.rs`：通道顺序升级为 daemon → 计划任务代理（SYSTEM）→ CMSTPLUA → runas；daemon 未运行且允许打扰用户时，经 CMSTPLUA 拉起一次再请求。
+- `helper/mod.rs`：抽出 `execute_helper_op`，计划任务 worker 与 daemon 共用同一套 op 执行；`build_op_from_args` 开放给 daemon。
+- `app/startup.rs`：退出事件通知 daemon 结束。
+- `Cargo.toml`：windows crate 增加 `Win32_System_Pipes`、`Win32_Storage_FileSystem`、`Win32_Security_Authorization`。
+
+**验证**
+
+- `cargo check` 无警告；`cargo test` **656 passed / 0 failed / 4 ignored**。
+- 真机：新增 `tests/elevated_daemon_smoke.rs` 通过——CMSTPLUA 拉起 daemon → 发现文件 → 管道连接 → token 校验 → `selfcheck` 返回 → shutdown，全程 0.39s；测试后无残留进程、发现文件已清理。
+- ACL 自愈路径未做自动化端到端（需要先破坏本机真实目录 ACL）；同一故障已手动验证：补 `SYSTEM:(OI)(CI)F` 后 `0x80070005` 消失、SYSTEM worker 正常回写。
+- **未实测**：UAC 最高档与 Administrator Protection 下 daemon 的首次拉起（本机 `ConsentPromptBehaviorAdmin=0`，提权不提示）；并发请求（管道单实例，第二个请求重试 20×50ms 后降级到代理）。
+
+---
+
 ### 提权通道鲁棒性加固：修活计划任务代理、安装期注册、任务健康校验（2026-11-14，桌面）
 
 **为什么**：审计三条提权通道（计划任务代理 → CMSTPLUA → runas）时发现，代理通道在运行期从未被建立过：`proxy_usable()` 把 `Disabled` 的退避过期直接当成"可用"（`now >= until_ms`），而 `spawn_elevated_helper` 只在"不可用且非 Disabled"时才调 `ensure_registered`——两个条件互斥，注册分支是死代码。后果是每次提权都走 UAC 旁路（默认档静默、最高档弹框或失败），一旦遇到 UAC 最高档、Administrator Protection（Win11 25H2 起引入，企业安全基线 2026-10 默认启用，明确消除 UAC 旁路）、安全软件拦截或标准用户账户，就没有任何兜底通道。另外：任务可用性只比对 action 路径，任务被禁用后仍判"就绪"；注册失败不退避（每次提权先弹一次 UAC 再降级）；主进程崩溃留下的僵尸请求会被 SYSTEM worker 执行；UAC 对话框无人响应时 COM/runas 调用无限阻塞；孤儿结果文件在 `results\` 里堆积。

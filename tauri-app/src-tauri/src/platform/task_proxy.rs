@@ -373,9 +373,51 @@ fn query_task() -> Result<IRegisteredTask, String> {
     }
 }
 
+/// 确保 SYSTEM 能执行当前 exe（幂等，仅在本机缺少 SYSTEM ACE 时补）。
+///
+/// SYSTEM 主体任务启动失败最常见的原因不是我们的代码，而是 exe 所在目录的
+/// ACL 缺 SYSTEM（绿色版/自定义目录/被工具切断继承），任务计划服务只报
+/// 0x80070005。注册前补齐，后续注册、自检与日常触发才不会落空。
+/// 安装到 Program Files 时目录本身带 SYSTEM ACE，此函数直接返回。
+pub fn ensure_system_can_execute_exe() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("获取当前exe路径失败: {e}"))?;
+    let dir = exe.parent().ok_or("当前exe无父目录")?;
+    if dir_has_system_ace(dir) {
+        return Ok(());
+    }
+    let out = crate::network::discovery::new_command("icacls")
+        .arg(dir)
+        .args(["/grant", "*S-1-5-18:(OI)(CI)RX"])
+        .output()
+        .map_err(|e| format!("icacls 执行失败: {e}"))?;
+    if !out.status.success() {
+        let detail = crate::platform::console_output::decode_console_bytes(&out.stderr);
+        return Err(format!("补 SYSTEM 目录权限失败: {}", detail.trim()));
+    }
+    if !dir_has_system_ace(dir) {
+        return Err(format!("目录仍缺 SYSTEM 权限: {}", dir.display()));
+    }
+    crate::log_info!(
+        "task_proxy",
+        "已为 exe 目录补 SYSTEM 读执行权限（否则 SYSTEM 任务无法启动）: {}",
+        dir.display()
+    );
+    Ok(())
+}
+
+/// 目录 ACL 是否已有 SYSTEM 的 ACE（只判断存在性，文本检测足够）。
+fn dir_has_system_ace(dir: &std::path::Path) -> bool {
+    let Ok(out) = crate::network::discovery::new_command("icacls").arg(dir).output() else {
+        return false;
+    };
+    let text = crate::platform::console_output::decode_console_bytes(&out.stdout);
+    text.contains("S-1-5-18") || text.to_ascii_uppercase().contains("SYSTEM")
+}
+
 /// 在提权上下文（管理员）内注册任务：SYSTEM 主体 + Highest + 零触发器 + 显式 SDDL。
 /// 由 helper `register_task` op 调用（已处管理员上下文），或管理员直跑路径直接调用。
 pub fn register_task_via_com() -> Result<(), String> {
+    ensure_system_can_execute_exe()?;
     let _com = ComScope::new();
     unsafe {
         let svc: ITaskService = CoCreateInstance(&CLSID_TASK_SCHEDULER, None, CLSCTX_INPROC_SERVER)
@@ -457,6 +499,8 @@ struct ComScope {
 /// 启动，让网络栈先行就绪（core 内部仍有适配器等待循环兜底）；SDDL 沿用
 /// 哑任务同款（BU 仅触发权，改/删须管理员）。
 pub fn register_boot_task_via_com(core_exe: &std::path::Path) -> Result<(), String> {
+    // core exe 与主 exe 同目录，同样要保证 SYSTEM 能读执行
+    ensure_system_can_execute_exe()?;
     let _com = ComScope::new();
     unsafe {
         let svc: ITaskService = CoCreateInstance(&CLSID_TASK_SCHEDULER, None, CLSCTX_INPROC_SERVER)

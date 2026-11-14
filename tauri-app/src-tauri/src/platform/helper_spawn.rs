@@ -55,6 +55,21 @@ pub fn spawn_elevated_helper(
     timeout: Duration,
     allow_uac_prompt: bool,
 ) -> Result<serde_json::Value, String> {
+    // 通道 0：常驻提权 worker（最快，零提权、零进程启动）。
+    // 已在运行就直接用；不在且允许打扰用户时，经 CMSTPLUA 拉起一次再请求。
+    let daemon_args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    if let Ok(v) = crate::platform::elevated_daemon::request(op, &daemon_args, timeout) {
+        return Ok(v);
+    }
+    if allow_uac_prompt
+        && crate::platform::elevated_daemon::ensure_running(Duration::from_secs(15)).is_ok()
+    {
+        match crate::platform::elevated_daemon::request(op, &daemon_args, timeout) {
+            Ok(v) => return Ok(v),
+            Err(e) => crate::log_warn!("helper", "常驻 worker 请求失败: {e}，降级到计划任务代理"),
+        }
+    }
+
     // 三级通道：计划任务代理（无 UAC）→ CMSTPLUA 静默 → runas 弹 UAC。
     // 一次调用只做一次状态判定：proxy_usable 与 check_registration_state 各自读
     // 同一份缓存却语义不同，曾导致「退避过期被当成可用 → 直接触发失败」的循环，

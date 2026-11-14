@@ -142,7 +142,7 @@ fn read_policy_u32(name: &str) -> Option<u32> {
 }
 
 /// 在独立线程里执行一次提权调用，超时即放弃（线程可能仍阻塞在 UAC 界面）。
-fn run_with_timeout<T, F>(timeout: Duration, what: &str, f: F) -> Result<T, String>
+pub(crate) fn run_with_timeout<T, F>(timeout: Duration, what: &str, f: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, String> + Send + 'static,

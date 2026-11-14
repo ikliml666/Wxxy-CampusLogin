@@ -18,6 +18,9 @@ pub mod helper_spawn;
 // 计划任务提权代理（SYSTEM 主体哑任务 + 请求文件协议）：提权通道的首选层
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod task_proxy;
+// 常驻提权 worker（命名管道）：提权一次后进程常驻，通道首选层
+#[cfg(all(desktop, target_os = "windows"))]
+pub mod elevated_daemon;
 // 未登录 Windows 的系统级自动登录（无头核心）：配置供给 + 计划任务开关
 #[cfg(all(desktop, target_os = "windows"))]
 pub mod core_autostart;

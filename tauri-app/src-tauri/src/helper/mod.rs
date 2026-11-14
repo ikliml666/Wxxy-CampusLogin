@@ -175,7 +175,7 @@ pub enum HelperOp {
 /// 从 op 名 + 参数数组构造 HelperOp（命令行 `--helper` 与计划任务请求 JSON 共用）。
 ///
 /// `args` 内含位置参数与 `--family <v>` 开关（顺序无关，沿用命令行扫描语义）。
-fn build_op_from_args(op: &str, args: &[String]) -> Result<HelperOp, String> {
+pub(crate) fn build_op_from_args(op: &str, args: &[String]) -> Result<HelperOp, String> {
     // 收集 op 之后、第一个 `--` 开头参数之前的所有位置参数（如 dns 的适配器名单）
     let mut positional: Vec<String> = Vec::new();
     let mut family = "both".to_string();
@@ -515,44 +515,7 @@ fn process_request(path: &std::path::Path) -> i32 {
         return 1;
     }
     let result = match (build_op_from_args(&req.op, &req.args), resolve_result_path(&req.result)) {
-        (Ok(op), Ok(_result_path)) => {
-            let mut logs: Vec<String> = Vec::new();
-            let r = match &op {
-                HelperOp::Dns { targets, family } => run_dns(targets, family, &mut logs),
-                HelperOp::ClearDns { targets } => run_clear_dns(targets, &mut logs),
-                HelperOp::Mac { guid, mac_no_dash } => run_mac(guid, mac_no_dash, &mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::EnableAdapter { name } => run_enable_adapter(name, &mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::DisableAdapter { name } => run_disable_adapter(name, &mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::RouteDelete { rows } => run_route_delete(rows, &mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::RouteAdd { rows } => run_route_add(rows, &mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::EnableDevice { instance_id } => run_enable_device(instance_id, &mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::ReenumerateDevice { instance_id } => run_reenumerate_device(instance_id, &mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::SetMetric { rows } => run_set_metric(rows, &mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::CloseTcpConns { local_ips } => run_close_tcp_conns(local_ips, &mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::RegisterTaskProxy => run_register_task(&mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::RegisterBootTask { config_b64 } => run_register_boot_task(config_b64, &mut logs),
-                #[cfg(target_os = "windows")]
-                HelperOp::RemoveBootTask => run_remove_boot_task(&mut logs),
-                HelperOp::SelfCheck => HelperResult {
-                    success: true,
-                    message: "selfcheck ok".to_string(),
-                    op: "selfcheck".to_string(),
-                    logs,
-                    details: None,
-                },
-            };
-            r
-        }
+        (Ok(op), Ok(_result_path)) => execute_helper_op(&op),
         (Err(e), _) | (_, Err(e)) => HelperResult {
             success: false,
             message: e,
@@ -565,6 +528,45 @@ fn process_request(path: &std::path::Path) -> i32 {
         write_result_file(&result_path, &result);
     }
     if result.success { 0 } else { 1 }
+}
+
+/// 执行单个 op（计划任务 worker 与常驻 daemon 共用；不碰结果文件）。
+pub(crate) fn execute_helper_op(op: &HelperOp) -> HelperResult {
+    let mut logs: Vec<String> = Vec::new();
+    match op {
+        HelperOp::Dns { targets, family } => run_dns(targets, family, &mut logs),
+        HelperOp::ClearDns { targets } => run_clear_dns(targets, &mut logs),
+        HelperOp::Mac { guid, mac_no_dash } => run_mac(guid, mac_no_dash, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::EnableAdapter { name } => run_enable_adapter(name, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::DisableAdapter { name } => run_disable_adapter(name, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::RouteDelete { rows } => run_route_delete(rows, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::RouteAdd { rows } => run_route_add(rows, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::EnableDevice { instance_id } => run_enable_device(instance_id, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::ReenumerateDevice { instance_id } => run_reenumerate_device(instance_id, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::SetMetric { rows } => run_set_metric(rows, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::CloseTcpConns { local_ips } => run_close_tcp_conns(local_ips, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::RegisterTaskProxy => run_register_task(&mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::RegisterBootTask { config_b64 } => run_register_boot_task(config_b64, &mut logs),
+        #[cfg(target_os = "windows")]
+        HelperOp::RemoveBootTask => run_remove_boot_task(&mut logs),
+        HelperOp::SelfCheck => HelperResult {
+            success: true,
+            message: "selfcheck ok".to_string(),
+            op: "selfcheck".to_string(),
+            logs,
+            details: None,
+        },
+    }
 }
 
 fn run_dns(targets: &[String], family: &str, logs: &mut Vec<String>) -> HelperResult {
