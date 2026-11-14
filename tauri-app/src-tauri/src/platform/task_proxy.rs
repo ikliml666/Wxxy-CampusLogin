@@ -22,9 +22,10 @@ use windows::core::{BSTR, GUID, Interface, VARIANT};
 use windows::Win32::Foundation::VARIANT_BOOL;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED};
 use windows::Win32::System::TaskScheduler::{
-    IActionCollection, IBootTrigger, IExecAction, ITaskDefinition, ITaskFolder, IRegisteredTask,
-    ITaskService, ITaskSettings, ITriggerCollection, TASK_ACTION_EXEC, TASK_CREATE_OR_UPDATE,
-    TASK_INSTANCES_IGNORE_NEW, TASK_LOGON_SERVICE_ACCOUNT, TASK_RUNLEVEL_HIGHEST,
+    IActionCollection, IBootTrigger, IExecAction, IPrincipal, ITaskDefinition, ITaskFolder,
+    IRegisteredTask, ITaskService, ITaskSettings, ITriggerCollection, TASK_ACTION_EXEC,
+    TASK_CREATE_OR_UPDATE, TASK_INSTANCES_IGNORE_NEW, TASK_LOGON_SERVICE_ACCOUNT,
+    TASK_RUNLEVEL_HIGHEST, TASK_RUNLEVEL_TYPE, TASK_STATE_DISABLED, TASK_STATE_RUNNING,
     TASK_TRIGGER_BOOT,
 };
 /// 计划任务名（根文件夹下，无层级）。
@@ -37,8 +38,8 @@ const TASK_SDDL: &str = "D:P(A;;GRGX;;;BU)(A;;FA;;;BA)(A;;FA;;;SY)";
 /// CLSID_TaskScheduler（{0f87369f-a4e5-4cfc-bd3e-73e6154572dd}，taskschd.dll）。
 const CLSID_TASK_SCHEDULER: GUID =
     GUID::from_values(0x0f87369f, 0xa4e5, 0x4cfc, [0xbd, 0x3e, 0x73, 0xe6, 0x15, 0x45, 0x72, 0xdd]);
-/// 通道可用性缓存 TTL（ms）：避免每次提权操作都做 COM 查询。
-const CHECK_TTL_MS: u64 = 30_000;
+/// Ready 缓存有效期（ms）：任务被删除/改动后最多 5 分钟内被发现。
+const READY_TTL_MS: u64 = 300_000;
 /// 注册失败后的退避（ms）：期间直接走降级链，禁止反复弹 UAC。
 const REGISTER_RETRY_BACKOFF_MS: u64 = 600_000;
 
@@ -75,30 +76,14 @@ pub fn unique_file_name(prefix: &str) -> String {
     format!("{prefix}-{}-{nanos}.json", std::process::id())
 }
 
-/// 代理通道是否可用（供提权入口快速分路）。
+/// 状态缓存是否仍可视为「可直接触发」（Ready 且未超过 TTL）。
 ///
-/// Unknown 时做一次只读检测（COM 查询无需管理员）；Disabled 且未过退避期直接 false。
-pub fn proxy_usable() -> bool {
-    let cell = proxy_cell();
-    let (state, _at) = *cell.read();
-    let now = now_ms();
-    match state {
-        ProxyState::Ready => true,
-        ProxyState::Disabled { until_ms } => now >= until_ms,
-        ProxyState::Unknown => {
-            drop(cell.read());
-            // 只读检测（COM 查询无需管理员）：任务存在且 action 匹配 → Ready
-            let usable = check_task_action().is_ok();
-            let mut w = cell.write();
-            if w.0 == ProxyState::Unknown {
-                *w = (
-                    if usable { ProxyState::Ready } else { ProxyState::Disabled { until_ms: now + CHECK_TTL_MS } },
-                    now,
-                );
-            }
-            matches!(w.0, ProxyState::Ready)
-        }
-    }
+/// Disabled 退避过期只代表「可以重新探测/注册」，不代表通道可用：判定统一走
+/// check_registration_state，避免同一份缓存被两种语义解释。历史缺陷：曾把
+/// 退避过期直接当成可用，导致 ensure_registered 永无执行机会，计划任务代理
+/// 从引入起就没有被自动建立过。
+fn cached_usable(state: ProxyState, at: u64, now: u64) -> bool {
+    matches!(state, ProxyState::Ready) && now.saturating_sub(at) < READY_TTL_MS
 }
 
 /// 经现有提权链注册任务并自检。注册与自检都通过才算通道可用。
@@ -106,6 +91,19 @@ pub fn proxy_usable() -> bool {
 /// 在普通（非管理员）主进程调用：内部提权拉起自身 exe 走 `register_task` op；
 /// 已是管理员（罕见）则直接进程内注册。成功后把缓存置为 Ready。
 pub fn ensure_registered() -> Result<(), String> {
+    match ensure_registered_inner() {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // 注册失败（UAC 被拒 / 安全软件拦截 / 任务策略不允许）也要退避：
+            // 只给自检失败退避会漏掉注册这一步，结果是每次提权都先弹一次 UAC
+            // 再降级，自动场景下等于 UAC 弹窗风暴。
+            disable_for_backoff();
+            Err(e)
+        }
+    }
+}
+
+fn ensure_registered_inner() -> Result<(), String> {
     let reg = if crate::platform::elevation::is_admin() {
         register_task_via_com()
     } else {
@@ -165,25 +163,22 @@ pub enum RegistrationProbe {
 
 /// 探测代理注册状态（只读，不提权；Unknown 时做一次只读 COM 检测并缓存）。
 pub fn check_registration_state() -> RegistrationProbe {
-    let cell = proxy_cell();
-    let (state, _at) = *cell.read();
+    let (state, at) = *proxy_cell().read();
+    let now = now_ms();
     match state {
-        ProxyState::Ready => RegistrationProbe::Ready,
+        ProxyState::Ready if cached_usable(state, at, now) => RegistrationProbe::Ready,
+        ProxyState::Ready | ProxyState::Unknown => match check_task_action() {
+            Ok(()) => {
+                *proxy_cell().write() = (ProxyState::Ready, now);
+                RegistrationProbe::Ready
+            }
+            Err(_) => RegistrationProbe::NeedsRegister,
+        },
         ProxyState::Disabled { until_ms } => {
-            if now_ms() >= until_ms {
+            if now >= until_ms {
                 RegistrationProbe::NeedsRegister
             } else {
                 RegistrationProbe::Disabled
-            }
-        }
-        ProxyState::Unknown => {
-            drop(cell.read());
-            match check_task_action() {
-                Ok(()) => {
-                    *cell.write() = (ProxyState::Ready, now_ms());
-                    RegistrationProbe::Ready
-                }
-                Err(_) => RegistrationProbe::NeedsRegister,
             }
         }
     }
@@ -201,10 +196,25 @@ fn disable_for_backoff() {
 /// 触发任务执行一次 op（写请求 → schtasks /run → 轮询结果）。
 /// 调用方需已确认通道可用（Ready）。
 pub fn run_via_task(op: &str, args: &[String], timeout: Duration) -> Result<serde_json::Value, String> {
+    // IgnoreNew 下任务在跑时触发会被直接忽略（schtasks 照样返回成功），请求就石沉
+    // 大海：先在短窗口内避让，仍在跑则明确失败，交调用方降级到 COM/runas。
+    let wait_deadline = Instant::now() + Duration::from_secs(2);
+    while task_is_running() && Instant::now() < wait_deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    if task_is_running() {
+        return Err("代理 worker 仍在执行上一个请求，本次触发被跳过".to_string());
+    }
     let req_dir = crate::helper::helper_requests_dir();
     std::fs::create_dir_all(&req_dir).map_err(|e| format!("创建请求目录失败: {e}"))?;
     let result_name = unique_file_name("r");
-    let request = serde_json::json!({ "op": op, "args": args, "result": result_name });
+    // ts 供 worker 判定时效：主进程崩溃/超时留下的僵尸请求不能被执行
+    let request = serde_json::json!({
+        "op": op,
+        "args": args,
+        "ts": now_ms(),
+        "result": result_name,
+    });
     // 请求文件唯一名 + 同目录 tmp rename 原子落盘
     let req_path = req_dir.join(unique_file_name("req"));
     let tmp = req_dir.join(unique_file_name("tmp"));
@@ -252,41 +262,96 @@ pub fn run_via_task(op: &str, args: &[String], timeout: Duration) -> Result<serd
     }
 }
 
-/// 只读查询任务（不提权）。Ok(()) 表示任务存在且 action 匹配当前 exe。
+/// 只读查询任务并校验可用性（不提权）。
+///
+/// Ok(()) 要求：任务存在、未被禁用、主体是 SYSTEM、运行级别 Highest、action
+/// 指向当前 exe 且参数为 --helper-task。只比对 action 会漏掉「任务还在但被
+/// 组策略/清理工具禁用」——那种情况下每次触发都是白跑一趟，直到超时。
 fn check_task_action() -> Result<(), String> {
     let _com = ComScope::new();
     unsafe {
-    let task = query_task()?;
-    let def: ITaskDefinition = task
-        .Definition()
-        .map_err(|e| format!("读取任务定义失败: {e}"))?;
-    let actions: IActionCollection = def.Actions().map_err(|e| format!("读取任务动作失败: {e}"))?;
-    let mut count = 0i32;
-    actions.Count(&mut count).map_err(|e| format!("读取动作数量失败: {e}"))?;
-    if count < 1 {
-        return Err("任务无动作".to_string());
+        let task = query_task()?;
+        let state = task.State().map_err(|e| format!("读取任务状态失败: {e}"))?;
+        if state == TASK_STATE_DISABLED {
+            return Err("任务已被禁用".to_string());
+        }
+
+        let def: ITaskDefinition = task
+            .Definition()
+            .map_err(|e| format!("读取任务定义失败: {e}"))?;
+        let settings: ITaskSettings = def
+            .Settings()
+            .map_err(|e| format!("读取任务设置失败: {e}"))?;
+        let mut enabled = VARIANT_BOOL(0);
+        settings
+            .Enabled(&mut enabled)
+            .map_err(|e| format!("读取任务 Enabled 失败: {e}"))?;
+        if !enabled.as_bool() {
+            return Err("任务设置 Enabled=false".to_string());
+        }
+
+        let principal: IPrincipal = def
+            .Principal()
+            .map_err(|e| format!("读取任务主体失败: {e}"))?;
+        let mut user_id = BSTR::new();
+        principal
+            .UserId(&mut user_id)
+            .map_err(|e| format!("读取任务主体账号失败: {e}"))?;
+        // IPrincipal::UserId 回读是账户显示名（"SYSTEM"）而非注册时写入的 SID，
+        // 两种形式都接受；其余账户一律拒绝，防止任务被替换成以其他身份执行。
+        let uid = user_id.to_string();
+        let is_system = uid.eq_ignore_ascii_case("S-1-5-18")
+            || uid.eq_ignore_ascii_case("SYSTEM")
+            || uid.eq_ignore_ascii_case(r"NT AUTHORITYSYSTEM");
+        if !is_system {
+            return Err(format!("任务主体不是 SYSTEM: {uid}"));
+        }
+        let mut run_level = TASK_RUNLEVEL_TYPE::default();
+        principal
+            .RunLevel(&mut run_level)
+            .map_err(|e| format!("读取任务运行级别失败: {e}"))?;
+        if run_level != TASK_RUNLEVEL_HIGHEST {
+            return Err(format!("任务运行级别不是 Highest: {run_level:?}"));
+        }
+
+        let actions: IActionCollection = def.Actions().map_err(|e| format!("读取任务动作失败: {e}"))?;
+        let mut count = 0i32;
+        actions.Count(&mut count).map_err(|e| format!("读取动作数量失败: {e}"))?;
+        if count < 1 {
+            return Err("任务无动作".to_string());
+        }
+        let action = actions
+            .get_Item(1)
+            .map_err(|e| format!("读取首个动作失败: {e}"))?;
+        let exec: IExecAction = action
+            .cast()
+            .map_err(|_| "任务动作不是 ExecAction".to_string())?;
+        let mut path = BSTR::new();
+        exec.Path(&mut path).map_err(|e| format!("读取动作路径失败: {e}"))?;
+        let mut args_bstr = BSTR::new();
+        exec.Arguments(&mut args_bstr)
+            .map_err(|e| format!("读取动作参数失败: {e}"))?;
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("获取当前exe路径失败: {e}"))?
+            .to_string_lossy()
+            .to_string();
+        if !path.to_string().eq_ignore_ascii_case(&exe) || args_bstr.to_string() != TASK_ARGS {
+            return Err(format!(
+                "任务 action 与当前 exe 不匹配: path={path} args={args_bstr}"
+            ));
+        }
+        Ok(())
     }
-    let action = actions
-        .get_Item(1)
-        .map_err(|e| format!("读取首个动作失败: {e}"))?;
-    let exec: IExecAction = action
-        .cast()
-        .map_err(|_| "任务动作不是 ExecAction".to_string())?;
-    let mut path = BSTR::new();
-    exec.Path(&mut path).map_err(|e| format!("读取动作路径失败: {e}"))?;
-    let mut args_bstr = BSTR::new();
-    exec.Arguments(&mut args_bstr)
-        .map_err(|e| format!("读取动作参数失败: {e}"))?;
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("获取当前exe路径失败: {e}"))?
-        .to_string_lossy()
-        .to_string();
-    if !path.to_string().eq_ignore_ascii_case(&exe) || args_bstr.to_string() != TASK_ARGS {
-        return Err(format!(
-            "任务 action 与当前 exe 不匹配: path={path} args={args_bstr}"
-        ));
-    }
-    Ok(())
+}
+
+/// 任务当前是否在运行（IGNORE_NEW 下触发会被忽略，需提前避让）。
+fn task_is_running() -> bool {
+    let _com = ComScope::new();
+    unsafe {
+        match query_task().and_then(|t| t.State().map_err(|e| format!("{e}"))) {
+            Ok(state) => state == TASK_STATE_RUNNING,
+            Err(_) => false,
+        }
     }
 }
 
@@ -340,8 +405,10 @@ pub fn register_task_via_com() -> Result<(), String> {
         settings
             .SetDisallowStartIfOnBatteries(VARIANT_BOOL(0))
             .map_err(|e| format!("设置 DisallowStartIfOnBatteries 失败: {e}"))?;
+        // 2 分钟上限：卡住的 worker 在 IGNORE_NEW 下会阻塞后续所有触发，
+        // 原来 5 分钟意味着最坏情况下半个提权通道长时间不可用。
         settings
-            .SetExecutionTimeLimit(&BSTR::from("PT5M"))
+            .SetExecutionTimeLimit(&BSTR::from("PT2M"))
             .map_err(|e| format!("设置 ExecutionTimeLimit 失败: {e}"))?;
         settings
             .SetMultipleInstances(TASK_INSTANCES_IGNORE_NEW)
@@ -491,6 +558,20 @@ pub fn remove_boot_task_via_com() -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// 状态机语义：Disabled 即便退避过期也不能当作可用，否则注册分支永不执行。
+    #[test]
+    fn disabled_state_is_never_directly_usable() {
+        assert!(!cached_usable(ProxyState::Disabled { until_ms: 0 }, 0, u64::MAX));
+        assert!(!cached_usable(ProxyState::Unknown, 0, 1000));
+    }
+
+    /// Ready 缓存有 TTL：过期后必须重新探测，避免任务被删后一直走空触发。
+    #[test]
+    fn ready_cache_expires() {
+        assert!(cached_usable(ProxyState::Ready, 1_000, 1_000 + READY_TTL_MS - 1));
+        assert!(!cached_usable(ProxyState::Ready, 1_000, 1_000 + READY_TTL_MS));
+    }
+
     /// 真实链路冒烟（默认忽略：会注册 SYSTEM 计划任务，有系统副作用）：
     /// `cargo test task_proxy_register_and_selfcheck_smoke -- --ignored --nocapture`
     /// 经 CMSTPLUA 提权注册 SYSTEM 主体任务 → 自检（普通进程触发 + SYSTEM worker 回写）。
@@ -500,7 +581,10 @@ mod tests {
     fn task_proxy_register_and_selfcheck_smoke() {
         ensure_registered().expect("计划任务代理注册 + 自检应成功");
         // 二次检测应直接命中 Ready 缓存
-        assert!(proxy_usable(), "注册成功后 proxy_usable 应为 true");
+        assert!(
+            matches!(check_registration_state(), RegistrationProbe::Ready),
+            "注册成功后注册状态应为 Ready"
+        );
     }
 }
 

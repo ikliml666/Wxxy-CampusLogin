@@ -34,6 +34,20 @@ fn main() {
         std::process::exit(helper::run_helper_task());
     }
 
+    // 安装器模式：perMachine 安装时 NSIS 安装器已提权，此刻注册 SYSTEM 提权代理，
+    // 运行期（含 UAC 最高档 / Administrator Protection）完全免 UAC。perUser 安装
+    // 无管理员权限，直接返回非零由安装器忽略，留给运行期按需注册。
+    if args.iter().any(|a| a == "--register-proxy") {
+        #[cfg(target_os = "windows")]
+        {
+            std::process::exit(helper::run_register_proxy_cli());
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            std::process::exit(2);
+        }
+    }
+
     // helper 模式：主进程以管理员身份重启自身执行提权操作（改 MAC / 设 DNS+DoH）。
     // 必须在 Tauri Builder / 单实例 / 托盘等装配之前拦截并退出，不进入正常应用流程。
     // 参数非法时不启动正常应用（避免 --helper 参数被误传导致正常 UI 启动）。

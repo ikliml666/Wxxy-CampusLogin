@@ -1,3 +1,29 @@
+### 提权通道鲁棒性加固：修活计划任务代理、安装期注册、任务健康校验（2026-11-14，桌面）
+
+**为什么**：审计三条提权通道（计划任务代理 → CMSTPLUA → runas）时发现，代理通道在运行期从未被建立过：`proxy_usable()` 把 `Disabled` 的退避过期直接当成"可用"（`now >= until_ms`），而 `spawn_elevated_helper` 只在"不可用且非 Disabled"时才调 `ensure_registered`——两个条件互斥，注册分支是死代码。后果是每次提权都走 UAC 旁路（默认档静默、最高档弹框或失败），一旦遇到 UAC 最高档、Administrator Protection（Win11 25H2 起引入，企业安全基线 2026-10 默认启用，明确消除 UAC 旁路）、安全软件拦截或标准用户账户，就没有任何兜底通道。另外：任务可用性只比对 action 路径，任务被禁用后仍判"就绪"；注册失败不退避（每次提权先弹一次 UAC 再降级）；主进程崩溃留下的僵尸请求会被 SYSTEM worker 执行；UAC 对话框无人响应时 COM/runas 调用无限阻塞；孤儿结果文件在 `results\` 里堆积。
+
+**改了什么**（仅桌面端；提权是 Windows 平台专属能力，安卓无对应实现）
+
+- `task_proxy.rs`：
+  - 状态机修正：`Disabled` 退避过期不再返回"可用"，统一由 `check_registration_state()` 判定（Ready / NeedsRegister / Disabled），`spawn_elevated_helper` 按三者分派；`Ready` 缓存加 5 分钟 TTL（任务被删/改后能发现）。`proxy_usable()` 与配套 `probe_task()` 删除，不再允许同一份缓存被两种语义解释。
+  - 任务健康校验：除 action 路径/参数外，新增 `State != Disabled`、`Settings.Enabled`、`Principal.UserId`（SYSTEM，兼容 SID 与 "SYSTEM" 两种回读形式）、`RunLevel = Highest` 四项检查。
+  - 触发避让：`IGNORE_NEW` 下 worker 未结束时 `schtasks /run` 会被静默忽略，改为触发前最多等 2 秒、仍在跑则明确失败交调用方降级；`ExecutionTimeLimit` 由 PT5M 收紧到 PT2M。
+  - 注册失败（UAC 被拒 / 安软拦截 / 策略不允许）统一走 10 分钟退避，不再每次提权都先弹一次 UAC。
+- `helper_spawn.rs`：通道分派改为按 `RegistrationProbe` 的 match（消除两个函数对同一缓存的语义冲突）；失败信息带通道与环境画像（UAC 档位、账户类型、令牌状态）。
+- `elevation.rs`：COM/runas 调用放到独立线程带 45 秒超时（UAC 对话框不响应时不再挂死调用线程）；新增 UAC 环境画像（`EnableLUA`、`ConsentPromptBehaviorAdmin`、`TokenElevationType`）——账户判定改用 `TokenElevationType`，`IsUserAnAdmin` 实测在分割令牌下会把管理员账户误判成标准用户。
+- `helper/mod.rs`：请求协议加 `ts`，worker 丢弃超过 30 秒的僵尸请求并回写失败结果；worker 启动时清理 `results\` 里超过 1 小时的孤儿结果（已实测堆积 9 个）；新增 `--register-proxy` 安装器入口（管理员上下文直接注册，非提权返回 1、不弹 UAC）。
+- `main.rs` + `windows/hooks.nsh`：安装期注册——perMachine 安装时 NSIS 安装器本身已提权，`NSIS_HOOK_POSTINSTALL` 调 `--register-proxy` 把这次提权挪到安装步骤；运行期随后全程不依赖 UAC 旁路。卸载钩子的 `nsExec::Exec` 补 `Pop $0` 清理栈。
+
+**验证**
+
+- `cargo check` 无警告；`cargo test` **656 passed / 0 failed / 4 ignored**。
+- 新增单测：`com_silent_likely_only_for_low_prompt_levels`、`env_describe_mentions_level_and_account`、`disabled_state_is_never_directly_usable`、`ready_cache_expires`。
+- 真机端到端：`task_proxy_smoke`（CMSTPLUA 注册 + SYSTEM worker 自检）通过；新增 `task_proxy_autoreg`（删除任务 → `check_registration_state` 必须返回 `NeedsRegister` → 重注册 → 任务存在）通过。`--register-proxy` 在非管理员下返回 1（perUser 安装路径）。
+- 排查中发现并修复的环境问题：`E:\ik\Documents\trae_projects` 的 ACL 缺少 SYSTEM（继承被切断），导致 SYSTEM 任务启动报 0x80070005（E_ACCESSDENIED）；已补 `NT AUTHORITY\SYSTEM:(OI)(CI)F`。安装到 Program Files 不受此影响。
+- **未实测**：UAC 最高档（始终通知）与 Administrator Protection 下的真实弹窗/失败行为（本机 `ConsentPromptBehaviorAdmin=0`，提权不提示）；安装器钩子的真实打包产物验证（需 `tauri build`）。
+
+---
+
 ### 日志模块加固：模块级过滤、启动覆盖、归档压缩、跨进程等级同步、脱敏兜底（2026-11-14，双端）
 
 **为什么**：上一版五档等级解决了"能不能关、调到多细"，但审计出的结构性缺点还在——巡检每轮都可能写 warn、无法按模块单独开 debug、日志行没有可解析字段、出问题时不启动 UI 就改不了等级、轮转与保留天数语义冲突且不压缩、安卓 UI 与 :core 抢同一个日志文件且等级不同步、时间戳没有时区、脱敏只靠调用方纪律。

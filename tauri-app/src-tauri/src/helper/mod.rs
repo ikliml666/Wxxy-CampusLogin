@@ -355,8 +355,48 @@ struct TaskRequest {
     op: String,
     #[serde(default)]
     args: Vec<String>,
+    /// 请求发出时间（epoch ms）。worker 据此丢弃僵尸请求——主进程崩溃或早已
+    /// 超时放弃时，旧请求仍躺在目录里，执行它等于执行一个没人要的过期操作。
+    #[serde(default)]
+    ts: u64,
     /// 结果文件名（纯文件名，worker 经 [`resolve_result_path`] 收口到固定目录）
     result: String,
+}
+
+/// 请求文件有效期（ms）。超过即丢弃并回写失败结果，让仍在等待的主进程立即失败
+/// 而不是干等到自己的整体超时。
+const REQUEST_TTL_MS: u64 = 30_000;
+
+/// 当前 epoch 毫秒（worker 侧时效判定用）。
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// 安装器专用入口（`--register-proxy`）：在管理员上下文里同步注册提权代理任务。
+///
+/// perMachine 安装时 NSIS 安装器本身已提权，此刻注册一次即可让运行期完全不依赖
+/// UAC 旁路——UAC 最高档、Administrator Protection、安全软件拦截这些场景下运行期
+/// 首次提权会退化甚至失败，而安装期注册把这次提权挪到了用户预期内的安装步骤。
+/// 非提权（perUser 安装）返回 1，留给运行期按需注册，不在这里弹 UAC。
+#[cfg(target_os = "windows")]
+pub fn run_register_proxy_cli() -> i32 {
+    if !crate::platform::elevation::is_admin() {
+        eprintln!("--register-proxy 需要管理员权限（perUser 安装跳过，留给运行期按需注册）");
+        return 1;
+    }
+    match crate::platform::task_proxy::register_task_via_com() {
+        Ok(()) => {
+            eprintln!("提权代理任务注册成功");
+            0
+        }
+        Err(e) => {
+            eprintln!("注册提权代理任务失败: {e}");
+            1
+        }
+    }
 }
 
 /// 计划任务 worker 入口（main.rs 拦截 `--helper-task` 后调用）。
@@ -365,6 +405,10 @@ struct TaskRequest {
 /// MultipleInstances=IgnoreNew 下第二个请求在首个实例运行期落盘的竞态），
 /// 然后退出。绝不初始化 logger。
 pub fn run_helper_task() -> i32 {
+    // 主进程超时/崩溃后，results 会留下永远不会被读取的结果文件（已实测堆积），
+    // 由 SYSTEM worker 顺手清理超过 1 小时的孤儿（普通用户对目录无删除权限）。
+    cleanup_stale_results(&helper_results_dir());
+
     let req_dir = helper_requests_dir();
     let mut exit_code = 0;
     let mut idle_rounds = 0;
@@ -387,6 +431,25 @@ pub fn run_helper_task() -> i32 {
         }
     }
     exit_code
+}
+
+/// 清理结果目录中超过 1 小时的历史文件（孤儿结果，主进程早已放弃等待）。
+fn cleanup_stale_results(dir: &std::path::Path) {
+    let Some(cutoff) = std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(3600))
+    else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        let Ok(modified) = meta.modified() else { continue };
+        if modified < cutoff {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// 取请求目录中最旧的 `req-*.json`（无则 None）。
@@ -428,6 +491,29 @@ fn process_request(path: &std::path::Path) -> i32 {
             return 1;
         }
     };
+
+    // 过期请求：主进程可能早已放弃等待，执行它没有意义且可能有副作用
+    if req.ts == 0 || now_ms().saturating_sub(req.ts) > REQUEST_TTL_MS {
+        eprintln!(
+            "helper-task 丢弃过期请求 {}（ts={}，当前={}）",
+            path.display(),
+            req.ts,
+            now_ms()
+        );
+        if let Ok(result_path) = resolve_result_path(&req.result) {
+            write_result_file(
+                &result_path,
+                &HelperResult {
+                    success: false,
+                    message: "请求已过期（主进程可能已放弃等待），未执行".to_string(),
+                    op: req.op.clone(),
+                    logs: Vec::new(),
+                    details: None,
+                },
+            );
+        }
+        return 1;
+    }
     let result = match (build_op_from_args(&req.op, &req.args), resolve_result_path(&req.result)) {
         (Ok(op), Ok(_result_path)) => {
             let mut logs: Vec<String> = Vec::new();

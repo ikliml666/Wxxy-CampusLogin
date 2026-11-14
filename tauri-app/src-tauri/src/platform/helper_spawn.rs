@@ -55,38 +55,42 @@ pub fn spawn_elevated_helper(
     timeout: Duration,
     allow_uac_prompt: bool,
 ) -> Result<serde_json::Value, String> {
-    // 三级通道：计划任务代理（无 UAC）→ CMSTPLUA 静默 → runas 弹 UAC
-    let proxy_usable = crate::platform::task_proxy::proxy_usable();
-    if proxy_usable {
-        let args_owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        match crate::platform::task_proxy::run_via_task(op, &args_owned, timeout) {
-            Ok(v) => return Ok(v),
-            Err(e) => {
-                crate::log_warn!("helper", "计划任务代理触发失败: {e}，降级到 COM 提权");
-                // 触发失败说明通道状态可疑：清缓存让下次重新检测
-                crate::platform::task_proxy::invalidate_proxy_cache();
-            }
-        }
-    } else if !matches!(
-        crate::platform::task_proxy::check_registration_state(),
-        RegistrationProbe::Disabled
-    ) {
-        // 未注册/不匹配：先尝试注册（内部经 CMSTPLUA/runas 提权一次），成功则走代理
-        match crate::platform::task_proxy::ensure_registered() {
-            Ok(()) => {
-                let args_owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-                match crate::platform::task_proxy::run_via_task(op, &args_owned, timeout) {
-                    Ok(v) => return Ok(v),
-                    Err(e) => {
-                        crate::log_warn!("helper", "代理注册成功但触发失败: {e}，降级到 COM 提权");
-                        crate::platform::task_proxy::invalidate_proxy_cache();
-                    }
+    // 三级通道：计划任务代理（无 UAC）→ CMSTPLUA 静默 → runas 弹 UAC。
+    // 一次调用只做一次状态判定：proxy_usable 与 check_registration_state 各自读
+    // 同一份缓存却语义不同，曾导致「退避过期被当成可用 → 直接触发失败」的循环，
+    // 注册分支（NeedsRegister）永远等不到执行机会。
+    match crate::platform::task_proxy::check_registration_state() {
+        RegistrationProbe::Ready => {
+            let args_owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+            match crate::platform::task_proxy::run_via_task(op, &args_owned, timeout) {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    crate::log_warn!("helper", "计划任务代理触发失败: {e}，降级到 COM 提权");
+                    // 触发失败说明通道状态可疑：清缓存让下次重新检测
+                    crate::platform::task_proxy::invalidate_proxy_cache();
                 }
             }
-            Err(e) => {
-                crate::log_warn!("helper", "计划任务代理注册失败: {e}，降级到 COM 提权");
+        }
+        RegistrationProbe::NeedsRegister => {
+            // 未注册/不匹配：先尝试注册（内部经 CMSTPLUA/runas 提权一次），成功则走代理
+            match crate::platform::task_proxy::ensure_registered() {
+                Ok(()) => {
+                    let args_owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+                    match crate::platform::task_proxy::run_via_task(op, &args_owned, timeout) {
+                        Ok(v) => return Ok(v),
+                        Err(e) => {
+                            crate::log_warn!("helper", "代理注册成功但触发失败: {e}，降级到 COM 提权");
+                            crate::platform::task_proxy::invalidate_proxy_cache();
+                        }
+                    }
+                }
+                Err(e) => {
+                    crate::log_warn!("helper", "计划任务代理注册失败: {e}，降级到 COM 提权");
+                }
             }
         }
+        // 注册类失败退避中：不重试注册（防 UAC 弹窗风暴），直接走降级链
+        RegistrationProbe::Disabled => {}
     }
     spawn_elevated_raw(op, args, result_name, timeout, allow_uac_prompt)
 }
@@ -118,11 +122,21 @@ pub fn spawn_elevated_raw(
 
     // 保留现状降级链：COM ICMLuaUtil 静默提权优先，失败降级 ShellExecuteW runas（弹 UAC）
     if let Err(com_err) = crate::platform::elevation::shell_exec_elevated(exe_str, &params, true) {
+        let env = crate::platform::elevation::elevation_env();
+        if !env.com_silent_likely() {
+            // 最高档 UAC / 标准用户下 COM 失败是预期行为，不是缺陷；先记清楚
+            // 环境再降级，否则日志里只剩一个 HRESULT，无法判断该让用户做什么。
+            crate::log_warn!("helper", "当前环境不具备静默提权条件（{}）", env.describe());
+        }
         crate::log_warn!("helper", "COM提权失败: {}，降级到ShellExecuteW runas", com_err);
         if !allow_uac_prompt {
-            return Err(format!("COM静默提权失败(首试不弹UAC，重试将降级): {com_err}"));
+            return Err(elevation_failure(
+                "com",
+                format!("COM静默提权失败(首试不弹UAC，重试将降级): {com_err}"),
+            ));
         }
-        crate::platform::elevation::run_elevated(exe_str, &params)?;
+        crate::platform::elevation::run_elevated(exe_str, &params)
+            .map_err(|e| elevation_failure("runas", e))?;
     }
 
     // 轮询结果文件（固定目录收口；helper 原子写入后即被观察到）
@@ -139,5 +153,16 @@ pub fn spawn_elevated_raw(
     if let Ok(content) = std::fs::read_to_string(&result_path) {
         return read_helper_result(&content, &result_path);
     }
-    Err("提权操作超时，未收到helper结果".to_string())
+    Err(elevation_failure(
+        "timeout",
+        format!("提权操作超时（{}s），未收到helper结果", timeout.as_secs()),
+    ))
+}
+
+/// 提权失败信息统一加环境画像：同一句「提权失败」在标准用户、UAC 最高档、
+/// 安全软件拦截下含义完全不同，把档位与账户类型带出来才能直接判断该提示用户
+/// 做什么（允许 UAC / 换管理员账户 / 检查安软）。
+fn elevation_failure(channel: &str, detail: impl std::fmt::Display) -> String {
+    let env = crate::platform::elevation::elevation_env().describe();
+    format!("提权失败[{channel}]（{env}）: {detail}")
 }
