@@ -100,7 +100,7 @@ const MetricChip = memo(function MetricChip({
             setEditing(false)
           }
         }}
-        className="h-7 w-16 shrink-0 rounded-lg border border-input bg-card px-2 py-0 text-[11px] font-mono tabular-nums outline-none ring-offset-background transition-colors duration-150 hover:border-input/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        className="h-7 w-16 shrink-0 rounded-lg border border-input bg-card px-2 py-0 text-center text-[11px] font-mono tabular-nums outline-none ring-offset-background transition-colors duration-150 hover:border-input/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         aria-label={t('network.outboundMetric')}
       />
     )
