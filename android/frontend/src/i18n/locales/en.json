@@ -358,7 +358,7 @@
     "wifiCurfewAllowedHint": "Your own router and networks that stay online; anything matching here is never disconnected (overrides the list above)",
     "wifiCurfewAddPlaceholder": "WiFi name",
     "wifiCurfewRemove": "Remove {{name}}",
-    "wifiCurfewAndroidCaveat": "Android forbids ordinary apps from disconnecting a specific WiFi: this rule runs through a Shizuku or root channel — at the window start the listed open networks are forgotten (all three campus SSIDs are open, no password needed) and rebuilt at the restore time; secured networks are left alone. Without either channel nothing is changed",
+    "wifiCurfewAndroidCaveat": "Android forbids ordinary apps from disconnecting a specific WiFi: this rule runs through a Shizuku or root channel — at the window start it connects to an allowed WiFi when one is configured, otherwise it turns WiFi off and uses mobile data, then turns WiFi back on at the restore time. No saved network or password is touched. Without either channel nothing is changed",
     "privateDns": "Private DNS (DoT)",
     "privateDnsDesc": "Upgrades system DNS to encrypted DoT (DNS over TLS) for every app on the device. This changes the system Private DNS setting, not this app's DNS",
     "privateDnsCurrent": "Current",
