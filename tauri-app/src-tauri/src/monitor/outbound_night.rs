@@ -613,54 +613,6 @@ pub(crate) fn manual_set_adapter_metric(
     Ok(())
 }
 
-/// 按「夜间出站优先级」把有 IP 的网卡跃点重排为 1..N（IPv4/IPv6 同步写）：
-/// 列表顺序即跃点顺序，排第一的卡成为系统出站。还原动作收尾与非切换态下的
-/// 「恢复原出口」都走它——用户要求「还原时刻以排列顺序作为优先级」。
-/// 只排有 IP 的卡：无 IP 的卡写跃点没有意义，且会让它抢占出站判定。
-pub(super) fn apply_outbound_priority_metrics(
-    config: &crate::config::Config,
-) -> Result<Vec<String>, String> {
-    let adapters = crate::network::get_adapters_cached()?;
-    let details = crate::network::get_adapter_details_cached().unwrap_or_default();
-    let candidates: Vec<(crate::network::Adapter, String)> = adapters
-        .iter()
-        .map(|a| {
-            let gateway = details
-                .iter()
-                .find(|d| d.name == a.name)
-                .map(|d| d.gateway.clone())
-                .unwrap_or_default();
-            (a.clone(), gateway)
-        })
-        .collect();
-    let order = super::outbound_switch::effective_outbound_priority(&config.outbound_priority, &candidates);
-    let mut rows: Vec<String> = Vec::new();
-    let mut applied: Vec<String> = Vec::new();
-    let mut metric = 1u32;
-    for name in &order {
-        let Some(adapter) = adapters
-            .iter()
-            .find(|a| &a.name == name && !a.ip.is_empty() && !a.guid.is_empty())
-        else {
-            continue;
-        };
-        rows.push(format!("{}:2:0:{metric}", adapter.guid));
-        rows.push(format!("{}:23:0:{metric}", adapter.guid));
-        applied.push(format!("{}={metric}", adapter.name));
-        metric += 1;
-    }
-    if rows.is_empty() {
-        return Err("没有可应用优先级的网卡（均无 IP）".to_string());
-    }
-    run_helper_op("set_metric", &rows, outbound_allow_uac()).map_err(|failure| {
-        note_channel_failure(&failure);
-        failure.reason
-    })?;
-    clear_outbound_channel_failure();
-    crate::log_info!("outbound", "出站优先级已应用: {}", applied.join(", "));
-    Ok(applied)
-}
-
 /// 切换后原出口卡的 interfaceMetric：必须明显高于目标卡（目标卡压到 1），
 /// 让「routeMetric + interfaceMetric」的比较结果稳定落在目标卡上。
 const SWITCHED_ORIGIN_METRIC: u32 = 100;
@@ -1268,7 +1220,7 @@ pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::con
     if !switch_gate_open() {
         return;
     }
-    // 与手动入口/还原互斥：重放会写 metric=1 并禁用校园卡，若与还原并发，最坏是
+    // 与手动入口/还原互斥：重放会写 metric=1，若与还原并发，最坏是
     // 还原清完快照后重放又把跃点写回 1（无快照可还原的静默丢失）。拿不到闸就记一次
     // 切换失败：启动对账这一发失败计数为 0，不记则 needs_replay 永假、这一发被静默
     // 丢掉；记了它就是一次普通失败，退避窗后由循环补做。
@@ -1670,17 +1622,8 @@ pub(super) fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::con
             "mascot-portrait",
         );
     }
-    // 还原完成后按「夜间出站优先级」重排跃点：列表顺序即出站顺序，排第一的卡
-    // 成为系统出站（用户要求「还原时刻以排列顺序作为优先级」）。失败不影响还原
-    // 结果——跃点已写回快照，只是排序没生效。
-    match apply_outbound_priority_metrics(config) {
-        Ok(applied) => crate::log_info!(
-            "outbound",
-            "夜间出站还原: 已按优先级重排跃点 {}",
-            applied.join(", ")
-        ),
-        Err(e) => crate::log_warn!("outbound", "夜间出站还原: 按优先级重排跃点失败: {e}"),
-    }
+    // 还原只按快照写回切换前原值：排列顺序仅用于夜间选目标卡，不参与跃点排列
+    // （否则「还原」会变成把每张卡的跃点改写成 1..N）。
     if finish_outbound_restore(app_handle) {
         Ok(())
     } else {
@@ -1995,9 +1938,8 @@ pub(crate) fn manual_outbound_switch_to(app_handle: &AppHandle, adapter_name: &s
 pub(crate) fn manual_outbound_restore(app_handle: &AppHandle) -> Result<(), String> {
     let config = app_handle.state::<AppState>().config.load_full();
     if !outbound_switch_active(app_handle) {
-        // 非切换态下「恢复原出口」的诉求 = 按列表顺序重建出站：列表第一即出站卡。
-        // 原实现直接报「当前未处于出站切换状态」，而用户此时正是想让排序生效。
-        apply_outbound_priority_metrics(&config)?;
+        // 非切换态没有快照可还原：跃点已是用户原值，不能按出站优先级改写。
+        crate::log_info!("outbound", "手动还原出站: 当前未处于出站切换状态，跃点无需还原");
         return Ok(());
     }
     // hold 必须先清：否则还原失败后，还原窗内的自动重试会被 hold 一并冻结
