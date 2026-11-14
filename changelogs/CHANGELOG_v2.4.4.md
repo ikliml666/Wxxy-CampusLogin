@@ -1,3 +1,15 @@
+### WiFi 就寝守则：关/开 WiFi 加 `svc wifi` 回退与命令 trace（2026-11-14，安卓插件）
+
+**为什么**：用户实测「用 adb 权限也没法断开」。先厘清边界——`pm grant WRITE_SECURE_SETTINGS` 只能写 `Settings.Global`，与开关 WiFi 无关；开关 WiFi 需要 shell 身份。而 `cmd wifi set-wifi-enabled` 是 Android 11 才有的子命令，Android 10 与部分 ROM 上会直接失败，没有任何提示。
+
+**改了什么**（`WifiCurfewRunner.kt`）
+
+- 新增 `setWifiEnabled(enable)`：先 `cmd wifi set-wifi-enabled enabled|disabled`，非 `exit=0` 再退到 `svc wifi enable|disable`（后者自 Android 10 起就是 shell 可用的开关 WiFi 路径，内部走 `setWifiEnabled("com.android.shell", …)`）。
+- 两条命令的原始输出（压成一行、截断 120 字）随结果 JSON 的 `trace` 字段返回，`:core` 记进日志——失败时能直接看到卡在哪一步、报了什么，不用再猜。
+- 关/开两个动作都走同一条通道，出窗恢复与窗口内关闭行为一致。
+
+**验证**：`cargo test`（`android/core-logic`）18 passed；Kotlin 仍未编译验证（本机无 NDK/真机）。
+
 ### WiFi 就寝守则：安卓执行通道（Shizuku / root）（2026-11-14，安卓后端 + 安卓插件）
 
 **为什么**：上一条把配置、UI 与桌面执行做完了，安卓侧却只是「写进配置但不动作」——Android 10 起普通应用调 `disconnect/setWifiEnabled/removeNetwork` 一律返回 false，没有应用内权限可用。真正的能力只有 shell 身份（adb / Shizuku / root），所以这一轮把通道接上：装了 Shizuku 的用户在机上授权后免电脑；有 root 的直接用 su。
