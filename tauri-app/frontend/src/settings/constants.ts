@@ -73,6 +73,7 @@ export const DEFAULT_CONFIG: Config = {
   maxDisconnectReconnect: 3,
   autoLoginCooldownSecs: 60,
   logRetentionDays: 7,
+  logLevel: 'warning',
   configVersion: 5,
 }
 

@@ -130,7 +130,7 @@ interface TauriApi {
   showWindow: () => Promise<void>
   getLogs: (lines?: number) => Promise<string>
   clearLogs: () => Promise<boolean>
-  setDebugMode: (enabled: boolean) => Promise<boolean>
+  setLogLevel: (level: string) => Promise<string>
   getInitData: () => Promise<InitData>
   checkUpdate: () => Promise<UpdateInfo>
   downloadUpdate: (url: string) => Promise<string>
@@ -271,7 +271,7 @@ const tauriApi: TauriApi = {
   showWindow: () => invoke<void>('show_window'),
   getLogs: (lines) => invoke<string>('get_logs', { lines }),
   clearLogs: () => invoke<boolean>('clear_logs'),
-  setDebugMode: (enabled) => invoke<boolean>('set_debug_mode', { enabled }),
+  setLogLevel: (level) => invoke<string>('set_log_level', { level }),
   getInitData: () => invoke<InitData>('get_init_data'),
   checkUpdate: () => invoke<UpdateInfo>('check_update'),
   downloadUpdate: (url) => invoke<string>('download_update', { url }),

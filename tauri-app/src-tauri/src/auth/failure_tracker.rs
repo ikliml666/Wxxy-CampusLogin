@@ -75,7 +75,7 @@ pub fn update_auth_failure_count(state: &AppState, cmd_result: &CommandResult, a
     // MAC 重置的唯一触发源改为"门户 HTTP 不可达"（见 handle_portal_request_failure）。
     // 此处仅保留计数与日志，供诊断账号态问题。
     if new_count >= MAX_FAILURES {
-        crate::log_warn!("login", "{} 连续{}次认证失败（不再触发MAC重置，请检查账号状态/是否在可登录时段）", adapter_name, new_count);
+        crate::log_warn!("login", "{} 连续{}次认证失败（单卡路径；不再触发MAC重置，请检查账号状态/是否在可登录时段）", adapter_name, new_count);
         state.network.update(|s| s.portal_failure_count = 0);
     }
 }
@@ -136,7 +136,7 @@ fn handle_single_adapter_failure(
     // 触发机制重设计（2026-10-25）：认证失败不再触发 MAC 重置（同 update_auth_failure_count），
     // 仅保留计数与日志。MAC 重置唯一触发源为门户 HTTP 不可达（handle_portal_request_failure）。
     if new_count >= MAX_FAILURES {
-        crate::log_warn!("login", "{} 连续{}次认证失败（不再触发MAC重置，请检查账号状态/是否在可登录时段）", adapter_name, new_count);
+        crate::log_warn!("login", "{} 连续{}次认证失败（双卡路径；不再触发MAC重置，请检查账号状态/是否在可登录时段）", adapter_name, new_count);
         set_adapter_failure_count(state, counter, 0);
     }
 }

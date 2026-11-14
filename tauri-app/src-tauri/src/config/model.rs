@@ -212,6 +212,10 @@ pub struct Config {
     pub scheduled_logout_minutes: u16,
     #[serde(rename = "logRetentionDays", default = "default_log_retention_days")]
     pub log_retention_days: u32,
+    /// 日志等级（debug/info/warning/error/silent，默认 warning）。低于该等级的
+    /// 日志在入口过滤，不产生格式化与写盘开销；silent 为完全关闭
+    #[serde(rename = "logLevel", default = "default_log_level")]
+    pub log_level: String,
     #[serde(rename = "maxDisconnectReconnect", default = "default_max_disconnect_reconnect")]
     pub max_disconnect_reconnect: u32,
     #[serde(rename = "autoLoginCooldownSecs", default = "default_auto_login_cooldown_secs")]
@@ -291,6 +295,8 @@ pub fn default_fixed_gateway() -> String {
 }
 
 pub fn default_log_retention_days() -> u32 { 7 }
+
+fn default_log_level() -> String { "warning".to_string() }
 
 fn default_max_disconnect_reconnect() -> u32 { 3 }
 
@@ -389,6 +395,7 @@ impl Default for Config {
             scheduled_login_minutes: 1440,
             scheduled_logout_minutes: 1440,
             log_retention_days: 7,
+            log_level: default_log_level(),
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
             enable_mac_renew_on_auth_error: true,

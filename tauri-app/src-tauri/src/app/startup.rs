@@ -137,7 +137,7 @@ pub fn run(core_count: usize) {
             crate::commands::vpn::set_self_service_via_vpn,
             crate::commands::vpn::vpn_test_connection,
             crate::commands::vpn::vpn_verify_credential,
-            crate::infra::logger::set_debug_mode,
+            crate::commands::system::set_log_level,
         ]);
 
     let app = app.build(tauri::generate_context!()).unwrap_or_else(|e| {
@@ -262,6 +262,11 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
     // 直到用户再次进入日志面板触发 set_log_retention_days。启动时按配置应用。
     // set 应用时即触发一次按天清理（见 logger），重装/升级后旧日志首次启动即被清。
     crate::infra::logger::set_log_retention_days(config.log_retention_days);
+    // 日志等级以配置为准（默认 warning）：init_logger 用默认等级起步，
+    // 读到配置后立即应用，比等用户打开日志面板再切换可靠
+    crate::infra::logger::set_log_level(crate::infra::logger::log_level_from_config(
+        &config.log_level,
+    ));
 
     // 静默启动（开机自启 + 启动时隐藏）：窗口 visible(false) 起步本就不显示，
     // 兜底显示线程与前端 show_window 都须知道「这是用户要的隐藏」，否则被当成

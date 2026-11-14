@@ -291,7 +291,7 @@ fn wrap_dhcp_result(results: Vec<serde_json::Value>) -> serde_json::Value {
 
 #[tauri::command]
 pub async fn dhcp_renew_all(app_handle: AppHandle) -> Result<serde_json::Value, String> {
-    crate::log_info!("network", "开始DHCP续租");
+    crate::log_info!("network", "开始 DHCP 续租（全部有线适配器）");
     tauri::async_runtime::spawn_blocking(move || {
         // 续租范围只限 resolve 后的主/副适配器中有线者，不触碰其他网卡
         let adapters = get_adapters_cached().unwrap_or_default();
@@ -299,18 +299,22 @@ pub async fn dhcp_renew_all(app_handle: AppHandle) -> Result<serde_json::Value, 
         let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
         let targets: Vec<String> = crate::network::filter_operation_adapters(&adapters, &a1_name, &a2_name)
             .iter().map(|a| a.name.clone()).collect();
+        crate::log_debug!("network", "DHCP 续租目标: {:?}", targets);
         let results = dhcp_renew_wired_only(&targets).map_err(|e| {
-            crate::log_error!("network", "DHCP续租失败: {}", e);
+            crate::log_error!("network", "DHCP 续租（全部适配器）失败: {}", e);
             e
         })?;
-        crate::log_info!("network", "DHCP续租完成");
+        if results.is_empty() {
+            crate::log_warn!("network", "DHCP 续租未命中任何有线适配器（目标 {:?}）", targets);
+        }
+        crate::log_info!("network", "DHCP 续租完成: {} 个适配器", results.len());
         Ok(wrap_dhcp_result(results))
     }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Value, String> {
-    crate::log_info!("network", "开始DHCP续租");
+    crate::log_info!("network", "开始 DHCP 释放后续租（全部有线适配器）");
     tauri::async_runtime::spawn_blocking(move || {
         // MAC 重置 + 释放/续租范围只限 resolve 后的主/副适配器
         let adapters = get_adapters_cached().unwrap_or_default();
@@ -318,27 +322,28 @@ pub async fn dhcp_release_renew(app_handle: AppHandle) -> Result<serde_json::Val
         let (a1_name, a2_name) = crate::network::resolve_adapter_names(&adapters, &config);
         let targets: Vec<String> = crate::network::filter_operation_adapters(&adapters, &a1_name, &a2_name)
             .iter().map(|a| a.name.clone()).collect();
+        crate::log_debug!("network", "DHCP 释放后续租目标: {:?}", targets);
         let results = dhcp_release_renew_all(&targets).map_err(|e| {
-            crate::log_error!("network", "DHCP续租失败: {}", e);
+            crate::log_error!("network", "DHCP 释放后续租（全部适配器）失败: {}", e);
             e
         })?;
-        crate::log_info!("network", "DHCP续租完成");
+        crate::log_info!("network", "DHCP 释放后续租完成: {} 个适配器", results.len());
         Ok(wrap_dhcp_result(results))
     }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn dhcp_release_renew_adapter(adapter_name: String) -> Result<serde_json::Value, String> {
-    crate::log_info!("network", "开始DHCP续租");
+    crate::log_info!("network", "开始 DHCP 释放后续租（适配器: {}）", adapter_name);
     crate::network::adapter_cache::validate_adapter_name(&adapter_name)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let result = dhcp_release_renew_single(&adapter_name)?;
-        crate::log_info!("network", "DHCP续租完成");
+        let result = dhcp_release_renew_single(&adapter_name).map_err(|e| {
+            crate::log_error!("network", "DHCP 释放后续租（适配器: {}）失败: {}", adapter_name, e);
+            e
+        })?;
+        crate::log_info!("network", "DHCP 释放后续租完成（适配器: {}）", adapter_name);
         Ok(wrap_dhcp_result(vec![result]))
-    }).await.map_err(|e| {
-        crate::log_error!("network", "DHCP续租失败: {}", e);
-        e.to_string()
-    })?
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -385,7 +390,7 @@ pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) ->
             c.enable_latency_test = false;
             Ok(())
         }) {
-            crate::log_warn!("network", "保存延迟测试开关失败: {}", e);
+            crate::log_warn!("network", "保存延迟测试开关失败（质量总开关关闭时回写关闭状态）: {}", e);
         }
         return Ok(CommandResult::ok_msg("质量检测总开关未启用，定时测试保持关闭"));
     }
@@ -394,7 +399,7 @@ pub fn start_latency_test(app_handle: AppHandle, _state: State<'_, AppState>) ->
         c.enable_latency_test = true;
         Ok(())
     }) {
-        crate::log_warn!("network", "保存延迟测试开关失败: {}", e);
+        crate::log_warn!("network", "保存延迟测试开关失败（启动前启用落盘）: {}", e);
         return Err(format!("保存延迟测试开关失败: {e}"));
     }
     // 间隔由循环内每轮重读（配置 + 轻量化系数），无需启动时读取
@@ -414,7 +419,7 @@ pub fn stop_latency_test(app_handle: AppHandle, state: State<'_, AppState>) -> R
         c.enable_latency_test = false;
         Ok(())
     }) {
-        crate::log_warn!("network", "保存延迟测试开关失败: {}", e);
+        crate::log_warn!("network", "保存延迟测试开关失败（停止时关闭落盘）: {}", e);
     }
 
     Ok(CommandResult::ok_msg("延迟测试已停止"))

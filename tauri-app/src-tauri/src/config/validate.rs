@@ -160,6 +160,11 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     if config.log_retention_days > 365 {
         config.log_retention_days = 365;
     }
+    // 日志等级统一成配置/界面口径（debug/info/warning/error/silent）；手改配置文件的
+    // 未知值回落默认 warning，不让一个日志字段挡住整份配置加载
+    config.log_level = crate::infra::logger::log_level_from_config(&config.log_level)
+        .as_config_str()
+        .to_string();
     // 配置版本迁移：config_version < 2 为旧版，campus_check_start_minutes 可能是旧字段 campusCheckStartHour 的小时值（通过 alias 反序列化）
     // config_version >= 2 为新版，campus_check_start_minutes 直接是分钟值
     if config.config_version < 2 {

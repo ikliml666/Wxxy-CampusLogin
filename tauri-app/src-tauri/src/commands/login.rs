@@ -28,6 +28,12 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter
         }).await.map_err(|e| format!("登录任务失败: {e}"))?
     };
 
+    // 命令层闭环日志：full_login 内部各阶段日志分散，排障时先看这一条就能拿到
+    // 本次手动登录的最终判定与失败原因（info 级，默认 warning 下不写盘）
+    crate::log_info!("login", "手动登录结束: success={}, message={}",
+        result.success,
+        result.message.as_deref().unwrap_or("无"));
+
     if result.success {
         crate::auth::service::post_login_handler(&app_handle, &state);
     }
@@ -43,6 +49,9 @@ pub async fn do_logout(_state: State<'_, AppState>, app_handle: AppHandle, adapt
     let result = tauri::async_runtime::spawn_blocking(move || {
         perform_full_logout_sync(&app_h, adapter_name.as_deref())
     }).await.map_err(|e| format!("注销任务失败: {e}"))?;
+    crate::log_info!("logout", "手动注销结束: success={}, message={}",
+        result.success,
+        result.message.as_deref().unwrap_or("无"));
     Ok(result)
 }
 

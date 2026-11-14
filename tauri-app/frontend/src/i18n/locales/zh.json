@@ -664,11 +664,16 @@
   "log": {
     "systemLog": "系统日志",
     "debug": "调试",
-    "debugOn": "调试开",
-    "debugOff": "调试关",
-    "debugEnabled": "已开启调试日志",
-    "debugDisabled": "已关闭调试日志",
-    "debugToggleFailed": "切换调试模式失败",
+    "levelLabel": "日志等级",
+    "level": {
+      "debug": "调试",
+      "info": "信息",
+      "warning": "警告",
+      "error": "错误",
+      "silent": "静默"
+    },
+    "levelChanged": "日志等级已切换为「{{level}}」",
+    "levelChangeFailed": "切换日志等级失败",
     "fetchLogFailed": "获取日志失败",
     "logCleared": "日志已清空",
     "clearLogFailed": "清空日志失败",

@@ -141,7 +141,7 @@ function AppInner() {
   const configUser = useConfigStore((s) => s.config.user)
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
   const configAutoLaunch = useConfigStore((s) => s.config.autoLaunch)
-  const initDebugMode = useConfigStore((s) => s.initDebugMode)
+  const initLogLevel = useConfigStore((s) => s.initLogLevel)
   const initLogRetentionDays = useConfigStore((s) => s.initLogRetentionDays)
   const configEnableNotification = useConfigStore((s) => s.config.enableNotification)
 
@@ -405,7 +405,7 @@ function AppInner() {
         <LogPanel
           api={api}
           addToast={addToast}
-          initialDebugMode={initDebugMode}
+          initialLogLevel={initLogLevel}
           initialLogRetentionDays={initLogRetentionDays}
         />
       )

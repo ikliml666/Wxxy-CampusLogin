@@ -664,11 +664,16 @@
   "log": {
     "systemLog": "System Logs",
     "debug": "Debug",
-    "debugOn": "Debug On",
-    "debugOff": "Debug Off",
-    "debugEnabled": "Debug logging enabled",
-    "debugDisabled": "Debug logging disabled",
-    "debugToggleFailed": "Failed to toggle debug mode",
+    "levelLabel": "Log Level",
+    "level": {
+      "debug": "Debug",
+      "info": "Info",
+      "warning": "Warning",
+      "error": "Error",
+      "silent": "Silent"
+    },
+    "levelChanged": "Log level switched to {{level}}",
+    "levelChangeFailed": "Failed to switch log level",
     "fetchLogFailed": "Failed to fetch logs",
     "logCleared": "Logs cleared",
     "clearLogFailed": "Failed to clear logs",

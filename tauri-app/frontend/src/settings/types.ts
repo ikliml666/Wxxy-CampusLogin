@@ -99,6 +99,8 @@ export interface Config {
   maxDisconnectReconnect: number
   autoLoginCooldownSecs: number
   logRetentionDays: number
+  /** 日志等级：debug | info | warning | error | silent（默认 warning） */
+  logLevel: string
   configVersion: number
   /** 当前激活账号的显示名（改名同步落盘）；空 → 回退用账号 id */
   displayName?: string
@@ -145,7 +147,7 @@ export interface InitData {
   notificationEnabled: boolean
   /** 原一次性 get_log_retention_days 命令并入此处：logger 运行期真实值 */
   logRetentionDays: number
-  /** 原一次性 get_debug_mode 命令并入此处 */
-  debugMode: boolean
+  /** logger 当前日志等级（debug/info/warning/error/silent） */
+  logLevel: string
   refreshRate?: number
 }

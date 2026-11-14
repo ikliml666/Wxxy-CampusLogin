@@ -214,6 +214,9 @@ pub async fn import_config(app_handle: AppHandle, path: String) -> Result<Comman
     };
     crate::network::update_portal_url(&saved.portal_url);
     crate::infra::logger::set_log_retention_days(saved.log_retention_days);
+    crate::infra::logger::set_log_level(crate::infra::logger::log_level_from_config(
+        &saved.log_level,
+    ));
     crate::log_info!("config", "配置导入成功, 用户: {}", saved.user);
 
     Ok(CommandResult::ok_msg("配置导入成功"))
@@ -291,6 +294,9 @@ pub async fn save_config(
     .map_err(|e| format!("配置落盘任务失败: {e}"))??;
     crate::network::update_portal_url(&saved.portal_url);
     crate::infra::logger::set_log_retention_days(saved.log_retention_days);
+    crate::infra::logger::set_log_level(crate::infra::logger::log_level_from_config(
+        &saved.log_level,
+    ));
     crate::log_info!("config", "配置保存成功, 用户: {}", saved.user);
 
     // R2 自动建号：输入了账号+密码即默认创建/同步同名本地账号。

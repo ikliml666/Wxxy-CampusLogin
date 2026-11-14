@@ -97,6 +97,9 @@ async fn boot(ctx: CoreCtx) {
         }
     };
     campus_login_lib::infra::logger::set_log_retention_days(settings.log_retention_days);
+    campus_login_lib::infra::logger::set_log_level(
+        campus_login_lib::infra::logger::log_level_from_config(&settings.log_level),
+    );
     let running = boot_plan(settings.enable_background_check) == BootPlan::StartMonitor;
     if running {
         if let Err(e) = crate::core::monitor::start_background_check(ctx.clone()).await {

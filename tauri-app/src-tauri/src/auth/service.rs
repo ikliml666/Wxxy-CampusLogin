@@ -243,7 +243,7 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
             Some(a) => {
                 return logout_adapter_with_log(a, &config, app_handle, state.exit.is_quitting.as_ref())
                     .unwrap_or_else(|| {
-                        crate::log_warn!("logout", "注销请求失败");
+                        crate::log_warn!("logout", "注销请求失败（指定适配器: {}）", a.name);
                         CommandResult::err("注销请求失败")
                     });
             }
@@ -292,7 +292,7 @@ pub fn full_logout(state: &AppState, app_handle: &AppHandle, adapter_name: Optio
 
     logout_adapter_with_log(a1_ref, &config, app_handle, state.exit.is_quitting.as_ref())
         .unwrap_or_else(|| {
-            crate::log_warn!("logout", "注销请求失败");
+            crate::log_warn!("logout", "注销请求失败（主适配器: {}）", a1_ref.name);
             CommandResult::err("注销请求失败")
         })
 }

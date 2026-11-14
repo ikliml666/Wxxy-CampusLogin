@@ -247,10 +247,11 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
     let notification_enabled = cfg.enable_notification;
 
     let is_auto_start = std::env::args().any(|a| a == "--autostart");
-    // 原四条一次性只读命令（get_log_retention_days/get_debug_mode 等）并入本返回体，
+    // 原四条一次性只读命令（get_log_retention_days/get_debug_mode 等）并入本返回体；
+    // debugMode 已升级为 logLevel 五档字符串（2026-11-14），
     // 与 autoLaunch/notificationEnabled（早已在此）同构：读 logger 运行期真实值
     let log_retention_days = crate::infra::logger::get_log_retention_days();
-    let debug_mode = crate::infra::logger::get_debug_mode().unwrap_or(false);
+    let log_level = crate::infra::logger::get_log_level_name();
 
     // 复用上方已取好的适配器快照，避免 get_background_status_value 内部重复全量取一次
     let bg_status = super::background::get_background_status_value(&state, &app_handle, &adapters);
@@ -266,7 +267,7 @@ pub fn get_init_data(state: State<'_, AppState>, app_handle: AppHandle) -> Resul
         "activeAccount": active_account,
         "notificationEnabled": notification_enabled,
         "logRetentionDays": log_retention_days,
-        "debugMode": debug_mode,
+        "logLevel": log_level,
         "isAutoStart": is_auto_start,
         "backgroundStatus": bg_status,
     }))
@@ -293,6 +294,31 @@ pub fn render_heartbeat(state: State<'_, AppState>) -> Result<serde_json::Value,
 pub fn set_log_retention_days(days: u32) -> Result<(), String> {
     crate::infra::logger::set_log_retention_days(days);
     Ok(())
+}
+
+/// 切换日志等级并持久化。先落盘再生效：磁盘写失败时命令返回 Err、运行期等级
+/// 保持不变，避免"界面显示已切换、重启后回退"的错位（与 save_config 同语义）。
+#[tauri::command]
+pub async fn set_log_level(app_handle: AppHandle, level: String) -> Result<String, String> {
+    let parsed = crate::infra::logger::LogLevel::from_config_str(&level)
+        .ok_or_else(|| format!("无效的日志等级: {level}"))?;
+    let name = parsed.as_config_str().to_string();
+    let app_h = app_handle.clone();
+    let saved_name = tauri::async_runtime::spawn_blocking(move || {
+        let st = app_h.state::<AppState>();
+        super::config_cmd::mutate_config_and_save(&app_h, &st, move |fresh| {
+            fresh.log_level = name;
+            Ok(())
+        })
+        .map(|cfg| cfg.log_level.clone())
+    })
+    .await
+    .map_err(|e| format!("日志等级落盘任务失败: {e}"))??;
+    let applied = crate::infra::logger::log_level_from_config(&saved_name);
+    crate::infra::logger::set_log_level(applied);
+    // 先生效再记录：切到 silent 时这条不会写入（符合"完全关闭"语义）
+    crate::log_info!("system", "日志等级已切换为 {}", applied.as_config_str());
+    Ok(applied.as_config_str().to_string())
 }
 
 /// 导出诊断包到 <data_dir>/diagnostics/diag-<时间戳>/，返回目录路径（P2-29）。

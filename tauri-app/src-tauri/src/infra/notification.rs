@@ -46,10 +46,10 @@ pub fn emit_notification(app_handle: &AppHandle, title: &str, body: &str, mascot
         match crate::platform::toast::show_system_toast(&app_h, &title, &body, &mascot) {
             Ok(_) => {}
             Err(e) => {
-                crate::log_warn!("system", "自组系统通知失败，降级插件通知: {}", e);
+                crate::log_warn!("system", "自组系统通知失败，降级插件通知（标题: {}）: {}", title, e);
                 use tauri_plugin_notification::NotificationExt;
                 if let Err(e) = app_h.notification().builder().title(&title).body(&body).show() {
-                    crate::log_warn!("system", "系统通知发送失败: {}", e);
+                    crate::log_warn!("system", "系统通知发送失败（自组与插件均失败，标题: {}）: {}", title, e);
                 }
             }
         }
@@ -58,7 +58,7 @@ pub fn emit_notification(app_handle: &AppHandle, title: &str, body: &str, mascot
             let _ = &mascot;
             use tauri_plugin_notification::NotificationExt;
             if let Err(e) = app_h.notification().builder().title(&title).body(&body).show() {
-                crate::log_warn!("system", "系统通知发送失败: {}", e);
+                crate::log_warn!("system", "系统通知发送失败（插件通知，标题: {}）: {}", title, e);
             }
         }
     });

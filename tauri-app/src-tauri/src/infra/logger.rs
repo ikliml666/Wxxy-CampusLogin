@@ -40,23 +40,63 @@ pub fn get_log_retention_days() -> u32 {
     LOG_RETENTION_DAYS.load(AtomicOrdering::Relaxed)
 }
 
+/// 日志等级（由低到高）。Silent 表示完全关闭日志输出，与界面/配置口径的
+/// silent 对应——它必须排在最高位，log() 的"低于最小等级即丢弃"才能一票过滤。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
     Debug,
     Info,
     Warn,
     Error,
+    Silent,
+}
+
+impl Default for LogLevel {
+    fn default() -> Self {
+        LogLevel::Warn
+    }
 }
 
 impl LogLevel {
-    fn as_str(&self) -> &'static str {
+    fn as_str(self) -> &'static str {
         match self {
             LogLevel::Debug => "DEBUG",
             LogLevel::Info => "INFO",
             LogLevel::Warn => "WARN",
             LogLevel::Error => "ERROR",
+            LogLevel::Silent => "SILENT",
         }
     }
+
+    /// 配置与界面的唯一字符串口径（与日志面板下拉项一致）
+    pub fn as_config_str(self) -> &'static str {
+        match self {
+            LogLevel::Debug => "debug",
+            LogLevel::Info => "info",
+            LogLevel::Warn => "warning",
+            LogLevel::Error => "error",
+            LogLevel::Silent => "silent",
+        }
+    }
+
+    /// 解析配置/界面口径，大小写不敏感；warn/off/none 作为旧习惯别名接受。
+    /// 未知值返回 None，由调用方（配置校验/命令层）决定兜底或报错。
+    pub fn from_config_str(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "debug" => Some(LogLevel::Debug),
+            "info" => Some(LogLevel::Info),
+            "warn" | "warning" => Some(LogLevel::Warn),
+            "error" => Some(LogLevel::Error),
+            "off" | "none" | "silent" => Some(LogLevel::Silent),
+            _ => None,
+        }
+    }
+}
+
+/// 配置字符串 → 等级，未知/空值回落默认 Warn。配置校验已负责归一化，
+/// 这里只承接手改配置文件、旧版本缺字段等边界输入。
+pub fn log_level_from_config(raw: &str) -> LogLevel {
+    LogLevel::from_config_str(raw).unwrap_or(LogLevel::Warn)
 }
 
 enum LogMessage {
@@ -76,7 +116,7 @@ lazy_static::lazy_static! {
     static ref LOGGER_SENDER: ArcSwap<Option<SyncSender<LogMessage>>> = ArcSwap::from(std::sync::Arc::new(None));
     static ref CLEAR_LOGS_MUTEX: Mutex<()> = Mutex::new(());
     static ref LOGGER_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
-    static ref MIN_LOG_LEVEL: ArcSwap<LogLevel> = ArcSwap::from(std::sync::Arc::new(LogLevel::Info));
+    static ref MIN_LOG_LEVEL: ArcSwap<LogLevel> = ArcSwap::from(std::sync::Arc::new(LogLevel::Warn));
 }
 
 pub fn init_logger(log_dir: PathBuf) -> Result<(), String> {
@@ -228,19 +268,32 @@ fn flush_messages(state: &mut LoggerState, buffer: &mut Vec<LogMessage>) {
     rotate_if_needed(state);
 
     if let Some(ref mut writer) = state.current_writer {
+        // 写盘失败（磁盘满/只读/句柄失效）此前被 let _ 静默吞掉，日志"消失"却
+        // 无任何痕迹。日志系统自身已不可用，只能用 stderr 报告；同一批最多报一次，
+        // 避免每条日志都往 stderr 刷屏
+        let mut write_failed = false;
         for msg in buffer.drain(..) {
             match msg {
-                LogMessage::Entry { line, .. } => {
-                    let _ = writer.write_all(line.as_bytes());
+                LogMessage::Entry { line } => {
+                    if let Err(e) = writer.write_all(line.as_bytes()) {
+                        if !write_failed {
+                            eprintln!("[logger] 日志写盘失败（本批后续失败不再重复报告）: {e}");
+                            write_failed = true;
+                        }
+                    }
                 }
                 LogMessage::Flush { ack } => {
-                    let _ = writer.flush();
+                    if let Err(e) = writer.flush() {
+                        eprintln!("[logger] 日志刷盘失败: {e}");
+                    }
                     let _ = ack.send(());
                 }
                 LogMessage::Shutdown => {}
             }
         }
-        let _ = writer.flush();
+        if let Err(e) = writer.flush() {
+            eprintln!("[logger] 日志刷盘失败: {e}");
+        }
     } else {
         for msg in buffer.drain(..) {
             if let LogMessage::Flush { ack } = msg {
@@ -377,17 +430,10 @@ pub fn get_log_level() -> LogLevel {
     **MIN_LOG_LEVEL.load()
 }
 
-#[tauri::command]
-pub fn set_debug_mode(enabled: bool) -> Result<bool, String> {
-    let level = if enabled { LogLevel::Debug } else { LogLevel::Info };
-    set_log_level(level);
-    Ok(enabled)
-}
-
-/// debug 开关 getter：原一次性 get_debug_mode 命令已并入 get_init_data 的 debugMode
-/// 字段（桌面）与安卓 system_cmds 复用，仅保留普通函数供后端内部调用
-pub fn get_debug_mode() -> Result<bool, String> {
-    Ok(get_log_level() == LogLevel::Debug)
+/// 当前等级的配置口径字符串，供 get_init_data 一次性出站（原 debugMode 布尔
+/// 字段只区分 debug/info 两态，无法表达 warning/error/silent）
+pub fn get_log_level_name() -> &'static str {
+    get_log_level().as_config_str()
 }
 
 #[macro_export]
@@ -593,6 +639,39 @@ pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_level_config_roundtrip() {
+        let levels = [
+            LogLevel::Debug,
+            LogLevel::Info,
+            LogLevel::Warn,
+            LogLevel::Error,
+            LogLevel::Silent,
+        ];
+        for level in levels {
+            assert_eq!(LogLevel::from_config_str(level.as_config_str()), Some(level));
+        }
+    }
+
+    #[test]
+    fn log_level_accepts_legacy_aliases() {
+        assert_eq!(LogLevel::from_config_str("WARN"), Some(LogLevel::Warn));
+        assert_eq!(LogLevel::from_config_str(" warning "), Some(LogLevel::Warn));
+        assert_eq!(LogLevel::from_config_str("off"), Some(LogLevel::Silent));
+        assert_eq!(LogLevel::from_config_str("none"), Some(LogLevel::Silent));
+        assert_eq!(LogLevel::from_config_str("nonsense"), None);
+        // 未知/空值回落默认等级，不挡住配置加载
+        assert_eq!(log_level_from_config(""), LogLevel::Warn);
+        assert_eq!(log_level_from_config("nonsense"), LogLevel::Warn);
+    }
+
+    #[test]
+    fn default_level_is_warning_and_silent_filters_everything() {
+        assert_eq!(LogLevel::default(), LogLevel::Warn);
+        assert!(LogLevel::Debug < LogLevel::Warn);
+        assert!(LogLevel::Error < LogLevel::Silent);
+    }
 
     #[test]
     fn is_app_log_file_positive() {

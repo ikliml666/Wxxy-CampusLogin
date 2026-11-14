@@ -26,7 +26,7 @@ pub async fn get_init_data(app: tauri::AppHandle) -> Result<serde_json::Value, S
         "notificationEnabled": settings.enable_notification,
         // 与桌面 get_init_data 同形：原一次性 get 命令并入返回体（logger 运行期真实值）
         "logRetentionDays": campus_login_lib::infra::logger::get_log_retention_days(),
-        "debugMode": campus_login_lib::infra::logger::get_debug_mode().unwrap_or(false),
+        "logLevel": campus_login_lib::infra::logger::get_log_level_name(),
         "isAutoStart": settings.enable_boot_autostart,
         "backgroundStatus": crate::core_bridge_cmds::read_background_status(&app)?,
     }))
@@ -59,14 +59,19 @@ pub fn set_log_retention_days(days: u32) {
     campus_login_lib::infra::logger::set_log_retention_days(days);
 }
 
+/// 切换日志等级并持久化:先落盘再生效(与桌面 set_log_level 同语义)。
+/// 注意 UI 与 :core 是不同进程,本命令只改 UI 进程的等级;:core 进程的等级
+/// 在其下次启动读到配置时生效
 #[tauri::command]
-pub fn get_debug_mode() -> Result<bool, String> {
-    campus_login_lib::infra::logger::get_debug_mode()
-}
-
-#[tauri::command]
-pub fn set_debug_mode(enabled: bool) -> Result<bool, String> {
-    campus_login_lib::infra::logger::set_debug_mode(enabled)
+pub async fn set_log_level(app: tauri::AppHandle, level: String) -> Result<String, String> {
+    let parsed = campus_login_lib::infra::logger::LogLevel::from_config_str(&level)
+        .ok_or_else(|| format!("无效的日志等级: {level}"))?;
+    let name = parsed.as_config_str().to_string();
+    let persisted = name.clone();
+    crate::config_state::update(&app, move |s| s.log_level = persisted).await?;
+    campus_login_lib::infra::logger::set_log_level(parsed);
+    campus_login_lib::log_info!("system", "日志等级已切换为 {}", name);
+    Ok(name)
 }
 
 /// 交互期请求屏幕最高刷新率、静止后回落最低档(仅安卓有实际动作)

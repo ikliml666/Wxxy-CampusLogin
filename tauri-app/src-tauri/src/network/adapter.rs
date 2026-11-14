@@ -321,6 +321,7 @@ mod tests {
             scheduled_login_minutes: 0,
             scheduled_logout_minutes: 0,
             log_retention_days: 7,
+            log_level: "warning".to_string(),
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
             enable_mac_renew_on_auth_error: true,

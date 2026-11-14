@@ -28,8 +28,9 @@ interface LogPanelProps {
   api: {
     getLogs: (lines?: number) => Promise<string>
     clearLogs: () => Promise<boolean>
-    getDebugMode: () => Promise<boolean>
-    setDebugMode: (enabled: boolean) => Promise<boolean>
+    setLogLevel: (level: string) => Promise<string>
+    /** 读取已保存的日志等级（面板打开时的初值；缺省按 warning 渲染） */
+    getConfig?: () => Promise<{ logLevel?: string }>
     getLogRetentionDays?: () => Promise<number>
     setLogRetentionDays?: (days: number) => Promise<void>
   }
@@ -82,6 +83,9 @@ const LINE_OPTIONS = [
 
 const MAX_DISPLAY_LINES = 200
 
+/** 日志等级下拉项：字符串口径与后端 config.logLevel 一致 */
+const LOG_LEVEL_OPTIONS = ['debug', 'info', 'warning', 'error', 'silent'] as const
+
 export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps) {
   const profile = useAnimationProfile()
   const { t } = useTranslation()
@@ -93,7 +97,7 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   const [filterLevel, setFilterLevel] = useState<LogLevel | 'ALL'>('ALL')
   const [searchText, setSearchText] = useState('')
   const [filterModule, setFilterModule] = useState<string>('ALL')
-  const [debugMode, setDebugMode] = useState(false)
+  const [logLevel, setLogLevel] = useState('warning')
   const [retentionDays, setRetentionDays] = useState(7)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -152,7 +156,10 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
   }, [])
 
   useEffect(() => {
-    api.getDebugMode().then(v => { if (mountedRef.current) setDebugMode(v) }).catch(() => {})
+    // 安卓面板不接收 initData 初值：直接读已保存配置里的 logLevel
+    api.getConfig?.().then(cfg => {
+      if (mountedRef.current && typeof cfg?.logLevel === 'string') setLogLevel(cfg.logLevel)
+    }).catch(() => {})
   }, [api])
 
   useEffect(() => {
@@ -176,19 +183,22 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
     }
   }, [fetchLogs])
 
-  const toggleDebugMode = useCallback(async () => {
+  const handleLevelChange = useCallback(async (level: string) => {
+    const prev = logLevel
+    // 乐观更新：下拉立即反映选择；落盘失败回滚（后端先落盘再生效）
+    setLogLevel(level)
     try {
-      const next = !debugMode
-      await api.setDebugMode(next)
+      const applied = await api.setLogLevel(level)
       if (!mountedRef.current) return
-      setDebugMode(next)
-      addToast(next ? t('log.debugEnabled') : t('log.debugDisabled'), 'info')
+      setLogLevel(applied || level)
+      addToast(t('log.levelChanged', { level: t(`log.level.${applied || level}`) }), 'info')
       fetchLogs(true)
-    } catch {
+    } catch (e: unknown) {
       if (!mountedRef.current) return
-      addToast(t('log.debugToggleFailed'), 'error')
+      setLogLevel(prev)
+      addToast(t('log.levelChangeFailed'), 'error', extractErrorMessage(e))
     }
-  }, [debugMode, api, addToast, fetchLogs])
+  }, [logLevel, api, addToast, fetchLogs, t])
 
   const handleRetentionChange = useCallback(async (days: number) => {
     const prev = retentionDays
@@ -438,15 +448,20 @@ export const LogPanel = memo(function LogPanel({ api, addToast }: LogPanelProps)
                   <RefreshCw className={cn('h-3 w-3', isLoading && 'animate-spin')} />
                   {t('common.refresh')}
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn('h-11 text-xs gap-1 px-2', debugMode && 'bg-amber-500/10 text-amber-500 border-amber-500/30')}
-                  onClick={toggleDebugMode}
-                >
-                  <Bug className="h-3 w-3" />
-                  {debugMode ? t('log.debugOn') : t('log.debugOff')}
-                </Button>
+                <Select value={logLevel} onValueChange={handleLevelChange}>
+                  <SelectTrigger
+                    className="h-11 text-xs gap-1 px-2 w-auto border-border"
+                    aria-label={t('log.levelLabel')}
+                    title={t('log.levelLabel')}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LOG_LEVEL_OPTIONS.map(lv => (
+                      <SelectItem key={lv} value={lv}>{t(`log.level.${lv}`)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="outline"
                   size="sm"

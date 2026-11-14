@@ -108,8 +108,7 @@ pub fn run() {
             system_cmds::clear_logs,
             system_cmds::get_log_retention_days,
             system_cmds::set_log_retention_days,
-            system_cmds::get_debug_mode,
-            system_cmds::set_debug_mode,
+            system_cmds::set_log_level,
             system_cmds::set_refresh_rate_hint,
             battery_cmds::get_battery_optimization_info,
             battery_cmds::request_ignore_battery_optimizations,
@@ -143,6 +142,10 @@ fn ui_startup(app: tauri::AppHandle) {
             }
         };
         campus_login_lib::infra::logger::set_log_retention_days(settings.log_retention_days);
+        // 日志等级以配置为准(默认 warning):init_logger 用默认等级起步,读到配置即应用
+        campus_login_lib::infra::logger::set_log_level(
+            campus_login_lib::infra::logger::log_level_from_config(&settings.log_level),
+        );
         if settings.enable_network_quality {
             let enable_latency = settings.enable_latency_test;
             let app2 = app.clone();

@@ -233,7 +233,7 @@ pub fn try_auto_login_on_preparation(
             &login_result.message.clone().unwrap_or_default(),
             false,
         ) {
-            crate::log_warn!("auto_login", "发送自动登录结果失败: {}", e);
+            crate::log_warn!("auto_login", "发送自动登录结果失败（准备登录阶段）: {}", e);
         }
 
         if login_result.success {
@@ -656,7 +656,7 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
                 &login_result.message.clone().unwrap_or_default(),
                 false,
             ) {
-                crate::log_warn!("auto_login", "发送自动登录结果失败: {}", e);
+                crate::log_warn!("auto_login", "发送自动登录结果失败（开机自启登录）: {}", e);
             }
 
             if login_result.success {

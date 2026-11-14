@@ -101,7 +101,7 @@
         }),
         accounts: mockAccounts, activeAccount: activeAccountName, backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
         isAutoStart: false, autoLaunch: false, notificationEnabled: false,
-        logRetentionDays: 7, debugMode: false, refreshRate: undefined
+        logRetentionDays: 7, logLevel: 'warning', refreshRate: undefined
       }
     },
     get_config: function () { return config },

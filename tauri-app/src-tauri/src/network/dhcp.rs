@@ -80,7 +80,7 @@ pub fn dhcp_renew_wired_only(targets: &[String]) -> Result<Vec<serde_json::Value
         let success = match dhcp_renew(&adapter.name) {
             Ok(s) => s,
             Err(e) => {
-                crate::log_warn!("adapter", "DHCP续租失败({}): {}", adapter.name, e);
+                crate::log_warn!("adapter", "DHCP 续租失败({})（批量续租）: {}", adapter.name, e);
                 false
             }
         };
@@ -305,7 +305,7 @@ pub fn apply_mac_change_via_registry(
     if disable_ok {
         std::thread::sleep(std::time::Duration::from_millis(500));
     } else {
-        crate::log_warn!("adapter", "网卡停用失败({})，MAC 可能未生效", adapter_name);
+        crate::log_warn!("adapter", "网卡停用失败({})（MAC 已写入注册表），MAC 可能未生效", adapter_name);
     }
     // 网卡停在停用状态会静默断网，必须视为整体失败
     if !netsh_enable(adapter_name) {
@@ -406,10 +406,10 @@ fn renew_adapter_with_mac(adapter: &Adapter) -> serde_json::Value {
 
     if !reg_ok {
         if let Err(e) = dhcp_release(&adapter.name) {
-            crate::log_warn!("adapter", "DHCP释放失败({}): {}", adapter.name, e);
+            crate::log_warn!("adapter", "DHCP 释放失败({})（MAC 修改未生效，走补偿续租）: {}", adapter.name, e);
         }
         if let Err(e) = dhcp_renew(&adapter.name) {
-            crate::log_warn!("adapter", "DHCP续租失败({}): {}", adapter.name, e);
+            crate::log_warn!("adapter", "DHCP 续租失败({})（MAC 修改未生效，补偿续租）: {}", adapter.name, e);
         }
         if message.is_none() {
             message = Some("MAC地址修改失败，仅执行了DHCP释放/续租".to_string());
@@ -431,13 +431,13 @@ fn renew_adapter_with_mac(adapter: &Adapter) -> serde_json::Value {
     } else {
         let _ = clear_dhcp_lease(&adapter.guid);
         if let Err(e) = dhcp_release(&adapter.name) {
-            crate::log_warn!("adapter", "DHCP释放失败({}): {}", adapter.name, e);
+            crate::log_warn!("adapter", "DHCP 释放失败({})（网卡重启前）: {}", adapter.name, e);
         }
         let disable_ok = netsh_disable(&adapter.name);
         if disable_ok {
             std::thread::sleep(std::time::Duration::from_millis(500));
         } else {
-            crate::log_warn!("adapter", "网卡停用失败({})", adapter.name);
+            crate::log_warn!("adapter", "网卡停用失败({})（仍尝试直接重新启用）", adapter.name);
         }
         let enable_ok = netsh_enable(&adapter.name);
         if enable_ok {
@@ -448,7 +448,7 @@ fn renew_adapter_with_mac(adapter: &Adapter) -> serde_json::Value {
         let renew_ok = match dhcp_renew(&adapter.name) {
             Ok(s) => s,
             Err(e) => {
-                crate::log_warn!("adapter", "DHCP续租失败({}): {}", adapter.name, e);
+                crate::log_warn!("adapter", "DHCP 续租失败({})（网卡重启后）: {}", adapter.name, e);
                 false
             }
         };

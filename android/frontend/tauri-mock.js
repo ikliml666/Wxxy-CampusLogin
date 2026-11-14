@@ -94,7 +94,9 @@
           return { name: a.name, ip: a.ip, wireless: a.wireless, subnetMask: '255.255.255.0', gateway: '10.2.0.1', dnsServers: ['10.10.10.10'], status: a.status, mac: a.mac }
         }),
         accounts: mockAccounts, activeAccount: activeAccountName, backgroundStatus: { isRunning: false, checkCount: 0, serverAvailable: true, online: true, adapterStatuses: [] },
-        isAutoStart: false, autoLaunch: false, notificationEnabled: false, refreshRate: undefined
+        isAutoStart: false, autoLaunch: false, notificationEnabled: false, refreshRate: undefined,
+        // 与真后端 get_init_data 同形：日志面板初值（等级/保留天数）
+        logLevel: config.logLevel || 'warning', logRetentionDays: 7
       }
     },
     get_config: function () { return config },
@@ -198,7 +200,11 @@
     },
     get_adapters: function () { return mockAdapters },
     check_dns_doh_status: function () { return { adapters: [] } },
-    get_debug_mode: function () { return false },
+    set_log_level: function (args) {
+      var level = args && args.level
+      if (level) config.logLevel = level
+      return level || 'warning'
+    },
     get_auto_launch: function () { return { enabled: false } },
     get_notification_enabled: function () { return false },
     get_log_retention_days: function () { return 7 },

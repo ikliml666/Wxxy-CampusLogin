@@ -135,6 +135,8 @@ pub struct Settings {
     pub update_source: String,
     // 日志
     pub log_retention_days: u32,
+    /// 日志等级(debug/info/warning/error/silent,默认 warning),与桌面 Config.logLevel 同口径
+    pub log_level: String,
     // WebVPN 校外访问(与桌面 Config 同契约):vpn_password_enc 内存态与落盘态
     // 均为「平台加密器密文」——桌面为 DPAPI 密文,安卓为 AndroidKeyStore
     // (tauri-plugin-campus-keystore)密文,两侧密文互不可解、语义一致
@@ -238,6 +240,7 @@ impl Default for Settings {
             scheduled_logout_minutes: 1440,
             update_source: "mirror".to_string(),
             log_retention_days: 7,
+            log_level: "warning".to_string(),
             vpn_account: String::new(),
             vpn_password_enc: String::new(),
             self_service_via_vpn: true,
