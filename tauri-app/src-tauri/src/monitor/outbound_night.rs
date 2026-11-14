@@ -20,15 +20,21 @@ use crate::platform::metric::MetricRow;
 /// 夜间出站切换：提权 helper 执行超时（改跃点/禁网卡/加路由都是即时操作，超时即判失败走退避）
 const OUTBOUND_HELPER_TIMEOUT_SECS: u64 = 10;
 
-/// 切换路径的公网健康探测超时。正常卡完成一次双目标 HTTPS 探测实测在 640ms 内，
-/// 断网卡必然走满超时——切点要的是「这张卡现在能不能上网」，不是精确延迟；
-/// 沿用全局 3s 会把切换拖到 4s 以上（2026-11-13 实测 4141ms）。
-const OUTBOUND_SWITCH_HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000);
+// 切换路径的公网健康探测超时已改为配置项 outboundProbeTimeoutMs（网络检测参数弹窗可调，
+// 默认 1000ms）：正常卡完成一次双目标 HTTPS 探测实测在 640ms 内，断网卡必然走满超时，
+// 沿用全局 3s 会把切换拖到 4s 以上（2026-11-13 实测 4141ms）。
 
 /// 夜间出站切换退避阶梯：首败 60s 起步、每失败翻倍、封顶 300s
 /// （1→60s、2→120s、3→240s、≥4→300s）——避免 30s 循环整夜重试刷日志/弹通知
-const OUTBOUND_BACKOFF_START_MS: u64 = 60_000;
-const OUTBOUND_BACKOFF_MAX_MS: u64 = 300_000;
+static OUTBOUND_BACKOFF_START_MS: AtomicU64 = AtomicU64::new(60_000);
+static OUTBOUND_BACKOFF_MAX_MS: AtomicU64 = AtomicU64::new(300_000);
+
+/// 退避阶梯按配置刷新（网络检测参数弹窗可调）：首败等 start，随后每失败翻倍到 max
+fn apply_outbound_backoff_config(config: &crate::config::Config) {
+    let start = config.outbound_backoff_start_secs as u64 * 1000;
+    OUTBOUND_BACKOFF_START_MS.store(start, Ordering::Relaxed);
+    OUTBOUND_BACKOFF_MAX_MS.store((config.outbound_backoff_max_secs as u64 * 1000).max(start), Ordering::Relaxed);
+}
 
 /// 出站还原连续失败达此次数 → 发一次告警通知（含手动恢复提示）；此后每
 /// OUTBOUND_RESTORE_ALERT_REMIND_EVERY 次失败重复提醒一次——避免整夜刷通知，
@@ -145,9 +151,11 @@ fn outbound_backoff_ms(fail_count: u32) -> u64 {
     if fail_count == 0 {
         return 0;
     }
-    OUTBOUND_BACKOFF_START_MS
+    let start = OUTBOUND_BACKOFF_START_MS.load(Ordering::Relaxed);
+    let max = OUTBOUND_BACKOFF_MAX_MS.load(Ordering::Relaxed).max(start);
+    start
         .saturating_mul(1u64 << (fail_count - 1).min(3))
-        .min(OUTBOUND_BACKOFF_MAX_MS)
+        .min(max)
 }
 
 /// 退避闸（纯函数）：true=允许本拍发起动作。距上次失败不足当前退避窗则压制。
@@ -902,6 +910,7 @@ fn build_outbound_plan(
     }
     // 候选来自出站优先级生效列表（用户已排序按原序；未排序默认无线卡优先，
     // 见 effective_outbound_priority），且必须有 IP 且判定为非校园网
+    apply_outbound_backoff_config(config);
     let portal_host = portal_probe_host(&config.portal_url);
     let priority = effective_outbound_priority(&config.outbound_priority, &candidates);
     let probe_targets = collect_probe_targets(&priority, &candidates, &config.campus_gateway, &portal_host);
@@ -920,7 +929,7 @@ fn build_outbound_plan(
                 config,
                 &candidates,
                 None,
-                OUTBOUND_SWITCH_HEALTH_TIMEOUT,
+                std::time::Duration::from_millis(config.outbound_probe_timeout_ms as u64),
             );
             let cache = cache_handle
                 .join()

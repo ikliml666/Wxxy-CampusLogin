@@ -75,6 +75,21 @@ pub struct Config {
     /// 因校园网恢复时刻因作息而异，硬编码 07:30 无法适配。安卓端消费此字段
     #[serde(rename = "nightRestoreMinutes", default)]
     pub night_restore_minutes: u32,
+    /// 出口故障判定：连续多少轮公网不可达才切出站（默认 2，1–5）。网络检测参数弹窗可调
+    #[serde(rename = "outboundFailureRounds", default = "default_outbound_failure_rounds")]
+    pub outbound_failure_rounds: u32,
+    /// 切换态切回原出口所需的连续健康轮数（默认 2，1–5）
+    #[serde(rename = "outboundHealthyRounds", default = "default_outbound_healthy_rounds")]
+    pub outbound_healthy_rounds: u32,
+    /// 切换路径的公网健康探测超时（毫秒，默认 1000，500–5000）
+    #[serde(rename = "outboundProbeTimeoutMs", default = "default_outbound_probe_timeout_ms")]
+    pub outbound_probe_timeout_ms: u32,
+    /// 切换失败退避阶梯起点（秒，默认 60，10–600）：首败等待，之后每失败翻倍
+    #[serde(rename = "outboundBackoffStartSecs", default = "default_outbound_backoff_start_secs")]
+    pub outbound_backoff_start_secs: u32,
+    /// 退避封顶（秒，默认 300，60–1800，且不小于起点）
+    #[serde(rename = "outboundBackoffMaxSecs", default = "default_outbound_backoff_max_secs")]
+    pub outbound_backoff_max_secs: u32,
     /// 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序，
     /// 默认「无线卡优先、有线卡随后」（见 monitor::outbound_switch::
     /// effective_outbound_priority），即未排序时夜间出站目标默认 WLAN/无线出口。
@@ -328,6 +343,11 @@ impl Default for Config {
             enable_night_outbound_switch: false,
             // 0 = 未自定义，回落默认 07:30（见 config::night_switch::restore_start_minutes）
             night_restore_minutes: 0,
+            outbound_failure_rounds: 2,
+            outbound_healthy_rounds: 2,
+            outbound_probe_timeout_ms: 1000,
+            outbound_backoff_start_secs: 60,
+            outbound_backoff_max_secs: 300,
             outbound_priority: Vec::new(),
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),
@@ -384,6 +404,12 @@ impl Default for Config {
         }
     }
 }
+
+fn default_outbound_failure_rounds() -> u32 { 2 }
+fn default_outbound_healthy_rounds() -> u32 { 2 }
+fn default_outbound_probe_timeout_ms() -> u32 { 1000 }
+fn default_outbound_backoff_start_secs() -> u32 { 60 }
+fn default_outbound_backoff_max_secs() -> u32 { 300 }
 
 impl Config {
     /// 出站掩码（唯一出口约定：所有把 Config 发往前端的路径必须经由本方法，

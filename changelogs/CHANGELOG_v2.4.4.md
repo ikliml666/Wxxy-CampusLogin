@@ -1,3 +1,29 @@
+### 适配器条目重设计 + 实时流量 + 出站判定参数可调（2026-11-14，桌面）
+
+**为什么**：条目右侧挤着「切换出站 / 获取新IP」两个按钮和一组徽标，信息区只有两行，再塞速率与流量就放不下；同时故障判定轮数、切回轮数、切换探测超时、退避阶梯全部硬编码在 monitor 模块里，想调「多久判故障 / 多快切回 / 切点最多等多久」只能改代码。
+
+**改了什么**
+
+- 条目重设计（`network/NetworkPanel.tsx`）
+  - 信息区改四行竖排：名称+徽标 / IP+续租小按钮 / 跃点 chip / 连接速率+实时上下行+累计流量；右侧只留「切换出站」（禁用卡留「启用」）。
+  - 「获取新IP / 刷新DHCP」降级为 IP 右侧的琥珀色小图标按钮（保持原配色）；无 IP 时同一位置切换到刷新 DHCP。
+- 流量采集
+  - `platform/if_stats.rs`：`GetIfTable2` 读 `MIB_IF_ROW2.InOctets/OutOctets`，纯函数 `compute_rates` 做两次采样差分（bit/s；计数器回绕、零间隔都归零）。
+  - 命令 `get_adapter_traffic`：返回累计字节 + 实时速率，采样基准放在后端（多窗口/刷新不丢基准，首帧速率恒 0）。
+  - 前端 `useAdapterTraffic` 1s 轮询，仅网络面板挂载期间运行；命令缺失或单次失败保留上一帧，不清空显示。
+  - 口径说明：这是接口计数器（自接口/系统启动累计，重启清零），与 Windows 设置里的「数据使用量」（SRUM，按应用/按天聚合）不同源。
+- 判定参数可配
+  - 新增配置：`outboundFailureRounds`(默认 2)、`outboundHealthyRounds`(2)、`outboundProbeTimeoutMs`(1000)、`outboundBackoffStartSecs`(60)、`outboundBackoffMaxSecs`(300)；`validate_config` 逐项 clamp（轮数 1–5、超时 500–5000ms、退避 10–600 / 60–1800 且封顶不小于起点）。
+  - `monitor/outbound_failover.rs`：两个轮数常量改为 `AtomicU32`，`run_failover` 每拍按配置刷新，判定小函数读原子（不把 config 穿透到每个纯函数）。
+  - `monitor/outbound_night.rs`：退避起点/封顶改为 `AtomicU64` 并在切换入口刷新；切换探测超时直接用 `outboundProbeTimeoutMs`。
+  - 「网络检测参数」弹窗新增「出站切换判定」分组（5 个输入 + 越界/先后校验），弹窗加 `max-h-[85vh] overflow-y-auto`。
+
+**验证**：`npx tsc --noEmit --incremental`（桌面 + 安卓）通过；`npx vite build` 成功；`cargo test --lib` 644 passed / 0 failed / 3 ignored（新增 3 个流量换算用例）；浏览器实测（`vite --config vite.mock.config.ts` + headless Edge，`?panel=network`）确认四行条目、IP 旁小按钮、速率/流量行与检测参数弹窗新分组渲染正常。**未实测**：真实网卡上的流量读数与自定义判定参数后的故障切换时序（需新构建）。
+
+**双端说明**：适配器条目与流量采集为桌面专属（安卓无多网卡/出站切换）；安卓前端只补配置类型与默认值保持类型树同构。
+
+---
+
 ### 网络适配器页：适配器/账号与检测参数各收进弹窗，公网探测目标可配（2026-11-14，桌面）
 
 **为什么**：网络适配器卡片里「适配器选择 + 账号绑定」是一整块常驻表单，和卡片主体（适配器清单）抢版面——用户打开这个页面主要是看卡，改主/副适配器是低频操作。同时公网可达性检测目标此前硬编码为 `www.baidu.com` / `cn.bing.com`（另加 223.5.5.5:53 一路），代理/TUN 把域名解析成 fake-ip 或学校出口针对特定域名异常时，用户没有换目标的入口，只能等默认目标碰运气。

@@ -1,5 +1,5 @@
 import type { Config } from '@/settings'
-import type { Adapter } from '@/network'
+import type { Adapter, AdapterTraffic } from '@/network'
 import { announceDhcpResults, normalizeDhcpResults } from './useNetwork'
 import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
@@ -18,6 +18,7 @@ import { m, Reorder, useDragControls } from 'framer-motion'
 import { buildOutboundOrder } from './outboundOrder'
 import { AdapterSettingsDialog } from './AdapterSettingsDialog'
 import { ProbeSettingsDialog } from './ProbeSettingsDialog'
+import { useAdapterTraffic } from './useAdapterTraffic'
 import { useDnsSetup } from './useDnsSetup'
 import { useOutboundManual } from './useOutboundManual'
 import { DnsAdapterCard } from './DnsAdapterCard'
@@ -42,6 +43,28 @@ function formatSpeed(bps?: number): string {
   if (!bps || bps <= 0) return ''
   if (bps >= 1e6) return `${Math.round(bps / 1e6)} Mbps`
   return `${Math.round(bps / 1e3)} Kbps`
+}
+
+/** 实时速率：bit/s → 人类可读（保留一位小数，0 显示 "0" 而不是 "0 bps"） */
+function formatBps(bps: number): string {
+  if (!bps) return '0'
+  if (bps >= 1e9) return `${(bps / 1e9).toFixed(1)} Gbps`
+  if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} Mbps`
+  if (bps >= 1e3) return `${Math.round(bps / 1e3)} Kbps`
+  return `${bps} bps`
+}
+
+/** 接口累计字节：1024 进制，≥100 时不带小数（避免 "1024.0 MB" 这类别扭读数） */
+function formatBytes(bytes: number): string {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`
 }
 
 /** 单卡跃点（优先级）：与行内按钮同排的轻量 chip（值越小优先级越高，排第一且
@@ -151,12 +174,22 @@ interface SortableAdapterRowProps {
   isOutboundTarget: boolean
   /** 当前系统出站落在本卡（图标角落翡翠圆点；全局态仍在头部徽标） */
   isCurrentOutbound: boolean
-  /** 主/副适配器角色文案（meta 行前缀；未配置角色为 undefined） */
+  /** 主/副适配器角色文案（名称行内的小标签；未配置角色为 undefined） */
   roleLabel?: string
+  /** 名称行徽标组（运营商 / 出站目标 / 状态），由父组件按当前状态组装 */
+  badges?: React.ReactNode
+  /** 跃点 chip（编辑态与保存回调都在父组件） */
+  metricChip?: React.ReactNode
+  /** 该卡流量采样（未采样或命令不可用时为空，不渲染流量行） */
+  traffic?: AdapterTraffic
+  /** IP 旁的续租/刷新小按钮：有 IP 走续租，无 IP 走刷新 DHCP */
+  onRenewIp?: () => void
+  renewing?: boolean
   /** 拖拽结束提交顺序（父组件统一落盘 outboundPriority） */
   onDragEndCommit: () => void
   /** 起拖标记（父组件同步 isDraggingRef，屏蔽外部顺序同步） */
   onDragStart: () => void
+  /** 行右侧按钮区（切换出站 / 启用） */
   children: React.ReactNode
 }
 
@@ -165,7 +198,7 @@ interface SortableAdapterRowProps {
  * 避免滚动/点击误触发）。children = 行右侧按钮区（按钮区已统一
  * stopPropagation 的 pointerdown，防止点按钮拖走整行）。
  */
-const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboundTarget, isCurrentOutbound, roleLabel, onDragEndCommit, onDragStart, children }: SortableAdapterRowProps) {
+const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboundTarget, isCurrentOutbound, roleLabel, badges, metricChip, traffic, onRenewIp, renewing, onDragEndCommit, onDragStart, children }: SortableAdapterRowProps) {
   const { t } = useTranslation()
   const controls = useDragControls()
   const longPressTimer = useRef<number | null>(null)
@@ -262,19 +295,52 @@ const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboun
             />
           )}
         </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-sm font-medium truncate">{adapter.name}</span>
+        <div className="min-w-0 flex-1">
+          {/* 行1：名称 + 角色/运营商/出站目标/状态徽标 */}
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className="truncate text-sm font-medium">{adapter.name}</span>
+            {roleLabel && <span className="text-[10px] font-medium text-muted-foreground/80">{roleLabel}</span>}
+            {badges}
           </div>
-          <div className="text-xs text-muted-foreground">
-            {roleLabel && <span className="shrink-0">{roleLabel} · </span>}
-            <span className="font-mono">{adapter.ip || t('network.noIp')}</span>
+          {/* 行2：IP + 续租小按钮（原「获取新IP」按钮收进 IP 旁边） */}
+          <div className="mt-1 flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-mono text-xs text-muted-foreground">
+              {adapter.ip || t('network.noIp')}
+            </span>
+            {onRenewIp && (
+              <button
+                type="button"
+                onClick={onRenewIp}
+                disabled={renewing}
+                title={adapter.ip ? t('network.getNewIp') : t('network.refreshDhcp')}
+                aria-label={adapter.ip ? t('network.getNewIp') : t('network.refreshDhcp')}
+                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-amber-500/30 text-amber-600 transition-colors hover:border-amber-500/50 hover:bg-amber-500/10 disabled:opacity-60"
+              >
+                <RefreshCw className={cn('h-3 w-3', renewing && 'animate-spin')} />
+              </button>
+            )}
           </div>
-          {formatSpeed(adapter.linkSpeed) && (
-            <div className="text-[11px] text-muted-foreground/70">
-              {t('network.linkSpeed', { speed: formatSpeed(adapter.linkSpeed) })}
+          {/* 行3：跃点 chip（单独一行） */}
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">{metricChip}</div>
+          {/* 行4：链路速率 + 实时上下行 + 接口累计字节 */}
+          {(traffic && traffic.intervalMs > 0) || formatSpeed(adapter.linkSpeed) ? (
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] tabular-nums text-muted-foreground/80">
+              {formatSpeed(adapter.linkSpeed) && (
+                <span className="text-muted-foreground/70">
+                  {t('network.linkSpeed', { speed: formatSpeed(adapter.linkSpeed) })}
+                </span>
+              )}
+              {traffic && traffic.intervalMs > 0 && (
+                <>
+                  <span className="text-emerald-600 dark:text-emerald-400">↓ {formatBps(traffic.rxBps)}</span>
+                  <span className="text-sky-600 dark:text-sky-400">↑ {formatBps(traffic.txBps)}</span>
+                  <span className="text-muted-foreground/60">
+                    {t('network.trafficTotal', { down: formatBytes(traffic.rxBytes), up: formatBytes(traffic.txBytes) })}
+                  </span>
+                </>
+              )}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
       <div
@@ -364,6 +430,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   // 适配器/账号与检测参数各由一个弹窗承载（卡片只留入口按钮）
   const [adapterDialogOpen, setAdapterDialogOpen] = useState(false)
   const [probeDialogOpen, setProbeDialogOpen] = useState(false)
+  // 适配器条目底部流量行：面板挂载期间 1s 轮询，按 ifIndex 索引
+  const trafficByIfIndex = useAdapterTraffic(adapters.length > 0)
   const ipc = tauriApiWithRetry
   const mountedRef = useRef(true)
 
@@ -575,36 +643,60 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                       : a.name === config.adapter2 && config.dualAdapter
                         ? t('network.secondary')
                         : undefined}
+                    traffic={trafficByIfIndex[a.ifIndex]}
+                    metricChip={
+                      <MetricChip
+                        value={adapterMetrics[a.name] ?? null}
+                        saving={savingMetricAdapter === a.name}
+                        onCommit={(metric) => handleSaveMetric(a.name, metric)}
+                      />
+                    }
+                    badges={
+                      <>
+                        {a.name === config.adapter1 && onlineOperatorLabel && (
+                          <Badge variant="secondary" size="sm" className="gap-1" title={t(onlineOperatorLabel)}>
+                            <IspMark suffix={onlineOperator} />
+                            {t(onlineOperatorLabel)}
+                          </Badge>
+                        )}
+                        {a.name === config.adapter2 && config.dualAdapter && secondaryOperatorLabel && (
+                          <Badge variant="secondary" size="sm" className="gap-1" title={t(secondaryOperatorLabel)}>
+                            <IspMark suffix={secondaryOnlineOperator} />
+                            {t(secondaryOperatorLabel)}
+                          </Badge>
+                        )}
+                        {displayedOrder[0] === a.name && (
+                          <Badge variant="outline" size="sm" className="shrink-0 border-primary/30 text-primary">
+                            {t('network.outboundBadge')}
+                          </Badge>
+                        )}
+                        {a.status !== 'connected' && (
+                          <Badge variant="outline" size="sm" className={cn(
+                            a.status === 'disabled' && 'border-red-500/30 text-red-600',
+                            a.status === 'disconnected' && 'border-gray-500/30 text-gray-500',
+                            a.status === 'enabledNoIp' && 'border-amber-500/30 text-amber-600',
+                          )}>
+                            {t(`network.status.${a.status}`)}
+                          </Badge>
+                        )}
+                      </>
+                    }
+                    onRenewIp={
+                      a.ip
+                        ? () => handleGetNewIpForAdapter(a.name)
+                        : a.status === 'enabledNoIp'
+                          ? () => refreshAdapters()
+                          : undefined
+                    }
+                    renewing={a.ip ? gettingNewIpAdapter === a.name : isRefreshingAdapters}
                     onDragStart={handleDragStart}
                     onDragEndCommit={handleDragEnd}
                   >
-                    {a.name === config.adapter1 && onlineOperatorLabel && (
-                      <Badge key="op-primary" variant="secondary" size="sm" className="gap-1" title={t(onlineOperatorLabel)}>
-                        <IspMark suffix={onlineOperator} />
-                        {t(onlineOperatorLabel)}
-                      </Badge>
-                    )}
-                    {a.name === config.adapter2 && config.dualAdapter && secondaryOperatorLabel && (
-                      <Badge key="op-secondary" variant="secondary" size="sm" className="gap-1" title={t(secondaryOperatorLabel)}>
-                        <IspMark suffix={secondaryOnlineOperator} />
-                        {t(secondaryOperatorLabel)}
-                      </Badge>
-                    )}
-                    {a.status && a.status !== 'connected' && (
-                      <Badge key="status" variant="outline" size="sm" className={cn(
-                        a.status === 'disabled' && 'border-red-500/30 text-red-600',
-                        a.status === 'disconnected' && 'border-gray-500/30 text-gray-500',
-                        a.status === 'enabledNoIp' && 'border-amber-500/30 text-amber-600',
-                      )}>
-                        {t(`network.status.${a.status}`)}
-                      </Badge>
-                    )}
                     {a.status === 'disabled' && (
                       <Button
-                        key="enable"
                         variant="outline"
                         size="sm"
-                        className="h-7 text-[11px] gap-1 border-green-500/30 text-green-600 hover:text-green-700 hover:bg-green-500/10 hover:border-green-500/50"
+                        className="h-7 gap-1 border-green-500/30 text-[11px] text-green-600 hover:border-green-500/50 hover:bg-green-500/10 hover:text-green-700"
                         onClick={() => handleEnableAdapter(a.name)}
                         disabled={enablingAdapter === a.name}
                       >
@@ -616,55 +708,18 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         {enablingAdapter === a.name ? t('network.enabling') : t('network.enable')}
                       </Button>
                     )}
-                    {displayedOrder[0] === a.name && (
-                      <Badge key="outbound-target" variant="outline" size="sm" className="border-primary/30 text-primary shrink-0">
-                        {t('network.outboundBadge')}
-                      </Badge>
-                    )}
-                    <MetricChip
-                      key="metric"
-                      value={adapterMetrics[a.name] ?? null}
-                      saving={savingMetricAdapter === a.name}
-                      onCommit={(metric) => handleSaveMetric(a.name, metric)}
-                    />
                     {/* 「切换出站」到这张卡：跳过优先级选卡，只要求有 IP 且不是当前出站 */}
                     {a.ip && (
                       <Button
-                        key="switch-to"
                         variant="outline"
                         size="sm"
-                        className="h-7 text-[11px] gap-1 border-primary/30 text-primary hover:text-primary hover:bg-primary/10"
+                        className="h-7 gap-1 border-primary/30 text-[11px] text-primary hover:bg-primary/10 hover:text-primary"
                         onClick={() => handleOutboundSwitchTo(a.name)}
                         disabled={currentOutbound === a.name || switchingToAdapter === a.name || !config.enableNightOutboundSwitch}
                         title={currentOutbound === a.name ? t('network.currentOutboundBadge') : t('network.outboundSwitchTo')}
                       >
                         {switchingToAdapter === a.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
                         {t('network.outboundSwitchTo')}
-                      </Button>
-                    )}
-                    {a.ip ? (
-                      <Button
-                        key="new-ip"
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[11px] gap-1 border-amber-500/30 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/50"
-                        onClick={() => handleGetNewIpForAdapter(a.name)}
-                        disabled={gettingNewIpAdapter === a.name}
-                      >
-                        <RefreshCw className={cn('h-3 w-3', gettingNewIpAdapter === a.name && 'animate-spin')} />
-                        {gettingNewIpAdapter === a.name ? t('dashboard.gettingNewIp') : t('network.getNewIp')}
-                      </Button>
-                    ) : a.status === 'enabledNoIp' && (
-                      <Button
-                        key="refresh-dhcp"
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[11px] gap-1 border-amber-500/30 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-500/50"
-                        onClick={() => refreshAdapters()}
-                        disabled={isRefreshingAdapters}
-                      >
-                        <RefreshCw className={cn('h-3 w-3', isRefreshingAdapters && 'animate-spin')} />
-                        {isRefreshingAdapters ? t('common.refreshing') : t('network.refreshDhcp')}
                       </Button>
                     )}
                   </SortableAdapterRow>

@@ -127,6 +127,16 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     config.self_hello_ttl_minutes = config.self_hello_ttl_minutes.min(1440);
     config.latency_test_interval = config.latency_test_interval.clamp(10000, 3600000);
     normalize_internet_probe_hosts(&mut config.internet_probe_hosts)?;
+    // 出站故障判定阈值：手改配置文件不得把轮数放大到永不切换、或缩到 0；
+    // 退避封顶不得小于起点（否则首败等待会超过封顶，退避窗口失去意义）
+    config.outbound_failure_rounds = config.outbound_failure_rounds.clamp(1, 5);
+    config.outbound_healthy_rounds = config.outbound_healthy_rounds.clamp(1, 5);
+    config.outbound_probe_timeout_ms = config.outbound_probe_timeout_ms.clamp(500, 5000);
+    config.outbound_backoff_start_secs = config.outbound_backoff_start_secs.clamp(10, 600);
+    config.outbound_backoff_max_secs = config.outbound_backoff_max_secs.clamp(60, 1800);
+    if config.outbound_backoff_max_secs < config.outbound_backoff_start_secs {
+        config.outbound_backoff_max_secs = config.outbound_backoff_start_secs;
+    }
     normalize_portal_url(&mut config.portal_url);
     validate_portal_url(&config.portal_url)?;
     if !config.fixed_gateway.is_empty() && config.fixed_gateway.parse::<std::net::IpAddr>().is_err() {

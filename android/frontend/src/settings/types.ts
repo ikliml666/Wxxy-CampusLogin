@@ -48,6 +48,16 @@ export interface Config {
   dnsOptimizeAdapters: string[]
   /** 公网可达性检测目标（桌面专属，安卓不消费；仅保持两端类型树同构） */
   internetProbeHosts?: string[]
+  /** 出口故障判定轮数（桌面专属，安卓不消费；仅保持两端类型树同构） */
+  outboundFailureRounds?: number
+  /** 切回原出口的连续健康轮数（桌面专属） */
+  outboundHealthyRounds?: number
+  /** 切换路径公网探测超时（毫秒，桌面专属） */
+  outboundProbeTimeoutMs?: number
+  /** 切换失败退避起点（秒，桌面专属） */
+  outboundBackoffStartSecs?: number
+  /** 退避封顶（秒，桌面专属） */
+  outboundBackoffMaxSecs?: number
   /** 在线设备自定义名字（键 = 12 位 hex MAC，值 = 显示别名；自助服务面板设备卡卡头展示） */
   deviceAliases?: Record<string, string>
   autoLoginOnStart: boolean

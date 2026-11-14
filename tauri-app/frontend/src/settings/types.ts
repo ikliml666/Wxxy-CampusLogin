@@ -108,6 +108,16 @@ export interface Config {
   adapter2Account?: string
   /** 公网可达性检测目标（HTTPS 主机名，最多 4 个）；空 = 使用后端内置默认。桌面专属 */
   internetProbeHosts: string[]
+  /** 连续多少轮公网不可达判定出口故障（1–5，默认 2） */
+  outboundFailureRounds: number
+  /** 切回原出口所需的连续健康轮数（1–5，默认 2） */
+  outboundHealthyRounds: number
+  /** 切换路径的公网健康探测超时（毫秒，500–5000，默认 1000） */
+  outboundProbeTimeoutMs: number
+  /** 切换失败退避阶梯起点（秒，10–600，默认 60） */
+  outboundBackoffStartSecs: number
+  /** 退避封顶（秒，60–1800，默认 300） */
+  outboundBackoffMaxSecs: number
 }
 
 export interface AutoLaunchResult {

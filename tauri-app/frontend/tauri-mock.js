@@ -258,6 +258,21 @@
       return { success: true, message: '已改名（mock）', config: config, activeAccount: activeAccountName }
     },
     get_adapters: function () { return mockAdapters },
+    get_adapter_traffic: function () {
+      var t = Date.now() / 1000
+      var base = [1250000, 320000, 86000]
+      return mockAdapters.map(function (a, i) {
+        var wobble = Math.abs(Math.sin(t * (i + 1))) * 0.6 + 0.7
+        return {
+          ifIndex: a.ifIndex,
+          rxBytes: 3400000000 - i * 700000000,
+          txBytes: 520000000 - i * 100000000,
+          rxBps: Math.round((base[i] || 0) * wobble),
+          txBps: Math.round((base[i] || 0) * 0.12 * wobble),
+          intervalMs: 1000,
+        }
+      })
+    },
     get_current_outbound_name: function () { return '以太网 (Mock)' },
     get_adapter_metrics: function () {
       return mockAdapters.map(function (a) { return { name: a.name, metric: mockMetrics[a.name] } })

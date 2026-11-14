@@ -18,6 +18,21 @@ export interface AdapterMetric {
   metric: number | null
 }
 
+/** 接口累计收发字节与 1s 级实时速率（后端 get_adapter_traffic，桌面专属） */
+export interface AdapterTraffic {
+  ifIndex: number
+  /** 累计接收字节（自接口/系统启动，重启清零） */
+  rxBytes: number
+  /** 累计发送字节 */
+  txBytes: number
+  /** 实时接收速率（bit/s） */
+  rxBps: number
+  /** 实时发送速率（bit/s） */
+  txBps: number
+  /** 本次差分的采样间隔（毫秒）；0 = 首帧无历史 */
+  intervalMs: number
+}
+
 export interface AdapterDetail {
   name: string
   ip: string

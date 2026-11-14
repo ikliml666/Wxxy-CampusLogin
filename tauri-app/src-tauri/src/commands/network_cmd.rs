@@ -35,6 +35,78 @@ pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, Strin
     Ok(CommandResult::ok_msg("适配器已启用"))
 }
 
+/// 适配器流量视图：累计收发字节 + 两次采样间的实时速率（bit/s）。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdapterTrafficView {
+    pub if_index: u32,
+    /// 接口累计接收字节（自接口/系统启动）
+    pub rx_bytes: u64,
+    /// 接口累计发送字节
+    pub tx_bytes: u64,
+    /// 实时接收速率（bit/s）
+    pub rx_bps: u64,
+    /// 实时发送速率（bit/s）
+    pub tx_bps: u64,
+    /// 本次差分的采样间隔（毫秒）；0 = 首帧无历史，速率为 0
+    pub interval_ms: u64,
+}
+
+#[cfg(target_os = "windows")]
+fn last_traffic_sample()
+-> &'static std::sync::Mutex<std::collections::HashMap<u32, (u64, u64, std::time::Instant)>> {
+    static LAST: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<u32, (u64, u64, std::time::Instant)>>,
+    > = std::sync::OnceLock::new();
+    LAST.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// 适配器流量（前端 1s 级轮询）：返回累计字节与按上次采样差分的实时速率。
+/// 速率在后端算，多窗口/刷新不丢采样基准；首帧速率恒为 0。
+#[tauri::command]
+pub async fn get_adapter_traffic() -> Result<Vec<AdapterTrafficView>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let samples = tokio::task::spawn_blocking(crate::platform::if_stats::read_interface_octets)
+            .await
+            .map_err(|e| format!("读取接口流量失败: {e}"))??;
+        let now = std::time::Instant::now();
+        let mut last = last_traffic_sample()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut views = Vec::with_capacity(samples.len());
+        for sample in samples {
+            let prev = last.get(&sample.if_index).copied();
+            let (rx_bps, tx_bps, interval_ms) = match prev {
+                Some((prev_in, prev_out, prev_at)) => {
+                    let elapsed_ms = now.saturating_duration_since(prev_at).as_millis() as u64;
+                    let (rx, tx) = crate::platform::if_stats::compute_rates(
+                        (prev_in, prev_out),
+                        (sample.in_octets, sample.out_octets),
+                        elapsed_ms,
+                    );
+                    (rx, tx, elapsed_ms)
+                }
+                None => (0, 0, 0),
+            };
+            last.insert(sample.if_index, (sample.in_octets, sample.out_octets, now));
+            views.push(AdapterTrafficView {
+                if_index: sample.if_index,
+                rx_bytes: sample.in_octets,
+                tx_bytes: sample.out_octets,
+                rx_bps,
+                tx_bps,
+                interval_ms,
+            });
+        }
+        Ok(views)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(Vec::new())
+    }
+}
+
 #[tauri::command]
 pub async fn get_adapter_details() -> Result<Vec<AdapterDetail>, String> {
     tauri::async_runtime::spawn_blocking(get_adapter_details_cached).await.map_err(|e| e.to_string())?

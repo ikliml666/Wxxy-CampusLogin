@@ -3,13 +3,24 @@ use chrono::{Datelike, Timelike};
 use crate::config::model::Config;
 use crate::infra::state::AppState;
 use crate::network::Adapter;
+use std::sync::atomic::{AtomicU32, Ordering};
 
-const REQUIRED_FAILURE_ROUNDS: u32 = 2;
+/// 连续失败多少轮判定出口故障（网络检测参数可调）。整机一份，run_failover 每拍按
+/// 配置刷新；判定小函数直接读这里，避免把 config 穿透到每个纯函数。
+static REQUIRED_FAILURE_ROUNDS: AtomicU32 = AtomicU32::new(2);
+
+fn required_failure_rounds() -> u32 {
+    REQUIRED_FAILURE_ROUNDS.load(Ordering::Relaxed).max(1)
+}
 
 /// 切回原出口所需的连续健康轮数（滞回两轮，避免原卡闪断时来回切）。
 /// 与 REQUIRED_FAILURE_ROUNDS 同值但语义不同：那个是「连续失败多少轮判定故障」，
 /// 这个是「连续健康多少轮判定恢复」，借用会让两处改动互相牵连。
-const SWITCH_BACK_HEALTHY_ROUNDS: u32 = 2;
+static SWITCH_BACK_HEALTHY_ROUNDS: AtomicU32 = AtomicU32::new(2);
+
+fn switch_back_healthy_rounds() -> u32 {
+    SWITCH_BACK_HEALTHY_ROUNDS.load(Ordering::Relaxed).max(1)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RecoveryOutcome {
@@ -51,7 +62,7 @@ fn next_failure_round(state: &FailoverState, adapter: &str, healthy: bool) -> u3
     if healthy {
         0
     } else if state.adapter.as_deref() == Some(adapter) {
-        state.failures.saturating_add(1).min(REQUIRED_FAILURE_ROUNDS)
+        state.failures.saturating_add(1).min(required_failure_rounds())
     } else {
         1
     }
@@ -76,7 +87,7 @@ fn recovery_action(result: Option<RecoveryOutcome>, managed: bool, attempted: bo
 }
 
 fn failover_pending(failures: u32, recovery_running: bool) -> bool {
-    failures >= REQUIRED_FAILURE_ROUNDS || recovery_running
+    failures >= required_failure_rounds() || recovery_running
 }
 
 fn failover_hold_day(today: i32, now_minutes: u32, restore_start: u32) -> i32 {
@@ -383,13 +394,13 @@ fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
             }
         }
     };
-    if rounds < SWITCH_BACK_HEALTHY_ROUNDS {
+    if rounds < switch_back_healthy_rounds() {
         crate::log_debug!(
             "outbound",
             "原出口 {} 恢复中（{}/{} 轮）",
             recovered_name,
             rounds,
-            SWITCH_BACK_HEALTHY_ROUNDS
+            switch_back_healthy_rounds()
         );
         return;
     }
@@ -471,6 +482,9 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
         reset_state();
         return;
     }
+    // 判定阈值按配置刷新（本拍之后的所有判定与 outbound_failover_pending 都读新值）
+    REQUIRED_FAILURE_ROUNDS.store(config.outbound_failure_rounds.clamp(1, 5), Ordering::Relaxed);
+    SWITCH_BACK_HEALTHY_ROUNDS.store(config.outbound_healthy_rounds.clamp(1, 5), Ordering::Relaxed);
     let (adapter1, adapter2) = crate::network::resolve_adapter_names(&adapters, config);
     let priority = super::outbound_switch::effective_outbound_priority(&config.outbound_priority, &candidates);
     let probe_candidates: Vec<(Adapter, String)> = candidates
@@ -525,9 +539,9 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
         return;
     }
     if failures != previous_failures {
-        crate::log_warn!("outbound", "当前出口 {} 公网不可达（连续 {}/{} 轮）", current_name, failures, REQUIRED_FAILURE_ROUNDS);
+        crate::log_warn!("outbound", "当前出口 {} 公网不可达（连续 {}/{} 轮）", current_name, failures, required_failure_rounds());
     }
-    if failures < REQUIRED_FAILURE_ROUNDS {
+    if failures < required_failure_rounds() {
         return;
     }
 
@@ -590,9 +604,9 @@ mod tests {
         assert_eq!(next_failure_round(&state, "以太网", false), 1);
         state.adapter = Some("以太网".into());
         state.failures = 1;
-        assert_eq!(next_failure_round(&state, "以太网", false), REQUIRED_FAILURE_ROUNDS);
-        state.failures = REQUIRED_FAILURE_ROUNDS;
-        assert_eq!(next_failure_round(&state, "以太网", false), REQUIRED_FAILURE_ROUNDS);
+        assert_eq!(next_failure_round(&state, "以太网", false), required_failure_rounds());
+        state.failures = required_failure_rounds();
+        assert_eq!(next_failure_round(&state, "以太网", false), required_failure_rounds());
     }
 
     #[test]
@@ -609,7 +623,7 @@ mod tests {
     fn 连续两轮或恢复进行中才抑制运营商切侧() {
         assert!(!failover_pending(0, false));
         assert!(!failover_pending(1, false));
-        assert!(failover_pending(REQUIRED_FAILURE_ROUNDS, false));
+        assert!(failover_pending(required_failure_rounds(), false));
         assert!(failover_pending(0, true));
     }
 

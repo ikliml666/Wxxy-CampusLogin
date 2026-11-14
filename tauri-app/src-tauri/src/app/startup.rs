@@ -73,6 +73,7 @@ pub fn run(core_count: usize) {
             crate::commands::login::do_logout,
             crate::commands::network_cmd::get_adapters,
             crate::commands::network_cmd::get_adapter_details,
+        crate::commands::network_cmd::get_adapter_traffic,
             crate::commands::network_cmd::check_campus_status,
             crate::commands::network_cmd::check_portal_status,
             crate::commands::network_cmd::enable_adapter,

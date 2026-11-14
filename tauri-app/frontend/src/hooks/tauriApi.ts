@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { open as shellOpen } from '@tauri-apps/plugin-shell'
 import type { PortalStatusResult, CommandResult, LoginResult } from '@/auth'
-import type { Adapter, AdapterDetail, AdapterMetric, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
+import type { Adapter, AdapterDetail, AdapterMetric, AdapterTraffic, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
 import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
 import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult, AccountResult } from '@/account'
 import type { Config, InitData, AutoLaunchResult, CoreAutostartResult, AccountItem } from '@/settings'
@@ -50,6 +50,8 @@ interface TauriApi {
   getAdapters: (force?: boolean) => Promise<Adapter[]>
   enableAdapter: (adapterName: string) => Promise<EnableAdapterResult>
   getAdapterDetails: () => Promise<AdapterDetail[]>
+  /** 接口累计字节与实时速率（1s 级轮询；桌面专属，旧后端无此命令） */
+  getAdapterTraffic?: () => Promise<AdapterTraffic[]>
   checkPortalStatus: (adapterIp: string) => Promise<PortalStatusResult>
   checkCampusStatus: () => Promise<CampusStatusResult>
   doLogin: (adapterName?: string) => Promise<LoginResult>
@@ -187,6 +189,7 @@ const tauriApi: TauriApi = {
   getAdapters: (force) => invoke<Adapter[]>('get_adapters', { force }),
   enableAdapter: (adapterName) => invoke<EnableAdapterResult>('enable_adapter', { adapterName }),
   getAdapterDetails: () => invoke<AdapterDetail[]>('get_adapter_details'),
+  getAdapterTraffic: () => invoke<AdapterTraffic[]>('get_adapter_traffic'),
   checkPortalStatus: (adapterIp) => invoke<PortalStatusResult>('check_portal_status', { adapterIp }),
   checkCampusStatus: () => invoke<CampusStatusResult>('check_campus_status'),
   doLogin: (adapterName) => invoke<LoginResult>('do_login', { adapterName }),
