@@ -345,6 +345,20 @@ class CoreService : Service() {
         }
     }
 
+    /** 守则配置暂存：Rust 侧先 set 再 run（签名契约里 String→String 只留给加解密） */
+    @Volatile private var wifiCurfewConfig: String = ""
+
+    fun setWifiCurfewConfig(json: String) {
+        wifiCurfewConfig = json
+    }
+
+    /**
+     * WiFi 就寝守则单拍，返回执行结果 JSON。判定与 `cmd wifi` 动作在 [WifiCurfewRunner]。
+     */
+    fun runWifiCurfew(): String {
+        return WifiCurfewRunner(applicationContext).run(wifiCurfewConfig)
+    }
+
     fun startWifiWatcher() {
         stopWifiWatcher()
         val cm = getSystemService(ConnectivityManager::class.java)

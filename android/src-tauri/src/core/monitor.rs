@@ -478,6 +478,9 @@ async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
         // 定时动作常配置在检测静默期/灭屏闲时段(如 23:30 注销、07:40 登录),
         // 放进 run_check_once 会被静默期整拍吞掉。双目标均禁用时函数内部早退
         run_scheduled_actions(&ctx).await;
+        // WiFi 就寝守则:与夜切同时段,动作走 Kotlin(cmd wifi forget/add-network)。
+        // 放在分档跳拍之前——到点必须执行,不能因为灭屏/蜂窝被省电档跳过
+        run_wifi_curfew(&ctx).await;
         // 间隔热更新:运行中改检测间隔(start_background_check 刷新 desired),
         // 重建计时器;tokio interval 重建后首个 tick 立即返回,吃掉保持节奏
         let want = MONITOR.desired_interval_ms.load(Ordering::Relaxed);
@@ -502,6 +505,46 @@ async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
     // (新一轮 start 可能已把 running 置回 true,旧循环退出不得误清)
     if MONITOR_GENERATION.load(Ordering::Relaxed) == gen {
         MONITOR.running.store(false, Ordering::Relaxed);
+    }
+}
+
+/// 上一拍是否处于守则窗口。只在「窗口内」或「刚出窗口」才跨进程调 Kotlin，
+/// 白天稳定态不产生任何 JNI/Shizuku 开销（一次 Shizuku 绑定最长 8s 超时）。
+static CURFEW_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// WiFi 就寝守则单拍：判定在共享纯函数里，真正的 `cmd wifi` 动作在 Kotlin
+/// （WifiCurfewRunner）。跨进程调用是阻塞的，走 spawn_blocking。
+async fn run_wifi_curfew(ctx: &CoreCtx) {
+    let settings = match ctx.settings().await {
+        Ok(s) => s,
+        Err(e) => {
+            campus_login_lib::log_debug!("wifi_curfew", "读取配置失败,本拍跳过: {e}");
+            return;
+        }
+    };
+    let active = campus_login_lib::config::wifi_curfew::in_curfew_window_now(settings.night_restore_minutes);
+    let was_active = CURFEW_ACTIVE.swap(active, Ordering::Relaxed);
+    // 白天且上一拍也不在窗口：没有待恢复的动作，直接返回
+    if !active && !was_active {
+        return;
+    }
+    let payload = serde_json::json!({
+        "enabled": settings.enable_wifi_curfew,
+        "excluded": settings.wifi_curfew_excluded,
+        "allowed": settings.wifi_curfew_allowed,
+        "restoreStart": settings.night_restore_minutes,
+    })
+    .to_string();
+    let platform = ctx.platform_arc();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        platform.set_wifi_curfew_config(&payload);
+        platform.run_wifi_curfew()
+    })
+    .await;
+    match outcome {
+        Ok(Ok(raw)) => campus_login_lib::log_debug!("wifi_curfew", "守则单拍: {raw}"),
+        Ok(Err(e)) => campus_login_lib::log_debug!("wifi_curfew", "守则单拍失败: {e}"),
+        Err(e) => campus_login_lib::log_debug!("wifi_curfew", "守则任务失败: {e}"),
     }
 }
 

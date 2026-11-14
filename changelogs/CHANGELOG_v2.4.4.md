@@ -1,3 +1,29 @@
+### WiFi 就寝守则：安卓执行通道（Shizuku / root）（2026-11-14，安卓后端 + 安卓插件）
+
+**为什么**：上一条把配置、UI 与桌面执行做完了，安卓侧却只是「写进配置但不动作」——Android 10 起普通应用调 `disconnect/setWifiEnabled/removeNetwork` 一律返回 false，没有应用内权限可用。真正的能力只有 shell 身份（adb / Shizuku / root），所以这一轮把通道接上：装了 Shizuku 的用户在机上授权后免电脑；有 root 的直接用 su。
+
+**改了什么**
+
+- **新增 `RemoteShellService`（Shizuku UserService）+ `IRemoteShell.aidl`**：UserService 在 shell(uid 2000)/root 身份进程里实例化，内部只用 `Runtime.exec`（README 明确该进程拿不到 ContentResolver）。AIDL 与实现在 `foreground-service` 库模块；模块 `build.gradle.kts` 加 `buildFeatures.aidl = true` 与 `dev.rikka.shizuku:api/provider:13.1.5`（`api` 而非 `implementation`，app 模块的 Application 要用 `ShizukuProvider`）。
+- **新增 `WifiCurfewRunner`**：窗口内 `cmd wifi list-networks` 解析固定列宽输出（`%-12d %-32s %-4s`），对命中排除列表且不在允许列表的网络执行 `forget-network <id>`；出窗按快照 `add-network <ssid> open` 重建配置。**只处理开放网络**——校园网三值都是 open，重建无需密码；加密网络忘记后没有密码回不来，跳过并写进返回的 detail。
+- **新增 `CampusLoginApplication`**：`ShizukuProvider.enableMultiProcessSupport(true)`。不这样做的话 `:core` 进程里 `Shizuku.pingBinder()` 恒为 false（provider 默认只在主进程实例化）。Manifest 加 `ShizukuProvider`（authorities = `${applicationId}.shizuku`）并把 `android:name` 指向新 Application。
+- **`CoreService` 新增 `setWifiCurfewConfig(json)` / `runWifiCurfew()`**：拆成 setter + 无参执行，刻意不走 String→String 签名——`platform_sig` 的回归测试锁死「该签名只留给 decrypt/encrypt」。
+- **JNI 面**：`platform_sig::METHOD_SIGNATURES` 加 `setWifiCurfewConfig`(StrToVoid) 与 `runWifiCurfew`(ZeroToStr)；`CorePlatform` trait 加两个方法；`JniPlatform` 实现。
+- **巡检接入**：`core/monitor.rs` 每拍调 `run_wifi_curfew`，放在分档跳拍之前（到点必须执行，不能被省电档跳过）；用 `CURFEW_ACTIVE` 静态记录上一拍是否在窗口，白天稳定态不产生任何跨进程调用。
+- **共享层**：`config/wifi_curfew.rs` 加 `in_curfew_window_now(restore_start)`，避免安卓侧再拼一遍 chrono 与「周日至周四 23:00」的口径。
+
+**验证**（当轮实际输出）
+
+- `cargo test`（`android/core-logic`）：`18 passed; 0 failed`，含 `核心服务源码签名与Rust映射一致`——该用例直接读 `CoreService.kt` 源码校验新方法的参数与返回形态。
+- 桌面 `cargo test --lib config::wifi_curfew`：`5 passed`。
+- 安卓 `npx tsc --noEmit --incremental`：exit 0；两份 i18n JSON 均通过 `JSON.parse`。
+- **安卓 Kotlin / Rust 改动仍未编译验证**：`android/src-tauri` 的 host `cargo check` 在插件 build script 链接阶段即失败（既有 mobile-only 门控），本机无 NDK；出包前必须跑 `pwsh android/build-apk.ps1`。
+
+**评估后未做**
+
+- **`connect-network` 主动连白名单**：该命令用 `buildWifiConfiguration` 造新配置再 `connect`，对已保存的加密网络有覆盖掉密码的风险；「不连哪个」用 forget 已经够表达，不做。
+- **`set-wifi-enabled disabled` 兜底**：会整体关 WiFi，白名单直接失效，与 Windows 端「只影响名单内网络」的语义偏离，不做。
+
 ### WiFi 就寝守则（双端）+ 安卓网络页签与私人 DNS（2026-11-14，桌面前后端 + 安卓前后端 + 安卓插件）
 
 **为什么**：校园网运营商周日至周四 23:00、周五六 23:30 断网，用户宿舍另有自己的路由器 WiFi 不受影响。当晚要继续上网就得先断开校园网、再连路由器；系统默认会按信号强度自动连回校园网，手动改一次「自动连接」次日还得改回来。需求是把这件事交给程序：到点停止连接指定 WiFi，次日按夜切恢复时刻还原，并允许为宿舍路由器单独开白名单。同时安卓端「质量」页占据底栏常驻位置而网络相关设置（夜切、DNS）没有独立入口，需要把网络页提上底栏、质量下放到「更多」；安卓系统「私人 DNS（DoT）」原先只能进系统设置手填，补一键填写阿里/腾讯 DoT。

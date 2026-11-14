@@ -19,6 +19,16 @@ pub fn in_curfew_window(weekday: u32, now_minutes: u32, restore_start: u32) -> b
     switch_time_for(weekday).is_some_and(|t| now_minutes >= t)
 }
 
+/// 按本机当前时间判定是否处于守则窗口。双端调用方共用——安卓侧没有独立的
+/// 时间换算，拼一遍 chrono 等于把「周日至周四 23:00」这条口径复制一份。
+pub fn in_curfew_window_now(restore_start: u32) -> bool {
+    use chrono::{Datelike, Timelike};
+    let now = chrono::Local::now();
+    let weekday = now.weekday().num_days_from_sunday();
+    let now_minutes = now.hour() * 60 + now.minute();
+    in_curfew_window(weekday, now_minutes, restore_start)
+}
+
 /// 当前 SSID 是否被就寝守则阻断。
 ///
 /// 规则：命中排除列表且不在允许列表 → 阻断。排除列表含 `"*"` 时表示
