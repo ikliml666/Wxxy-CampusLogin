@@ -1,3 +1,29 @@
+### 出站优先级可控：按钮改名、条目级「立即切换出站」、跃点显示与编辑、恢复时按排序重排（2026-11-14，桌面）
+
+**为什么**：用户早上发现 07:50 还原后出站是「以太网 2」而不是「以太网」，而网络适配器列表第一项是 WLAN——列表顺序只决定夜间切换目标，不参与出站判定，用户无法通过排序控制出站。同时「切换出站/还原出站」两个头部按钮与要新增的条目级「立即切换出站」语义撞名，且界面上看不到、也改不了网卡当前跃点。
+
+**改了什么**
+
+- `monitor/outbound_night.rs`
+  - 新增 `apply_outbound_priority_metrics`：按 `outboundPriority` 顺序把有 IP 的网卡跃点重排为 1..N（IPv4/IPv6 同步写），排第一且有 IP 的卡成为系统出站。
+  - `apply_outbound_restore` 收尾调用它；`manual_outbound_restore` 在非切换态下改为执行它（原实现直接报「当前未处于出站切换状态」，而用户此时正是想让排序生效）。
+  - `build_outbound_plan` / `apply_outbound_switch_with_health` 增加 `forced_target`：条目「立即切换出站」以指定卡为目标，跳过优先级选卡与全部探测（只要求有 IP 与 GUID）。
+  - 新增 `manual_outbound_switch_to`（校验开关/切换态/是否已是当前出口，成功后冻结当日自动动作）与 `manual_set_adapter_metric`（单卡跃点 1–9999；切换态下拒绝——快照原值会在还原时覆盖用户修改）。
+- 命令面：新增 `outbound_switch_to` / `get_adapter_metrics` / `set_adapter_metric`（`app/startup.rs` 注册）。
+- 前端（`NetworkPanel.tsx` / `useOutboundManual.ts` / `tauriApi.ts` / `types.ts`）
+  - 头部按钮改名：「切换出站」→「按优先级切换」，「还原出站」→「恢复原出口」。
+  - 每行新增「跃点」输入框（显示当前 IPv4 跃点，回车/失焦提交，1–9999）与「立即切换出站」按钮（有 IP 且非当前出口时显示，开关关闭时禁用）。
+  - 拖拽提示改为「排最前且有 IP 的卡在恢复原出口或夜间还原后成为出站（跃点按此顺序重排）」。
+- `tauri-mock.js` 补三个命令的 mock（浏览器实测用）。
+
+**语义变化（排查要点）**：还原不再只是「写回切换前快照」——收尾会按列表顺序重排全部有 IP 卡片的跃点，列表第一即出站。拖动排序本身不即时改系统跃点，需点「恢复原出口」或等夜间还原。
+
+**验证**：桌面 `cargo test --lib` 637 passed / 0 failed / 3 ignored；`npx tsc --noEmit --incremental` 通过；`npx vite build` 成功；浏览器实测（`npx vite --config vite.mock.config.ts` + headless Edge 截图 `?panel=network`）确认三行布局、跃点显示、按钮显隐与改名生效。**未实测**：真实系统的「立即切换出站」与还原后按排序重排（需安装新构建；切换态下改跃点会被后端拒绝）。
+
+**双端说明**：本次为桌面专属能力（Windows 接口跃点与出站切换），安卓端无出站切换 UI 与跃点概念，未做双端同步。
+
+---
+
 ### 夜间出站切换恢复「到点即切」、切换后断开旧出口连接、切换耗时压到 2s 内（2026-11-14，桌面）
 
 **为什么**：三件事叠在一起，用户实测（2026-11-13 夜）暴露得很清楚：

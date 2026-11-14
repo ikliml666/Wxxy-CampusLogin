@@ -12,6 +12,12 @@ export interface Adapter {
   linkSpeed?: number
 }
 
+/** 单张网卡当前 IPv4 跃点（后端读接口表；无跃点行时 metric 为 null） */
+export interface AdapterMetric {
+  name: string
+  metric: number | null
+}
+
 export interface AdapterDetail {
   name: string
   ip: string

@@ -153,7 +153,7 @@ pub async fn run_scheduled_action_loop(
                 let switched = run_outbound_blocking(
                     app_h.clone(),
                     config_snapshot.clone(),
-                    |h, c| apply_outbound_switch_with_health(h, c, None),
+                    |h, c| apply_outbound_switch_with_health(h, c, None, None),
                 )
                 .await
                 .is_ok();

@@ -48,6 +48,54 @@ function formatSpeed(bps?: number): string {
   return `${Math.round(bps / 1e3)} Kbps`
 }
 
+/** 单卡跃点（优先级）展示与就地编辑：值越小优先级越高，排第一且有 IP 的卡即出站。
+ *  编辑采用「本地草稿 + 失焦/回车提交」，提交成功后由父级刷新真实值。 */
+const MetricEditor = memo(function MetricEditor({
+  value,
+  saving,
+  onCommit,
+}: {
+  value: number | null
+  saving: boolean
+  onCommit: (metric: number) => void
+}) {
+  const { t } = useTranslation()
+  const [draft, setDraft] = useState(value === null ? '' : String(value))
+  useEffect(() => {
+    setDraft(value === null ? '' : String(value))
+  }, [value])
+  const commit = () => {
+    const parsed = Number(draft)
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 9999) {
+      setDraft(value === null ? '' : String(value))
+      return
+    }
+    if (value !== null && parsed === value) return
+    onCommit(parsed)
+  }
+  return (
+    <div className="flex items-center gap-1 shrink-0 whitespace-nowrap" title={t('network.outboundMetricHint')}>
+      <span className="text-[11px] text-muted-foreground whitespace-nowrap">{t('network.outboundMetric')}</span>
+      <Input
+        type="number"
+        min={1}
+        max={9999}
+        inputMode="numeric"
+        value={draft}
+        disabled={saving}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        }}
+        className="h-7 w-16 px-2 text-xs font-mono"
+        aria-label={t('network.outboundMetric')}
+      />
+      {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+    </div>
+  )
+})
+
 /** 恢复时刻默认值 07:30：与后端 `config::night_switch::DEFAULT_RESTORE_START_MINUTES`
  *  同值；配置为 0/越界时后端同样回落此值，故显示层也按它展示 */
 const RESTORE_TIME_DEFAULT_MINUTES = 450
@@ -292,7 +340,19 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const mountedRef = useRef(true)
 
   // 出站查询/轮询与手动切换/还原（useOutboundManual.ts）
-  const { currentOutbound, switchingOutbound, restoringOutbound, refreshCurrentOutbound, handleOutboundSwitchNow, handleOutboundRestoreNow } = useOutboundManual(adapters.length)
+  const {
+    currentOutbound,
+    switchingOutbound,
+    restoringOutbound,
+    adapterMetrics,
+    switchingToAdapter,
+    savingMetricAdapter,
+    refreshCurrentOutbound,
+    handleOutboundSwitchNow,
+    handleOutboundSwitchTo,
+    handleSaveMetric,
+    handleOutboundRestoreNow,
+  } = useOutboundManual(adapters.length)
 
   // WebView2 最小化时定时器被节流，且夜间自动切换（改路由 metric/临时禁卡）多数
   // 不改变适配器数量——恢复窗口时常看到陈旧的当前出站徽标与适配器列表。
@@ -563,6 +623,28 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                       <Badge key="outbound-target" variant="outline" size="sm" className="border-primary/30 text-primary shrink-0">
                         {t('network.outboundBadge')}
                       </Badge>
+                    )}
+                    {/* 跃点（优先级）：显示当前值并就地编辑 */}
+                    <MetricEditor
+                      key="metric"
+                      value={adapterMetrics[a.name] ?? null}
+                      saving={savingMetricAdapter === a.name}
+                      onCommit={(metric) => handleSaveMetric(a.name, metric)}
+                    />
+                    {/* 「立即切换出站」到这张卡：跳过优先级选卡，只要求有 IP 且不是当前出站 */}
+                    {a.ip && currentOutbound !== a.name && (
+                      <Button
+                        key="switch-to"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] gap-1 border-primary/30 text-primary hover:text-primary hover:bg-primary/10"
+                        onClick={() => handleOutboundSwitchTo(a.name)}
+                        disabled={switchingToAdapter === a.name || switchingOutbound || restoringOutbound || !config.enableNightOutboundSwitch}
+                        title={t('network.outboundSwitchTo')}
+                      >
+                        {switchingToAdapter === a.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                        {t('network.outboundSwitchTo')}
+                      </Button>
                     )}
                     {a.ip ? (
                       <Button

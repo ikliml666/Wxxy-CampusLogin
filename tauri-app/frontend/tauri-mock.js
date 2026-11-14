@@ -82,6 +82,9 @@
 
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms) }) }
 
+  // 跃点（优先级）mock：以太网 25 / WLAN 30 / 以太网 2 20
+  var mockMetrics = { '以太网 (Mock)': 25, 'WLAN': 30, '以太网 2': 20 }
+
   var mockAdapters = [
     { name: '以太网 (Mock)', ip: '10.2.103.66', wireless: false, guid: 'mock-guid-1', mac: 'AA-BB-CC-DD-EE-FF', ifIndex: 1, status: 'connected', linkSpeed: 1000000000 },
     { name: 'WLAN', ip: '192.168.6.116', wireless: true, guid: 'mock-guid-2', mac: '11-22-33-44-55-66', ifIndex: 2, status: 'connected', linkSpeed: 2402000000 },
@@ -256,6 +259,16 @@
     },
     get_adapters: function () { return mockAdapters },
     get_current_outbound_name: function () { return '以太网 (Mock)' },
+    get_adapter_metrics: function () {
+      return mockAdapters.map(function (a) { return { name: a.name, metric: mockMetrics[a.name] } })
+    },
+    set_adapter_metric: function (args) {
+      if (args && args.adapterName) mockMetrics[args.adapterName] = args.metric
+      return ok(null, '跃点已更新（mock）')
+    },
+    outbound_switch_to: function (args) {
+      return ok(null, '已切换出站到 ' + (args && args.adapterName) + '（mock）')
+    },
     // 网络质量：返回带 details 的完整结果（验证合并卡 4 标签横滑）
     check_network_quality: function () {
       return {

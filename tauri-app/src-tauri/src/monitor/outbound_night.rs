@@ -559,6 +559,87 @@ fn adapter_ipv4_by_name(name: &str) -> Option<String> {
         .filter(|ip| !ip.is_empty())
 }
 
+/// 手动修改单张网卡的跃点（IPv4/IPv6 同步写为同一值）。
+/// 切换态下拒绝：跃点快照保存的是原值，此时改动会在还原时被覆盖，用户白改。
+pub(crate) fn manual_set_adapter_metric(
+    app_handle: &AppHandle,
+    adapter_name: &str,
+    metric: u32,
+) -> Result<(), String> {
+    if metric == 0 || metric > 9999 {
+        return Err("跃点需在 1–9999 之间".to_string());
+    }
+    if outbound_switch_active(app_handle) {
+        return Err("出站切换进行中，请先恢复原出口再修改跃点".to_string());
+    }
+    let adapters = crate::network::get_adapters_cached()?;
+    let Some(adapter) = adapters.iter().find(|a| a.name == adapter_name) else {
+        return Err(format!("未找到网卡 {adapter_name}"));
+    };
+    if adapter.guid.is_empty() {
+        return Err(format!("网卡 {adapter_name} 缺少 GUID，无法设置跃点"));
+    }
+    let rows = vec![
+        format!("{}:2:0:{metric}", adapter.guid),
+        format!("{}:23:0:{metric}", adapter.guid),
+    ];
+    run_helper_op("set_metric", &rows, outbound_allow_uac()).map_err(|failure| {
+        note_channel_failure(&failure);
+        failure.reason
+    })?;
+    clear_outbound_channel_failure();
+    crate::log_info!("outbound", "手动设置跃点: {adapter_name} -> {metric}");
+    Ok(())
+}
+
+/// 按「夜间出站优先级」把有 IP 的网卡跃点重排为 1..N（IPv4/IPv6 同步写）：
+/// 列表顺序即跃点顺序，排第一的卡成为系统出站。还原动作收尾与非切换态下的
+/// 「恢复原出口」都走它——用户要求「还原时刻以排列顺序作为优先级」。
+/// 只排有 IP 的卡：无 IP 的卡写跃点没有意义，且会让它抢占出站判定。
+pub(super) fn apply_outbound_priority_metrics(
+    config: &crate::config::Config,
+) -> Result<Vec<String>, String> {
+    let adapters = crate::network::get_adapters_cached()?;
+    let details = crate::network::get_adapter_details_cached().unwrap_or_default();
+    let candidates: Vec<(crate::network::Adapter, String)> = adapters
+        .iter()
+        .map(|a| {
+            let gateway = details
+                .iter()
+                .find(|d| d.name == a.name)
+                .map(|d| d.gateway.clone())
+                .unwrap_or_default();
+            (a.clone(), gateway)
+        })
+        .collect();
+    let order = super::outbound_switch::effective_outbound_priority(&config.outbound_priority, &candidates);
+    let mut rows: Vec<String> = Vec::new();
+    let mut applied: Vec<String> = Vec::new();
+    let mut metric = 1u32;
+    for name in &order {
+        let Some(adapter) = adapters
+            .iter()
+            .find(|a| &a.name == name && !a.ip.is_empty() && !a.guid.is_empty())
+        else {
+            continue;
+        };
+        rows.push(format!("{}:2:0:{metric}", adapter.guid));
+        rows.push(format!("{}:23:0:{metric}", adapter.guid));
+        applied.push(format!("{}={metric}", adapter.name));
+        metric += 1;
+    }
+    if rows.is_empty() {
+        return Err("没有可应用优先级的网卡（均无 IP）".to_string());
+    }
+    run_helper_op("set_metric", &rows, outbound_allow_uac()).map_err(|failure| {
+        note_channel_failure(&failure);
+        failure.reason
+    })?;
+    clear_outbound_channel_failure();
+    crate::log_info!("outbound", "出站优先级已应用: {}", applied.join(", "));
+    Ok(applied)
+}
+
 /// 切换后原出口卡的 interfaceMetric：必须明显高于目标卡（目标卡压到 1），
 /// 让「routeMetric + interfaceMetric」的比较结果稳定落在目标卡上。
 const SWITCHED_ORIGIN_METRIC: u32 = 100;
@@ -765,6 +846,7 @@ fn build_outbound_plan(
     app_handle: &AppHandle,
     config: &crate::config::Config,
     internet_health: Option<std::collections::HashMap<String, bool>>,
+    forced_target: Option<&str>,
 ) -> Result<OutboundSwitchPlan, String> {
     let adapters = match crate::network::get_adapters_cached() {
         Ok(a) => a,
@@ -792,6 +874,32 @@ fn build_outbound_plan(
             (a.clone(), gateway)
         })
         .collect();
+    // 用户显式指定目标卡（条目「立即切换出站」）：只要求有 IP 与 GUID，跳过
+    // 校园网判定与全部探测——显式动作优先，想切到哪张就切到哪张。
+    if let Some(name) = forced_target {
+        let Some((adapter, _)) = candidates.iter().find(|(a, _)| a.name == name) else {
+            return Err(format!("未找到网卡 {name}"));
+        };
+        if adapter.ip.is_empty() {
+            return Err(format!("网卡 {name} 当前没有 IP，无法作为出站目标"));
+        }
+        if adapter.guid.is_empty() {
+            return Err(format!("网卡 {name} 缺少 GUID，无法设置跃点"));
+        }
+        let rows: Vec<MetricRow> = match crate::platform::metric::read_interface_metrics(&adapter.guid) {
+            Ok(rows) => rows.into_iter().filter(|r| matches!(r.family, 2 | 23)).collect(),
+            Err(e) => return Err(format!("读取网卡 {name} 跃点配置失败: {e}")),
+        };
+        if rows.is_empty() {
+            return Err(format!("网卡 {name} 没有 IPv4/IPv6 跃点配置行"));
+        }
+        return Ok(OutboundSwitchPlan {
+            target_name: adapter.name.clone(),
+            target_guid: adapter.guid.clone(),
+            target_if_index: adapter.if_index,
+            rows,
+        });
+    }
     // 候选来自出站优先级生效列表（用户已排序按原序；未排序默认无线卡优先，
     // 见 effective_outbound_priority），且必须有 IP 且判定为非校园网
     let portal_host = portal_probe_host(&config.portal_url);
@@ -872,6 +980,7 @@ pub(super) fn apply_outbound_switch_with_health(
     app_handle: &AppHandle,
     config: &crate::config::Config,
     internet_health: Option<std::collections::HashMap<String, bool>>,
+    forced_target: Option<&str>,
 ) -> Result<(), String> {
     let started = std::time::Instant::now();
     let Some(_busy) = OutboundActionGuard::try_acquire() else {
@@ -882,7 +991,7 @@ pub(super) fn apply_outbound_switch_with_health(
         crate::log_debug!("outbound", "夜间出站切换: 退避窗内，本拍跳过");
         return Err("正处于自动重试退避窗口，请稍后再试".to_string());
     }
-    let mut plan = build_outbound_plan(app_handle, config, internet_health)?;
+    let mut plan = build_outbound_plan(app_handle, config, internet_health, forced_target)?;
     // 跃点现值复核：还原快照必须以执行时刻现值为准；读不到时才使用计划里的原值
     match crate::platform::metric::read_interface_metrics(&plan.target_guid) {
         Ok(rows) => {
@@ -1498,6 +1607,17 @@ pub(super) fn apply_outbound_restore(app_handle: &AppHandle, config: &crate::con
             "mascot-portrait",
         );
     }
+    // 还原完成后按「夜间出站优先级」重排跃点：列表顺序即出站顺序，排第一的卡
+    // 成为系统出站（用户要求「还原时刻以排列顺序作为优先级」）。失败不影响还原
+    // 结果——跃点已写回快照，只是排序没生效。
+    match apply_outbound_priority_metrics(config) {
+        Ok(applied) => crate::log_info!(
+            "outbound",
+            "夜间出站还原: 已按优先级重排跃点 {}",
+            applied.join(", ")
+        ),
+        Err(e) => crate::log_warn!("outbound", "夜间出站还原: 按优先级重排跃点失败: {e}"),
+    }
     if finish_outbound_restore(app_handle) {
         Ok(())
     } else {
@@ -1594,10 +1714,37 @@ pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), Strin
     // 用户显式重试：清退避闸，不做自动路径的阶梯等待
     clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
     set_outbound_manual_hold(app_handle, today);
-    if let Err(reason) = apply_outbound_switch_with_health(app_handle, &config, None) {
+    if let Err(reason) = apply_outbound_switch_with_health(app_handle, &config, None, None) {
         // 切换失败（无候选/退避等）按原语义清 hold，恢复当日自动切换。
         // 2026-10-26 前还有「登录闸挂起不算失败、保留 hold 让补驱动接管」的分支；
         // 挂起机制已随登录闸一起移除，失败即失败。
+        clear_outbound_manual_hold(app_handle);
+        Err(reason)
+    } else {
+        Ok(())
+    }
+}
+
+/// 「立即切换出站」命令入口（桌面，条目按钮）：以**指定网卡**为目标直接切换，
+/// 跳过优先级选卡与公网复核——用户点名要哪张就切哪张，哪怕它是校园网卡。
+/// 成功后冻结当日自动动作（与手动切换同语义，避免 30s 后的自动判定把选择挪走）。
+pub(crate) fn manual_outbound_switch_to(app_handle: &AppHandle, adapter_name: &str) -> Result<(), String> {
+    let config = app_handle.state::<AppState>().config.load_full();
+    if !config.enable_night_outbound_switch {
+        return Err("夜间出站切换未开启".to_string());
+    }
+    if outbound_switch_active(app_handle) {
+        return Err("已处于出站切换状态，如需重试请先恢复原出口".to_string());
+    }
+    if current_origin_adapter().map(|(name, _, _)| name == adapter_name).unwrap_or(false) {
+        return Err(format!("{adapter_name} 已是当前出站网卡"));
+    }
+    let today = chrono::Local::now().date_naive().num_days_from_ce();
+    clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+    set_outbound_manual_hold(app_handle, today);
+    if let Err(reason) =
+        apply_outbound_switch_with_health(app_handle, &config, None, Some(adapter_name))
+    {
         clear_outbound_manual_hold(app_handle);
         Err(reason)
     } else {
@@ -1610,7 +1757,10 @@ pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), Strin
 pub(crate) fn manual_outbound_restore(app_handle: &AppHandle) -> Result<(), String> {
     let config = app_handle.state::<AppState>().config.load_full();
     if !outbound_switch_active(app_handle) {
-        return Err("当前未处于出站切换状态".to_string());
+        // 非切换态下「恢复原出口」的诉求 = 按列表顺序重建出站：列表第一即出站卡。
+        // 原实现直接报「当前未处于出站切换状态」，而用户此时正是想让排序生效。
+        apply_outbound_priority_metrics(&config)?;
+        return Ok(());
     }
     // hold 必须先清：否则还原失败后，还原窗内的自动重试会被 hold 一并冻结
     clear_outbound_manual_hold(app_handle);

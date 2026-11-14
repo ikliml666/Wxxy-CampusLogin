@@ -52,6 +52,74 @@ pub async fn outbound_switch_now(app_handle: AppHandle) -> Result<CommandResult,
     .map(|()| CommandResult::ok_msg("已切换出站"))
 }
 
+/// 「立即切换出站」（条目按钮）：以指定网卡为目标直接切换，跳过优先级选卡与
+/// 公网复核——用户点名哪张就切哪张。成功后冻结当日自动动作，避免被自动判定挪走。
+#[tauri::command]
+pub async fn outbound_switch_to(app_handle: AppHandle, adapter_name: String) -> Result<CommandResult, String> {
+    crate::network::adapter_cache::validate_adapter_name(&adapter_name)?;
+    let name = adapter_name.clone();
+    crate::log_info!("network", "手动切换出站到指定网卡: {name}");
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::monitor::outbound_night::manual_outbound_switch_to(&app_handle, &adapter_name)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map(|()| {
+        let message = format!("已切换出站到 {name}");
+        CommandResult::ok_msg(&message)
+    })
+}
+
+/// 每张网卡当前的 IPv4 跃点（前端展示与编辑）。读路径不需要管理员权限。
+#[derive(serde::Serialize)]
+pub struct AdapterMetricView {
+    pub name: String,
+    pub metric: Option<u32>,
+}
+
+#[tauri::command]
+pub async fn get_adapter_metrics() -> Result<Vec<AdapterMetricView>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let adapters = get_adapters_cached().map_err(|e| e.to_string())?;
+        Ok::<Vec<AdapterMetricView>, String>(
+            adapters
+                .iter()
+                .map(|adapter| {
+                    #[cfg(target_os = "windows")]
+                    let metric = crate::platform::metric::read_interface_metrics(&adapter.guid)
+                        .ok()
+                        .and_then(|rows| rows.into_iter().find(|r| r.family == 2).map(|r| r.metric));
+                    #[cfg(not(target_os = "windows"))]
+                    let metric = None;
+                    AdapterMetricView { name: adapter.name.clone(), metric }
+                })
+                .collect(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 手动修改单张网卡的跃点（IPv4/IPv6 同步写）。切换态下后端拒绝——快照保存的是
+/// 原值，此时改动会在还原时被覆盖。
+#[tauri::command]
+pub async fn set_adapter_metric(
+    app_handle: AppHandle,
+    adapter_name: String,
+    metric: u32,
+) -> Result<CommandResult, String> {
+    crate::network::adapter_cache::validate_adapter_name(&adapter_name)?;
+    let name = adapter_name.clone();
+    crate::log_info!("network", "手动设置跃点: {name} -> {metric}");
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::monitor::outbound_night::manual_set_adapter_metric(&app_handle, &adapter_name, metric)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let message = format!("{name} 跃点已设为 {metric}");
+    Ok(CommandResult::ok_msg(&message))
+}
+
 /// 「立即还原」：清当日保持标记并执行还原；还原未完成时快照保留，自动还原继续重试。
 #[tauri::command]
 pub async fn outbound_restore_now(app_handle: AppHandle) -> Result<CommandResult, String> {

@@ -21,6 +21,12 @@ export function useOutboundManual(adaptersCount: number) {
   const [currentOutbound, setCurrentOutbound] = useState<string | null>(null)
   const [switchingOutbound, setSwitchingOutbound] = useState(false)
   const [restoringOutbound, setRestoringOutbound] = useState(false)
+  /** 各网卡当前跃点（name → IPv4 metric；未取到为 null） */
+  const [adapterMetrics, setAdapterMetrics] = useState<Record<string, number | null>>({})
+  /** 正在执行「立即切换到此卡」的网卡名 */
+  const [switchingToAdapter, setSwitchingToAdapter] = useState<string | null>(null)
+  /** 正在提交跃点修改的网卡名 */
+  const [savingMetricAdapter, setSavingMetricAdapter] = useState<string | null>(null)
 
   useEffect(() => {
     // StrictMode setup→cleanup→setup：二次 setup 恢复 mountedRef，
@@ -38,9 +44,22 @@ export function useOutboundManual(adaptersCount: number) {
     }
   }, [ipc])
 
+  const refreshAdapterMetrics = useCallback(async () => {
+    try {
+      const list = await ipc.getAdapterMetrics?.()
+      if (!mountedRef.current || !list) return
+      const next: Record<string, number | null> = {}
+      for (const item of list) next[item.name] = item.metric
+      setAdapterMetrics(next)
+    } catch {
+      // 读跃点失败不影响其他功能：行内显示为空、不阻塞编辑
+    }
+  }, [ipc])
+
   useEffect(() => {
     void refreshCurrentOutbound()
-  }, [refreshCurrentOutbound, adaptersCount])
+    void refreshAdapterMetrics()
+  }, [refreshCurrentOutbound, refreshAdapterMetrics, adaptersCount])
   useEffect(() => {
     const timer = window.setInterval(() => { void refreshCurrentOutbound() }, 60_000)
     return () => window.clearInterval(timer)
@@ -92,5 +111,65 @@ export function useOutboundManual(adaptersCount: number) {
     }
   }, [ipc, t, refreshCurrentOutbound])
 
-  return { currentOutbound, switchingOutbound, restoringOutbound, refreshCurrentOutbound, handleOutboundSwitchNow, handleOutboundRestoreNow }
+  // 「立即切换出站」到指定网卡（条目按钮）：后端以该卡为目标直接切换，忽略优先级选卡
+  const handleOutboundSwitchTo = useCallback(async (adapterName: string) => {
+    setSwitchingToAdapter(adapterName)
+    try {
+      const result = await ipc.outboundSwitchTo?.(adapterName)
+      if (!mountedRef.current) return
+      if (result?.success) {
+        useLogToastStore.getState().addToast(t('network.outboundSwitchToSuccess', { name: adapterName }), 'success', result.message)
+      } else {
+        useLogToastStore.getState().addToast(t('network.outboundSwitchToFailed', { name: adapterName }), 'error', result?.message)
+      }
+    } catch (e: unknown) {
+      if (!mountedRef.current) return
+      useLogToastStore.getState().addToast(t('network.outboundSwitchToFailed', { name: adapterName }), 'error', extractErrorMessage(e))
+    } finally {
+      if (mountedRef.current) {
+        setSwitchingToAdapter(null)
+        void refreshAdapterData({ force: true })
+        void refreshCurrentOutbound()
+        void refreshAdapterMetrics()
+      }
+    }
+  }, [ipc, t, refreshCurrentOutbound, refreshAdapterMetrics])
+
+  // 修改单卡跃点：切换态下后端拒绝并返回原因（快照原值会被覆盖）
+  const handleSaveMetric = useCallback(async (adapterName: string, metric: number) => {
+    setSavingMetricAdapter(adapterName)
+    try {
+      const result = await ipc.setAdapterMetric?.(adapterName, metric)
+      if (!mountedRef.current) return
+      if (result?.success) {
+        useLogToastStore.getState().addToast(t('network.outboundMetricSaved', { name: adapterName, metric }), 'success', result.message)
+      } else {
+        useLogToastStore.getState().addToast(t('network.outboundMetricSaveFailed', { name: adapterName }), 'error', result?.message)
+      }
+    } catch (e: unknown) {
+      if (!mountedRef.current) return
+      useLogToastStore.getState().addToast(t('network.outboundMetricSaveFailed', { name: adapterName }), 'error', extractErrorMessage(e))
+    } finally {
+      if (mountedRef.current) {
+        setSavingMetricAdapter(null)
+        void refreshAdapterData({ force: true })
+        void refreshCurrentOutbound()
+        void refreshAdapterMetrics()
+      }
+    }
+  }, [ipc, t, refreshCurrentOutbound, refreshAdapterMetrics])
+
+  return {
+    currentOutbound,
+    switchingOutbound,
+    restoringOutbound,
+    adapterMetrics,
+    switchingToAdapter,
+    savingMetricAdapter,
+    refreshCurrentOutbound,
+    handleOutboundSwitchNow,
+    handleOutboundSwitchTo,
+    handleSaveMetric,
+    handleOutboundRestoreNow,
+  }
 }
