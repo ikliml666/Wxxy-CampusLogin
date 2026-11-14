@@ -101,6 +101,52 @@ pub async fn restore_written_settings(app: tauri::AppHandle) -> Result<serde_jso
     }
 }
 
+/// 读取系统私人 DNS（DoT）设置：`{granted, mode, specifier}`。
+/// mode 取值 off / opportunistic / hostname（系统内部值）；granted=false 表示
+/// 缺 WRITE_SECURE_SETTINGS，前端据此显示 adb 引导。
+#[tauri::command]
+pub async fn get_private_dns_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            app.campus_network_bind().get_private_dns_status()
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        outcome.map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err("仅安卓端支持".to_string())
+    }
+}
+
+/// 写入系统私人 DNS。mode = "off" | "auto" | "hostname"；hostname 时 host 为 DoT 主机名。
+#[tauri::command]
+pub async fn set_private_dns(
+    app: tauri::AppHandle,
+    mode: String,
+    host: String,
+) -> Result<serde_json::Value, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_network_bind::CampusNetworkBindExt;
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            app.campus_network_bind().set_private_dns(&mode, &host)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        outcome.map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, mode, host);
+        Err("仅安卓端支持".to_string())
+    }
+}
+
 /// 全链路(启动自动登录/周期检测/断线重连/注销/手动登录/手动探测)执行前确保进程已绑 WiFi。
 ///
 /// 根因：WiFi 未认证时被安卓网络评分降权，WiFi+流量同开下默认路由可能落到蜂窝，

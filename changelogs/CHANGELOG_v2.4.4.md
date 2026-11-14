@@ -1,3 +1,34 @@
+### WiFi 就寝守则（双端）+ 安卓网络页签与私人 DNS（2026-11-14，桌面前后端 + 安卓前后端 + 安卓插件）
+
+**为什么**：校园网运营商周日至周四 23:00、周五六 23:30 断网，用户宿舍另有自己的路由器 WiFi 不受影响。当晚要继续上网就得先断开校园网、再连路由器；系统默认会按信号强度自动连回校园网，手动改一次「自动连接」次日还得改回来。需求是把这件事交给程序：到点停止连接指定 WiFi，次日按夜切恢复时刻还原，并允许为宿舍路由器单独开白名单。同时安卓端「质量」页占据底栏常驻位置而网络相关设置（夜切、DNS）没有独立入口，需要把网络页提上底栏、质量下放到「更多」；安卓系统「私人 DNS（DoT）」原先只能进系统设置手填，补一键填写阿里/腾讯 DoT。
+
+**改了什么**
+
+- **新增跨平台纯函数 `config/wifi_curfew.rs`**：`in_curfew_window` 复用夜切时间表（`night_switch::switch_time_for` + `restore_start_minutes`），窗口 = 当日切换时刻（含过点补触发）至次日恢复时刻；`ssid_blocked` 判「命中排除列表且不在允许列表」，排除列表含 `"*"` 即「除允许列表外全部阻断」（宿舍路由器白名单场景），名称比较不区分大小写。5 条单测覆盖窗口边界、自定义恢复时刻、白名单优先、通配。
+- **新增配置字段（`config/model.rs`，双端同构）**：`enableWifiCurfew` / `wifiCurfewExcluded`（默认 `i-wxxy、iwxxy-2、iwxxy-3`） / `wifiCurfewAllowed` / `wifiCurfewProfileRestore`（桌面 profile 模式快照，走 `preserve_outbound_runtime_from` 保留本机值）。
+- **新增桌面执行器 `monitor/wifi_curfew.rs`**：窗口内把命中 SSID 的 WLAN profile 连接模式改为「手动」并断开当前连接，出窗/关功能按快照逐条还原。改 profile 而不是每拍 `netsh wlan disconnect`，因为 WLAN AutoConfig 会在断线后立刻自动重连，只断开等于每 30s 踢一次用户。只碰名单内的 profile，其余用户网络配置一概不动；快照落盘走 `persist::mutate_config_and_save`，程序重启后仍能还原。挂进 `monitor/scheduled.rs` 的 30s 拍（沿用阻塞线程池）。
+- **桌面前端**：网络页新增「WiFi 就寝守则」卡（开关 + 两个 chip 名单编辑器 + 恢复时刻提示），排在「网络适配器」与「DNS 优化」之间，后续卡片 stagger 顺延。
+- **安卓前端改版**：底栏固定六项，`network` 接管原 `quality` 的位置，质量页下放到「更多」的子页签（受 `enableNetworkQuality` 控制显示）；`App.tsx` 面板 switch 与方向性转场顺序、页签持久化白名单同步；`MobileMore` 新增质量子页并接收 `onUpdateConfig/onRefreshQuality/onToggleLatencyTest`。
+- **安卓网络页**：新增「WiFi 就寝守则」卡（与桌面同构，另加一条「安卓不允许普通应用断开指定 WiFi，需 Shizuku 或 root 通道」的能力提示）与「私人 DNS（DoT）」卡（关闭 / 自动 / 指定主机三态 + 阿里 `dns.alidns.com`、腾讯 `dot.pub` 一键填写 + 缺权限时的 adb 授权引导）。
+- **安卓私人 DNS 通道**：`network-bind` 插件新增 `getPrivateDnsStatus` / `setPrivateDns`，经 `Settings.Global` 的 `private_dns_mode` / `private_dns_specifier` 读写（两个键是 @hide 常量，只能写字面量）。写入顺序**先 specifier 后 mode**——mode=hostname 而 specifier 为空时系统会忽略该配置。写后读回实际值，缺 `WRITE_SECURE_SETTINGS` 时返回 `missing_write_secure_settings` 而不是静默失败。安卓 IPC 面新增 `get_private_dns_status` / `set_private_dns`。
+
+**权限与实现方式调研结论**
+
+- **桌面**：`netsh wlan show profiles` / `show profile` / `set profileparameter connectionmode=` 都是普通用户权限，实测无需管理员（本机验证：把 `i-wxxy` 设成 manual 返回 updated successfully）。读当前 SSID 复用既有 `network::subnet::get_wireless_ssid()`（netsh，60s 缓存），Win11 关位置服务时会失效，此时只跳过「断开当前连接」这一步，profile 模式照常改。
+- **安卓**：`WifiManager` 的 `disconnect/setWifiEnabled/removeNetwork/disableNetwork` 在 targetSdk ≥ 29 对普通应用一律返回 false（AOSP `WifiServiceImpl` 的 `isTargetSdkLessThanQOrPrivileged` 检查），`WifiNetworkSuggestion` 只能建议连接、无法表达「不要连」。**结论：纯应用权限无法实现按时间拒绝指定 SSID**。可用的只有 shell 身份（`cmd wifi forget-network` / `add-network <ssid> open -d` / `set-wifi-enabled`），即 adb / Shizuku / root；且 `cmd wifi` 的这几个子命令 Android 11 起才免 root（Android 10 全部要 root）。安卓执行通道（Shizuku 集成与 core 进程侧 tick）**本轮未接入**，见下节。
+
+**验证**（均为当轮实际输出）
+
+- 桌面 `cargo test --lib`（`tauri-app/src-tauri`）：`test result: ok. 665 passed; 0 failed; 4 ignored`。
+- 桌面 `npx tsc --noEmit --incremental`（`tauri-app/frontend`）：exit 0。
+- 安卓 `npx tsc --noEmit --incremental`（`android/frontend`）：exit 0。
+- 安卓 Kotlin / Rust 改动**未编译验证**（本机无 NDK 构建环境、无真机），下次出包需跑 `pwsh android/build-apk.ps1` 复核。
+
+**评估后未做**
+
+- **安卓 WiFi 守则执行通道**：需要在 `:core` 进程侧接入 Shizuku（`ShizukuProvider.enableMultiProcessSupport` + UserService）或 root，并经 `campus_core_logic::platform_sig` 扩一条 JNI 签名；无真机可验证，未动。
+- **主动连接白名单 WiFi**：不存 WiFi 密码、也不替用户决定连哪个网，只保证白名单里的网络不被断开。
+
 ### 校园判定改 TCP 优先 + 公网探测不等全部卡 + 旁路路由后台化（2026-11-14，桌面）
 
 **为什么**：ICMP 只有「收到回显」与「超时」两种结局——目标禁 ICMP 时只能等满超时，而且**在网校园卡会被误判成非校园**（网关/Portal 禁 ping 的现场就属于这一类）。另外公网探测用 JoinSet 收完所有卡、Portal 旁路路由同步等一次提权往返，都在切换关键路径上白等。

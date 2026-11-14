@@ -75,6 +75,24 @@ pub struct Config {
     /// 因校园网恢复时刻因作息而异，硬编码 07:30 无法适配。安卓端消费此字段
     #[serde(rename = "nightRestoreMinutes", default)]
     pub night_restore_minutes: u32,
+    /// WiFi 就寝守则总开关（跨平台）: 周日至周四 23:00、周五六 23:30 起阻断
+    /// `wifiCurfewExcluded` 里的 WiFi 连接，次日 `nightRestoreMinutes` 恢复。
+    /// 时段与夜切共用一份时间表（见 config::wifi_curfew）
+    #[serde(rename = "enableWifiCurfew", default)]
+    pub enable_wifi_curfew: bool,
+    /// 就寝时段阻断的 WiFi 名称列表；默认校园网三值。含 "*" 时表示
+    /// 「除 wifiCurfewAllowed 外全部阻断」（宿舍自带路由器的白名单场景）
+    #[serde(rename = "wifiCurfewExcluded", default = "default_wifi_curfew_excluded")]
+    pub wifi_curfew_excluded: Vec<String>,
+    /// 就寝时段仍允许连接的 WiFi 名称列表（优先于排除列表）：宿舍路由器等
+    /// 不随校园网断网的 SSID 放这里
+    #[serde(rename = "wifiCurfewAllowed", default)]
+    pub wifi_curfew_allowed: Vec<String>,
+    /// 就寝守则亲手改过连接模式的 WiFi 快照：`[{ssid, mode}]` JSON（mode 为
+    /// "auto"/"manual"）。非空 = 存在待还原的 profile 改动；恢复时逐条还原并清空。
+    /// 只记本功能亲手改过的 SSID，不按当前状态推断。安卓端不消费此字段
+    #[serde(rename = "wifiCurfewProfileRestore", default)]
+    pub wifi_curfew_profile_restore: String,
     /// 出口故障判定：连续多少轮公网不可达才切出站（默认 2，1–5）。网络检测参数弹窗可调
     #[serde(rename = "outboundFailureRounds", default = "default_outbound_failure_rounds")]
     pub outbound_failure_rounds: u32,
@@ -316,6 +334,12 @@ pub fn default_required_network_name() -> String {
     "i-wxxy、iwxxy-2、iwxxy-3".to_string()
 }
 
+/// 就寝守则默认排除的校园网 SSID：与 `default_required_network_name` 的三值同源，
+/// 但这里是列表形态（可增删），不复用那个逗号/顿号分隔的字符串字段
+pub fn default_wifi_curfew_excluded() -> Vec<String> {
+    vec!["i-wxxy".to_string(), "iwxxy-2".to_string(), "iwxxy-3".to_string()]
+}
+
 pub fn default_campus_gateway() -> String {
     "10.1.1.1".to_string()
 }
@@ -353,6 +377,10 @@ impl Default for Config {
             enable_night_outbound_switch: false,
             // 0 = 未自定义，回落默认 07:30（见 config::night_switch::restore_start_minutes）
             night_restore_minutes: 0,
+            enable_wifi_curfew: false,
+            wifi_curfew_excluded: default_wifi_curfew_excluded(),
+            wifi_curfew_allowed: Vec::new(),
+            wifi_curfew_profile_restore: String::new(),
             outbound_failure_rounds: 2,
             outbound_healthy_rounds: 2,
             outbound_probe_timeout_ms: 1000,
@@ -444,6 +472,7 @@ impl Config {
         self.outbound_manual_hold_day = current.outbound_manual_hold_day;
         self.outbound_pending_switch = current.outbound_pending_switch.clone();
         self.night_outbound_restore = current.night_outbound_restore.clone();
+        self.wifi_curfew_profile_restore = current.wifi_curfew_profile_restore.clone();
     }
 
     pub fn mask_in_place(&mut self) {

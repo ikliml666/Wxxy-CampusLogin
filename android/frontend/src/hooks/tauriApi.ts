@@ -149,6 +149,10 @@ interface TauriApi {
   getAvoidBadWifiStatus: () => Promise<AvoidBadWifiStatus>
   /** 还原本应用写入的系统网络设置（captive_portal_mode / network_avoid_bad_wifi 快照写回） */
   restoreWrittenSettings: () => Promise<RestoreWrittenSettingsResult>
+  /** 系统私人 DNS（DoT）当前设置；granted=false 表示缺 WRITE_SECURE_SETTINGS */
+  getPrivateDnsStatus: () => Promise<PrivateDnsStatus>
+  /** 写入系统私人 DNS：mode=off|auto|hostname，hostname 时 host 为 DoT 主机名 */
+  setPrivateDns: (params: { mode: 'off' | 'auto' | 'hostname'; host?: string }) => Promise<SetPrivateDnsResult>
 }
 
 export interface AvoidBadWifiStatus {
@@ -164,6 +168,24 @@ export interface AvoidBadWifiStatus {
 
 export interface RestoreWrittenSettingsResult {
   restored: Record<string, boolean>
+  reason?: string
+}
+
+export interface PrivateDnsStatus {
+  /** WRITE_SECURE_SETTINGS 是否已授予（用户 adb pm grant 后为 true） */
+  granted: boolean
+  /** 系统内部值：off / opportunistic（界面上的「自动」）/ hostname（指定主机） */
+  mode: string
+  /** mode=hostname 时的 DoT 主机名，其余情况为空串 */
+  specifier: string
+}
+
+export interface SetPrivateDnsResult {
+  ok: boolean
+  /** 写入后读回的实际值 */
+  mode?: string
+  specifier?: string
+  /** 失败原因：missing_write_secure_settings / empty_host / unknown_mode */
   reason?: string
 }
 
@@ -337,6 +359,9 @@ const tauriApi: TauriApi = {
   setLogRetentionDays: (days) => invoke<void>('set_log_retention_days', { days }),
   getAvoidBadWifiStatus: () => invoke<AvoidBadWifiStatus>('get_avoid_bad_wifi_status'),
   restoreWrittenSettings: () => invoke<RestoreWrittenSettingsResult>('restore_written_settings'),
+  getPrivateDnsStatus: () => invoke<PrivateDnsStatus>('get_private_dns_status'),
+  setPrivateDns: (params) =>
+    invoke<SetPrivateDnsResult>('set_private_dns', { mode: params.mode, host: params.host ?? '' }),
 }
 
 function isRetryableError(e: unknown): boolean {

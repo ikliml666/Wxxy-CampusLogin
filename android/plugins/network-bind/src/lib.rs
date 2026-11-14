@@ -104,6 +104,21 @@ impl<R: Runtime> CampusNetworkBind<R> {
     pub fn get_secure_settings_status(&self) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("getSecureSettingsStatus", ())
     }
+
+    /// 读取系统私人 DNS（DoT）设置：`{granted, mode, specifier}`。
+    /// 读不需权限；granted=false 表示写通道不可用（缺 WRITE_SECURE_SETTINGS）。
+    pub fn get_private_dns_status(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("getPrivateDnsStatus", ())
+    }
+
+    /// 写入系统私人 DNS。mode = "off" | "auto" | "hostname"，hostname 时 host 为 DoT 主机名。
+    /// 返回 `{ok, mode, specifier, reason?}`；缺权限时 reason=missing_write_secure_settings。
+    pub fn set_private_dns(&self, mode: &str, host: &str) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin(
+            "setPrivateDns",
+            serde_json::json!({ "mode": mode, "host": host }),
+        )
+    }
 }
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`], [`tauri::WebviewWindow`], [`tauri::Webview`] and [`tauri::Window`] to access the network bind APIs.

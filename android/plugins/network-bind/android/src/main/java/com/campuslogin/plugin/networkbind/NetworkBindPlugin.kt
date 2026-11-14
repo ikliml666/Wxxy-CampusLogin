@@ -467,6 +467,69 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(ret)
     }
 
+    /**
+     * 读取系统私人 DNS（DoT）设置：
+     * `{granted: bool, mode: "off"|"opportunistic"|"hostname", specifier: String}`。
+     * 两个 key 是 @hide 常量（Settings.Global 公开文档不列），只能按字符串字面量读写；
+     * 读不校验权限（@Readable），写才需要 WRITE_SECURE_SETTINGS。
+     */
+    @Command
+    fun getPrivateDnsStatus(invoke: Invoke) {
+        val cr = activity.applicationContext.contentResolver
+        val ret = JSObject()
+        ret.put("granted", hasWriteSecureSettings())
+        ret.put("mode", Settings.Global.getString(cr, KEY_PRIVATE_DNS_MODE) ?: "opportunistic")
+        ret.put("specifier", Settings.Global.getString(cr, KEY_PRIVATE_DNS_SPECIFIER) ?: "")
+        invoke.resolve(ret)
+    }
+
+    /**
+     * 写入私人 DNS。mode = "off" | "auto" | "hostname"，hostname 模式下 host 为 DoT 主机名。
+     *
+     * 顺序有意为之：**先写 specifier 再写 mode**。系统在 mode=hostname 且 specifier
+     * 为空时会忽略该配置，先切模式等于写了个无效状态。
+     * 失败不抛到 JS：JSObject 带 reason，前端按 granted/missing_write_secure_settings 分支引导。
+     */
+    @Command
+    fun setPrivateDns(invoke: Invoke) {
+        val mode = (invoke.getString("mode") ?: "auto").trim()
+        val host = (invoke.getString("host") ?: "").trim()
+        val cr = activity.applicationContext.contentResolver
+        val ret = JSObject()
+        try {
+            when (mode) {
+                "off" -> Settings.Global.putString(cr, KEY_PRIVATE_DNS_MODE, "off")
+                "auto" -> Settings.Global.putString(cr, KEY_PRIVATE_DNS_MODE, "opportunistic")
+                "hostname" -> {
+                    if (host.isEmpty()) {
+                        ret.put("ok", false)
+                        ret.put("reason", "empty_host")
+                        invoke.resolve(ret)
+                        return
+                    }
+                    Settings.Global.putString(cr, KEY_PRIVATE_DNS_SPECIFIER, host)
+                    Settings.Global.putString(cr, KEY_PRIVATE_DNS_MODE, "hostname")
+                }
+                else -> {
+                    ret.put("ok", false)
+                    ret.put("reason", "unknown_mode")
+                    invoke.resolve(ret)
+                    return
+                }
+            }
+        } catch (e: SecurityException) {
+            ret.put("ok", false)
+            ret.put("reason", "missing_write_secure_settings")
+            invoke.resolve(ret)
+            return
+        }
+        // 读回实际落库值：个别 ROM 会拒绝写入 @hide key 而不抛异常，读回才能确认生效
+        ret.put("ok", true)
+        ret.put("mode", Settings.Global.getString(cr, KEY_PRIVATE_DNS_MODE) ?: "")
+        ret.put("specifier", Settings.Global.getString(cr, KEY_PRIVATE_DNS_SPECIFIER) ?: "")
+        invoke.resolve(ret)
+    }
+
 
     /** 网络能力摘要：net/nonet（是否有互联网能力）+ val/unval（是否已验证）+ cp（captive portal） */
     private fun describe(caps: NetworkCapabilities): String = buildString {
@@ -655,6 +718,10 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     companion object {
+        /** 系统私人 DNS 设置键（Settings.Global 的 @hide 常量，只能写字面量） */
+        private const val KEY_PRIVATE_DNS_MODE = "private_dns_mode"
+        private const val KEY_PRIVATE_DNS_SPECIFIER = "private_dns_specifier"
+
         /** requestNetwork 的超时（毫秒）：网络不可用时走 onUnavailable，避免调用方无限等待 */
         private const val REQUEST_TIMEOUT_MS = 3000
 

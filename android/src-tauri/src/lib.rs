@@ -67,6 +67,8 @@ pub fn run() {
             protocol_cmds::accept_wifi_network,
             protocol_cmds::get_avoid_bad_wifi_status,
             protocol_cmds::restore_written_settings,
+            protocol_cmds::get_private_dns_status,
+            protocol_cmds::set_private_dns,
             protocol_cmds::check_portal_status,
             campus_detect::check_campus_status,
             campus_detect::request_wifi_ssid_permission,
