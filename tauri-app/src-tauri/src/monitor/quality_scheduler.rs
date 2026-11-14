@@ -44,7 +44,7 @@ async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapt
     let quality_val = match serde_json::to_value(&quality) {
         Ok(v) => v,
         Err(e) => {
-            crate::log_warn!("background", "序列化网络质量结果失败: {}", e);
+            crate::log_debug!("background", "序列化网络质量结果失败: {}", e);
             return None;
         }
     };
@@ -62,14 +62,14 @@ async fn perform_quality_check(app_handle: &AppHandle, adapter_name: &str, adapt
         crate::config::persist::append_quality_history(&history_app, &history_quality)
     }).await {
         Ok(Ok(())) => {}
-        Ok(Err(e)) => crate::log_warn!("background", "写入网络质量历史失败: {}", e),
-        Err(e) => crate::log_warn!("background", "网络质量历史写入任务失败: {}", e),
+        Ok(Err(e)) => crate::log_debug!("background", "写入网络质量历史失败: {}", e),
+        Err(e) => crate::log_debug!("background", "网络质量历史写入任务失败: {}", e),
     }
     if cancelled(&s.exit.is_quitting, cancel) {
         return None;
     }
     if let Err(e) = EventBus::new(app_handle).emit_network_quality_result(&quality_val) {
-        crate::log_warn!("background", "发送网络质量结果失败: {}", e);
+        crate::log_debug!("background", "发送网络质量结果失败: {}", e);
     }
     Some(quality_val)
 }

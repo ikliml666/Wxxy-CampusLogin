@@ -98,6 +98,8 @@ export interface Config {
   logRetentionDays: number
   /** 日志等级：debug | info | warning | error | silent（默认 warning） */
   logLevel: string
+  /** 模块级日志过滤（如 login=debug,monitor=info），空 = 只按全局等级 */
+  logModuleLevels?: string
   configSchemaVersion: number
   /** 当前激活账号的显示名（改名同步落盘）；空 → 回退用账号 id */
   displayName?: string

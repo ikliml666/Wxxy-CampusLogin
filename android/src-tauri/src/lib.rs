@@ -48,7 +48,7 @@ pub fn run() {
             .app_data_dir()
             .unwrap_or_else(|_| std::path::PathBuf::from("."))
             .join("logs");
-        if let Err(e) = campus_login_lib::infra::logger::init_logger(log_dir) {
+        if let Err(e) = campus_login_lib::infra::logger::init_logger_with_tag(log_dir, "ui") {
             eprintln!("[startup] 日志初始化失败,日志将不可用: {e}");
         }
         // UI 进程事件桥:core 广播 → WebView 事件
@@ -143,9 +143,8 @@ fn ui_startup(app: tauri::AppHandle) {
         };
         campus_login_lib::infra::logger::set_log_retention_days(settings.log_retention_days);
         // 日志等级以配置为准(默认 warning):init_logger 用默认等级起步,读到配置即应用
-        campus_login_lib::infra::logger::set_log_level(
-            campus_login_lib::infra::logger::log_level_from_config(&settings.log_level),
-        );
+        campus_login_lib::infra::logger::apply_config_level(&settings.log_level);
+        campus_login_lib::infra::logger::apply_module_levels(&settings.log_module_levels);
         if settings.enable_network_quality {
             let enable_latency = settings.enable_latency_test;
             let app2 = app.clone();

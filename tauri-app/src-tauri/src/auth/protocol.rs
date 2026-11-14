@@ -225,7 +225,8 @@ pub fn do_login_with_retry(user: &str, password: &str, operator: &str, adapter_i
             Err(e) => {
                 // 历史缺陷：请求失败只进 last_result，日志完全静默，
                 // 排障时只见连续"登录请求开始"而无任何失败原因
-                crate::log_warn!("login", "登录请求失败 [{}/{}]: {}", attempt, max_retries, e);
+                // 单次重试失败是过程信息，最终结果由上层统一记录
+                crate::log_debug!("login", "登录请求失败 [{}/{}]: {}", attempt, max_retries, e);
                 last_result = Some(serde_json::json!({ "code": "error", "message": e, "success": false, "retryable": true }));
             }
         }

@@ -69,7 +69,7 @@ pub async fn set_log_level(app: tauri::AppHandle, level: String) -> Result<Strin
     let name = parsed.as_config_str().to_string();
     let persisted = name.clone();
     crate::config_state::update(&app, move |s| s.log_level = persisted).await?;
-    campus_login_lib::infra::logger::set_log_level(parsed);
+    campus_login_lib::infra::logger::set_log_level_persisted(parsed);
     campus_login_lib::log_info!("system", "日志等级已切换为 {}", name);
     Ok(name)
 }

@@ -123,7 +123,7 @@ pub fn login_adapter_with_log(
                         if sec_status.online {
                             let event_bus = EventBus::new(app_handle);
                             if let Err(e) = event_bus.emit_login_log(&format!("{adapter_name} 已在线"), "success") {
-                                crate::log_warn!("login", "发送登录日志失败: {}", e);
+                                crate::log_debug!("login", "发送登录日志失败: {}", e);
                             }
                             return Some(CommandResult {
                                 success: true,

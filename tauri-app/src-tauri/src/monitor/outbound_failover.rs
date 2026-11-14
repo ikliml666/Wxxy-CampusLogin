@@ -512,7 +512,7 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
         .find(|(adapter, _)| adapter.name == current_name)
         .and_then(|(adapter, _)| health.get(&adapter.ip).copied())
     else {
-        crate::log_warn!("outbound", "当前出口 {} 公网探测未完成，本轮不计为断网", current_name);
+        crate::log_debug!("outbound", "当前出口 {} 公网探测未完成，本轮不计为断网", current_name);
         reset_state();
         return;
     };
@@ -539,7 +539,8 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
         return;
     }
     if failures != previous_failures {
-        crate::log_warn!("outbound", "当前出口 {} 公网不可达（连续 {}/{} 轮）", current_name, failures, required_failure_rounds());
+        // 连续失败计数是诊断细节：达到阈值后的切换/通知才是用户可见事件
+        crate::log_debug!("outbound", "当前出口 {} 公网不可达（连续 {}/{} 轮）", current_name, failures, required_failure_rounds());
     }
     if failures < required_failure_rounds() {
         return;

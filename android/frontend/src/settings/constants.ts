@@ -65,6 +65,7 @@ export const DEFAULT_CONFIG: Config = {
   autoLoginCooldownSecs: 60,
   logRetentionDays: 7,
   logLevel: 'warning',
+  logModuleLevels: '',
   // 对齐后端 config_schema_version(2026-09-20 v5→v6:质量间隔 60s→600s 迁移)
   configSchemaVersion: 7,
 }

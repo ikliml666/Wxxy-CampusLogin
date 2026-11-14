@@ -92,6 +92,8 @@ pub fn full_login(state: &AppState, app_handle: &AppHandle, adapter_name: Option
         return CommandResult::err("用户名或密码为空");
     }
 
+    // 日志脱敏兜底：登记本次登录密码，任何误拼进日志的消息都会被自动打码
+    crate::infra::logger::register_secret(&config.password);
     crate::log_info!("login", "开始登录, 用户: {}{}, 指定适配器: {:?}", config.user, config.operator, adapter_name);
 
     let adapters = match get_adapters_cached() {

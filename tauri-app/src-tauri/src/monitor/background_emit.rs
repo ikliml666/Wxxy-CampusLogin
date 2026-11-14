@@ -162,7 +162,7 @@ pub(super) fn emit_background_check_result(
         "a1OnCampus": result.a1_on_campus,
         "a2OnCampus": result.a2_on_campus,
     })) {
-        crate::log_warn!("background", "发送后台检测结果失败: {}", e);
+        crate::log_debug!("background", "发送后台检测结果失败: {}", e);
     }
 }
 

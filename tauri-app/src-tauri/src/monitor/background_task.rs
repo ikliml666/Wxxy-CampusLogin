@@ -177,7 +177,7 @@ pub fn spawn_background_check_after_outbound_restore(app_handle: &AppHandle) {
         .unwrap_or(POST_RESTORE_IP_WAIT_MAX_MS);
 
         if waited >= POST_RESTORE_IP_WAIT_MAX_MS {
-            crate::log_warn!(
+            crate::log_debug!(
                 "background",
                 "夜间出站还原后补检: 等待 {}ms 仍未读到适配器 IP，仍发起巡检（下一巡检周期会继续重试）",
                 waited

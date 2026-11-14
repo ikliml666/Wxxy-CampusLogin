@@ -278,6 +278,8 @@ pub async fn change_self_password(
 ) -> Result<CommandResult, String> {
     let account = account.trim();
     let new_password = new_password.trim();
+    crate::infra::logger::register_secret(new_password);
+    crate::infra::logger::register_secret(&password);
     if account.is_empty() {
         return Ok(CommandResult::err("请输入学号"));
     }

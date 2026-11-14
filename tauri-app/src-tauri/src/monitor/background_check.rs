@@ -609,14 +609,26 @@ fn trigger_fast_quality_check(
         let event_bus = crate::infra::events::EventBus::new(&app_h);
         match result {
             Some(_) if internet_ok => {
-                crate::log_info!("background", "快排查结论：互联网可访问（外网站点可达）");
+                crate::log_kv!(
+                    crate::infra::logger::LogLevel::Info,
+                    "background",
+                    "快排查结论：互联网可访问（外网站点可达）",
+                    probe = "portal_plus_external",
+                    internet_ok = true,
+                );
                 let _ = event_bus.emit_login_log(
                     "门户暂不可达，但互联网访问正常（外网站点可达），继续观察",
                     "info",
                 );
             }
             Some(_) => {
-                crate::log_warn!("background", "快排查结论：互联网不可访问（全部外网站点失败）");
+                crate::log_kv!(
+                    crate::infra::logger::LogLevel::Warn,
+                    "background",
+                    "快排查结论：互联网不可访问（全部外网站点失败）",
+                    probe = "portal_plus_external",
+                    internet_ok = false,
+                );
                 let _ = event_bus.emit_login_log(
                     "门户与外网站点均不可达，互联网已中断，可能已被踢下线或网络故障",
                     "warning",

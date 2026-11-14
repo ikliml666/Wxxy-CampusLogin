@@ -216,6 +216,10 @@ pub struct Config {
     /// 日志在入口过滤，不产生格式化与写盘开销；silent 为完全关闭
     #[serde(rename = "logLevel", default = "default_log_level")]
     pub log_level: String,
+    /// 模块级日志过滤（如 login=debug,monitor=info），空 = 只按全局等级过滤。
+    /// 环境变量 CAMPUS_LOG_FILTER 存在时以环境变量为准
+    #[serde(rename = "logModuleLevels", default)]
+    pub log_module_levels: String,
     #[serde(rename = "maxDisconnectReconnect", default = "default_max_disconnect_reconnect")]
     pub max_disconnect_reconnect: u32,
     #[serde(rename = "autoLoginCooldownSecs", default = "default_auto_login_cooldown_secs")]
@@ -396,6 +400,7 @@ impl Default for Config {
             scheduled_logout_minutes: 1440,
             log_retention_days: 7,
             log_level: default_log_level(),
+            log_module_levels: String::new(),
             max_disconnect_reconnect: 3,
             auto_login_cooldown_secs: 60,
             enable_mac_renew_on_auth_error: true,

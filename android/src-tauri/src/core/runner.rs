@@ -44,7 +44,7 @@ pub fn start(data_dir: PathBuf, platform: Arc<dyn CorePlatform>) {
         eprintln!("[core] nativeStart 重复调用,忽略(旧 runtime 未释放)");
         return;
     }
-    if let Err(e) = campus_login_lib::infra::logger::init_logger(data_dir.join("logs")) {
+    if let Err(e) = campus_login_lib::infra::logger::init_logger_with_tag(data_dir.join("logs"), "core") {
         eprintln!("[core] 日志初始化失败: {e}");
     }
     let rt = match tokio::runtime::Builder::new_multi_thread()
@@ -97,9 +97,8 @@ async fn boot(ctx: CoreCtx) {
         }
     };
     campus_login_lib::infra::logger::set_log_retention_days(settings.log_retention_days);
-    campus_login_lib::infra::logger::set_log_level(
-        campus_login_lib::infra::logger::log_level_from_config(&settings.log_level),
-    );
+    campus_login_lib::infra::logger::apply_config_level(&settings.log_level);
+    campus_login_lib::infra::logger::apply_module_levels(&settings.log_module_levels);
     let running = boot_plan(settings.enable_background_check) == BootPlan::StartMonitor;
     if running {
         if let Err(e) = crate::core::monitor::start_background_check(ctx.clone()).await {

@@ -1,15 +1,18 @@
+use std::borrow::Cow;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufWriter, Write as IoWrite};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{sync_channel, Sender, SyncSender, TryRecvError};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering as AtomicOrdering};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 use arc_swap::ArcSwap;
-use parking_lot::Mutex;
-use std::time::Instant;
 use chrono::Local;
+use parking_lot::{Mutex, RwLock};
 
 const MAX_LOG_SIZE: u64 = 5 * 1024 * 1024;
-const MAX_LOG_FILES: usize = 5;
+/// 文件数安全阀：正常靠保留天数清理，这里只防"一天内疯狂轮转"把目录撑爆
+const MAX_LOG_FILES: usize = 50;
 const FLUSH_INTERVAL_MS: u64 = 2000;
 const CHANNEL_CAPACITY: usize = 1024;
 /// 审计 A17：日志通道改为有界（原为无界 channel——写盘卡顿时队列无上限增长，
@@ -17,14 +20,26 @@ const CHANNEL_CAPACITY: usize = 1024;
 const LOG_CHANNEL_CAPACITY: usize = 8192;
 /// 审计 A17：发送端丢弃计数——通道满时 try_send 失败即丢弃（不阻塞调用方），
 /// worker 周期性汇总。丢弃报告条件：距上次报告 ≥30s 或累计 ≥1000 条。
-const DROP_REPORT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(30);
 const DROP_REPORT_THRESHOLD: u64 = 1000;
+/// 跨进程等级同步周期：安卓 UI 与 :core 各自持有一份等级，靠等级文件对齐。
+/// 每 30s 读一次几十字节的小文件，开销可忽略。
+const LEVEL_SYNC_INTERVAL: Duration = Duration::from_secs(30);
 static LOG_DROPPED: AtomicU64 = AtomicU64::new(0);
 
 static LOG_RETENTION_DAYS: AtomicU32 = AtomicU32::new(7);
 /// init_logger 记录的实际日志目录，供 set_log_retention_days 应用即清理用
-/// （clear_logs 重建 worker 时目录不变，无需更新）
-static LOG_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
+/// 进程角色：桌面主进程 "app"、安卓 UI "ui"、安卓 :core "core"。用于日志文件名
+/// 分段，避免两个进程向同一个文件交错写入
+static LOG_TAG: OnceLock<String> = OnceLock::new();
+/// 跨进程共享的等级文件（单行等级字符串），UI 切换等级时写入，各进程 worker 轮询同步
+static LEVEL_FILE_PATH: OnceLock<PathBuf> = OnceLock::new();
+/// 启动期覆盖（环境变量 / 命令行），优先级高于配置文件与界面设置
+static ENV_LEVEL: OnceLock<Option<LogLevel>> = OnceLock::new();
+/// 环境变量里的模块过滤是否已生效：生效时忽略配置里的同名字段，避免被覆盖
+static ENV_FILTER_APPLIED: OnceLock<bool> = OnceLock::new();
+static LEVEL_FILE_STAMP: Mutex<Option<std::time::SystemTime>> = Mutex::new(None);
 
 pub fn set_log_retention_days(days: u32) {
     LOG_RETENTION_DAYS.store(days, AtomicOrdering::Relaxed);
@@ -99,6 +114,40 @@ pub fn log_level_from_config(raw: &str) -> LogLevel {
     LogLevel::from_config_str(raw).unwrap_or(LogLevel::Warn)
 }
 
+/// 解析模块级过滤规格：login=debug,monitor=info；空串合法（表示不过滤）。
+pub fn parse_module_levels(spec: &str) -> Result<Vec<(String, LogLevel)>, String> {
+    let mut out = Vec::new();
+    for part in spec.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let (name, raw_level) = part
+            .split_once('=')
+            .ok_or_else(|| format!("模块等级项缺少 '=': {part}"))?;
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(format!("模块等级项模块名为空: {part}"));
+        }
+        let level = LogLevel::from_config_str(raw_level)
+            .ok_or_else(|| format!("模块等级项等级未知: {part}"))?;
+        out.push((name.to_string(), level));
+    }
+    Ok(out)
+}
+
+/// 应用模块级过滤（配置字段 logModuleLevels / 环境变量 CAMPUS_LOG_FILTER）。
+/// 环境变量已生效时忽略配置值：环境变量是启动期诊断开关，语义上优先级最高。
+pub fn apply_module_levels(spec: &str) {
+    if ENV_FILTER_APPLIED.get().copied().unwrap_or(false) {
+        return;
+    }
+    match parse_module_levels(spec) {
+        Ok(levels) => MODULE_LEVELS.store(std::sync::Arc::new(levels)),
+        Err(e) => eprintln!("[logger] 忽略非法的模块级过滤配置: {e}"),
+    }
+}
+
 enum LogMessage {
     Entry { line: String },
     Flush { ack: Sender<()> },
@@ -116,16 +165,86 @@ lazy_static::lazy_static! {
     static ref LOGGER_SENDER: ArcSwap<Option<SyncSender<LogMessage>>> = ArcSwap::from(std::sync::Arc::new(None));
     static ref CLEAR_LOGS_MUTEX: Mutex<()> = Mutex::new(());
     static ref LOGGER_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
+    /// 当前生效的最低等级（已合并环境变量覆盖）
     static ref MIN_LOG_LEVEL: ArcSwap<LogLevel> = ArcSwap::from(std::sync::Arc::new(LogLevel::Warn));
+    /// 配置/界面设定的等级原值（不含环境变量覆盖），用于与等级文件比较
+    static ref CONFIG_LEVEL: ArcSwap<LogLevel> = ArcSwap::from(std::sync::Arc::new(LogLevel::Warn));
+    /// 模块级覆盖表（模块名 → 最低等级）；为空时 log() 只查全局阈值
+    static ref MODULE_LEVELS: ArcSwap<Vec<(String, LogLevel)>> = ArcSwap::from(std::sync::Arc::new(Vec::new()));
+    /// 敏感值黑名单：register_secret 登记后，任何日志消息里的该值都会被替换为星号
+    static ref SECRETS: RwLock<Vec<String>> = RwLock::new(Vec::new());
 }
 
-pub fn init_logger(log_dir: PathBuf) -> Result<(), String> {
+fn current_tag() -> &'static str {
+    LOG_TAG.get().map(|s| s.as_str()).unwrap_or("app")
+}
+
+/// 日志文件名：桌面主进程沿用旧格式 app-<日期>.log，其余进程/核心加角色段，
+/// 避免安卓 UI 与 :core 两个进程往同一文件交错写
+fn log_file_name(tag: &str, date: &str) -> String {
+    if tag == "app" {
+        format!("app-{date}.log")
+    } else {
+        format!("app-{tag}-{date}.log")
+    }
+}
+
+fn level_file_path() -> Option<&'static PathBuf> {
+    LEVEL_FILE_PATH.get()
+}
+
+/// 环境变量 CAMPUS_LOG_LEVEL 或命令行 --log-level 的启动期覆盖
+fn startup_level_override() -> Option<LogLevel> {
+    if let Ok(raw) = std::env::var("CAMPUS_LOG_LEVEL") {
+        if let Some(level) = LogLevel::from_config_str(&raw) {
+            return Some(level);
+        }
+    }
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 0;
+    while i < args.len() {
+        if let Some(v) = args[i].strip_prefix("--log-level=") {
+            return LogLevel::from_config_str(v);
+        }
+        if args[i] == "--log-level" {
+            return args.get(i + 1).and_then(|v| LogLevel::from_config_str(v));
+        }
+        i += 1;
+    }
+    None
+}
+
+fn env_level() -> Option<LogLevel> {
+    ENV_LEVEL.get().copied().flatten()
+}
+
+/// tag 为进程角色（"app" / "ui" / "core"）：决定日志文件名分段，并让各进程
+/// 共享同一个等级文件实现跨进程等级同步。重复调用保留首次 tag。
+pub fn init_logger_with_tag(log_dir: PathBuf, tag: &str) -> Result<(), String> {
     if let Err(e) = fs::create_dir_all(&log_dir) {
         eprintln!("创建日志目录失败: {e}");
     }
     let _ = LOG_DIR.set(log_dir.clone());
+    let _ = LOG_TAG.set(tag.to_string());
+    let _ = LEVEL_FILE_PATH.set(log_dir.join(".log-level"));
+
+    // 启动期覆盖：环境变量/命令行 > 等级文件 > 配置文件（配置文件在 startup 后应用）
+    let _ = ENV_LEVEL.set(startup_level_override());
+    if let Ok(filter) = std::env::var("CAMPUS_LOG_FILTER") {
+        match parse_module_levels(&filter) {
+            Ok(levels) => {
+                MODULE_LEVELS.store(std::sync::Arc::new(levels));
+                let _ = ENV_FILTER_APPLIED.set(true);
+            }
+            Err(e) => eprintln!("[logger] 忽略非法的 CAMPUS_LOG_FILTER: {e}"),
+        }
+    }
+    if let Some(level) = read_level_file() {
+        set_log_level(level);
+    }
+
     let today = Local::now().format("%Y-%m-%d").to_string();
-    let log_path = log_dir.join(format!("app-{today}.log"));
+    let log_path = log_dir.join(log_file_name(current_tag(), &today));
 
     let writer = OpenOptions::new()
         .create(true)
@@ -179,6 +298,7 @@ fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<Log
     let mut last_cleanup = std::time::Instant::now();
     // 审计 A17：丢弃计数周期汇总的计时起点
     let mut last_drop_report = std::time::Instant::now();
+    let mut last_level_sync = std::time::Instant::now();
     const CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3600);
     // BE-C-01: 批量落盘阈值——累计到该条数或距上次落盘超过 FLUSH_INTERVAL_MS 才写盘，
     // 避免低速时每条日志都触发一次 write+flush 使 BufWriter 形同虚设。
@@ -207,6 +327,12 @@ fn logger_worker(mut state: LoggerState, receiver: std::sync::mpsc::Receiver<Log
                     last_cleanup = std::time::Instant::now();
                 }
             }
+        }
+
+        // 跨进程等级同步：UI 进程切换等级后写等级文件，:core 进程在这里跟随
+        if last_level_sync.elapsed() >= LEVEL_SYNC_INTERVAL {
+            sync_level_from_file();
+            last_level_sync = std::time::Instant::now();
         }
 
         drain_channel(&receiver, &mut buffer);
@@ -307,8 +433,19 @@ fn flush_messages(state: &mut LoggerState, buffer: &mut Vec<LogMessage>) {
 fn rotate_if_needed(state: &mut LoggerState) {
     let today = Local::now().format("%Y-%m-%d").to_string();
     if today != state.current_date {
-        state.current_date = today.clone();
-        let log_path = state.log_dir.join(format!("app-{today}.log"));
+        let previous = std::mem::replace(&mut state.current_date, today.clone());
+        // 跨天：关掉旧 writer 后把前一天的文件压缩归档（.log.gz），
+        // 之后按保留天数清理时同时处理 .log 与 .log.gz
+        if let Some(mut writer) = state.current_writer.take() {
+            let _ = writer.flush();
+        }
+        let prev_path = state.log_dir.join(log_file_name(current_tag(), &previous));
+        if prev_path.exists() {
+            if let Err(e) = compress_log_file(&prev_path) {
+                eprintln!("[logger] 日志归档压缩失败({}): {e}", prev_path.display());
+            }
+        }
+        let log_path = state.log_dir.join(log_file_name(current_tag(), &today));
         state.current_writer = OpenOptions::new()
             .create(true)
             .append(true)
@@ -324,8 +461,13 @@ fn rotate_if_needed(state: &mut LoggerState) {
         if let Ok(meta) = file.metadata() {
             if meta.len() > MAX_LOG_SIZE {
                 let timestamp = Local::now().format("%Y%m%d%H%M%S");
-                let rotated = state.log_dir.join(format!("app-{timestamp}.log"));
-                let current = state.log_dir.join(format!("app-{}.log", state.current_date));
+                let tag = current_tag();
+                let rotated = state.log_dir.join(if tag == "app" {
+                    format!("app-{timestamp}.log")
+                } else {
+                    format!("app-{tag}-{timestamp}.log")
+                });
+                let current = state.log_dir.join(log_file_name(tag, &state.current_date));
                 if fs::rename(&current, &rotated).is_ok() {
                     cleanup_old_logs(&state.log_dir);
                 } else {
@@ -335,7 +477,7 @@ fn rotate_if_needed(state: &mut LoggerState) {
                     }
                 }
 
-                let new_path = state.log_dir.join(format!("app-{}.log", state.current_date));
+                let new_path = state.log_dir.join(log_file_name(tag, &state.current_date));
                 state.current_writer = OpenOptions::new()
                     .create(true)
                     .append(true)
@@ -348,12 +490,27 @@ fn rotate_if_needed(state: &mut LoggerState) {
     }
 }
 
-fn cleanup_old_logs(log_dir: &PathBuf) {
+/// 把已结束的日志文件压成 .log.gz（原始文件删除）。压缩失败时保留原文件，
+/// 调用方只记 stderr——归档失败不影响继续写日志。
+fn compress_log_file(path: &Path) -> std::io::Result<()> {
+    let src = File::open(path)?;
+    let gz_path = PathBuf::from(format!("{}.gz", path.display()));
+    let out = File::create(&gz_path)?;
+    let mut encoder = flate2::write::GzEncoder::new(BufWriter::new(out), flate2::Compression::default());
+    std::io::copy(&mut BufReader::new(src), &mut encoder)?;
+    encoder.finish()?.flush()?;
+    fs::remove_file(path)?;
+    Ok(())
+}
+
+/// 文件数安全阀：正常情况下按保留天数清理；只有单日高频轮转时才靠这里兜底
+fn cleanup_old_logs(log_dir: &Path) {
     if let Ok(entries) = fs::read_dir(log_dir) {
         let mut files: Vec<(std::time::SystemTime, PathBuf)> = entries
             .flatten()
             .filter(|e| {
-                e.path().extension().and_then(|e| e.to_str()) == Some("log")
+                let name = e.file_name().to_string_lossy().to_string();
+                is_app_log_file(&name)
             })
             .filter_map(|e| {
                 let path = e.path();
@@ -383,6 +540,10 @@ fn cleanup_old_logs_by_time(log_dir: &Path, retention_days: u32) {
     };
     if let Ok(entries) = fs::read_dir(log_dir) {
         for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !is_app_log_file(&name) {
+                continue;
+            }
             if let Ok(metadata) = entry.metadata() {
                 if let Ok(modified) = metadata.modified() {
                     if modified < cutoff {
@@ -394,12 +555,24 @@ fn cleanup_old_logs_by_time(log_dir: &Path, retention_days: u32) {
     }
 }
 
+/// 模块级覆盖优先于全局阈值；模块表通常为空，空表时只多一次 is_empty 判断
+fn module_threshold(module: &str) -> LogLevel {
+    let table = MODULE_LEVELS.load();
+    if !table.is_empty() {
+        if let Some((_, level)) = table.iter().find(|(name, _)| name == module) {
+            return *level;
+        }
+    }
+    **MIN_LOG_LEVEL.load()
+}
+
 pub fn log(level: LogLevel, module: &str, message: &str) {
-    if level < **MIN_LOG_LEVEL.load() {
+    if level < module_threshold(module) {
         return;
     }
 
-    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f%:z");
+    let message = redact(message);
     let line = format!("[{}] [{}] [{}] {}\n", timestamp, level.as_str(), module, message);
 
     if let Some(sender) = LOGGER_SENDER.load().as_ref().clone() {
@@ -422,8 +595,76 @@ pub fn log(level: LogLevel, module: &str, message: &str) {
     }
 }
 
+/// 登记敏感值（密码、密文等）：此后任何日志消息里出现该值都会被替换成三个星号。
+/// 短于 4 个字符的值不登记——太短会误伤正常文本。上限 8 条，超出淘汰最旧的。
+pub fn register_secret(value: &str) {
+    let value = value.trim();
+    if value.len() < 4 {
+        return;
+    }
+    let mut secrets = SECRETS.write();
+    if secrets.iter().any(|s| s == value) {
+        return;
+    }
+    if secrets.len() >= 8 {
+        secrets.remove(0);
+    }
+    secrets.push(value.to_string());
+}
+
+fn redact(message: &str) -> Cow<'_, str> {
+    let secrets = SECRETS.read();
+    if secrets.is_empty() {
+        return Cow::Borrowed(message);
+    }
+    let mut out: Option<String> = None;
+    for secret in secrets.iter() {
+        if out.is_none() && message.contains(secret.as_str()) {
+            out = Some(message.to_string());
+        }
+        if let Some(buf) = out.as_mut() {
+            if buf.contains(secret.as_str()) {
+                *buf = buf.replace(secret.as_str(), "***");
+            }
+        }
+    }
+    match out {
+        Some(s) => Cow::Owned(s),
+        None => Cow::Borrowed(message),
+    }
+}
+
+/// 结构化字段值转义：引号/反斜杠/换行都必须转义，否则 k="v" 无法被解析回原值
+pub fn escape_field(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace(['\n', '\r'], " ")
+}
+
+/// 带结构化字段的日志：msg key="value" key2="value2"；前缀四段格式不变，
+/// 前端解析与旧日志兼容。字段为空时等价于普通 log()。
+pub fn log_fields(level: LogLevel, module: &str, message: &str, fields: &[(&str, String)]) {
+    if fields.is_empty() {
+        log(level, module, message);
+        return;
+    }
+    let mut buf = String::with_capacity(message.len() + fields.len() * 32);
+    buf.push_str(message);
+    for (key, value) in fields {
+        buf.push(' ');
+        buf.push_str(key);
+        buf.push_str("=\"");
+        buf.push_str(&escape_field(value));
+        buf.push('"');
+    }
+    log(level, module, &buf);
+}
+
 pub fn set_log_level(level: LogLevel) {
-    MIN_LOG_LEVEL.store(std::sync::Arc::new(level));
+    CONFIG_LEVEL.store(std::sync::Arc::new(level));
+    let effective = env_level().unwrap_or(level);
+    MIN_LOG_LEVEL.store(std::sync::Arc::new(effective));
 }
 
 pub fn get_log_level() -> LogLevel {
@@ -434,6 +675,65 @@ pub fn get_log_level() -> LogLevel {
 /// 字段只区分 debug/info 两态，无法表达 warning/error/silent）
 pub fn get_log_level_name() -> &'static str {
     get_log_level().as_config_str()
+}
+
+fn read_level_file() -> Option<LogLevel> {
+    let path = level_file_path()?;
+    let content = fs::read_to_string(path).ok()?;
+    content.lines().next().and_then(LogLevel::from_config_str)
+}
+
+/// 写跨进程等级文件（单行等级）。失败只报 stderr，不影响命令结果
+fn persist_level_file(level: LogLevel) {
+    let Some(path) = level_file_path() else {
+        return;
+    };
+    if let Err(e) = fs::write(path, format!("{}\n", level.as_config_str())) {
+        eprintln!("[logger] 写等级文件失败({}): {e}", path.display());
+    }
+}
+
+/// 按配置文件应用等级：写回等级文件，保证下次其它进程启动读到同一值
+pub fn apply_config_level(raw: &str) {
+    let level = log_level_from_config(raw);
+    set_log_level(level);
+    // 环境变量覆盖生效时不写文件，避免把诊断用临时等级固化成跨进程默认值
+    if env_level().is_none() {
+        persist_level_file(level);
+    }
+}
+
+/// 界面切换等级：运行期立即生效，并写等级文件供其它进程（安卓 :core）跟随
+pub fn set_log_level_persisted(level: LogLevel) {
+    set_log_level(level);
+    if env_level().is_none() {
+        persist_level_file(level);
+    }
+}
+
+/// worker 周期调用：等级文件被其它进程改写后应用到本进程
+fn sync_level_from_file() {
+    let Some(path) = level_file_path() else {
+        return;
+    };
+    let Ok(metadata) = fs::metadata(path) else {
+        return;
+    };
+    let Ok(modified) = metadata.modified() else {
+        return;
+    };
+    {
+        let mut stamp = LEVEL_FILE_STAMP.lock();
+        if stamp.as_ref() == Some(&modified) {
+            return;
+        }
+        *stamp = Some(modified);
+    }
+    if let Some(level) = read_level_file() {
+        if level != **CONFIG_LEVEL.load() {
+            set_log_level(level);
+        }
+    }
 }
 
 #[macro_export]
@@ -464,6 +764,15 @@ macro_rules! log_error {
     };
 }
 
+/// 带结构化字段的日志：crate::log_kv!(LogLevel::Info, "login", "登录完成", user = u, elapsed_ms = n)
+#[macro_export]
+macro_rules! log_kv {
+    ($level:expr, $module:expr, $msg:expr $(, $key:ident = $val:expr)* $(,)?) => {{
+        let fields: Vec<(&str, String)> = vec![$((stringify!($key), $val.to_string())),*];
+        $crate::infra::logger::log_fields($level, $module, $msg, &fields)
+    }};
+}
+
 #[cfg(target_os = "android")]
 pub fn get_log_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     use tauri::Manager;
@@ -488,27 +797,19 @@ pub fn get_log_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     install_dir.join("logs")
 }
 
-pub fn read_recent_logs(app_handle: &tauri::AppHandle, lines: usize) -> Result<String, String> {
-    use std::io::{Read, Seek, SeekFrom};
-
-    let log_dir = get_log_dir(app_handle);
-    let today = Local::now().format("%Y-%m-%d").to_string();
-    let log_path = log_dir.join(format!("app-{today}.log"));
-
-    if !log_path.exists() {
-        return Ok(String::new());
+/// 从文件尾部按块倒读，只解析所需尾部 N 行（BE-C-01）。窗口按 2 倍增长向后扩展
+/// （从 8KB 起），直到尾部字节行数满足要求或覆盖整个文件；跨块行边界由连续字节流
+/// 自然拼接还原，仅窗口起点可能截断首行（该行在取尾部 N 行时被丢弃）。
+fn read_tail_lines(log_path: &Path, lines: usize) -> Result<Vec<String>, String> {
+    if lines == 0 || !log_path.exists() {
+        return Ok(Vec::new());
     }
-
-    let mut file = File::open(&log_path).map_err(|e| format!("读取日志失败: {e}"))?;
+    let mut file = File::open(log_path).map_err(|e| format!("读取日志失败: {e}"))?;
     let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
-    if file_len == 0 || lines == 0 {
-        return Ok(String::new());
+    if file_len == 0 {
+        return Ok(Vec::new());
     }
 
-    // BE-C-01: 从文件尾部按块倒读，只解析所需尾部 N 行，替代"整读最多 5MB 文件 + 全量 collect"。
-    // 窗口按 2 倍增长向后扩展（从 8KB 起），直到尾部字节行数满足要求或覆盖整个文件；
-    // 用 str::lines() 语义解析（与旧实现一致，保留行数截断语义），跨块行边界由
-    // 连续字节流自然拼接还原，仅窗口起点可能截断首行（该行在取尾部 N 行时被丢弃）。
     const BASE_WINDOW: u64 = 8192;
     let mut window = BASE_WINDOW;
     let mut tail: Vec<u8> = Vec::new();
@@ -522,14 +823,49 @@ pub fn read_recent_logs(app_handle: &tauri::AppHandle, lines: usize) -> Result<S
 
         let text = String::from_utf8_lossy(&tail);
         let count = text.lines().count();
-        // 需要 count >= lines + 1：保证窗口首行的不完整残片能被丢弃，只保留完整行
         if count >= lines.saturating_add(1) || read_start == 0 {
             let all_lines: Vec<&str> = text.lines().collect();
             let start = all_lines.len().saturating_sub(lines);
-            return Ok(all_lines[start..].join("\n"));
+            return Ok(all_lines[start..].iter().map(|s| s.to_string()).collect());
         }
         window = (window * 2).min(file_len.max(1));
     }
+}
+
+fn line_timestamp(line: &str) -> &str {
+    line.strip_prefix('[')
+        .and_then(|rest| rest.split_once(']'))
+        .map(|(ts, _)| ts)
+        .unwrap_or("")
+}
+
+/// 读取当天所有进程日志（桌面 app-<日期>.log、安卓 app-ui-/app-core-），
+/// 各取尾部 N 行后按时间戳合并排序，返回最近 N 行
+pub fn read_recent_logs(app_handle: &tauri::AppHandle, lines: usize) -> Result<String, String> {
+    let log_dir = get_log_dir(app_handle);
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let suffix = format!("-{today}.log");
+    let mut paths: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&log_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if is_app_log_file(&name) && name.ends_with(&suffix) {
+                paths.push(entry.path());
+            }
+        }
+    }
+    if paths.is_empty() {
+        return Ok(String::new());
+    }
+    paths.sort();
+
+    let mut rows: Vec<String> = Vec::new();
+    for path in &paths {
+        rows.extend(read_tail_lines(path, lines)?);
+    }
+    rows.sort_by(|a, b| line_timestamp(a).cmp(line_timestamp(b)));
+    let start = rows.len().saturating_sub(lines);
+    Ok(rows[start..].join("\n"))
 }
 
 pub fn flush() {
@@ -571,11 +907,11 @@ pub fn shutdown() {
     }
 }
 
-/// 判断文件名是否为本应用日志文件（app- 前缀 + .log 后缀）。
+/// 判断文件名是否为本应用日志文件（app- 前缀 + .log / .log.gz 后缀）。
 /// clear_logs 只删应用自身日志，避免误删日志目录内的其他文件；
 /// export_diagnostics 复用同一判断挑选需打包的日志。
 pub fn is_app_log_file(name: &str) -> bool {
-    name.starts_with("app-") && name.ends_with(".log")
+    name.starts_with("app-") && (name.ends_with(".log") || name.ends_with(".log.gz"))
 }
 
 pub fn clear_logs(app_handle: &tauri::AppHandle) -> Result<(), String> {
@@ -661,7 +997,6 @@ mod tests {
         assert_eq!(LogLevel::from_config_str("off"), Some(LogLevel::Silent));
         assert_eq!(LogLevel::from_config_str("none"), Some(LogLevel::Silent));
         assert_eq!(LogLevel::from_config_str("nonsense"), None);
-        // 未知/空值回落默认等级，不挡住配置加载
         assert_eq!(log_level_from_config(""), LogLevel::Warn);
         assert_eq!(log_level_from_config("nonsense"), LogLevel::Warn);
     }
@@ -674,20 +1009,52 @@ mod tests {
     }
 
     #[test]
+    fn module_level_spec_parses_and_rejects_bad_items() {
+        let parsed = parse_module_levels("login=debug, monitor=info").unwrap();
+        assert_eq!(parsed, vec![
+            ("login".to_string(), LogLevel::Debug),
+            ("monitor".to_string(), LogLevel::Info),
+        ]);
+        assert!(parse_module_levels("").unwrap().is_empty());
+        assert!(parse_module_levels("login").is_err());
+        assert!(parse_module_levels("=debug").is_err());
+        assert!(parse_module_levels("login=loud").is_err());
+    }
+
+    #[test]
+    fn log_file_name_keeps_legacy_desktop_name() {
+        assert_eq!(log_file_name("app", "2026-11-14"), "app-2026-11-14.log");
+        assert_eq!(log_file_name("ui", "2026-11-14"), "app-ui-2026-11-14.log");
+        assert_eq!(log_file_name("core", "2026-11-14"), "app-core-2026-11-14.log");
+    }
+
+    #[test]
+    fn escape_field_escapes_quotes_and_newlines() {
+        assert_eq!(escape_field("a\"b\\c\nd"), "a\\\"b\\\\c d");
+    }
+
+    #[test]
+    fn secrets_are_redacted_from_messages() {
+        register_secret("S3cretPass!");
+        register_secret("ab");
+        assert_eq!(redact("user=alice pass=S3cretPass! ok"), "user=alice pass=*** ok");
+        assert_eq!(redact("nothing sensitive"), "nothing sensitive");
+    }
+
+    #[test]
     fn is_app_log_file_positive() {
         assert!(is_app_log_file("app-2026-09-13.log"));
         assert!(is_app_log_file("app-20260913120000.log"));
+        assert!(is_app_log_file("app-ui-2026-09-13.log"));
+        assert!(is_app_log_file("app-2026-09-13.log.gz"));
     }
 
     #[test]
     fn is_app_log_file_negative() {
         assert!(!is_app_log_file("other.txt"));
-        // .log.bak 后缀不是 .log 结尾
         assert!(!is_app_log_file("app-.log.bak"));
         assert!(!is_app_log_file("config.json"));
-        // 无后缀
         assert!(!is_app_log_file("app-2026-09-13"));
-        // 前缀不符
         assert!(!is_app_log_file("client-2026-09-13.log"));
     }
 }

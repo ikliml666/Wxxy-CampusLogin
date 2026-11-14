@@ -128,11 +128,11 @@ pub(super) fn verify_adapter_portal_online(adapter_name: &str, is_quitting: &std
                         adapter_name,
                         status.message
                     ),
-                    Err(e) => crate::log_warn!("auto_login", "登录后Portal复核失败 [{}/{}]: {}: {}", attempt, MAX_ATTEMPTS, adapter_name, e),
+                    Err(e) => crate::log_debug!("auto_login", "登录后Portal复核失败 [{}/{}]: {}: {}", attempt, MAX_ATTEMPTS, adapter_name, e),
                 },
-                None => crate::log_warn!("auto_login", "登录后Portal复核 [{}/{}]: 未找到适配器 {}", attempt, MAX_ATTEMPTS, adapter_name),
+                None => crate::log_debug!("auto_login", "登录后Portal复核 [{}/{}]: 未找到适配器 {}", attempt, MAX_ATTEMPTS, adapter_name),
             },
-            Err(e) => crate::log_warn!("auto_login", "登录后复核获取适配器失败 [{}/{}]: {}", attempt, MAX_ATTEMPTS, e),
+            Err(e) => crate::log_debug!("auto_login", "登录后复核获取适配器失败 [{}/{}]: {}", attempt, MAX_ATTEMPTS, e),
         }
         if attempt < MAX_ATTEMPTS {
             for _ in 0..5 {

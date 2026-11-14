@@ -315,7 +315,7 @@ pub async fn set_log_level(app_handle: AppHandle, level: String) -> Result<Strin
     .await
     .map_err(|e| format!("日志等级落盘任务失败: {e}"))??;
     let applied = crate::infra::logger::log_level_from_config(&saved_name);
-    crate::infra::logger::set_log_level(applied);
+    crate::infra::logger::set_log_level_persisted(applied);
     // 先生效再记录：切到 silent 时这条不会写入（符合"完全关闭"语义）
     crate::log_info!("system", "日志等级已切换为 {}", applied.as_config_str());
     Ok(applied.as_config_str().to_string())

@@ -214,7 +214,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
         LatencyTask::Gateway { name, target } => {
             let (lat, lat_type) = tcp_then_icmp_latency(&target, &[80, 53], 800, ctx.bind_addr).await;
             if lat < 0 {
-                crate::log_warn!("quality", "网关测试失败 [{}]: {} (TCP和ICMP均不可达)", name, target);
+                crate::log_debug!("quality", "网关测试失败 [{}]: {} (TCP和ICMP均不可达)", name, target);
             }
             LatencyResult { name, target, latency: lat, lat_type: lat_type.to_string(), is_external: false, dns_ms: -1, tcp_ms: -1, tls_ms: -1, udp_ms: -1, ttfb_ms: -1, content_ms: -1 }
         }
@@ -222,7 +222,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             let r = crate::network::timing::measure_doh_timing(&doh_server, &doh_ip, &doh_host, ctx.bind_addr, std::time::Duration::from_millis(2000), skip_ttfb).await;
             let lat = if r.success { r.total_ms } else { -1 };
             if !r.success {
-                crate::log_warn!("quality", "DoH测试失败 [{}]: {} - {}", name, doh_server, r.error.as_deref().unwrap_or("未知错误"));
+                crate::log_debug!("quality", "DoH测试失败 [{}]: {} - {}", name, doh_server, r.error.as_deref().unwrap_or("未知错误"));
             }
             crate::network::dns::update_doh_server_latency(&doh_server, lat, r.success);
             LatencyResult {
@@ -255,7 +255,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             }
             let lat = if r.success { r.total_ms } else { -1 };
             if !r.success {
-                crate::log_warn!("quality", "HTTPS测试失败 [{}]: {} - {}", name, r.url, r.error.as_deref().unwrap_or("未知错误"));
+                crate::log_debug!("quality", "HTTPS测试失败 [{}]: {} - {}", name, r.url, r.error.as_deref().unwrap_or("未知错误"));
             }
             LatencyResult {
                 name,
@@ -275,7 +275,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
             let r = crate::network::timing::measure_dns_query(&ip, &domain, ctx.bind_addr, std::time::Duration::from_millis(3000)).await;
             let lat = if r.tcp_ms >= 0 { r.tcp_ms } else { r.udp_ms };
             if !r.success {
-                crate::log_warn!("quality", "DNS服务器测试失败 [{}]: {}:{} - {}", name, ip, domain, r.error.as_deref().unwrap_or("未知错误"));
+                crate::log_debug!("quality", "DNS服务器测试失败 [{}]: {}:{} - {}", name, ip, domain, r.error.as_deref().unwrap_or("未知错误"));
             }
             crate::network::dns::update_dns_server_latency(&ip, lat, r.success);
             LatencyResult {
@@ -325,7 +325,7 @@ async fn execute_task(ctx: LatencyTaskCtx, skip_ttfb: bool, skip_content: bool) 
                 latencies.iter().sum::<i64>() / latencies.len() as i64
             };
             if !failed_domains.is_empty() {
-                crate::log_warn!("quality", "系统DNS测试失败 [{}]: {}/{}个域名解析失败 [{}]", name, failed_domains.len(), domains.len(), failed_domains.join(", "));
+                crate::log_debug!("quality", "系统DNS测试失败 [{}]: {}/{}个域名解析失败 [{}]", name, failed_domains.len(), domains.len(), failed_domains.join(", "));
             }
             LatencyResult {
                 name,
@@ -523,7 +523,7 @@ pub async fn check_internet_access_with_if(
         match adapter_ip.parse() {
             Ok(addr) => Some(addr),
             Err(_) => {
-                crate::log_warn!("quality", "联网判定: 适配器IP解析失败: {}", adapter_ip);
+                crate::log_debug!("quality", "联网判定: 适配器IP解析失败: {}", adapter_ip);
                 return false;
             }
         }
@@ -636,7 +636,7 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
         match adapter_ip.parse() {
             Ok(addr) => Some(addr),
             Err(_) => {
-                crate::log_warn!("quality", "适配器IP解析失败: {}", adapter_ip);
+                crate::log_debug!("quality", "适配器IP解析失败: {}", adapter_ip);
                 None
             }
         }
@@ -676,7 +676,7 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
             partial.quality = "busy".to_string();
             if let Ok(val) = serde_json::to_value(&partial) {
                 if let Err(e) = EventBus::new(ah).emit_network_quality_result(&val) {
-                    crate::log_warn!("quality", "[增量推送] 预览波 emit 失败: {}", e);
+                    crate::log_debug!("quality", "[增量推送] 预览波 emit 失败: {}", e);
                 } else {
                     crate::log_info!("quality", "[增量推送] 预览波 emit 成功, details数={}, 耗时{}ms", phase1_results.len(), now.elapsed().as_millis());
                 }
@@ -756,7 +756,7 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
         partial.quality = "busy".to_string();
         if let Ok(val) = serde_json::to_value(&partial) {
             if let Err(e) = EventBus::new(ah).emit_network_quality_result(&val) {
-                crate::log_warn!("quality", "[增量推送] Phase 1 emit 失败: {}", e);
+                crate::log_debug!("quality", "[增量推送] Phase 1 emit 失败: {}", e);
             } else {
                 crate::log_info!("quality", "[增量推送] Phase 1 emit 成功, details数={}", phase1_results.len());
             }
@@ -815,7 +815,7 @@ pub async fn check_network_quality_async(_adapter_name: &str, adapter_ip: &str, 
             partial.quality = "busy".to_string();
             if let Ok(val) = serde_json::to_value(&partial) {
                 if let Err(e) = EventBus::new(ah).emit_network_quality_result(&val) {
-                    crate::log_warn!("quality", "[增量推送] HTTPS 批次 emit 失败: {}", e);
+                    crate::log_debug!("quality", "[增量推送] HTTPS 批次 emit 失败: {}", e);
                 } else {
                     crate::log_info!("quality", "[增量推送] HTTPS 批次 emit 成功, 累计结果数={}, 耗时{}ms", phase1_results.len() + phase2_results.len(), now.elapsed().as_millis());
                 }

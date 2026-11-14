@@ -93,6 +93,7 @@ pub(crate) async fn resolve_self_service_channel(
         RouteDecision::Wrapped(_) => {
             let account = config.vpn_account.clone();
             let password = load_vpn_password(&config)?;
+            crate::infra::logger::register_secret(&password);
             drop(config);
             let session = ensure_alive(&account, &password).await?;
             crate::log_info!("vpn", "自助服务路由: OffCampus → WebVPN 包装（账号 {}）", crate::self_service::mask_account(&account));
@@ -166,6 +167,7 @@ pub async fn vpn_save_credential(
     if password.is_empty() {
         return Ok(CommandResult::err("请输入统一身份认证密码"));
     }
+    crate::infra::logger::register_secret(&password);
     let enc = crate::account::crypto::encrypt(&password).map_err(|e| format!("密码加密失败: {e}"))?;
     let account_for_save = account.clone();
     persist_config_and_reset_session(&app_handle, move |new_config| {

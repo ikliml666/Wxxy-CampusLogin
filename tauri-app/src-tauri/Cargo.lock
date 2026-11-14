@@ -447,6 +447,7 @@ dependencies = [
  "chrono",
  "dashmap",
  "dirs 6.0.0",
+ "flate2",
  "getrandom 0.3.4",
  "hex",
  "hickory-resolver",

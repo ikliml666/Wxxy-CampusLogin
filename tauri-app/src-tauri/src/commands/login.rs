@@ -29,10 +29,15 @@ pub async fn do_login(state: State<'_, AppState>, app_handle: AppHandle, adapter
     };
 
     // 命令层闭环日志：full_login 内部各阶段日志分散，排障时先看这一条就能拿到
-    // 本次手动登录的最终判定与失败原因（info 级，默认 warning 下不写盘）
-    crate::log_info!("login", "手动登录结束: success={}, message={}",
-        result.success,
-        result.message.as_deref().unwrap_or("无"));
+    // 本次手动登录的最终判定与失败原因（info 级，默认 warning 下不写盘）。
+    // 用结构化字段而不是拼字符串，便于按 success/message 检索
+    crate::log_kv!(
+        crate::infra::logger::LogLevel::Info,
+        "login",
+        "手动登录结束",
+        success = result.success,
+        message = result.message.as_deref().unwrap_or(""),
+    );
 
     if result.success {
         crate::auth::service::post_login_handler(&app_handle, &state);

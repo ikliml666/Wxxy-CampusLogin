@@ -74,6 +74,7 @@ export const DEFAULT_CONFIG: Config = {
   autoLoginCooldownSecs: 60,
   logRetentionDays: 7,
   logLevel: 'warning',
+  logModuleLevels: '',
   configVersion: 5,
 }
 

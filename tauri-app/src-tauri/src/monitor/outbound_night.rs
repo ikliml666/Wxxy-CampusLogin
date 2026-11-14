@@ -332,7 +332,7 @@ fn write_outbound_metric(
         // 卡在但跃点行缺失：写不进去。同样记退避，避免 30s 一拍刷日志；
         // 不属提权通道失败，不抬高 UAC 放行计数
         let count = mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
-        crate::log_warn!(
+        crate::log_debug!(
             "outbound",
             "夜间出站切换: {name} 当前无可用跃点行(已拔出/协议栈缺失)，{}s 后重试",
             outbound_backoff_ms(count) / 1000
@@ -951,7 +951,8 @@ fn build_outbound_plan(
         // 无可用候选（候选都是校园网卡 / 没有 IP / 自身网关不可达）：不进退避，
         // 30s 后自然重试。选不出候选多半是判定或环境问题（如绑源探测把热点
         // 误判成校园网），每天提醒一次，避免整夜静默失效
-        crate::log_warn!("outbound", "夜间出站切换: 优先级内无可用非校园网候选，本拍不切换");
+        // 每拍都会走到这里；用户可见告警由下面的每日一次通知承担
+        crate::log_debug!("outbound", "夜间出站切换: 优先级内无可用非校园网候选，本拍不切换");
         notify_outbound_issue_once_per_day(
             app_handle,
             &OUTBOUND_NO_CANDIDATE_WARN_DAY,

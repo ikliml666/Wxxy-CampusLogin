@@ -116,7 +116,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>) -> Result
     let client = match create_safe_http_client(portal_config::CLIENT_TIMEOUT, local_addr) {
         Ok(client) => client,
         Err(e) if crate::network::bound_socket::bypass_proxy_addr().is_some() => {
-            crate::log_warn!("network", "旁路客户端创建失败,走原路径: {e}");
+            crate::log_debug!("network", "旁路客户端创建失败,走原路径: {e}");
             create_direct_http_client(portal_config::CLIENT_TIMEOUT, local_addr)?
         }
         Err(e) => return Err(e),
@@ -177,12 +177,12 @@ fn check_portal_chkstatus(
     ) {
         Ok(r) => r,
         Err(e) => {
-            crate::log_warn!("network", "chkstatus 请求失败(回落页面探测): {e}");
+            crate::log_debug!("network", "chkstatus 请求失败(回落页面探测): {e}");
             return None;
         }
     };
     if !resp.status().is_success() {
-        crate::log_warn!("network", "chkstatus 状态异常({}): {}", resp.status(), origin);
+        crate::log_debug!("network", "chkstatus 状态异常({}): {}", resp.status(), origin);
         return None;
     }
     let body = crate::auth::protocol::read_bounded_body(resp, "chkstatus");
@@ -201,7 +201,7 @@ fn check_portal_chkstatus(
             Some(build_determined_status(info.online, uid))
         }
         None => {
-            crate::log_warn!(
+            crate::log_debug!(
                 "network",
                 "chkstatus 响应无法解析(回落页面探测): {}",
                 safe_truncate(&body, 200)
@@ -335,7 +335,7 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
         Ok(r) => r,
         Err(e) => {
             let failure = PortalFailure::from_reqwest_error(&e);
-            crate::log_warn!("network", "Portal页面请求失败({}): {}", failure.label(), e);
+            crate::log_debug!("network", "Portal页面请求失败({}): {}", failure.label(), e);
             return PageCheckResult::Failed(failure);
         }
     };
@@ -343,7 +343,7 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
     // 非 2xx 状态码：4xx/5xx 错误页不得作为正常页面分析
     // （历史缺陷：状态码未校验，错误页无登录特征时被当作 Unknown/Offline）
     if !resp.status().is_success() {
-        crate::log_warn!("network", "Portal页面请求状态异常: {}", resp.status());
+        crate::log_debug!("network", "Portal页面请求状态异常: {}", resp.status());
         return PageCheckResult::Failed(PortalFailure::Other);
     }
 

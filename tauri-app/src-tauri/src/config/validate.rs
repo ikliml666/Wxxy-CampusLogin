@@ -165,6 +165,10 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     config.log_level = crate::infra::logger::log_level_from_config(&config.log_level)
         .as_config_str()
         .to_string();
+    // 模块级过滤是诊断用高级项：写错不挡住整份配置，静默回退为空（= 不过滤）
+    if crate::infra::logger::parse_module_levels(&config.log_module_levels).is_err() {
+        config.log_module_levels.clear();
+    }
     // 配置版本迁移：config_version < 2 为旧版，campus_check_start_minutes 可能是旧字段 campusCheckStartHour 的小时值（通过 alias 反序列化）
     // config_version >= 2 为新版，campus_check_start_minutes 直接是分钟值
     if config.config_version < 2 {

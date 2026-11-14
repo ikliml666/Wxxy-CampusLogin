@@ -63,7 +63,8 @@ pub(super) fn check_adapter_portal(
     match check_portal_full(&adapter.ip, Some(&adapter.name)) {
         Ok(ps) => {
             if ps.error_kind.as_deref() == Some("request_failed") {
-                crate::log_warn!("network", "{} Portal页面检测请求失败: {}", adapter.name, ps.message);
+                // 巡检每轮都会探测，请求失败属预期内（离线/网络切换）；状态翻转由上层告警
+                crate::log_debug!("network", "{} Portal页面检测请求失败: {}", adapter.name, ps.message);
                 let event_bus = EventBus::new(app_handle);
                 let _ = event_bus.emit_login_log(
                     &format!("{} Portal页面检测请求失败: {}", adapter.name, ps.message),
@@ -81,7 +82,7 @@ pub(super) fn check_adapter_portal(
             }
         }
         Err(e) => {
-            crate::log_warn!("background", "{} Portal页面检测异常: {}", adapter.name, e);
+            crate::log_debug!("background", "{} Portal页面检测异常: {}", adapter.name, e);
             let event_bus = EventBus::new(app_handle);
             let _ = event_bus.emit_login_log(
                 &format!("{} Portal页面检测异常: {}", adapter.name, e),

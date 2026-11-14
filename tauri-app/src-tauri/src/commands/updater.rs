@@ -186,7 +186,7 @@ pub async fn download_update(
                         speed,
                         percent,
                     }) {
-                        crate::log_warn!("updater", "发送下载进度失败: {}", e);
+                        crate::log_debug!("updater", "发送下载进度失败: {}", e);
                     }
 
                     last_emit = now;
@@ -217,7 +217,7 @@ pub async fn download_update(
         speed: 0,
         percent: 100.0,
     }) {
-        crate::log_warn!("updater", "发送下载完成进度失败: {}", e);
+        crate::log_debug!("updater", "发送下载完成进度失败: {}", e);
     }
 
     crate::log_info!("updater", "更新下载完成: {}", path_str);
