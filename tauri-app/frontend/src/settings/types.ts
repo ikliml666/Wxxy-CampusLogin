@@ -106,6 +106,8 @@ export interface Config {
   adapter1Account?: string
   /** 副适配器绑定的账号 id（空 = 跟随当前账号）；仅桌面设备级配置，切账号不改动 */
   adapter2Account?: string
+  /** 公网可达性检测目标（HTTPS 主机名，最多 4 个）；空 = 使用后端内置默认。桌面专属 */
+  internetProbeHosts: string[]
 }
 
 export interface AutoLaunchResult {

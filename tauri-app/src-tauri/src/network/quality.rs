@@ -495,6 +495,10 @@ fn build_quality_result<'a>(
 
 
 
+/// 公网可达性检测的内置默认目标（HTTPS 443）：配置 `internetProbeHosts` 为空时使用。
+/// 双目标并行，任一成功即判可达；两条链路对代理/TUN 的失真容忍度不同。
+pub const DEFAULT_INTERNET_PROBE_HOSTS: [&str; 2] = ["www.baidu.com", "cn.bing.com"];
+
 /// 带可选出接口的公网健康判定。传入 if_index 时用 IP_UNICAST_IF 把探测钉在该物理
 /// 网卡上，绕开代理/TUN 对默认路由的劫持——这是候选卡「自身能否上网」的可靠判据。
 pub async fn check_internet_access_with_if(
@@ -505,6 +509,7 @@ pub async fn check_internet_access_with_if(
     is_quitting: Arc<std::sync::atomic::AtomicBool>,
     allow_system_route_fallback: bool,
     timeout: std::time::Duration,
+    probe_hosts: &[String],
 ) -> bool {
     use std::sync::atomic::Ordering;
 
@@ -525,13 +530,19 @@ pub async fn check_internet_access_with_if(
     };
 
     let adapter_ip_owned = adapter_ip.to_string();
+    // 探测目标来自配置（空 = 内置默认）：主机名走 HTTPS 443，逐目标独立绑源
+    let hosts: Vec<String> = if probe_hosts.is_empty() {
+        DEFAULT_INTERNET_PROBE_HOSTS.iter().map(|h| (*h).to_string()).collect()
+    } else {
+        probe_hosts.to_vec()
+    };
     // 候选卡必须严格绑源；只有已识别的当前物理出口允许复核系统真实路由。
     let mut set = tokio::task::JoinSet::new();
-    for host in ["www.baidu.com", "cn.bing.com"] {
+    for host in hosts {
         let adapter_ip_owned = adapter_ip_owned.clone();
         set.spawn(async move {
             let bound = crate::network::timing::measure_https_timing_with_if(
-                host,
+                &host,
                 443,
                 bind_addr,
                 if_index,
@@ -552,7 +563,7 @@ pub async fn check_internet_access_with_if(
             }
             crate::log_debug!("quality", "联网判定: {} 绑源 TCP 失败，复核当前出口的系统路由", host);
             crate::network::timing::measure_https_timing(
-                host,
+                &host,
                 443,
                 None,
                 timeout,
@@ -897,6 +908,7 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
             true,
             std::time::Duration::from_secs(3),
+            &[],
         ));
         println!("当前出口={} 源IP={} 公网可达={} 耗时={}ms", current.alias, adapter.ip, ok, started.elapsed().as_millis());
         let detail = crate::infra::async_util::block_on_sync(crate::network::timing::measure_https_timing(

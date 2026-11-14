@@ -381,7 +381,20 @@
     "outboundMetric": "Metric",
     "outboundMetricHint": "Lower metric wins; the first adapter with an IP becomes the outbound. Click the value to edit (1–9999)",
     "outboundMetricSaved": "{{name}} metric set to {{metric}}",
-    "outboundMetricSaveFailed": "Failed to update {{name}} metric"
+    "outboundMetricSaveFailed": "Failed to update {{name}} metric",
+    "adapterSettingsEntry": "Adapters & Accounts",
+    "adapterDialogTitle": "Adapters & Accounts",
+    "adapterDialogDesc": "Primary/secondary adapters and the account each logs in with; changes apply immediately",
+    "probeSettingsEntry": "Probe Settings",
+    "probeSettingsTitle": "Network Probe Settings",
+    "probeSettingsDesc": "Targets and cadence for public-internet reachability checks, shared by background checks, the nightly outbound switch and failover",
+    "probeHostsLabel": "Reachability Targets",
+    "probeHostsHint": "Hostnames only (HTTPS 443), up to 4, separated by commas or newlines; leave empty for the built-in defaults",
+    "probeHostInvalid": "Invalid probe target: {{host}} (hostname only, e.g. www.baidu.com)",
+    "probeHostTooMany": "At most {{max}} probe targets",
+    "probeIntervalLabel": "Status Check Interval (seconds)",
+    "probeIntervalHint": "Background check cadence; also sets how fast the nightly/failover outbound decision reacts (10–3600 s)",
+    "probeIntervalInvalid": "Interval must be an integer between {{min}} and {{max}} seconds"
   },
   "monitor": {
     "networkStatusDetection": "Network Status Detection",

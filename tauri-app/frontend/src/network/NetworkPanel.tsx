@@ -1,14 +1,12 @@
 import type { Config } from '@/settings'
 import type { Adapter } from '@/network'
 import { announceDhcpResults, normalizeDhcpResults } from './useNetwork'
-import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
 import { CardContent, CardHeader, CardTitle, CardDescription, CardIcon } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, UserRound, Route } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, Route, SlidersHorizontal } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
@@ -18,7 +16,8 @@ import React, { useState, useCallback, useMemo, memo, useRef, useEffect } from '
 import { useTranslation } from 'react-i18next'
 import { m, Reorder, useDragControls } from 'framer-motion'
 import { buildOutboundOrder } from './outboundOrder'
-import { AdapterSelect } from './AdapterSelect'
+import { AdapterSettingsDialog } from './AdapterSettingsDialog'
+import { ProbeSettingsDialog } from './ProbeSettingsDialog'
 import { useDnsSetup } from './useDnsSetup'
 import { useOutboundManual } from './useOutboundManual'
 import { DnsAdapterCard } from './DnsAdapterCard'
@@ -37,9 +36,6 @@ interface NetworkPanelProps {
   adapters: Adapter[]
   onUpdateConfig: (partial: Partial<Config>) => void
 }
-
-const FOLLOW_CURRENT_ACCOUNT = '__follow__'
-const NO_BACKUP_ADAPTER = '__none__'
 
 /** 连接速度格式化：bit/s → 统一 Mbps 显示（如 "1000 Mbps"），低于 1 Mbps 用 Kbps，未知返回空串 */
 function formatSpeed(bps?: number): string {
@@ -365,6 +361,9 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
 
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
   const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
+  // 适配器/账号与检测参数各由一个弹窗承载（卡片只留入口按钮）
+  const [adapterDialogOpen, setAdapterDialogOpen] = useState(false)
+  const [probeDialogOpen, setProbeDialogOpen] = useState(false)
   const ipc = tauriApiWithRetry
   const mountedRef = useRef(true)
 
@@ -678,87 +677,25 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 {t('network.outboundDragHint')}
               </p>
             )}
-            {/* 登录网卡与账号绑定（原独立设置卡合并进来）：主/副适配器 + 各自登录账号，两列紧凑排布。
-                分组标识用 11px 主色小节标题（与 DNS 卡 chips 行同级的视觉语言），不用黑线分割 */}
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
-              <p className="col-span-full text-[11px] font-medium text-primary flex items-center gap-1">
-                <Cable className="h-3 w-3" />
-                {t('network.adapterGroupSelect')}
-              </p>
-              <div className="space-y-1.5">
-                <Label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-                  {t('network.primaryAdapter')}
-                </Label>
-                <AdapterSelect
-                  value={config.adapter1 || AUTO_DETECT_ADAPTER}
-                  onValueChange={(value) => onUpdateConfig({ adapter1: value })}
-                  adapters={adapters}
-                  disabledAdapters={effectiveDisabledAdapters}
-                  placeholder={t('network.selectPrimaryAdapter')}
-                  noneItem={{ value: AUTO_DETECT_ADAPTER, label: t('network.autoDetect') }}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-                  <Cable className="h-3 w-3 text-muted-foreground/60" />
-                  {t('network.backupAdapter')}
-                </Label>
-                <AdapterSelect
-                  value={config.adapter2 || NO_BACKUP_ADAPTER}
-                  onValueChange={(value) => {
-                    const adapter2 = value
-                    onUpdateConfig({ adapter2, dualAdapter: value !== NO_BACKUP_ADAPTER })
-                  }}
-                  adapters={adapters}
-                  disabledAdapters={effectiveDisabledAdapters}
-                  placeholder={t('network.selectBackupAdapter')}
-                  noneItem={{ value: NO_BACKUP_ADAPTER, label: t('common.none') }}
-                />
-              </div>
-              <p className="col-span-full text-[11px] font-medium text-primary flex items-center gap-1 mt-1">
-                <UserRound className="h-3 w-3" />
-                {t('network.adapterGroupAccount')}
-              </p>
-              <div className="space-y-1.5">
-                <Label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-                  {t('network.adapterAccountPrimary')}
-                </Label>
-                <Select
-                  value={config.adapter1Account || FOLLOW_CURRENT_ACCOUNT}
-                  onValueChange={(value) => onUpdateConfig({ adapter1Account: value === FOLLOW_CURRENT_ACCOUNT ? '' : value })}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder={t('network.adapterAccountPrimary')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={FOLLOW_CURRENT_ACCOUNT}>{t('network.followCurrentAccount')}</SelectItem>
-                    {accounts.map((acc) => (
-                      <SelectItem key={acc.id} value={acc.id}>{acc.displayName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {config.adapter2 && (
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-                    {t('network.adapterAccountSecondary')}
-                  </Label>
-                  <Select
-                    value={config.adapter2Account || FOLLOW_CURRENT_ACCOUNT}
-                    onValueChange={(value) => onUpdateConfig({ adapter2Account: value === FOLLOW_CURRENT_ACCOUNT ? '' : value })}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder={t('network.adapterAccountSecondary')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={FOLLOW_CURRENT_ACCOUNT}>{t('network.followCurrentAccount')}</SelectItem>
-                      {accounts.map((acc) => (
-                        <SelectItem key={acc.id} value={acc.id}>{acc.displayName}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+            {/* 适配器与账号、检测参数各由弹窗承载：卡片只留适配器清单与两枚入口按钮，
+                与账号管理卡卡尾同构，省掉卡片里一整块表单 */}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => setAdapterDialogOpen(true)}
+              >
+                <Cable className="h-3.5 w-3.5" /> {t('network.adapterSettingsEntry')}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => setProbeDialogOpen(true)}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" /> {t('network.probeSettingsEntry')}
+              </Button>
             </div>
           </CardContent>
         </AnimatedCard>
@@ -896,6 +833,22 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
           </CardContent>
         </AnimatedCard>
       </div>
+
+      <AdapterSettingsDialog
+        open={adapterDialogOpen}
+        onOpenChange={setAdapterDialogOpen}
+        config={config}
+        adapters={adapters}
+        disabledAdapters={effectiveDisabledAdapters}
+        accounts={accounts}
+        onUpdateConfig={onUpdateConfig}
+      />
+      <ProbeSettingsDialog
+        open={probeDialogOpen}
+        onOpenChange={setProbeDialogOpen}
+        config={config}
+        onUpdateConfig={onUpdateConfig}
+      />
     </div>
   )
 })

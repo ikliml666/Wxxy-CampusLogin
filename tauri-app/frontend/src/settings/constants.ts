@@ -38,6 +38,7 @@ export const DEFAULT_CONFIG: Config = {
   macRenewCooldownSecs: 900,
   macRenewDailyLimit: 3,
   dnsOptimizeAdapters: [],
+  internetProbeHosts: [],
   autoExitOnOnline: false,
   themeMode: 'dark',
   enableNotification: true,

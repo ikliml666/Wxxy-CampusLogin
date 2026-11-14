@@ -291,6 +291,7 @@ mod tests {
             outbound_pending_switch: String::new(),
             night_outbound_restore: String::new(),
             dns_optimize_adapters: Vec::new(),
+            internet_probe_hosts: Vec::new(),
             auto_exit_on_online: false,
             theme_mode: "light".to_string(),
             enable_notification: false,

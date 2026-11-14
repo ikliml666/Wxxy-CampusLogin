@@ -126,6 +126,12 @@ pub struct Config {
     /// 安卓端不消费此字段（DNS 优化为桌面专属功能）
     #[serde(rename = "dnsOptimizeAdapters", default)]
     pub dns_optimize_adapters: Vec<String>,
+    /// 公网可达性检测目标（HTTPS 443 主机名列表）：夜间/故障切换的候选卡复核与联网
+    /// 判定共用这份清单；空 = 使用内置默认（www.baidu.com、cn.bing.com）。
+    /// 只接受主机名（不含协议/端口），由 validate 清洗与校验。
+    /// 安卓端不消费此字段（无出站切换与多网卡探测）
+    #[serde(rename = "internetProbeHosts", default)]
+    pub internet_probe_hosts: Vec<String>,
     /// 在线设备自定义名字（键 = 12 位 hex MAC，值 = 显示别名；自助服务面板设备卡
     /// 卡头展示）。与安卓 Settings.deviceAliases 同构同契约；default 保证旧配置
     /// 文件缺字段向后兼容，无需版本迁移
@@ -330,6 +336,7 @@ impl Default for Config {
             outbound_manual_hold_day: 0,
             outbound_pending_switch: String::new(),
             dns_optimize_adapters: Vec::new(),
+            internet_probe_hosts: Vec::new(),
             device_aliases: std::collections::HashMap::new(),
             night_outbound_restore: String::new(),
             // 2026-09-20 起默认关闭（与 auto_exit_after_login 同因）；存量不迁移

@@ -1,3 +1,28 @@
+### 网络适配器页：适配器/账号与检测参数各收进弹窗，公网探测目标可配（2026-11-14，桌面）
+
+**为什么**：网络适配器卡片里「适配器选择 + 账号绑定」是一整块常驻表单，和卡片主体（适配器清单）抢版面——用户打开这个页面主要是看卡，改主/副适配器是低频操作。同时公网可达性检测目标此前硬编码为 `www.baidu.com` / `cn.bing.com`（另加 223.5.5.5:53 一路），代理/TUN 把域名解析成 fake-ip 或学校出口针对特定域名异常时，用户没有换目标的入口，只能等默认目标碰运气。
+
+**改了什么**
+
+- 前端（`tauri-app/frontend`）
+  - 新增 `network/AdapterSettingsDialog.tsx`：主/副适配器与各自登录账号从卡片内联表单搬进弹窗，选择即时生效，底部只留「关闭」。
+  - 新增 `network/ProbeSettingsDialog.tsx`：公网可达性检测目标（主机名，最多 4 个，逗号/换行分隔，留空=内置默认）与状态检测间隔（10–3600 秒，绑定 `backgroundCheckInterval`），带格式校验、打开时重置草稿。
+  - `NetworkPanel.tsx`：卡片底部改为两枚入口按钮（适配器与账号 / 检测参数），与账号管理卡卡尾同构；删除内联表单及随之失效的导入。
+  - `settings/types.ts`、`settings/constants.ts`：新增 `internetProbeHosts: string[]`（默认空）。
+  - i18n 中英文案各 14 行。
+- 后端（`tauri-app/src-tauri`）
+  - `config/model.rs`：新增 `internetProbeHosts`（`Vec<String>`，默认空 = 内置默认目标）。
+  - `config/validate.rs`：新增 `normalize_internet_probe_hosts`（trim / 剔空 / 去重 / 上限 4 项；含协议、端口、斜杠、空白即报错）。严格校验与宽松校验都接入，宽松侧失败回退空列表，避免单个非法项触发兜底的「整份配置换默认」。
+  - `network/quality.rs`：`check_internet_access_with_if` 增加 `probe_hosts: &[String]` 参数，空列表回落 `DEFAULT_INTERNET_PROBE_HOSTS`；逐目标绑源 HTTPS 探测逻辑不变。
+  - `monitor/outbound_failover.rs`：`probe_internet_access` 把配置目标 clone 进 spawn（`JoinSet` 要求 `'static`）。
+  - `network/adapter.rs`：测试用 `Config` 字面量补新字段。
+
+**验证**：桌面 `npx tsc --noEmit --incremental` 通过；`npx vite build` 成功；后端 `cargo test --lib` 641 passed / 0 failed / 3 ignored（含新增 4 个探测目标校验用例）；浏览器实测（`vite --config vite.mock.config.ts` + headless Edge，`?panel=network`）截图确认：卡片底部两枚入口按钮排版正常、「网络检测参数」与「适配器与账号」弹窗渲染正常、副适配器为空时副账号字段正确隐藏。**未实测**：真实系统上自定义探测目标后的夜间/故障切换端到端行为（需新构建）。
+
+**双端说明**：适配器选择与公网探测为桌面专属（安卓无多网卡与出站切换概念）；安卓前端配置类型补 `internetProbeHosts?` 仅为保持两端类型树同构，安卓端不消费该字段。
+
+---
+
 ### 出站条目收口：修复跃点编辑态间距、图标改路由语义、三行按钮统一（2026-11-14，桌面）
 
 **为什么**：上一版把跃点做成行内 chip 后有三处不自洽——①编辑态输入框与「切换出站」之间莫名空出一大段；②WLAN 与以太网的操作按钮集合不一致；③跃点用了仪表盘（Gauge）图标，而跃点表示路由开销/优先级，不是速度。

@@ -46,6 +46,8 @@ export interface Config {
   macRenewDailyLimit: number
   /** 桌面 DNS 优化目标适配器名单（安卓仅镜像配置结构，不消费） */
   dnsOptimizeAdapters: string[]
+  /** 公网可达性检测目标（桌面专属，安卓不消费；仅保持两端类型树同构） */
+  internetProbeHosts?: string[]
   /** 在线设备自定义名字（键 = 12 位 hex MAC，值 = 显示别名；自助服务面板设备卡卡头展示） */
   deviceAliases?: Record<string, string>
   autoLoginOnStart: boolean

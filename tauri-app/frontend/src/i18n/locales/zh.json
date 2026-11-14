@@ -381,7 +381,20 @@
     "outboundMetric": "跃点",
     "outboundMetricHint": "跃点越小优先级越高，排第一且有 IP 的网卡就是出站；点击数值修改（1–9999）",
     "outboundMetricSaved": "{{name}} 跃点已设为 {{metric}}",
-    "outboundMetricSaveFailed": "{{name}} 跃点修改失败"
+    "outboundMetricSaveFailed": "{{name}} 跃点修改失败",
+    "adapterSettingsEntry": "适配器与账号",
+    "adapterDialogTitle": "适配器与账号",
+    "adapterDialogDesc": "指定主/副适配器及各适配器登录账号，修改即时生效",
+    "probeSettingsEntry": "检测参数",
+    "probeSettingsTitle": "网络检测参数",
+    "probeSettingsDesc": "公网可达性检测的目标主机与检测节奏，作用于后台巡检、夜间出站切换与故障切换",
+    "probeHostsLabel": "公网可达性检测目标",
+    "probeHostsHint": "只填主机名（HTTPS 443），最多 4 个，逗号或换行分隔；留空使用内置默认",
+    "probeHostInvalid": "探测目标格式无效: {{host}}（只填主机名，如 www.baidu.com）",
+    "probeHostTooMany": "探测目标最多 {{max}} 个",
+    "probeIntervalLabel": "状态检测间隔（秒）",
+    "probeIntervalHint": "后台巡检节奏，同时决定夜间/故障出站切换的判定节拍（10–3600 秒）",
+    "probeIntervalInvalid": "检测间隔需为 {{min}}–{{max}} 之间的整数秒"
   },
   "monitor": {
     "networkStatusDetection": "网络状态检测",

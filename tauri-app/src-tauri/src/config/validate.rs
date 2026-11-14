@@ -78,6 +78,28 @@ fn migrate_operator(op: &mut String) {
     }
 }
 
+/// 公网探测目标清洗：trim、剔空、去重、上限 4 项。格式非法（带协议/端口/斜杠/
+/// 空白）直接报错而非静默丢弃——静默丢弃会让用户以为改动生效，实际仍探测默认目标。
+fn normalize_internet_probe_hosts(hosts: &mut Vec<String>) -> Result<(), String> {
+    let mut cleaned: Vec<String> = Vec::new();
+    for host in hosts.iter().map(|h| h.trim()) {
+        if host.is_empty() {
+            continue;
+        }
+        if host.contains("://") || host.contains('/') || host.contains(':') || host.contains(char::is_whitespace) {
+            return Err(format!("公网探测目标格式无效: {host}（只填主机名，如 www.baidu.com）"));
+        }
+        if !cleaned.iter().any(|c| c.eq_ignore_ascii_case(host)) {
+            cleaned.push(host.to_string());
+        }
+    }
+    if cleaned.len() > 4 {
+        return Err("公网探测目标最多 4 个".to_string());
+    }
+    *hosts = cleaned;
+    Ok(())
+}
+
 fn normalize_portal_url(url: &mut String) {
     if *url == "http://10.1.99.100:801" || url.is_empty() {
         *url = "http://10.1.99.100".to_string();
@@ -104,6 +126,7 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     // 身份验证时效上限 1440 分钟：手改配置文件不得把敏感操作的免验证窗口放大到任意值
     config.self_hello_ttl_minutes = config.self_hello_ttl_minutes.min(1440);
     config.latency_test_interval = config.latency_test_interval.clamp(10000, 3600000);
+    normalize_internet_probe_hosts(&mut config.internet_probe_hosts)?;
     normalize_portal_url(&mut config.portal_url);
     validate_portal_url(&config.portal_url)?;
     if !config.fixed_gateway.is_empty() && config.fixed_gateway.parse::<std::net::IpAddr>().is_err() {
@@ -256,6 +279,13 @@ pub fn validate_config_lenient(mut config: Config) -> Config {
     }
     if config.required_network_name == "i-wxxy" {
         config.required_network_name = default_required_network_name();
+    }
+
+    // 公网探测目标：清洗失败回退空列表（空 = 内置默认目标），
+    // 否则严格兜底会 Err 并把整份配置换成全默认
+    if let Err(e) = normalize_internet_probe_hosts(&mut config.internet_probe_hosts) {
+        crate::log_warn!("config", "公网探测目标无效，回退内置默认: {}", e);
+        config.internet_probe_hosts = Vec::new();
     }
 
     // 降级后跑严格验证兜底（处理 clamp/迁移/其他未覆盖字段）
@@ -770,6 +800,52 @@ mod tests {
         let mut config = Config::default();
         config.password = PASSWORD_MASK.to_string();
         assert!(validate_config(config).is_ok());
+    }
+
+    // ===== internet_probe_hosts =====
+
+    #[test]
+    fn validate_config_normalizes_internet_probe_hosts() {
+        let mut config = Config::default();
+        config.internet_probe_hosts = vec![
+            " www.baidu.com ".to_string(),
+            String::new(),
+            "WWW.BAIDU.COM".to_string(),
+            "cn.bing.com".to_string(),
+        ];
+        let result = validate_config(config).unwrap();
+        assert_eq!(
+            result.internet_probe_hosts,
+            vec!["www.baidu.com".to_string(), "cn.bing.com".to_string()]
+        );
+    }
+
+    #[test]
+    fn validate_config_rejects_malformed_probe_host() {
+        let mut config = Config::default();
+        config.internet_probe_hosts = vec!["https://www.baidu.com".to_string()];
+        assert!(validate_config(config).is_err());
+    }
+
+    #[test]
+    fn validate_config_rejects_too_many_probe_hosts() {
+        let mut config = Config::default();
+        config.internet_probe_hosts = vec![
+            "a.com".to_string(),
+            "b.com".to_string(),
+            "c.com".to_string(),
+            "d.com".to_string(),
+            "e.com".to_string(),
+        ];
+        assert!(validate_config(config).is_err());
+    }
+
+    #[test]
+    fn validate_config_lenient_falls_back_bad_probe_hosts() {
+        let mut config = Config::default();
+        config.internet_probe_hosts = vec!["bad host".to_string()];
+        let result = validate_config_lenient(config);
+        assert!(result.internet_probe_hosts.is_empty());
     }
 
     // ===== validate_config_lenient =====

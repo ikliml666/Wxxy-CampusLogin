@@ -124,10 +124,13 @@ pub(super) fn probe_internet_access(
         .filter(|(adapter, _)| !adapter.ip.is_empty())
         .map(|(adapter, _)| adapter.clone())
         .collect();
+    // 探测目标随配置进 spawn（JoinSet 要求 'static，不能借 config 引用）
+    let probe_hosts = config.internet_probe_hosts.clone();
     crate::infra::async_util::block_on_sync(async move {
         let mut tasks = tokio::task::JoinSet::new();
         for adapter in candidates {
             let quitting = quitting.clone();
+            let probe_hosts = probe_hosts.clone();
             let allow_fallback = current_adapter.as_deref() == Some(adapter.name.as_str());
             tasks.spawn(async move {
                 let ok = crate::network::quality::check_internet_access_with_if(
@@ -138,6 +141,7 @@ pub(super) fn probe_internet_access(
                     quitting,
                     allow_fallback,
                     timeout,
+                    &probe_hosts,
                 )
                 .await;
                 (adapter.ip, ok)
