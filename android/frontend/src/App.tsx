@@ -44,7 +44,7 @@ import { FaceCaptureDialog } from '@/face/FaceCaptureDialog'
 import { useFormFactor } from '@/hooks/useFormFactor'
 import { AccountPanel } from '@/account/AccountPanel'
 import { SelfServicePanel } from '@/account/SelfServicePanel'
-import { QualityPanel } from '@/monitor/QualityPanel'
+import { NetworkPanel } from '@/network/NetworkPanel'
 import { MonitorPanel } from '@/monitor/MonitorPanel'
 import { NetworkQualityCapsule } from '@/monitor/NetworkQualityCapsule'
 import { AnimationActiveProvider } from '@/hooks/usePageIdle'
@@ -66,17 +66,15 @@ function AppInner() {
     const saved = safeStorage.get('campus-mobile-tab') as MobileTab | null
     // KI#14：白名单须覆盖 handleTabChange 可写入的全部页签（含 monitor），
     // 否则停在后台检测页杀进程重开会回落 dashboard
-    return saved && ['dashboard', 'account', 'selfservice', 'quality', 'monitor', 'more'].includes(saved) ? saved : 'dashboard'
+    return saved && ['dashboard', 'account', 'selfservice', 'network', 'monitor', 'more'].includes(saved) ? saved : 'dashboard'
   })
   const deferredTab = useDeferredValue(tab)
 
   const accounts = useConfigStore((s) => s.accounts)
   const activeAccount = useConfigStore((s) => s.activeAccount)
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
-  // 方向性转场：底栏页签顺序（质量开启时 quality、monitor 各占一位，共六项），索引差定方向
-  const tabOrder: MobileTab[] = configEnableNetworkQuality !== false
-    ? ['dashboard', 'account', 'selfservice', 'quality', 'monitor', 'more']
-    : ['dashboard', 'account', 'selfservice', 'monitor', 'more']
+  // 方向性转场：底栏页签顺序固定六项（网络接管原「质量」位，质量已下放到「更多」），索引差定方向
+  const tabOrder: MobileTab[] = ['dashboard', 'account', 'selfservice', 'network', 'monitor', 'more']
   const [navDir, setNavDir] = useState<-1 | 0 | 1>(0)
   const tabRef = useRef(tab)
   useEffect(() => { tabRef.current = tab })
@@ -162,15 +160,8 @@ function AppInner() {
     case 'selfservice':
       panelContent = <SelfServicePanel />
       break
-    case 'quality':
-      panelContent =
-        configEnableNetworkQuality !== false ? (
-          <QualityPanel
-            onUpdateConfig={updateConfig}
-            onRefreshQuality={refreshQuality}
-            onToggleLatencyTest={handleToggleLatencyTest}
-          />
-        ) : null
+    case 'network':
+      panelContent = <NetworkPanel onUpdateConfig={updateConfig} />
       break
     case 'monitor':
       // 质量检测关闭(默认,省电)时,底部导航"网络质量"位置由后台检测替代补位
@@ -183,7 +174,15 @@ function AppInner() {
       )
       break
     case 'more':
-      panelContent = <MobileMore onShowOnboarding={() => setOnboardingOpen(true)} />
+      panelContent = (
+        <MobileMore
+          onShowOnboarding={() => setOnboardingOpen(true)}
+          onUpdateConfig={updateConfig}
+          onRefreshQuality={refreshQuality}
+          onToggleLatencyTest={handleToggleLatencyTest}
+          qualityEnabled={configEnableNetworkQuality !== false}
+        />
+      )
       break
   }
 

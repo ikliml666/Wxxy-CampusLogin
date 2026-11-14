@@ -6,27 +6,40 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SettingsPanel } from '@/settings/SettingsPanel'
 import { LogPanel } from '@/shared/LogPanel'
+import { QualityPanel } from '@/monitor/QualityPanel'
+import type { Config } from '@/settings'
 import { useSettings } from '@/settings/useSettings'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { tauriApiWithRetry as api } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { GlassTabChip } from './GlassTabChip'
 
-type MoreTab = 'log' | 'settings'
-
-const TABS: { id: MoreTab; labelKey: string }[] = [
-  { id: 'settings', labelKey: 'mobile.moreSettings' },
-  { id: 'log', labelKey: 'mobile.moreLog' },
-]
+type MoreTab = 'quality' | 'log' | 'settings'
 
 interface MobileMoreProps {
   /** 从设置里重新打开新手向导（由外壳传入；未传时设置面板不显示该卡片） */
   onShowOnboarding?: () => void
+  onUpdateConfig: (partial: Partial<Config>) => void
+  onRefreshQuality: () => Promise<void>
+  onToggleLatencyTest: (enabled: boolean, intervalSec: number) => Promise<void>
+  /** 质量检测关闭时不显示质量子页（与底栏旧行为一致） */
+  qualityEnabled: boolean
 }
 
-export function MobileMore({ onShowOnboarding }: MobileMoreProps) {
+export function MobileMore({
+  onShowOnboarding,
+  onUpdateConfig,
+  onRefreshQuality,
+  onToggleLatencyTest,
+  qualityEnabled,
+}: MobileMoreProps) {
   const { t } = useTranslation()
   const [sub, setSub] = useState<MoreTab>('settings')
+  const TABS: { id: MoreTab; labelKey: string }[] = [
+    ...(qualityEnabled ? [{ id: 'quality' as const, labelKey: 'nav.quality' }] : []),
+    { id: 'settings' as const, labelKey: 'mobile.moreSettings' },
+    { id: 'log' as const, labelKey: 'mobile.moreLog' },
+  ]
   const { handleSetAutoLaunch } = useSettings()
   const addToast = useLogToastStore((s) => s.addToast)
   const updateConfig = useConfigStore((s) => s.updateConfig)
@@ -44,6 +57,13 @@ export function MobileMore({ onShowOnboarding }: MobileMoreProps) {
         ))}
       </div>
 
+      {sub === 'quality' && (
+        <QualityPanel
+          onUpdateConfig={onUpdateConfig}
+          onRefreshQuality={onRefreshQuality}
+          onToggleLatencyTest={onToggleLatencyTest}
+        />
+      )}
       {sub === 'log' && <LogPanel api={api} addToast={addToast} />}
       {sub === 'settings' && (
         <SettingsPanel

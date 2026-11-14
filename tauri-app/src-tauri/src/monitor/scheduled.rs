@@ -230,6 +230,22 @@ pub async fn run_scheduled_action_loop(
         if night_action != NightSwitchAction::None {
             apply_night_switch_action(&app_h, night_action).await;
         }
+
+        // ===== WiFi 就寝守则（桌面）：窗口内把校园网 WLAN profile 改为手动并断开 =====
+        // 判定是双端共享纯函数（config::wifi_curfew），动作只有 Windows 有实质差别；
+        // 配置重读一次——本拍前面的动作与用户改配置都可能已刷新它
+        let curfew_config = {
+            let s = app_h.state::<AppState>();
+            s.config.load_full()
+        };
+        if curfew_config.enable_wifi_curfew || !curfew_config.wifi_curfew_profile_restore.is_empty() {
+            let app_h_curfew = app_h.clone();
+            let weekday = now.weekday().num_days_from_sunday();
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                crate::monitor::wifi_curfew::tick(&app_h_curfew, &curfew_config, weekday, now_minutes as u32);
+            })
+            .await;
+        }
     }
 }
 

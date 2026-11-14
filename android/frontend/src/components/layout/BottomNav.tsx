@@ -5,26 +5,25 @@
 // 纪律:底部避让 env(safe-area-inset-bottom);动画仅 transform/opacity,
 // 带 motion-reduce 降级;整体轻盈——无生硬描边,悬浮感靠阴影 + 磨砂。
 
-import { LayoutDashboard, UserCircle, Globe, Signal, Activity, Ellipsis } from 'lucide-react'
+import { LayoutDashboard, UserCircle, Globe, Wifi, Activity, Ellipsis } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
-import { useConfigStore } from '@/hooks/useConfigStore'
 import { useThemeStore } from '@/hooks/useThemeStore'
 import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { useGlassRefraction } from '@/lib/glass-dock'
 import { useDockLens } from '@/lib/dock-lens'
 import { useCallback, useRef } from 'react'
 
-export type MobileTab = 'dashboard' | 'account' | 'selfservice' | 'quality' | 'monitor' | 'more'
+export type MobileTab = 'dashboard' | 'account' | 'selfservice' | 'network' | 'quality' | 'monitor' | 'more'
 
 const TABS: { id: MobileTab; labelKey: string; Icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', labelKey: 'nav.dashboard', Icon: LayoutDashboard },
   { id: 'account', labelKey: 'nav.account', Icon: UserCircle },
   { id: 'selfservice', labelKey: 'nav.selfservice', Icon: Globe },
+  { id: 'network', labelKey: 'nav.network', Icon: Wifi },
   { id: 'more', labelKey: 'nav.more', Icon: Ellipsis },
 ]
 
-const QUALITY_TAB = { id: 'quality' as const, labelKey: 'nav.quality', Icon: Signal }
 const MONITOR_TAB = { id: 'monitor' as const, labelKey: 'nav.monitor', Icon: Activity }
 
 // 六项（质量开启）时每项可用宽度从约 64px 降到约 54px，图标/文字/项高按同一节奏
@@ -49,11 +48,10 @@ const DOCK_METRICS = {
 } as const
 
 function useNavTabs(): { id: MobileTab; labelKey: string; Icon: typeof LayoutDashboard }[] {
-  const qualityEnabled = useConfigStore((s) => s.config.enableNetworkQuality !== false)
+  // 底栏固定六项：网络页接管原「质量」的位置，质量页下放到「更多」子页签。
+  // 60s 级页面去留不再影响底栏项数——这是 2026-11 的布局定调。
   const tabs = [...TABS]
-  // 质量开启时「质量」「检测」都占底栏位（六项）；关闭时只剩「检测」（五项）。
-  // 检测页始终留在底栏，不再下放到「更多」的子页签。
-  tabs.splice(3, 0, ...(qualityEnabled ? [QUALITY_TAB, MONITOR_TAB] : [MONITOR_TAB]))
+  tabs.splice(4, 0, MONITOR_TAB)
   return tabs
 }
 

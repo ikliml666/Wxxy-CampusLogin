@@ -6,7 +6,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, Route, RotateCcw, SlidersHorizontal } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, Route, RotateCcw, SlidersHorizontal, BedDouble, X } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
@@ -163,6 +163,76 @@ function formatRestoreTime(minutes: number | undefined): string {
       : RESTORE_TIME_DEFAULT_MINUTES
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 }
+
+
+/** 就寝守则的 WiFi 名单编辑器：已选项以 chip 呈现，输入框回车追加、点 × 移除。
+ *  名单是纯文本（用户手输 SSID）；去重不区分大小写——Windows 对 SSID 的比较本身也不区分 */
+const SsidListEditor = memo(function SsidListEditor({
+  id,
+  items,
+  placeholder,
+  removeLabel,
+  disabled,
+  onChange,
+}: {
+  id: string
+  items: string[]
+  placeholder: string
+  removeLabel: (name: string) => string
+  disabled?: boolean
+  onChange: (next: string[]) => void
+}) {
+  const [draft, setDraft] = useState('')
+  const commit = useCallback(() => {
+    const value = draft.trim()
+    if (!value) return
+    if (!items.some((it) => it.toLowerCase() === value.toLowerCase())) {
+      onChange([...items, value])
+    }
+    setDraft('')
+  }, [draft, items, onChange])
+
+  return (
+    <div className={cn('flex flex-wrap items-center gap-1.5', disabled && 'opacity-60')}>
+      {items.map((name) => (
+        <span
+          key={name}
+          className="inline-flex items-center gap-1 rounded-full bg-primary/10 py-1 pl-2.5 pr-1.5 text-[12px] text-primary"
+        >
+          {name}
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label={removeLabel(name)}
+            title={removeLabel(name)}
+            onClick={() => onChange(items.filter((it) => it !== name))}
+            className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-primary/20 disabled:opacity-50"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        id={id}
+        value={draft}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit()
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            setDraft('')
+          }
+        }}
+        className="h-7 w-32 rounded-lg border border-input bg-card px-2 text-[12px] outline-none transition-colors duration-150 hover:border-input/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      />
+    </div>
+  )
+})
 
 /** 长按触发拖拽的时长（ms）；行体按下后移出死区即取消，防止滚动/点击误触发 */
 const DRAG_LONG_PRESS_MS = 250
@@ -780,6 +850,65 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       </div>
 
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AnimatedCard noEnterAnimation>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <CardIcon>
+                  <BedDouble className="h-5 w-5 text-primary" />
+                </CardIcon>
+                <div className="min-w-0">
+                  <CardTitle className="whitespace-nowrap">{t('network.wifiCurfew')}</CardTitle>
+                </div>
+              </div>
+              <Switch
+                checked={config.enableWifiCurfew}
+                onCheckedChange={checked => onUpdateConfig({ enableWifiCurfew: checked })}
+                title={t('network.wifiCurfew')}
+                aria-label={t('network.wifiCurfew')}
+                className="shrink-0"
+              />
+            </div>
+            <CardDescription className="mt-2">
+              {t('network.wifiCurfewDesc', { time: formatRestoreTime(config.nightRestoreMinutes) })}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="wifi-curfew-excluded" className="text-xs font-medium">{t('network.wifiCurfewExcluded')}</Label>
+              <SsidListEditor
+                id="wifi-curfew-excluded"
+                items={config.wifiCurfewExcluded}
+                placeholder={t('network.wifiCurfewAddPlaceholder')}
+                removeLabel={name => t('network.wifiCurfewRemove', { name })}
+                disabled={!config.enableWifiCurfew}
+                onChange={next => onUpdateConfig({ wifiCurfewExcluded: next })}
+              />
+              <p className="text-[11px] text-muted-foreground/70">{t('network.wifiCurfewExcludedHint')}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="wifi-curfew-allowed" className="text-xs font-medium">{t('network.wifiCurfewAllowed')}</Label>
+              <SsidListEditor
+                id="wifi-curfew-allowed"
+                items={config.wifiCurfewAllowed}
+                placeholder={t('network.wifiCurfewAddPlaceholder')}
+                removeLabel={name => t('network.wifiCurfewRemove', { name })}
+                disabled={!config.enableWifiCurfew}
+                onChange={next => onUpdateConfig({ wifiCurfewAllowed: next })}
+              />
+              <p className="text-[11px] text-muted-foreground/70">{t('network.wifiCurfewAllowedHint')}</p>
+            </div>
+            <div className="flex items-start gap-2 rounded-lg bg-muted/40 p-2">
+              <MoonStar className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="text-[11px] text-muted-foreground">
+                {t('network.wifiCurfewRestoreHint')} · {t('network.wifiCurfewWildcardHint')}
+              </span>
+            </div>
+          </CardContent>
+        </AnimatedCard>
+      </div>
+
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">

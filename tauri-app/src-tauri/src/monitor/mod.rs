@@ -13,4 +13,5 @@ pub mod background_task;
 pub mod outbound_night;
 pub mod outbound_failover;
 pub mod scheduled;
+pub mod wifi_curfew;
 pub mod dynamic_interval;
