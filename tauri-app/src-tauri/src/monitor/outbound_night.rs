@@ -200,6 +200,25 @@ fn outbound_allow_uac() -> bool {
     OUTBOUND_CHANNEL_FAIL_COUNT.load(Ordering::Acquire) > 0
 }
 
+/// 在探测窗口内并行预热常驻提权 worker：daemon 已在时立即返回，不在则经 CMSTPLUA
+/// 静默拉起——把每次 200–300ms 的提权通道开销（走代理/COM 时每次都要拉起进程）移出
+/// 切换关键路径。只在静默提权可行的环境预热（UAC 高档位下拉起会弹框，自动夜切不能
+/// 弹）；失败无副作用，后续 helper 仍按 代理 → COM → runas 降级。
+#[cfg(target_os = "windows")]
+fn warm_elevated_channel() {
+    let env = crate::platform::elevation::elevation_env();
+    if !env.admin_member || !env.com_silent_likely() {
+        return;
+    }
+    // 不 join：预热与选卡探测并行，切换不等它；切换时若还没切到管道，就按原降级链走。
+    std::thread::spawn(|| {
+        let _ = crate::platform::elevated_daemon::ensure_running(std::time::Duration::from_secs(3));
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn warm_elevated_channel() {}
+
 /// 提权通道失败才抬高 UAC 放行计数；业务性失败不抬（弹 UAC 无意义且打扰用户）
 fn note_channel_failure(failure: &HelperFailure) {
     if failure.channel {
@@ -568,16 +587,6 @@ fn current_origin_adapter() -> Option<(String, String, u32)> {
         .iter()
         .find(|a| a.if_index == current.if_index || a.name == current.alias)?;
     Some((adapter.name.clone(), adapter.guid.clone(), adapter.if_index))
-}
-
-/// 按适配器名取本机 IPv4（关闭旧出口连接用；无地址返回 None）。
-fn adapter_ipv4_by_name(name: &str) -> Option<String> {
-    let adapters = crate::network::get_adapters_cached().ok()?;
-    adapters
-        .iter()
-        .find(|a| a.name == name)
-        .map(|a| a.ip.clone())
-        .filter(|ip| !ip.is_empty())
 }
 
 /// 手动修改单张网卡的跃点（IPv4/IPv6 同步写为同一值）。
@@ -980,6 +989,7 @@ pub(super) fn apply_outbound_switch_with_health(
     notify_no_candidate: bool,
 ) -> Result<(), String> {
     let started = std::time::Instant::now();
+    warm_elevated_channel();
     let Some(_busy) = OutboundActionGuard::try_acquire() else {
         crate::log_debug!("outbound", "夜间出站切换: 另一出站动作进行中，本拍跳过");
         return Err("另一出站动作进行中，请稍后再试".to_string());
@@ -1097,10 +1107,9 @@ pub(super) fn apply_outbound_switch_with_health(
         }
     }
     // 出口真的换了才值得断旧连接
+    // 出口真的换了才值得中断旧连接：目标卡不动，其余有 IP 的卡全部清 TCB
     if all_ok {
-        if let Some((origin_name, _, _)) = &origin {
-            close_origin_tcp_conns(origin_name, &plan.target_name);
-        }
+        close_stale_tcp_conns(&plan.target_name);
     }
     // Portal 旁路：默认出口已切到新卡，但登录请求仍需到达校园 Portal——给原卡加一条
     // /32 主机路由，让这部分流量绕回原卡，其余流量照常走新出口。添加失败不阻断切换
@@ -1176,29 +1185,50 @@ fn verify_switch_effect(target_name: &str, target_if_index: u32) -> Result<(), S
     }
 }
 
-/// 关闭原出口卡上已建立的 TCP 连接：改跃点只影响新连接的选路，既有连接仍钉在
-/// 原卡上，原卡断网后只会僵死到重传超时（应用收不到切换信号、也不会重连到新出口）。
-/// 失败只告警，不影响切换结果。
-fn close_origin_tcp_conns(origin_name: &str, target_name: &str) {
-    if origin_name == target_name {
-        return;
-    }
-    let Some(ip) = adapter_ipv4_by_name(origin_name) else {
-        return;
+/// 切换后中断**所有已连接网卡**上的既有 TCP 连接（跳过目标卡）。
+///
+/// 改跃点只影响新连接的选路：既有连接仍钉在各自原卡上，原卡断网后只会僵死到重传
+/// 超时——应用收不到切换信号、也不会重连到新出口。一次性按全部有 IPv4 的本地地址
+/// 删 TCB（跳过 LISTEN），应用重连时按新跃点自然落到目标卡。
+///
+/// 目标卡不断：它的连接已经在新出口上，断开只会让应用白白闪断一次。
+/// 后台线程执行、不阻塞切换返回：关连接不是切换到位的判据，且提权降级通道上每次
+/// 往返要 200–300ms。失败只告警。
+fn close_stale_tcp_conns(target_name: &str) {
+    let adapters = match crate::network::get_adapters_cached() {
+        Ok(adapters) => adapters,
+        Err(e) => {
+            crate::log_warn!("outbound", "夜间出站切换: 枚举网卡失败，跳过中断旧连接: {e}");
+            return;
+        }
     };
-    let started = std::time::Instant::now();
-    match run_helper_op("close_tcp_conns", &[ip.clone()], false) {
-        Ok(()) => crate::log_info!(
-            "outbound",
-            "夜间出站切换: 已关闭原出口 {origin_name}({ip}) 上的旧 TCP 连接，耗时 {}ms",
-            started.elapsed().as_millis()
-        ),
-        Err(failure) => crate::log_warn!(
-            "outbound",
-            "夜间出站切换: 关闭原出口 {origin_name}({ip}) 旧连接失败: {}",
-            failure.reason
-        ),
+    let mut ips: Vec<String> = Vec::new();
+    for adapter in adapters.iter().filter(|a| a.name != target_name && !a.ip.is_empty()) {
+        if !ips.contains(&adapter.ip) {
+            ips.push(adapter.ip.clone());
+        }
     }
+    if ips.is_empty() {
+        return;
+    }
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        match run_helper_op("close_tcp_conns", &ips, false) {
+            Ok(()) => crate::log_info!(
+                "outbound",
+                "夜间出站切换: 已中断 {} 张非目标卡（{}）上的旧 TCP 连接，耗时 {}ms",
+                ips.len(),
+                ips.join(", "),
+                started.elapsed().as_millis()
+            ),
+            Err(failure) => crate::log_warn!(
+                "outbound",
+                "夜间出站切换: 中断旧 TCP 连接失败（{}）: {}",
+                ips.join(", "),
+                failure.reason
+            ),
+        }
+    });
 }
 
 /// 补齐/重放切换动作：按快照把"切换没写完"的部分补齐，两个分支各自独立、
@@ -1852,9 +1882,7 @@ fn retarget_outbound_switch(app_handle: &AppHandle, adapter_name: &str) -> Resul
         run_set_metric(app_handle, &adapter.name, &retry, false, "")?;
         verify_switch_effect(&adapter.name, adapter.if_index)?;
     }
-    if let Some((origin_name, _, _)) = &origin {
-        close_origin_tcp_conns(origin_name, &adapter.name);
-    }
+    close_stale_tcp_conns(&adapter.name);
     Ok(())
 }
 
