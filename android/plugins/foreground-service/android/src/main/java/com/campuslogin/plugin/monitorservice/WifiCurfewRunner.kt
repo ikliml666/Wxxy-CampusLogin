@@ -76,12 +76,12 @@ class WifiCurfewRunner(private val context: Context) {
         }
 
         // 2) 兜底：关掉 WiFi 走流量（只记「本程序关的」，出窗才打开）
-        val out = shellExec("cmd wifi set-wifi-enabled disabled")
-        if (out != null && out.contains("exit=0")) {
+        val trace = setWifiEnabled(false)
+        if (trace.ok) {
             prefs.edit().putBoolean(KEY_DISABLED, true).apply()
-            return result("wifi-off").put("currentSsid", current).toString()
+            return result("wifi-off").put("currentSsid", current).put("trace", trace.detail).toString()
         }
-        return result("failed").put("detail", out?.trim()?.take(160) ?: "no_shell").toString()
+        return result("failed").put("trace", trace.detail).toString()
     }
 
     /** 出窗/关功能：把本程序关掉的 WiFi 打开（不碰用户自己关的状态） */
@@ -89,13 +89,35 @@ class WifiCurfewRunner(private val context: Context) {
         if (!prefs.getBoolean(KEY_DISABLED, false)) {
             return result("idle").toString()
         }
-        val out = shellExec("cmd wifi set-wifi-enabled enabled")
-        if (out != null && out.contains("exit=0")) {
+        val trace = setWifiEnabled(true)
+        if (trace.ok) {
             prefs.edit().putBoolean(KEY_DISABLED, false).apply()
-            return result("wifi-on").toString()
+            return result("wifi-on").put("trace", trace.detail).toString()
         }
-        return result("restore-failed").put("detail", out?.trim()?.take(160) ?: "no_shell").toString()
+        return result("restore-failed").put("trace", trace.detail).toString()
     }
+
+    /**
+     * 开关 WiFi：先 `cmd wifi set-wifi-enabled`（Android 11+ 的 shell 子命令），
+     * 失败再退到 `svc wifi`（Android 10 起就有，走 `setWifiEnabled("com.android.shell", …)`）。
+     * 两条都失败时把各自的原始输出原样带回去——用户侧看到的就是「卡在哪一步、报了什么」。
+     */
+    private data class ShellTrace(val ok: Boolean, val detail: String)
+
+    private fun setWifiEnabled(enable: Boolean): ShellTrace {
+        val state = if (enable) "enabled" else "disabled"
+        val parts = StringBuilder()
+        val viaCmd = shellExec("cmd wifi set-wifi-enabled $state")
+        parts.append("cmd wifi set-wifi-enabled $state => ").append(brief(viaCmd))
+        if (viaCmd != null && viaCmd.contains("exit=0")) return ShellTrace(true, parts.toString())
+        parts.append(" | ")
+        val viaSvc = shellExec(if (enable) "svc wifi enable" else "svc wifi disable")
+        parts.append("svc wifi ").append(if (enable) "enable" else "disable").append(" => ").append(brief(viaSvc))
+        return ShellTrace(viaSvc != null && viaSvc.contains("exit=0"), parts.toString())
+    }
+
+    /** 命令结果压成一行：去掉退出码行首换行，超长截断 */
+    private fun brief(raw: String?): String = raw?.replace("\n", " ")?.trim()?.take(120) ?: "no_shell"
 
     // ===== 判定 =====
 
