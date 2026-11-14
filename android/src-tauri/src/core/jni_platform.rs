@@ -192,6 +192,16 @@ impl CorePlatform for JniPlatform {
         self.call_json("restoreAvoidBadWifi")
     }
 
+    fn set_wifi_curfew_config(&self, json: &str) {
+        if let Err(e) = self.call_str_void("setWifiCurfewConfig", json) {
+            eprintln!("[core] setWifiCurfewConfig 失败: {e}");
+        }
+    }
+
+    fn run_wifi_curfew(&self) -> Result<String, String> {
+        self.call_zero_str("runWifiCurfew")
+    }
+
     fn start_wifi_watcher(&self) -> Result<(), String> {
         // 必须传播失败:静默吞掉会让 WATCHER_FAILED 永不置位、WiFi 即时触发失效
         self.call_zero_void("startWifiWatcher")

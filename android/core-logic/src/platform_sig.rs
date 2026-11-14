@@ -48,6 +48,10 @@ pub const METHOD_SIGNATURES: &[(&str, JavaSignature)] = &[
     ("reportWifiUnusable", JavaSignature::ZeroToStr),
     ("ensureAvoidBadWifi", JavaSignature::ZeroToStr),
     ("restoreAvoidBadWifi", JavaSignature::ZeroToStr),
+    // 配置经 setWifiCurfewConfig 先塞进 CoreService，runWifiCurfew 无参执行：
+    // 不走 String→String（该签名只留给 decrypt/encrypt，见本文件测试的由来）
+    ("setWifiCurfewConfig", JavaSignature::StrToVoid),
+    ("runWifiCurfew", JavaSignature::ZeroToStr),
     ("startWifiWatcher", JavaSignature::ZeroToVoid),
     ("stopWifiWatcher", JavaSignature::ZeroToVoid),
     ("runIdleStop", JavaSignature::ZeroToVoid),

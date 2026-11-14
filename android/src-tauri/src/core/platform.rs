@@ -30,6 +30,10 @@ pub trait CorePlatform: Send + Sync {
     fn report_wifi_unusable(&self) -> Result<serde_json::Value, String>;
     fn ensure_avoid_bad_wifi(&self) -> Result<serde_json::Value, String>;
     fn restore_avoid_bad_wifi(&self) -> Result<serde_json::Value, String>;
+    /// 把守则配置（JSON）交给 Kotlin 侧暂存；随后无参 `run_wifi_curfew` 执行
+    fn set_wifi_curfew_config(&self, json: &str);
+    /// WiFi 就寝守则单拍：返回执行结果 JSON（判定与 `cmd wifi` 动作在 Kotlin 侧）
+    fn run_wifi_curfew(&self) -> Result<String, String>;
     fn read_status(&self) -> CoreStatus;
     fn write_status(&self, status: &CoreStatus);
 }
