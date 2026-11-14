@@ -18,7 +18,7 @@
   - `monitor/outbound_night.rs`：退避起点/封顶改为 `AtomicU64` 并在切换入口刷新；切换探测超时直接用 `outboundProbeTimeoutMs`。
   - 「网络检测参数」弹窗新增「出站切换判定」分组（5 个输入 + 越界/先后校验），弹窗加 `max-h-[85vh] overflow-y-auto`。
 
-**验证**：`npx tsc --noEmit --incremental`（桌面 + 安卓）通过；`npx vite build` 成功；`cargo test --lib` 644 passed / 0 failed / 3 ignored（新增 3 个流量换算用例）；浏览器实测（`vite --config vite.mock.config.ts` + headless Edge，`?panel=network`）确认四行条目、IP 旁小按钮、速率/流量行与检测参数弹窗新分组渲染正常。**未实测**：真实网卡上的流量读数与自定义判定参数后的故障切换时序（需新构建）。
+**验证**：`npx tsc --noEmit --incremental`（桌面 + 安卓）通过；`npx vite build` 成功；`cargo test --lib` 644 passed / 0 failed / 3 ignored（新增 3 个流量换算用例）；浏览器实测（`vite --config vite.mock.config.ts` + headless Edge，`?panel=network`）确认四行条目、IP 旁小按钮、速率/流量行与检测参数弹窗新分组渲染正常。另加一个 `#[ignore]` 开销基准（`platform/if_stats.rs` 的「真机流量采集开销基准」）：debug 构建下 `GetIfTable2` 单次枚举 ≈1.0ms（300 次均值），1s 轮询折合单核约 0.1%，且跑在 `spawn_blocking` 线程上不占 UI 线程。**未实测**：真实网卡上的流量读数与自定义判定参数后的故障切换时序（需新构建）。
 
 **双端说明**：适配器条目与流量采集为桌面专属（安卓无多网卡/出站切换）；安卓前端只补配置类型与默认值保持类型树同构。
 

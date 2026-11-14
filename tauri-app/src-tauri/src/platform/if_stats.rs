@@ -68,6 +68,23 @@ mod tests {
         assert_eq!(compute_rates((0, 0), (1000, 1000), 0), (0, 0));
     }
 
+    /// 开销基准（默认 ignored）：1s 轮询的真实成本。人工确认：
+    /// cargo test --lib 真机流量采集开销基准 -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn 真机流量采集开销基准() {
+        const ROUNDS: u32 = 300;
+        // 预热一次，排除首调的表分配
+        let _ = read_interface_octets().expect("GetIfTable2 应可用");
+        let started = std::time::Instant::now();
+        for _ in 0..ROUNDS {
+            let rows = read_interface_octets().expect("GetIfTable2 应可用");
+            std::hint::black_box(rows);
+        }
+        let per_call = started.elapsed() / ROUNDS;
+        println!("GetIfTable2 单次枚举 ≈ {per_call:?}（{ROUNDS} 次均值）");
+    }
+
     #[test]
     fn read_interface_octets_smoke() {
         let rows = read_interface_octets().expect("GetIfTable2 应可用");
