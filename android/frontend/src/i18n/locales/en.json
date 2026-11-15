@@ -355,7 +355,7 @@
     "wifiCurfewExcluded": "Disconnect during the window",
     "wifiCurfewExcludedHint": "Campus networks by default. Type a name and press Enter to add; click × on a tag to remove",
     "wifiCurfewAllowed": "Still allowed during the window",
-    "wifiCurfewAllowedHint": "Your own router and networks that stay online; anything matching here is never disconnected (overrides the list above)",
+    "wifiCurfewAllowedHint": "Your own router and networks that stay online; anything matching here is never disconnected (overrides the list above). Only saved open networks (such as i-wxxy) can be joined automatically — encrypted networks need a plaintext password the app cannot obtain, so those fall back to turning WiFi off",
     "wifiCurfewAddPlaceholder": "WiFi name",
     "wifiCurfewRemove": "Remove {{name}}",
     "curfewChannelUnknown": "Channel: neither Shizuku nor root detected — this rule will not touch any WiFi",
