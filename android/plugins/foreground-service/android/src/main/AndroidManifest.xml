@@ -5,4 +5,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application>
+        <!-- Shizuku UserService：由 Shizuku 在 shell/root 身份进程里实例化。
+             组件没在这里声明时 bindUserService 直接失败，表现为「已授权但命令一条也执行不了」。 -->
+        <service
+            android:name="com.campuslogin.plugin.monitorservice.RemoteShellService"
+            android:exported="false" />
+    </application>
 </manifest>
