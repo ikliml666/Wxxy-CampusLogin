@@ -196,7 +196,7 @@ impl Default for Settings {
             // 0 = 未自定义,回落默认 07:30
             night_restore_minutes: 0,
             enable_wifi_curfew: false,
-            wifi_curfew_excluded: campus_login_lib::config::default_wifi_curfew_excluded(),
+            wifi_curfew_excluded: campus_login_lib::config::model::default_wifi_curfew_excluded(),
             wifi_curfew_allowed: Vec::new(),
             outbound_priority: Vec::new(),
             outbound_metric_restore: String::new(),
