@@ -518,7 +518,7 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
     let settings = match ctx.settings().await {
         Ok(s) => s,
         Err(e) => {
-            campus_login_lib::log_debug!("wifi_curfew", "读取配置失败,本拍跳过: {e}");
+            ctx.emit_log(&format!("WiFi 守则: 读取配置失败,本拍跳过: {e}"), "warn");
             return;
         }
     };
@@ -544,9 +544,9 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
     })
     .await;
     match outcome {
-        Ok(Ok(raw)) => campus_login_lib::log_debug!("wifi_curfew", "守则单拍: {raw}"),
-        Ok(Err(e)) => campus_login_lib::log_debug!("wifi_curfew", "守则单拍失败: {e}"),
-        Err(e) => campus_login_lib::log_debug!("wifi_curfew", "守则任务失败: {e}"),
+        Ok(Ok(raw)) => ctx.emit_log(&format!("WiFi 守则: {raw}"), "debug"),
+        Ok(Err(e)) => ctx.emit_log(&format!("WiFi 守则执行失败: {e}"), "warn"),
+        Err(e) => ctx.emit_log(&format!("WiFi 守则任务失败: {e}"), "warn"),
     }
 }
 
