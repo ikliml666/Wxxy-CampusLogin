@@ -1,3 +1,16 @@
+### WiFi 就寝守则：执行结果带上通道诊断（2026-11-15，安卓插件）
+
+**为什么**：用户实测「用 adb 权限也断不开」，而守则失败时外部看不出原因——Shizuku 未激活、未授权、还是设备上根本没 root，结果都是一样的「什么都没发生」。诊断信息必须能从日志回答这个问题。
+
+**改了什么**（`WifiCurfewRunner.kt`）
+
+- 新增 `detectChannel()`：按 `shizukuReady()` → `rootAvailable()` 的顺序判定本次实际可用的通道，值为 `shizuku` / `root` / `none`。
+- `rootAvailable()` 用 `su -c id` 起进程 + 3s 超时 + 退出码判定，不解析输出（各 ROM 的 su 提示文案不一致）。
+- `run()` 与 `restore()` 的每个返回结果都带 `channel` 字段，与既有的 `trace`（命令原文）一起经 `core::monitor::run_wifi_curfew` 落进 `wifi_curfew` 日志：`守则单拍: {"action":"wifi-off","channel":"shizuku","trace":"cmd wifi set-wifi-enabled disabled => exit=0"}`。
+- `channel` 为 `none` 即表示 Shizuku 与 root 都不可用——此时守则不会改动任何 WiFi，这是设计而非缺陷。
+
+**验证**：`cargo test`（`android/core-logic`）18 passed；Kotlin 未编译验证（本机无 NDK/真机）。
+
 ### WiFi 就寝守则：关/开 WiFi 加 `svc wifi` 回退与命令 trace（2026-11-14，安卓插件）
 
 **为什么**：用户实测「用 adb 权限也没法断开」。先厘清边界——`pm grant WRITE_SECURE_SETTINGS` 只能写 `Settings.Global`，与开关 WiFi 无关；开关 WiFi 需要 shell 身份。而 `cmd wifi set-wifi-enabled` 是 Android 11 才有的子命令，Android 10 与部分 ROM 上会直接失败，没有任何提示。

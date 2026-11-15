@@ -50,15 +50,16 @@ class WifiCurfewRunner(private val context: Context) {
         val allowed = readList(cfg.optJSONArray("allowed"))
         val restoreStart = normalizeRestoreStart(cfg.optInt("restoreStart", 0))
         val inWindow = inCurfewWindow(restoreStart)
+        val channel = detectChannel()
 
         if (!enabled || !inWindow) {
-            return restore()
+            return restore(channel)
         }
 
         val current = currentSsid()
         if (!isBlocked(excluded, allowed, current)) {
             // 当前网络不在黑名单里（含本来就没连 WiFi）：不动
-            return result("keep").put("currentSsid", current).toString()
+            return result("keep").put("channel", channel).put("currentSsid", current).toString()
         }
 
         // 1) 有允许列表 → 直接连过去
@@ -70,7 +71,7 @@ class WifiCurfewRunner(private val context: Context) {
                     ?: "open"
                 val out = shellExec("cmd wifi connect-network \"$target\" $security") ?: continue
                 if (out.contains("Connection initiated")) {
-                    return result("connect").put("target", target).put("currentSsid", current).toString()
+                    return result("connect").put("channel", channel).put("target", target).put("currentSsid", current).toString()
                 }
             }
         }
@@ -79,22 +80,22 @@ class WifiCurfewRunner(private val context: Context) {
         val trace = setWifiEnabled(false)
         if (trace.ok) {
             prefs.edit().putBoolean(KEY_DISABLED, true).apply()
-            return result("wifi-off").put("currentSsid", current).put("trace", trace.detail).toString()
+            return result("wifi-off").put("channel", channel).put("currentSsid", current).put("trace", trace.detail).toString()
         }
-        return result("failed").put("trace", trace.detail).toString()
+        return result("failed").put("channel", channel).put("trace", trace.detail).toString()
     }
 
     /** 出窗/关功能：把本程序关掉的 WiFi 打开（不碰用户自己关的状态） */
-    private fun restore(): String {
+    private fun restore(channel: String): String {
         if (!prefs.getBoolean(KEY_DISABLED, false)) {
-            return result("idle").toString()
+            return result("idle").put("channel", channel).toString()
         }
         val trace = setWifiEnabled(true)
         if (trace.ok) {
             prefs.edit().putBoolean(KEY_DISABLED, false).apply()
-            return result("wifi-on").put("trace", trace.detail).toString()
+            return result("wifi-on").put("channel", channel).put("trace", trace.detail).toString()
         }
-        return result("restore-failed").put("trace", trace.detail).toString()
+        return result("restore-failed").put("channel", channel).put("trace", trace.detail).toString()
     }
 
     /**
@@ -179,6 +180,29 @@ class WifiCurfewRunner(private val context: Context) {
     private fun shizukuReady(): Boolean = try {
         Shizuku.pingBinder() && !Shizuku.isPreV11() &&
             Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+    } catch (e: Throwable) {
+        false
+    }
+
+    /**
+     * 本次实际走哪条通道：`shizuku` / `root` / `none`。打进结果 JSON 是为了让日志能回答
+     * 「为什么没生效」——没有通道时任何动作都不会发生，而这一点从外部看不出来。
+     */
+    private fun detectChannel(): String = when {
+        shizukuReady() -> "shizuku"
+        rootAvailable() -> "root"
+        else -> "none"
+    }
+
+    /** `su -c id` 起得来且退出码为 0 才算有 root；不解析输出，避开各 ROM 的 su 提示差异 */
+    private fun rootAvailable(): Boolean = try {
+        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
+        if (process.waitFor(3, TimeUnit.SECONDS)) {
+            process.exitValue() == 0
+        } else {
+            process.destroy()
+            false
+        }
     } catch (e: Throwable) {
         false
     }
