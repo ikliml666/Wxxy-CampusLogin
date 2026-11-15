@@ -180,6 +180,8 @@ export interface CurfewChannelStatus {
   shizuku: 'ready' | 'missing' | 'inactive' | 'denied'
   /** su 可用 */
   root: boolean
+  /** 通道自检：真跑一条 `id` 的输出（`uid=...`），绑定/执行失败时为 `unavailable` */
+  probe?: string
 }
 
 export interface CurfewPermissionResult {

@@ -188,12 +188,15 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
       ? config.nightRestoreMinutes
       : RESTORE_TIME_DEFAULT_MINUTES
 
+  // 光有权限不够：Shizuku 的 user service 绑定可能失败，届时命令一条也落地不了
+  const curfewProbeOk = Boolean(curfewChannel?.probe?.startsWith('uid='))
   const curfewReady =
-    config.wifiCurfewChannel === 'adb'
+    curfewProbeOk &&
+    (config.wifiCurfewChannel === 'adb'
       ? curfewChannel?.shizuku === 'ready'
       : config.wifiCurfewChannel === 'root'
         ? curfewChannel?.root === true
-        : curfewChannel?.shizuku === 'ready' || curfewChannel?.root === true
+        : curfewChannel?.shizuku === 'ready' || curfewChannel?.root === true)
   const curfewReadyLabel =
     config.wifiCurfewChannel !== 'root' && curfewChannel?.shizuku === 'ready'
       ? 'network.wifiCurfewChannelReadyShizuku'

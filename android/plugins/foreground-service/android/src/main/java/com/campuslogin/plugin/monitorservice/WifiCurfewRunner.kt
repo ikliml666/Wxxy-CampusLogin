@@ -227,6 +227,9 @@ class WifiCurfewRunner(private val context: Context) {
         ""
     }
 
+    /** 通道自检：真跑一条无害命令，确认这条通道不止「有权限」而且能落地 */
+    fun probeChannel(): String = shellExec("id")?.trim() ?: "unavailable"
+
     // ===== shell 通道 =====
 
     /** 优先 Shizuku（user service，shell 身份），其次 root（su）。都没有返回 null。 */

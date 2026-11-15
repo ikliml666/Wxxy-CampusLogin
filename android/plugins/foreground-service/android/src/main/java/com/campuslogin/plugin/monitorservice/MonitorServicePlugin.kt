@@ -175,6 +175,8 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
             val ret = JSObject()
             ret.put("shizuku", CurfewChannel.shizukuState(ctx))
             ret.put("root", CurfewChannel.rootAvailable())
+            // 权限齐备不等于命令能落地（UserService 绑定可能超时），顺手跑一条 id 验证
+            ret.put("probe", WifiCurfewRunner(ctx).probeChannel())
             invoke.resolve(ret)
         }, "curfew-channel").start()
     }
