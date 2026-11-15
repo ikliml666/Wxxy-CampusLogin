@@ -524,6 +524,15 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
     };
     let active = campus_login_lib::config::wifi_curfew::in_curfew_window_now(settings.night_restore_minutes);
     let was_active = CURFEW_ACTIVE.swap(active, Ordering::Relaxed);
+    ctx.emit_log(
+        &format!(
+            "WiFi 守则判定: 窗口内={active}, 恢复时刻={:02}:{:02}, 开关={}",
+            settings.night_restore_minutes / 60,
+            settings.night_restore_minutes % 60,
+            settings.enable_wifi_curfew
+        ),
+        "debug",
+    );
     // 白天且上一拍也不在窗口：没有待恢复的动作，直接返回
     if !active && !was_active {
         return;
