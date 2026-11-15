@@ -30,6 +30,19 @@
 
 **验证**：真机 adb 实测（上述四组命令）；`cargo test`（`android/core-logic`）18 passed；`npx tsc --noEmit --incremental`（安卓前端）exit 0。完整 APK 仍未构建——本机无 JDK、无 tauri CLI，`android/build-apk.ps1` 也不在仓库里。
 
+### 安卓网络页移除两张桌面专属卡片（2026-11-15，安卓前端）
+
+**为什么**：「夜间出站切换」与「DNS 优化」是桌面端能力——前者靠 Windows 的网卡 metric/路由操作实现，后者改的是 Windows 网卡 DNS。安卓端它们只有镜像 UI，点了没有对应动作，真机上纯属误导。用户要求从安卓网络页删掉。
+
+**改了什么**
+
+- `android/frontend/src/network/NetworkPanel.tsx`：删掉两张卡（原 288–398 行的夜间出站切换、476–570 行的 DNS 优化），页面只剩「WiFi 就寝守则」与「私人 DNS（DoT）」两张，卡片入场序号重排为 1、2。
+- 连带清理删卡后的死代码：`Shield`/`Loader2`/`RefreshCw`/`MoonStar`/`Network`/`Layers` 图标导入、`SegmentTabs` 与 `m` 组件、`DnsAdapterCard`、`useQualityStore`、`useDnsSetup`、`AvoidBadWifiStatus` 类型、`RESTORE_TIME_MIN_MINUTES` 常量、`dnsStatus`/`dnsChecking`/`familyTabs`/`handleCopyAdbCommand`/`secureStatus`/`restoring`/`refreshSecureStatus`/`handleRestoreWritten`。
+- 删除已成孤儿的 `android/frontend/src/network/DnsAdapterCard.tsx`（120 行）与 `android/frontend/src/network/useDnsSetup.ts`（88 行）。
+- 配置字段与后端能力保持不变（`enableNightOutboundSwitch` 等仍随配置往返），只去掉安卓端入口。
+
+**验证**：`npx tsc --noEmit --incremental`（`android/frontend`）exit 0；`npx vite build` exit 0（6.74s）。真机安装后网络页只剩两张卡。
+
 ### WiFi 就寝守则：网络页显示执行通道状态（2026-11-15，安卓全栈）
 
 **为什么**：守则靠 Shizuku 或 root 执行，两者都不通时它会静默地什么都不做。用户此前反馈「用了 adb 权限也断不开」，根因就是没有任何地方显示通道到底通没通——`pm grant WRITE_SECURE_SETTINGS` 只能写 Settings.Global，与开关 WiFi 无关。
