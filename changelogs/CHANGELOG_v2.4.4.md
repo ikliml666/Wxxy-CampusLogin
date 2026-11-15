@@ -1,3 +1,48 @@
+### 夜间出站切换评审修复：顺序改为「先下线原卡再写跃点」，失败可整笔回退（2026-11-15，桌面后端）
+
+**为什么**：上一轮把切换改成「写跃点 → 下线原卡 → 启用」，两轴 code-review 查出三个真问题：① 禁用失败时跃点已写、快照已落盘，而 set_metric 成功已清掉失败计数，`needs_replay` 恒假 → 系统停在「跃点已切、旧连接未断」且不再重试；② 启用后复核用 `read_family_rows(..).unwrap_or_default()` 吞掉读失败，接口未就绪时静默跳过补写；③ 重放只补目标卡 metric=1，被启用回来的原卡不带 100，会凭更低的 routeMetric 抢回出口。
+
+**改了什么**（`monitor/outbound_night.rs`、`helper/mod.rs`）
+
+- **顺序改为「落快照 → 原卡下线→保持→启用 → 一次写两卡跃点 → 验证 → 旁路」**：跃点写入落在启用之后，天然成为「接口重建后复核」，`rewrite_origin_metric_if_needed` 随之删除（连带消掉吞读失败那处）。
+- **禁用失败可整笔回退**：此时系统只被动过快照，清掉快照与名单并记一次失败后返回；下一拍 `evaluate_outbound_action` 会重新给出 Switch，自动重来（原来会永久停在半切换态）。改切同样把下线提前——失败时跃点尚未改动，用户可原样重试。
+- **重放分支顺序调整**：先「启用残留卡」再「补跃点」，补写按卡分组——首行目标卡 1、其余原出口 100，与首次切换同口径。原顺序会把卡救回来后立刻清掉失败计数，下一拍不再重放。
+- **点名切换只读一次跃点**：`resolve_switch_target` 不再预读（原来读了又丢弃），执行阶段统一读一次。
+- **跃点编码收敛**：新增 `encode_metric_rows`，`write_outbound_metric`／改切／重放／手动设跃点四处手拼统一。
+- **旁路路由构造合并**：`rebuild_portal_bypass_from_snapshot` 委托 `build_portal_bypass_route`，不再两处各写一份网关查询。
+
+**验证**（当轮实际输出）
+
+- `cargo check --all-targets`：exit 0（无 error／unused 警告）
+- `cargo test --lib`：`663 passed; 0 failed; 4 ignored`
+- 前端未改动，沿用上一轮的 `npx tsc --noEmit`（exit 0）与 `npx vite build`（✓ built）
+
+**评审里判定不修的两条**：①「改动直接进 main」不成立——`AGENTS.md` 必守 2 允许任务收尾 `--ff-only` 合回 main；② `.codewiki/` 文章与验证基线数字由流水线维护（禁止手改），wiki 编译两次失败（引擎锁版本不一致 → 已重置；模型通道空产出 3/3 中断在 articles 阶段），需重跑。
+
+### 夜间出站切换：原出口网卡「下线再启用」断掉既有连接，删除 TCP-only 中断（2026-11-15，桌面后端 + 前端文案）
+
+**为什么**：用户实测切换后 UU 远程仍在走原以太网卡。根因不是「只关 TCP 不够」，而是**改跃点只影响新建连接**——已建立 TCP 连接的 TCB、以及 UDP socket 首次 `sendto` 时隐式绑定的源地址都不跟随默认路由（Vista 起 strong host model），而 UDP 没有 TCB、用户态也没有任何 API 能删除他人 socket。原 `close_tcp_conns` 只删 TCP TCB，对 UDP 打洞类应用（远程控制、加速器）完全无效，也没有能在用户态补上的手段。唯一能让这些绑定失效的是让原卡接口 down 一次。
+
+**改了什么**（`monitor/outbound_night.rs`、`monitor/outbound_switch.rs`、`helper/mod.rs`、`platform/`、桌面 `i18n`）
+
+- **切换动作改为「写跃点 → 原出口卡下线 1s → 启用 → 跃点复核补写 → 验证 → Portal 旁路」**（`bounce_origin_adapter`，`ORIGIN_DISABLE_HOLD_MS = 1000`）。禁用对象是**原出口卡**而非校园网卡；启用后它与目标卡的跃点是 `100` 对 `1`，出口继续留在目标卡。保持 1s 是因为瞬时 down 不足以让已绑 socket 感知断链（P2P 心跳普遍 1s 量级）。
+- **名单先行、启用即清**：禁用前把 `{guid, name}` 写进 `outbound_disabled_adapters`，启用成功清空；启用失败只告警不阻断切换（出口已切好），名单留给还原与重放继续救。
+- **启用后跃点复核**（`rewrite_origin_metric_if_needed`）：设备禁用再启用会重建接口，跃点可能被重置为自动值（那样原卡会凭更低的 routeMetric 抢回出口），只在不一致时补写。
+- **重放分支②**由「禁用补做」改为「禁用残留收尾」（`replay_outbound_switch`）：启动对账与退避重放会把停在禁用态的卡启用回来。
+- **删除 `close_tcp_conns` 全链路**：helper 的 `CloseTcpConns` op、`run_close_tcp_conns`、`platform/tcp_conns.rs` 模块与全部相关测试。
+- **流程精简**：目标卡跃点由「预判定读 + 执行复核」两次改为执行阶段一次（`OutboundSwitchPlan` 去掉 `rows` 字段）；清 pending 与跃点快照合并为一次落盘；`build_portal_bypass_route` 改为按卡名实时查（不再依赖切换前 ifIndex，旁路可在原卡启用后建）；去掉 `close_stale_tcp_conns` 的后台线程与 `current_origin_adapter` 的二次调用。
+- **改切**（切换态内换目标卡）：不再把上一次的目标卡写回原值再重试；统一「新目标 1 / 当前出口 100」，原值只留在快照里，还原时统一写回。
+- **一并修复**：`rebuild_portal_bypass_from_snapshot` 原先按「快照 metric == 100」识别原出口卡，但快照存的是切换前原值，条件恒不成立（切换态下旁路路由几乎总重建失败）→ 改为「快照首行为目标卡、其余第一张为原出口」。
+- **前端文案**（桌面 zh/en）：`nightOutboundSwitchDesc`、`outboundDragHint` 改为「临时下线原出口」口径；安卓端同键文案描述的是「注销 + 系统 WiFi 重检」，与本功能无关，未改。
+
+**验证**（当轮实际输出）
+
+- `cargo check --all-targets`：exit 0（仅剩既有的 `in_curfew_window_now` 等无关 dead_code 警告）
+- `cargo test --lib`：`663 passed; 0 failed; 4 ignored`
+- `npx tsc --noEmit --incremental`：exit 0
+- `npx vite build`：`✓ built in 5.05s`，无新增警告
+- 真机切换未实测：该路径涉及真实网卡禁用/启用，需在夜间窗口或手动点「切换出站」时看 `outbound` 日志确认「已临时禁用原出口网卡 → 已恢复启用」与出口验证两行
+
 ### WiFi 就寝守则：执行结果带上通道诊断（2026-11-15，安卓插件）
 
 **为什么**：用户实测「用 adb 权限也断不开」，而守则失败时外部看不出原因——Shizuku 未激活、未授权、还是设备上根本没 root，结果都是一样的「什么都没发生」。诊断信息必须能从日志回答这个问题。

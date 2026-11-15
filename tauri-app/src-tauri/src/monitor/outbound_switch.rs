@@ -47,9 +47,7 @@ pub use crate::campus::rules::portal_probe_host;
 
 /// 出站优先级的生效列表：用户已排序（非空）按原序透传；未排序（空）默认
 /// 「无线卡优先、有线卡随后」，组内保持发现顺序——未拖动排序时夜间切换目标
-/// 默认落在 WLAN/无线出口上，校园有线出口不会成为首选目标。该顺序同时是
-/// [`select_campus_to_disable`] 的禁用白名单：未排序时在网校园卡同样纳入禁用，
-/// 与已排序语义一致。
+/// 默认落在 WLAN/无线出口上，校园有线出口不会成为首选目标。
 pub fn effective_outbound_priority(
     priority: &[String],
     details: &[(Adapter, String)],
@@ -155,9 +153,12 @@ pub fn snapshot_json_multi(entries: &[(String, Vec<crate::platform::metric::Metr
     serde_json::to_string(&snapshot).unwrap_or_else(|_| "[]".to_string())
 }
 
-/// 待禁用校园网卡行（切换快照 `[{guid, name}]`）。
-/// 名单只记本功能亲手禁用的卡：还原与 adapter_watch 闸门都以它为准，绝不按
-/// 「看到禁用状态」推断归属——USB 网卡状态判定不可靠（未连接会被误判为已禁用）。
+/// 本功能亲手禁用、尚未确认恢复的卡（切换快照 `[{guid, name}]`）。
+///
+/// 切换流程对原出口卡做「下线 → 保持 → 启用」，禁用前写入、启用成功即清空，
+/// 因此这份名单同时承担两个职责：还原与重放据此把卡启用回来，adapter_watch
+/// 的自动启用据此让路。名单只记亲手禁用的卡，绝不按「看到禁用状态」推断归属——
+/// USB 网卡状态判定不可靠（未连接会被误判为已禁用）。
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DisabledRow {
     pub guid: String,
