@@ -75,6 +75,22 @@
 
 **验证**：真机 adb 实测（上述四组命令）；`cargo test`（`android/core-logic`）18 passed；`npx tsc --noEmit --incremental`（安卓前端）exit 0。完整 APK 仍未构建——本机无 JDK、无 tauri CLI，`android/build-apk.ps1` 也不在仓库里。
 
+### 应用内申请 Shizuku 授权（2026-11-15，安卓）
+
+**为什么**：通道状态行此前只能告诉用户「Shizuku 未授权本应用」，应用里没有任何办法发起授权——必须让用户自己去 Shizuku App 里翻设置。Shizuku 提供 `requestPermission(int)`，调用后由 Shizuku 自己弹授权框，可以直接接进卡片。
+
+**改了什么**
+
+- `CurfewChannel`：暴露 `shizukuInstalled(context)`（原来只有私有的 `isInstalled`）。
+- `MonitorServicePlugin.requestCurfewPermission`：四步前置检查（未安装 → `not_installed`；binder 不在线 → `not_running`；Shizuku < 11 → `too_old`；已授权 → 直接返回 granted），否则注册 `OnRequestPermissionResultListener`（带主线程 Handler）后调 `Shizuku.requestPermission(4201)`，结果经 listener 回填。
+  - `requestPermission` 内部走 `requireService()`，binder 不在线会抛异常，所以必须先 `pingBinder()`。
+  - 回调线程不确定，listener 显式带 `Handler(Looper.getMainLooper())`；`invoke.resolve` 用 `AtomicBoolean` 保证只发生一次。
+  - `requestPermission` 是同步 binder 调用，放到子线程，不占主线程。
+- 命令链：`foreground-service/src/lib.rs::request_curfew_permission` → `protocol_cmds::request_curfew_permission`（`spawn_blocking`，因为要等用户操作完才返回）→ 前端 `tauriApi.requestCurfewPermission()`。
+- 网络页「WiFi 连接管控」卡：无权限且执行方式不是 root 时，状态行右侧出现「申请权限」按钮；点击后转圈等待，结果 toast，随后刷新通道状态。
+
+**验证**（真机 RMX3300 / Android 15）：点「申请权限」后系统前台切到 `moe.shizuku.privileged.api/.authorization.RequestPermissionActivity`，弹出「要允许 CampusLogin 使用 Shizuku 吗？」，点「始终允许」后卡片状态行由「无执行权限，规则不生效」变为绿色「Shizuku 已授权」。`npx tsc --noEmit --incremental` exit 0。
+
 ### WiFi 连接管控：改名、弱信号断开、执行通道可选（2026-11-15，双端）
 
 **为什么**：卡片原名「WiFi 就寝守则」语义偏窄（现在还要管信号强度），且文案堆了一屏辅助说明。用户要求：名字专业化、增加「弱信号自动断开」、把执行通道做成可选（root / adb）、无权限时直接说明不可用。
