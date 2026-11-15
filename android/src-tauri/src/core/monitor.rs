@@ -518,24 +518,22 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
     let settings = match ctx.settings().await {
         Ok(s) => s,
         Err(e) => {
-            ctx.emit_log(&format!("WiFi 守则: 读取配置失败,本拍跳过: {e}"), "warn");
+            campus_login_lib::log_error!("monitor", "WiFi 守则: 读取配置失败,本拍跳过: {e}");
             return;
         }
     };
     let active = campus_login_lib::config::wifi_curfew::in_curfew_window_now(settings.night_restore_minutes);
     let was_active = CURFEW_ACTIVE.swap(active, Ordering::Relaxed);
     let now = chrono::Local::now();
-    ctx.emit_log(
-        &format!(
-            "WiFi 守则判定: 窗口内={active}, 现在={:02}:{:02} 周{}, 恢复时刻={:02}:{:02}, 开关={}",
-            now.format("%H"),
-            now.format("%M"),
-            chrono::Datelike::weekday(&now).number_from_sunday(),
-            settings.night_restore_minutes / 60,
-            settings.night_restore_minutes % 60,
-            settings.enable_wifi_curfew
-        ),
-        "debug",
+    campus_login_lib::log_debug!(
+        "monitor",
+        "WiFi 守则判定: 窗口内={active}, 现在={:02}:{:02} 周{}, 恢复时刻={:02}:{:02}, 开关={}",
+        now.format("%H"),
+        now.format("%M"),
+        chrono::Datelike::weekday(&now).number_from_sunday(),
+        settings.night_restore_minutes / 60,
+        settings.night_restore_minutes % 60,
+        settings.enable_wifi_curfew
     );
     // 白天且上一拍也不在窗口：没有待恢复的动作，直接返回
     if !active && !was_active {
@@ -557,9 +555,9 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
     })
     .await;
     match outcome {
-        Ok(Ok(raw)) => ctx.emit_log(&format!("WiFi 守则: {raw}"), "debug"),
-        Ok(Err(e)) => ctx.emit_log(&format!("WiFi 守则执行失败: {e}"), "warn"),
-        Err(e) => ctx.emit_log(&format!("WiFi 守则任务失败: {e}"), "warn"),
+        Ok(Ok(raw)) => campus_login_lib::log_debug!("monitor", "WiFi 守则: {raw}"),
+        Ok(Err(e)) => campus_login_lib::log_error!("monitor", "WiFi 守则执行失败: {e}"),
+        Err(e) => campus_login_lib::log_error!("monitor", "WiFi 守则任务失败: {e}"),
     }
 }
 
