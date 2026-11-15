@@ -1,3 +1,27 @@
+### 夜间出站切换：原出口网卡「下线再启用」断掉既有连接，删除 TCP-only 中断（2026-11-15，桌面后端 + 前端文案）
+
+**为什么**：用户实测切换后 UU 远程仍在走原以太网卡。根因不是「只关 TCP 不够」，而是**改跃点只影响新建连接**——已建立 TCP 连接的 TCB、以及 UDP socket 首次 `sendto` 时隐式绑定的源地址都不跟随默认路由（Vista 起 strong host model），而 UDP 没有 TCB、用户态也没有任何 API 能删除他人 socket。原 `close_tcp_conns` 只删 TCP TCB，对 UDP 打洞类应用（远程控制、加速器）完全无效，也没有能在用户态补上的手段。唯一能让这些绑定失效的是让原卡接口 down 一次。
+
+**改了什么**（`monitor/outbound_night.rs`、`monitor/outbound_switch.rs`、`helper/mod.rs`、`platform/`、桌面 `i18n`）
+
+- **切换动作改为「写跃点 → 原出口卡下线 1s → 启用 → 跃点复核补写 → 验证 → Portal 旁路」**（`bounce_origin_adapter`，`ORIGIN_DISABLE_HOLD_MS = 1000`）。禁用对象是**原出口卡**而非校园网卡；启用后它与目标卡的跃点是 `100` 对 `1`，出口继续留在目标卡。保持 1s 是因为瞬时 down 不足以让已绑 socket 感知断链（P2P 心跳普遍 1s 量级）。
+- **名单先行、启用即清**：禁用前把 `{guid, name}` 写进 `outbound_disabled_adapters`，启用成功清空；启用失败只告警不阻断切换（出口已切好），名单留给还原与重放继续救。
+- **启用后跃点复核**（`rewrite_origin_metric_if_needed`）：设备禁用再启用会重建接口，跃点可能被重置为自动值（那样原卡会凭更低的 routeMetric 抢回出口），只在不一致时补写。
+- **重放分支②**由「禁用补做」改为「禁用残留收尾」（`replay_outbound_switch`）：启动对账与退避重放会把停在禁用态的卡启用回来。
+- **删除 `close_tcp_conns` 全链路**：helper 的 `CloseTcpConns` op、`run_close_tcp_conns`、`platform/tcp_conns.rs` 模块与全部相关测试。
+- **流程精简**：目标卡跃点由「预判定读 + 执行复核」两次改为执行阶段一次（`OutboundSwitchPlan` 去掉 `rows` 字段）；清 pending 与跃点快照合并为一次落盘；`build_portal_bypass_route` 改为按卡名实时查（不再依赖切换前 ifIndex，旁路可在原卡启用后建）；去掉 `close_stale_tcp_conns` 的后台线程与 `current_origin_adapter` 的二次调用。
+- **改切**（切换态内换目标卡）：不再把上一次的目标卡写回原值再重试；统一「新目标 1 / 当前出口 100」，原值只留在快照里，还原时统一写回。
+- **一并修复**：`rebuild_portal_bypass_from_snapshot` 原先按「快照 metric == 100」识别原出口卡，但快照存的是切换前原值，条件恒不成立（切换态下旁路路由几乎总重建失败）→ 改为「快照首行为目标卡、其余第一张为原出口」。
+- **前端文案**（桌面 zh/en）：`nightOutboundSwitchDesc`、`outboundDragHint` 改为「临时下线原出口」口径；安卓端同键文案描述的是「注销 + 系统 WiFi 重检」，与本功能无关，未改。
+
+**验证**（当轮实际输出）
+
+- `cargo check --all-targets`：exit 0（仅剩既有的 `in_curfew_window_now` 等无关 dead_code 警告）
+- `cargo test --lib`：`663 passed; 0 failed; 4 ignored`
+- `npx tsc --noEmit --incremental`：exit 0
+- `npx vite build`：`✓ built in 5.05s`，无新增警告
+- 真机切换未实测：该路径涉及真实网卡禁用/启用，需在夜间窗口或手动点「切换出站」时看 `outbound` 日志确认「已临时禁用原出口网卡 → 已恢复启用」与出口验证两行
+
 ### WiFi 就寝守则：执行结果带上通道诊断（2026-11-15，安卓插件）
 
 **为什么**：用户实测「用 adb 权限也断不开」，而守则失败时外部看不出原因——Shizuku 未激活、未授权、还是设备上根本没 root，结果都是一样的「什么都没发生」。诊断信息必须能从日志回答这个问题。
