@@ -54,7 +54,9 @@ const SelectContent = React.forwardRef<
     >
       <SelectPrimitive.Viewport
         className={cn(
-          'p-1',
+          // 选项多时必须自己滚动：Content 的 overflow-hidden 只裁不滚，
+          // 触摸端（安卓 WebView）没有滚轮，选项一旦超出可用高度就再也选不到后面的值。
+          'p-1 max-h-[var(--radix-select-content-available-height)] overflow-y-auto overscroll-contain',
           position === 'popper' &&
             'h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]'
         )}
