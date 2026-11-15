@@ -13,6 +13,7 @@ import android.os.Build
 import android.content.SharedPreferences
 import android.provider.Settings
 import app.tauri.annotation.Command
+import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.Permission
 import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
@@ -45,6 +46,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 生效范围：只影响此后**新建**的 socket（netd 在 socket 创建时打 fwmark），
  * Rust 侧绑定成功后必须清空 HTTP 连接池，见 `protocol_cmds::ensure_wifi_bound`。
  */
+/** 私人 DNS 写入参数；缺参时 parseArgs 留 null，由调用点回落默认值 */
+@InvokeArg
+class PrivateDnsArgs {
+    var mode: String? = null
+    var host: String? = null
+}
+
 @TauriPlugin(
     permissions = [
         Permission(
@@ -492,8 +500,9 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
      */
     @Command
     fun setPrivateDns(invoke: Invoke) {
-        val mode = (invoke.getString("mode") ?: "auto").trim()
-        val host = (invoke.getString("host") ?: "").trim()
+        val parsed = invoke.parseArgs(PrivateDnsArgs::class.java)
+        val mode = (parsed.mode ?: "auto").trim()
+        val host = (parsed.host ?: "").trim()
         val cr = activity.applicationContext.contentResolver
         val ret = JSObject()
         try {
