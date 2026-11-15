@@ -525,7 +525,8 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
     let active = campus_login_lib::config::wifi_curfew::in_curfew_window_now(settings.night_restore_minutes);
     let was_active = CURFEW_ACTIVE.swap(active, Ordering::Relaxed);
     let now = chrono::Local::now();
-    campus_login_lib::log_debug!(
+    // INFO 级：就寝守则到点必须可追溯，debug 会被 log_module_levels 过滤掉
+    campus_login_lib::log_info!(
         "monitor",
         "WiFi 守则判定: 窗口内={active}, 现在={:02}:{:02} 周{}, 恢复时刻={:02}:{:02}, 开关={}",
         now.format("%H"),
@@ -555,7 +556,7 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
     })
     .await;
     match outcome {
-        Ok(Ok(raw)) => campus_login_lib::log_debug!("monitor", "WiFi 守则: {raw}"),
+        Ok(Ok(raw)) => campus_login_lib::log_info!("monitor", "WiFi 守则: {raw}"),
         Ok(Err(e)) => campus_login_lib::log_error!("monitor", "WiFi 守则执行失败: {e}"),
         Err(e) => campus_login_lib::log_error!("monitor", "WiFi 守则任务失败: {e}"),
     }
