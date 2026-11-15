@@ -54,6 +54,14 @@ pub struct Settings {
     /// 切出的出站/运营商还原。0 或越界(≥ 1380 即 23:00 切点)回落默认 07:30,
     /// 见共享 crate 的 config::night_switch::restore_start_minutes。与桌面同字段
     pub night_restore_minutes: u32,
+    /// WiFi 就寝守则开关(默认关):窗口内把排除名单里的 WiFi 连接切到允许名单或直接关
+    /// WiFi,次日 night_restore_minutes 后恢复。实际动作在 Kotlin 侧经 Shizuku/root 执行
+    /// (第三方应用拿不到 wifi 权限),窗口判定复用共享 crate 的 config::wifi_curfew
+    pub enable_wifi_curfew: bool,
+    /// 就寝守则排除的 WiFi(默认校园网三个 SSID;"*" = 除允许名单外全部断开)
+    pub wifi_curfew_excluded: Vec<String>,
+    /// 窗口内允许连接的 WiFi(空 = 不切网络,直接关 WiFi 走流量)
+    pub wifi_curfew_allowed: Vec<String>,
     /// 出站网卡优先级(友好名有序列表,首项=夜间出站目标);空=未排序,列表外网卡
     /// 不参与夜间切换。安卓端不消费此字段
     pub outbound_priority: Vec<String>,
@@ -187,6 +195,9 @@ impl Default for Settings {
             enable_night_outbound_switch: false,
             // 0 = 未自定义,回落默认 07:30
             night_restore_minutes: 0,
+            enable_wifi_curfew: false,
+            wifi_curfew_excluded: campus_login_lib::config::default_wifi_curfew_excluded(),
+            wifi_curfew_allowed: Vec::new(),
             outbound_priority: Vec::new(),
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),
