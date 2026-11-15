@@ -101,6 +101,27 @@ pub async fn restore_written_settings(app: tauri::AppHandle) -> Result<serde_jso
     }
 }
 
+/// WiFi 就寝守则的执行通道就绪度：`{shizuku, root}`。
+/// shizuku 取 ready / missing（未安装）/ inactive（装了未激活）/ denied（未授权）。
+#[tauri::command]
+pub async fn get_curfew_channel(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            app.campus_monitor_service().get_curfew_channel()
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        outcome.map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err("仅安卓端支持".to_string())
+    }
+}
+
 /// 读取系统私人 DNS（DoT）设置：`{granted, mode, specifier}`。
 /// mode 取值 off / opportunistic / hostname（系统内部值）；granted=false 表示
 /// 缺 WRITE_SECURE_SETTINGS，前端据此显示 adb 引导。

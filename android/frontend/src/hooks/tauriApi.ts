@@ -153,6 +153,8 @@ interface TauriApi {
   getPrivateDnsStatus: () => Promise<PrivateDnsStatus>
   /** 写入系统私人 DNS：mode=off|auto|hostname，hostname 时 host 为 DoT 主机名 */
   setPrivateDns: (params: { mode: 'off' | 'auto' | 'hostname'; host?: string }) => Promise<SetPrivateDnsResult>
+  /** WiFi 就寝守则的执行通道就绪度（Shizuku / root） */
+  getCurfewChannel: () => Promise<CurfewChannelStatus>
 }
 
 export interface AvoidBadWifiStatus {
@@ -169,6 +171,13 @@ export interface AvoidBadWifiStatus {
 export interface RestoreWrittenSettingsResult {
   restored: Record<string, boolean>
   reason?: string
+}
+
+export interface CurfewChannelStatus {
+  /** ready 可用 / missing 未安装 / inactive 装了未激活 / denied 未授权 */
+  shizuku: 'ready' | 'missing' | 'inactive' | 'denied'
+  /** su 可用 */
+  root: boolean
 }
 
 export interface PrivateDnsStatus {
@@ -362,6 +371,7 @@ const tauriApi: TauriApi = {
   getPrivateDnsStatus: () => invoke<PrivateDnsStatus>('get_private_dns_status'),
   setPrivateDns: (params) =>
     invoke<SetPrivateDnsResult>('set_private_dns', { mode: params.mode, host: params.host ?? '' }),
+  getCurfewChannel: () => invoke<CurfewChannelStatus>('get_curfew_channel'),
 }
 
 function isRetryableError(e: unknown): boolean {

@@ -10,8 +10,9 @@ import { cn, extractErrorMessage } from '@/lib/utils'
 import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { m } from 'framer-motion'
-import { tauriApiWithRetry, type AvoidBadWifiStatus, type PrivateDnsStatus } from '@/hooks/tauriApi'
+import { tauriApiWithRetry, type AvoidBadWifiStatus, type CurfewChannelStatus, type PrivateDnsStatus } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useQualityStore } from '@/hooks/useQualityStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -21,6 +22,16 @@ import { DnsAdapterCard } from './DnsAdapterCard'
 
 interface NetworkPanelProps {
   onUpdateConfig: (partial: Partial<Config>) => void
+}
+
+/** 执行通道文案：Shizuku 四态 + root，都没有时明确说明守则不会生效 */
+function describeCurfewChannel(status: CurfewChannelStatus | null, t: TFunction): string {
+  if (!status) return t('network.curfewChannelUnknown')
+  if (status.shizuku === 'ready') return t('network.curfewChannelShizuku')
+  if (status.root) return t('network.curfewChannelRoot')
+  if (status.shizuku === 'missing') return t('network.curfewChannelShizukuMissing')
+  if (status.shizuku === 'inactive') return t('network.curfewChannelShizukuInactive')
+  return t('network.curfewChannelShizukuDenied')
 }
 
 /** 恢复时刻默认值 07:30：与后端 `config::night_switch::DEFAULT_RESTORE_START_MINUTES`
@@ -190,6 +201,22 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
   useEffect(() => {
     void refreshDot()
   }, [refreshDot])
+
+  // ===== 执行通道（Shizuku / root）=====
+  // 守则的全部动作都靠它，通道不通时守则会静默地什么都不做——必须让用户看见当前状态
+  const [curfewChannel, setCurfewChannel] = useState<CurfewChannelStatus | null>(null)
+  const refreshCurfewChannel = useCallback(async () => {
+    try {
+      const status = await ipc.getCurfewChannel()
+      if (mountedRef.current) setCurfewChannel(status)
+    } catch {
+      // 旧包/桌面端没有这条命令：保持 null，文案回落到「未检测到」
+      if (mountedRef.current) setCurfewChannel(null)
+    }
+  }, [ipc])
+  useEffect(() => {
+    void refreshCurfewChannel()
+  }, [refreshCurfewChannel])
 
   const applyDot = useCallback(
     async (mode: 'off' | 'auto' | 'hostname', host?: string) => {
@@ -414,6 +441,28 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                   onChange={next => onUpdateConfig({ wifiCurfewAllowed: next })}
                 />
                 <p className="text-[11px] text-muted-foreground/70">{t('network.wifiCurfewAllowedHint')}</p>
+              </div>
+              <div
+                className={cn(
+                  'flex items-start gap-2 p-2 rounded-lg border',
+                  curfewChannel?.shizuku === 'ready' || curfewChannel?.root
+                    ? 'bg-emerald-500/5 border-emerald-500/10'
+                    : 'bg-amber-500/5 border-amber-500/10'
+                )}
+              >
+                {curfewChannel?.shizuku === 'ready' || curfewChannel?.root ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                )}
+                <span
+                  className={cn(
+                    'text-xs',
+                    curfewChannel?.shizuku === 'ready' || curfewChannel?.root ? 'text-emerald-600' : 'text-amber-600'
+                  )}
+                >
+                  {describeCurfewChannel(curfewChannel, t)}
+                </span>
               </div>
               <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
