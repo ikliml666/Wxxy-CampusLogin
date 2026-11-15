@@ -17,7 +17,9 @@ tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "net", "macros", "io-util", "sync"] }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# android-tzdata 不可省：Android 没有 /etc/localtime，缺了它 Local::now() 静默退化成 UTC，
+# 于是「现在几点」整体偏 8 小时——就寝守则/定时登录注销按错误时刻判定，全都不触发。
+chrono = { version = "0.4", default-features = false, features = ["clock", "android-tzdata"] }
 lazy_static = "1.5"
 regex = "1"
 network-interface = "2"
