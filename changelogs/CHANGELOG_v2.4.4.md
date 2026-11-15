@@ -30,6 +30,21 @@
 
 **验证**：真机 adb 实测（上述四组命令）；`cargo test`（`android/core-logic`）18 passed；`npx tsc --noEmit --incremental`（安卓前端）exit 0。完整 APK 仍未构建——本机无 JDK、无 tauri CLI，`android/build-apk.ps1` 也不在仓库里。
 
+### WiFi 连接管控：改名、弱信号断开、执行通道可选（2026-11-15，双端）
+
+**为什么**：卡片原名「WiFi 就寝守则」语义偏窄（现在还要管信号强度），且文案堆了一屏辅助说明。用户要求：名字专业化、增加「弱信号自动断开」、把执行通道做成可选（root / adb）、无权限时直接说明不可用。
+
+**改了什么**
+
+- 更名「WiFi 就寝守则」→「WiFi 连接管控」（`network.wifiCurfew`，双端 i18n 同步）。
+- **弱信号断开**：新增 `wifiCurfewWeakRssi`（dBm，0 = 关闭，默认关闭）。连着 WiFi 且 RSSI 低于阈值时关掉 WiFi 走流量，之后每 5 分钟开回来复探一次——WiFi 关着读不到信号，只能这样判。阈值可选 -70/-75/-80/-85 dBm，开关打开时默认 -80。
+- **执行通道可选**：新增 `wifiCurfewChannel`（`auto`/`adb`/`root`，默认 `auto`）。`adb` 只走 Shizuku、`root` 只走 su，显式选定后不再自动回落，避免「选了 root 却用 Shizuku 执行」。
+- **文案精简**：删掉两条名单下方的操作说明与「安卓不允许普通应用断开指定 WiFi…」长段，改为布局分组自解释；无权限时只留一行「无执行权限，规则不生效」。
+- 执行器 `WifiCurfewRunner.kt`：`channel`/`weakRssi` 经 payload 传入；弱信号只在守则窗口外生效（窗口内守则已决定断连，不该被信号强度二次干预）；`CurfewChannel.name(pref)` 按选择取通道。
+- 配置 `wifi_curfew_weak_rssi`/`wifi_curfew_channel` 双端字段与默认值同步（桌面端不消费弱信号与通道选择）。
+
+**验证**：双端 `npx tsc --noEmit --incremental` exit 0；`npx vite build` exit 0；桌面 `cargo test --lib` 665 passed / 0 failed / 4 ignored；`android/core-logic` `cargo test` 18 passed。
+
 ### 安卓网络页移除两张桌面专属卡片（2026-11-15，安卓前端）
 
 **为什么**：「夜间出站切换」与「DNS 优化」是桌面端能力——前者靠 Windows 的网卡 metric/路由操作实现，后者改的是 Windows 网卡 DNS。安卓端它们只有镜像 UI，点了没有对应动作，真机上纯属误导。用户要求从安卓网络页删掉。

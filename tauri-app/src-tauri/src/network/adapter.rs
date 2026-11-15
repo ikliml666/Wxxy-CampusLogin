@@ -285,6 +285,8 @@ mod tests {
             enable_wifi_curfew: false,
             wifi_curfew_excluded: Vec::new(),
             wifi_curfew_allowed: Vec::new(),
+            wifi_curfew_weak_rssi: 0,
+            wifi_curfew_channel: "auto".to_string(),
             wifi_curfew_profile_restore: String::new(),
             outbound_failure_rounds: 2,
             outbound_healthy_rounds: 2,

@@ -49,6 +49,10 @@ export interface Config {
   wifiCurfewExcluded: string[]
   /** 就寝时段仍允许连接的 WiFi 名称列表（优先于排除列表，宿舍路由器场景） */
   wifiCurfewAllowed: string[]
+  /** 弱信号断开阈值（dBm，0 = 关闭）：连着的 WiFi 低于它时关掉走流量，隔段复探 */
+  wifiCurfewWeakRssi: number
+  /** 执行通道：auto（Shizuku 优先回落 root）/ adb（只走 Shizuku）/ root（只走 su） */
+  wifiCurfewChannel: 'auto' | 'adb' | 'root'
   /** 就寝守则亲手改过连接模式的 WiFi 快照（后端内部状态，桌面专用） */
   wifiCurfewProfileRestore: string
   outboundPriority: string[]

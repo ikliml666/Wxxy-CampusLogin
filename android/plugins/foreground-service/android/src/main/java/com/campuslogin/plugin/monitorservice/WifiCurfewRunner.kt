@@ -32,6 +32,11 @@ class WifiCurfewRunner(private val context: Context) {
         private const val PREFS = "wifi_curfew"
         /** 本程序关掉过 WiFi（只有它置位才会在出窗时打开，避免误开用户自己关的 WiFi） */
         private const val KEY_DISABLED = "disabled_wifi"
+        /** 弱信号规则关掉过 WiFi；与 KEY_DISABLED 分开记，两条规则各自还原各自的 */
+        private const val KEY_WEAK = "weak_disabled"
+        private const val KEY_WEAK_AT = "weak_disabled_at"
+        /** 弱信号关掉后隔这么久复探一次：WiFi 关着读不到 RSSI，只能开回来再判 */
+        private const val WEAK_PROBE_MS = 5 * 60 * 1000L
         private const val SHELL_WAIT_MS = 8000L
         private const val DEFAULT_RESTORE_START = 450
         private const val RESTORE_END = 1380
@@ -48,11 +53,17 @@ class WifiCurfewRunner(private val context: Context) {
         val excluded = readList(cfg.optJSONArray("excluded"))
         val allowed = readList(cfg.optJSONArray("allowed"))
         val restoreStart = normalizeRestoreStart(cfg.optInt("restoreStart", 0))
+        val weakRssi = cfg.optInt("weakRssi", 0)
         val inWindow = inCurfewWindow(restoreStart)
-        val channel = CurfewChannel.name()
+        val channel = CurfewChannel.name(cfg.optString("channel", "auto"))
 
         if (!enabled || !inWindow) {
-            return restore(channel)
+            val restored = restore(channel)
+            // 弱信号只在窗口外生效：窗口内守则已经决定了断连，不该被信号强度二次干预
+            if (weakRssi < 0) {
+                checkWeakSignal(weakRssi, channel)?.let { return it }
+            }
+            return restored
         }
 
         val current = currentSsid()
@@ -102,6 +113,34 @@ class WifiCurfewRunner(private val context: Context) {
         }
         return result("restore-failed").put("channel", channel).put("trace", trace.detail).toString()
     }
+
+    /**
+     * 弱信号规则：连着的 WiFi 低于阈值就关掉走流量。
+     *
+     * 关掉之后读不到 RSSI，所以按 [WEAK_PROBE_MS] 开回来复探一次：下一拍若仍是弱信号会再关，
+     * 恢复到阈值以上则保持开启。等待窗口内返回 null（无动作），避免日志每拍刷一条。
+     */
+    private fun checkWeakSignal(threshold: Int, channel: String): String? {
+        if (prefs.getBoolean(KEY_WEAK, false)) {
+            val elapsed = System.currentTimeMillis() - prefs.getLong(KEY_WEAK_AT, 0L)
+            if (elapsed < WEAK_PROBE_MS) return null
+            val trace = setWifiEnabled(true)
+            prefs.edit().putBoolean(KEY_WEAK, false).apply()
+            return result("weak-probe").put("channel", channel).put("trace", trace.detail).toString()
+        }
+        val rssi = currentRssi() ?: return null
+        if (rssi >= threshold) return null
+        val trace = setWifiEnabled(false)
+        if (!trace.ok) {
+            return result("weak-failed").put("channel", channel).put("rssi", rssi).put("trace", trace.detail).toString()
+        }
+        prefs.edit().putBoolean(KEY_WEAK, true).putLong(KEY_WEAK_AT, System.currentTimeMillis()).apply()
+        return result("weak-off").put("channel", channel).put("rssi", rssi).put("trace", trace.detail).toString()
+    }
+
+    /** 从 `cmd wifi status` 的 WifiInfo 行取 RSSI；未连接（WiFi 关着/没网络）返回 null */
+    private fun currentRssi(): Int? = shellExec("cmd wifi status")
+        ?.let { Regex("RSSI: (-?\\d+)").find(it)?.groupValues?.get(1)?.toIntOrNull() }
 
     /**
      * 开关 WiFi：先 `cmd wifi set-wifi-enabled`（Android 11+ 的 shell 子命令），

@@ -533,6 +533,8 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
         "excluded": settings.wifi_curfew_excluded,
         "allowed": settings.wifi_curfew_allowed,
         "restoreStart": settings.night_restore_minutes,
+        "weakRssi": settings.wifi_curfew_weak_rssi,
+        "channel": settings.wifi_curfew_channel,
     })
     .to_string();
     let platform = ctx.platform_arc();

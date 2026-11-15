@@ -62,6 +62,12 @@ pub struct Settings {
     pub wifi_curfew_excluded: Vec<String>,
     /// 窗口内允许连接的 WiFi(空 = 不切网络,直接关 WiFi 走流量)
     pub wifi_curfew_allowed: Vec<String>,
+    /// 弱信号断开阈值(dBm,0 = 关闭):连着的 WiFi 信号低于它时关掉 WiFi 走流量,
+    /// 之后每分钟开一次 WiFi 复探,信号恢复即保持开启。安卓端执行,桌面端不消费
+    pub wifi_curfew_weak_rssi: i32,
+    /// 执行通道:"auto"(Shizuku 优先,回落 root)/"adb"(只走 Shizuku)/"root"(只走 su)。
+    /// 用户显式选定时不再自动回落,便于在两条通道都可用时指定其中一条
+    pub wifi_curfew_channel: String,
     /// 出站网卡优先级(友好名有序列表,首项=夜间出站目标);空=未排序,列表外网卡
     /// 不参与夜间切换。安卓端不消费此字段
     pub outbound_priority: Vec<String>,
@@ -198,6 +204,8 @@ impl Default for Settings {
             enable_wifi_curfew: false,
             wifi_curfew_excluded: campus_login_lib::config::model::default_wifi_curfew_excluded(),
             wifi_curfew_allowed: Vec::new(),
+            wifi_curfew_weak_rssi: 0,
+            wifi_curfew_channel: "auto".to_string(),
             outbound_priority: Vec::new(),
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),

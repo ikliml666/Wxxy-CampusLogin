@@ -88,6 +88,12 @@ pub struct Config {
     /// 不随校园网断网的 SSID 放这里
     #[serde(rename = "wifiCurfewAllowed", default)]
     pub wifi_curfew_allowed: Vec<String>,
+    /// 弱信号断开阈值(dBm,0 = 关闭):连着的 WiFi 信号低于它时关掉 WiFi 走流量,
+    /// 之后每分钟开一次 WiFi 复探,信号恢复即保持开启。安卓端执行,桌面端不消费
+    pub wifi_curfew_weak_rssi: i32,
+    /// 执行通道:"auto"(Shizuku 优先,回落 root)/"adb"(只走 Shizuku)/"root"(只走 su)。
+    /// 用户显式选定时不再自动回落,便于在两条通道都可用时指定其中一条
+    pub wifi_curfew_channel: String,
     /// 就寝守则亲手改过连接模式的 WiFi 快照：`[{ssid, mode}]` JSON（mode 为
     /// "auto"/"manual"）。非空 = 存在待还原的 profile 改动；恢复时逐条还原并清空。
     /// 只记本功能亲手改过的 SSID，不按当前状态推断。安卓端不消费此字段
@@ -380,6 +386,8 @@ impl Default for Config {
             enable_wifi_curfew: false,
             wifi_curfew_excluded: default_wifi_curfew_excluded(),
             wifi_curfew_allowed: Vec::new(),
+            wifi_curfew_weak_rssi: 0,
+            wifi_curfew_channel: "auto".to_string(),
             wifi_curfew_profile_restore: String::new(),
             outbound_failure_rounds: 2,
             outbound_healthy_rounds: 2,

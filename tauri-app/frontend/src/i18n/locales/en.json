@@ -369,7 +369,7 @@
     "dhcpRenewFailed": "DHCP renew failed",
     "nightOutboundSwitch": "Night Outbound Switch",
     "nightOutboundSwitchDesc": "Switches outbound to a non-campus adapter at 23:00 Sun–Thu and 23:30 Fri–Sat, and immediately after two unreachable rounds on the current outbound. Only interface metrics change — no adapter is disabled. Metrics are restored from the pre-switch snapshot at {{time}} next morning",
-    "wifiCurfew": "WiFi Bedtime Rule",
+    "wifiCurfew": "WiFi Connection Rules",
     "wifiCurfewDesc": "At 23:00 Sun–Thu and 23:30 Fri–Sat the networks below are disconnected and kept from auto-reconnecting, then restored at {{time}} the next day. Only the listed networks are touched — other saved profiles stay as they are",
     "wifiCurfewExcluded": "Disconnect during the window",
     "wifiCurfewExcludedHint": "Campus networks by default. Type a name and press Enter to add; click × on a tag to remove",

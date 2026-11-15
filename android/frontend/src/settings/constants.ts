@@ -17,6 +17,8 @@ export const DEFAULT_CONFIG: Config = {
   enableWifiCurfew: false,
   wifiCurfewExcluded: ['i-wxxy', 'iwxxy-2', 'iwxxy-3'],
   wifiCurfewAllowed: [],
+  wifiCurfewWeakRssi: 0,
+  wifiCurfewChannel: 'auto',
   wifiCurfewProfileRestore: '',
   outboundFailureRounds: 2,
   outboundHealthyRounds: 2,

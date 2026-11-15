@@ -9,7 +9,6 @@ import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, X } from 'l
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import { tauriApiWithRetry, type CurfewChannelStatus, type PrivateDnsStatus } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -19,15 +18,16 @@ interface NetworkPanelProps {
   onUpdateConfig: (partial: Partial<Config>) => void
 }
 
-/** 执行通道文案：Shizuku 四态 + root，都没有时明确说明守则不会生效 */
-function describeCurfewChannel(status: CurfewChannelStatus | null, t: TFunction): string {
-  if (!status) return t('network.curfewChannelUnknown')
-  if (status.shizuku === 'ready') return t('network.curfewChannelShizuku')
-  if (status.root) return t('network.curfewChannelRoot')
-  if (status.shizuku === 'missing') return t('network.curfewChannelShizukuMissing')
-  if (status.shizuku === 'inactive') return t('network.curfewChannelShizukuInactive')
-  return t('network.curfewChannelShizukuDenied')
-}
+/** 弱信号阈值可选档（dBm）：-70 偏强、-85 偏弱 */
+const WEAK_RSSI_OPTIONS = [-70, -75, -80, -85]
+/** 打开弱信号开关时的默认阈值：-80 dBm 是「连得上但已经很难用」的常见分界 */
+const WEAK_RSSI_DEFAULT = -80
+/** 执行通道：auto 自动回落，adb / root 由用户显式指定 */
+const CURFEW_CHANNELS = [
+  { key: 'auto', labelKey: 'network.wifiCurfewChannelAuto' },
+  { key: 'adb', labelKey: 'network.wifiCurfewChannelAdb' },
+  { key: 'root', labelKey: 'network.wifiCurfewChannelRoot' },
+] as const
 
 /** 恢复时刻默认值 07:30：与后端 `config::night_switch::DEFAULT_RESTORE_START_MINUTES`
  *  同值；配置为 0/越界时后端同样回落此值，故显示层也按它展示（复刻树不可共享常量，
@@ -172,6 +172,18 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
     void refreshCurfewChannel()
   }, [refreshCurfewChannel])
 
+  // 按用户选的执行方式评估可用性：显式选了 adb / root 就不再回落
+  const curfewReady =
+    config.wifiCurfewChannel === 'adb'
+      ? curfewChannel?.shizuku === 'ready'
+      : config.wifiCurfewChannel === 'root'
+        ? curfewChannel?.root === true
+        : curfewChannel?.shizuku === 'ready' || curfewChannel?.root === true
+  const curfewReadyLabel =
+    config.wifiCurfewChannel !== 'root' && curfewChannel?.shizuku === 'ready'
+      ? 'network.wifiCurfewChannelReadyShizuku'
+      : 'network.wifiCurfewChannelReadyRoot'
+
   const applyDot = useCallback(
     async (mode: 'off' | 'auto' | 'hostname', host?: string) => {
       setDotSaving(true)
@@ -226,75 +238,103 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                   <BedDouble className="h-5 w-5 text-primary" />
                 </div>
-                <CardTitle className="whitespace-nowrap">{t('network.wifiCurfew')}</CardTitle>
+                <div className="min-w-0">
+                  <CardTitle className="whitespace-nowrap">{t('network.wifiCurfew')}</CardTitle>
+                  <CardDescription className="whitespace-nowrap">
+                    {t('network.wifiCurfewDesc', { time: formatRestoreTime(config.nightRestoreMinutes) })}
+                  </CardDescription>
+                </div>
               </div>
               <Switch
                 checked={config.enableWifiCurfew}
                 onCheckedChange={checked => onUpdateConfig({ enableWifiCurfew: checked })}
                 className="shrink-0"
+                aria-label={t('network.wifiCurfew')}
               />
             </div>
-            <CardDescription className="mt-2">
-              {t('network.wifiCurfewDesc', { time: formatRestoreTime(config.nightRestoreMinutes) })}
-            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="p-3.5 rounded-xl bg-muted/30 space-y-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="wifi-curfew-excluded" className="text-xs font-medium">{t('network.wifiCurfewExcluded')}</Label>
-                <SsidListEditor
-                  id="wifi-curfew-excluded"
-                  items={config.wifiCurfewExcluded}
-                  placeholder={t('network.wifiCurfewAddPlaceholder')}
-                  removeLabel={name => t('network.wifiCurfewRemove', { name })}
-                  disabled={!config.enableWifiCurfew}
-                  onChange={next => onUpdateConfig({ wifiCurfewExcluded: next })}
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="wifi-curfew-excluded" className="text-xs font-medium">{t('network.wifiCurfewExcluded')}</Label>
+              <SsidListEditor
+                id="wifi-curfew-excluded"
+                items={config.wifiCurfewExcluded}
+                placeholder={t('network.wifiCurfewAddPlaceholder')}
+                removeLabel={name => t('network.wifiCurfewRemove', { name })}
+                disabled={!config.enableWifiCurfew}
+                onChange={next => onUpdateConfig({ wifiCurfewExcluded: next })}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="wifi-curfew-allowed" className="text-xs font-medium">{t('network.wifiCurfewAllowed')}</Label>
+              <SsidListEditor
+                id="wifi-curfew-allowed"
+                items={config.wifiCurfewAllowed}
+                placeholder={t('network.wifiCurfewAddPlaceholder')}
+                removeLabel={name => t('network.wifiCurfewRemove', { name })}
+                disabled={!config.enableWifiCurfew}
+                onChange={next => onUpdateConfig({ wifiCurfewAllowed: next })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <Label className="text-xs font-medium">{t('network.wifiCurfewWeakSignal')}</Label>
+                <Switch
+                  checked={config.wifiCurfewWeakRssi < 0}
+                  onCheckedChange={on => onUpdateConfig({ wifiCurfewWeakRssi: on ? WEAK_RSSI_DEFAULT : 0 })}
+                  aria-label={t('network.wifiCurfewWeakSignal')}
                 />
-                <p className="text-[11px] text-muted-foreground/70">{t('network.wifiCurfewExcludedHint')}</p>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="wifi-curfew-allowed" className="text-xs font-medium">{t('network.wifiCurfewAllowed')}</Label>
-                <SsidListEditor
-                  id="wifi-curfew-allowed"
-                  items={config.wifiCurfewAllowed}
-                  placeholder={t('network.wifiCurfewAddPlaceholder')}
-                  removeLabel={name => t('network.wifiCurfewRemove', { name })}
-                  disabled={!config.enableWifiCurfew}
-                  onChange={next => onUpdateConfig({ wifiCurfewAllowed: next })}
-                />
-                <p className="text-[11px] text-muted-foreground/70">{t('network.wifiCurfewAllowedHint')}</p>
+              {config.wifiCurfewWeakRssi < 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {WEAK_RSSI_OPTIONS.map(dbm => (
+                    <button
+                      key={dbm}
+                      type="button"
+                      onClick={() => onUpdateConfig({ wifiCurfewWeakRssi: dbm })}
+                      className={cn(
+                        'px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors tabular-nums',
+                        config.wifiCurfewWeakRssi === dbm
+                          ? 'bg-primary/15 text-primary shadow-[inset_0_0_0_1px_rgba(99,102,241,0.35)]'
+                          : 'bg-white/60 hover:bg-white/80 text-foreground dark:bg-white/10 dark:hover:bg-white/15'
+                      )}
+                    >
+                      {dbm} dBm
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-medium">{t('network.wifiCurfewChannel')}</Label>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {CURFEW_CHANNELS.map(({ key, labelKey }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => onUpdateConfig({ wifiCurfewChannel: key })}
+                    className={cn(
+                      'px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors',
+                      config.wifiCurfewChannel === key
+                        ? 'bg-primary/15 text-primary shadow-[inset_0_0_0_1px_rgba(99,102,241,0.35)]'
+                        : 'bg-white/60 hover:bg-white/80 text-foreground dark:bg-white/10 dark:hover:bg-white/15'
+                    )}
+                  >
+                    {t(labelKey)}
+                  </button>
+                ))}
               </div>
-              <div
-                className={cn(
-                  'flex items-start gap-2 p-2 rounded-lg border',
-                  curfewChannel?.shizuku === 'ready' || curfewChannel?.root
-                    ? 'bg-emerald-500/5 border-emerald-500/10'
-                    : 'bg-amber-500/5 border-amber-500/10'
-                )}
-              >
-                {curfewChannel?.shizuku === 'ready' || curfewChannel?.root ? (
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                ) : (
-                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
-                )}
-                <span
-                  className={cn(
-                    'text-xs',
-                    curfewChannel?.shizuku === 'ready' || curfewChannel?.root ? 'text-emerald-600' : 'text-amber-600'
-                  )}
-                >
-                  {describeCurfewChannel(curfewChannel, t)}
-                </span>
-              </div>
-              <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
-                <span className="text-xs text-amber-600">{t('network.wifiCurfewAndroidCaveat')}</span>
+              <div className={cn('flex items-center gap-1.5 text-[12px]', curfewReady ? 'text-emerald-600' : 'text-amber-600')}>
+                {curfewReady ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <AlertTriangle className="h-3.5 w-3.5 shrink-0" />}
+                <span>{curfewReady ? t(curfewReadyLabel) : t('network.wifiCurfewNoPermission')}</span>
               </div>
             </div>
           </CardContent>
         </AnimatedCard>
       </div>
-
       <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">

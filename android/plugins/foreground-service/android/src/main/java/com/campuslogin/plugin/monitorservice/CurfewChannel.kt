@@ -16,7 +16,18 @@ object CurfewChannel {
     /** Shizuku 官方 App 的包名 */
     private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
 
-    /** 本次实际可用的通道名，与执行结果 JSON 的 `channel` 同义 */
+    /**
+     * 按用户选择取通道名（与执行结果 JSON 的 `channel` 同义）：
+     * `auto` 自动优先 Shizuku、回落 root；`adb` / `root` 只用指定那条，不再自动回落——
+     * 用户显式选定后就不该暗中换一条路执行。
+     */
+    fun name(pref: String): String = when (pref) {
+        "adb" -> if (shizukuReady()) "shizuku" else "none"
+        "root" -> if (rootAvailable()) "root" else "none"
+        else -> name()
+    }
+
+    /** 自动模式：Shizuku 优先，其次 root */
     fun name(): String = when {
         shizukuReady() -> "shizuku"
         rootAvailable() -> "root"
