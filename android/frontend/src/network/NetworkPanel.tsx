@@ -238,9 +238,9 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                   <BedDouble className="h-5 w-5 text-primary" />
                 </div>
-                <div className="min-w-0">
-                  <CardTitle className="whitespace-nowrap">{t('network.wifiCurfew')}</CardTitle>
-                  <CardDescription className="whitespace-nowrap">
+                <div className="min-w-0 flex-1">
+                  <CardTitle className="truncate">{t('network.wifiCurfew')}</CardTitle>
+                  <CardDescription className="truncate">
                     {t('network.wifiCurfewDesc', { time: formatRestoreTime(config.nightRestoreMinutes) })}
                   </CardDescription>
                 </div>
