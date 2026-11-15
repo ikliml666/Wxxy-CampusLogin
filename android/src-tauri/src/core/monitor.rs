@@ -524,9 +524,13 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
     };
     let active = campus_login_lib::config::wifi_curfew::in_curfew_window_now(settings.night_restore_minutes);
     let was_active = CURFEW_ACTIVE.swap(active, Ordering::Relaxed);
+    let now = chrono::Local::now();
     ctx.emit_log(
         &format!(
-            "WiFi 守则判定: 窗口内={active}, 恢复时刻={:02}:{:02}, 开关={}",
+            "WiFi 守则判定: 窗口内={active}, 现在={:02}:{:02} 周{}, 恢复时刻={:02}:{:02}, 开关={}",
+            now.format("%H"),
+            now.format("%M"),
+            chrono::Datelike::weekday(&now).number_from_sunday(),
             settings.night_restore_minutes / 60,
             settings.night_restore_minutes % 60,
             settings.enable_wifi_curfew
