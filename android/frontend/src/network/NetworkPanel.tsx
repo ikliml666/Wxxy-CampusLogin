@@ -5,6 +5,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, X, Loader2 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
@@ -36,6 +37,14 @@ const RESTORE_TIME_DEFAULT_MINUTES = 450
 /** 恢复时刻上限 22:59：必须早于最早的切换时刻 23:00（1380），否则恢复窗为空、
  *  永不还原。与后端 `restore_start_minutes` 的「>= 1380 判越界」同口径 */
 const RESTORE_TIME_MAX_MINUTES = 1379
+/** 恢复时刻下限 05:00：00:00–05:00 是「凌晨补切窗口」，把恢复点设进那里会让补切与还原互相顶掉 */
+const RESTORE_TIME_MIN_MINUTES = 300
+/** 恢复时刻可选档：05:00–22:30 每 30 分钟一档 */
+const RESTORE_TIME_OPTIONS = (() => {
+  const out: number[] = []
+  for (let m = RESTORE_TIME_MIN_MINUTES; m <= RESTORE_TIME_MAX_MINUTES; m += 30) out.push(m)
+  return out
+})()
 /** 阿里云公共 DNS 的 DoT 主机名（官方：dns.alidns.com:853），用作「指定主机」的默认预填 */
 const ALI_DOT_HOST = 'dns.alidns.com'
 /** 一键可填的两家国内 DoT 服务（主机名与官方文档一致） */
@@ -173,6 +182,12 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
   }, [refreshCurfewChannel])
 
   // 按用户选的执行方式评估可用性：显式选了 adb / root 就不再回落
+  // 0 / 越界都按默认 07:30 显示，与后端 restore_start_minutes 的归一化同口径
+  const restoreMinutes =
+    config.nightRestoreMinutes >= RESTORE_TIME_MIN_MINUTES && config.nightRestoreMinutes < 1380
+      ? config.nightRestoreMinutes
+      : RESTORE_TIME_DEFAULT_MINUTES
+
   const curfewReady =
     config.wifiCurfewChannel === 'adb'
       ? curfewChannel?.shizuku === 'ready'
@@ -273,6 +288,25 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <Label className="text-xs font-medium">{t('network.wifiCurfewRestoreAt')}</Label>
+              <Select
+                value={String(restoreMinutes)}
+                onValueChange={value => onUpdateConfig({ nightRestoreMinutes: Number(value) })}
+              >
+                <SelectTrigger className="h-8 w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESTORE_TIME_OPTIONS.map(minutes => (
+                    <SelectItem key={minutes} value={String(minutes)}>
+                      {formatRestoreTime(minutes)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="wifi-curfew-excluded" className="text-xs font-medium">{t('network.wifiCurfewExcluded')}</Label>
               <SsidListEditor

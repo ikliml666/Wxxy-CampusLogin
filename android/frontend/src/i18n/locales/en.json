@@ -352,6 +352,7 @@
     "nightRestoreTimeDesc": "When campus outbound is restored and re-logged-in the next morning (default 07:30)",
     "wifiCurfew": "WiFi Connection Rules",
     "wifiCurfewDesc": "Sun–Thu 23:00 · Fri–Sat 23:30 — {{time}}",
+    "wifiCurfewRestoreAt": "Restore at",
     "wifiCurfewExcluded": "Disconnect",
     "wifiCurfewAllowed": "Allow",
     "wifiCurfewAddPlaceholder": "WiFi name",
