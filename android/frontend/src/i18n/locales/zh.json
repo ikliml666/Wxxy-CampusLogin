@@ -355,7 +355,7 @@
     "wifiCurfewExcluded": "就寝时段断开的 WiFi",
     "wifiCurfewExcludedHint": "默认是校园网三值；输入名称后回车添加，点标签上的 × 移除",
     "wifiCurfewAllowed": "该时段仍可连接的 WiFi",
-    "wifiCurfewAllowedHint": "宿舍路由器等不随校园网断网的 WiFi；命中这里的一律不断开（优先于上行名单）",
+    "wifiCurfewAllowedHint": "宿舍路由器等不随校园网断网的 WiFi；命中这里的一律不断开（优先于上行名单）。只能自动连到系统里已保存的开放网络（如 i-wxxy）——加密网络需要明文密码，程序取不到，这类目标会落到「关 WiFi」",
     "wifiCurfewAddPlaceholder": "输入 WiFi 名称",
     "wifiCurfewRemove": "移除 {{name}}",
     "curfewChannelUnknown": "执行通道：未检测到 Shizuku 或 root，守则不会改动任何 WiFi",

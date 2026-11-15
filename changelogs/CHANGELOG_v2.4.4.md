@@ -11,6 +11,25 @@
 
 **验证**：`cargo test`（`android/core-logic`）18 passed；Kotlin 未编译验证（本机无 NDK/真机）。
 
+### WiFi 就寝守则：按真机实测修正连接逻辑（2026-11-15，安卓插件）
+
+**真机环境**：RMX3300 / Android 15（SDK 35），Shizuku 已安装并在运行（`shizuku_server` 以 root 身份），无 root。
+
+**实测结论**（全部在真机上跑通 / 跑失败确认）
+
+- `cmd wifi set-wifi-enabled disabled|enabled` → 成功，`cmd wifi status` 立即反映 `Wifi is disabled` / `Wifi is enabled`。
+- `svc wifi disable|enable` → 同样成功（备用通道可用）。
+- `cmd wifi connect-network "i-wxxy" open` → 成功切到 i-wxxy，`Supplicant state: COMPLETED`；**该命令成功时不打印任何内容**。
+- `cmd wifi connect-network "CMCC-kiku_5G" wpa2` → 失败：`Invalid args for connect-network: java.lang.IllegalArgumentException: Argument expected after "wpa2"`。**wpa2/wpa3/wep 必须显式给明文密码**，省略密码不是「复用已保存凭据」而是参数错误。
+- `cmd wifi list-networks` 实测输出与固定列宽解析一致（`%-12d %-32s %-4s`），安全类型为 `open` / `owe^` / `wpa2-psk` / `wpa3-sae^`。
+
+**据此修了两处**
+
+1. **连接判定不能看输出文本**：原来以 `out.contains("Connection initiated")` 判断成功，而实测该命令成功时零输出——改成看 `exit=0`。这处不改，允许列表永远不会生效。
+2. **只对开放网络做主动连接**：`list-networks` 的安全类型（`wpa2-psk`/`wpa3-sae^`）与 `connect-network` 的枚举（`open|owe|wpa2|wpa3|wep`）并不相同，且加密目标必须给明文密码。新增 `openSecurity()` 只把 `open` / `owe` 归一化后透传，其余目标跳过、落到「关 WiFi」。允许列表与黑名单的说明文案同步写清这一边界。
+
+**验证**：真机 adb 实测（上述四组命令）；`cargo test`（`android/core-logic`）18 passed；`npx tsc --noEmit --incremental`（安卓前端）exit 0。完整 APK 仍未构建——本机无 JDK、无 tauri CLI，`android/build-apk.ps1` 也不在仓库里。
+
 ### WiFi 就寝守则：网络页显示执行通道状态（2026-11-15，安卓全栈）
 
 **为什么**：守则靠 Shizuku 或 root 执行，两者都不通时它会静默地什么都不做。用户此前反馈「用了 adb 权限也断不开」，根因就是没有任何地方显示通道到底通没通——`pm grant WRITE_SECURE_SETTINGS` 只能写 Settings.Global，与开关 WiFi 无关。

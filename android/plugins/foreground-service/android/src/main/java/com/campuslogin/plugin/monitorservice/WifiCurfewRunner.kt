@@ -61,15 +61,21 @@ class WifiCurfewRunner(private val context: Context) {
             return result("keep").put("channel", channel).put("currentSsid", current).toString()
         }
 
-        // 1) 有允许列表 → 直接连过去
+        // 1) 有允许列表 → 只连免密可用的那些
+        //    connect-network 对 wpa2/wpa3/wep 必须给明文密码（真机实测缺参报
+        //    IllegalArgumentException: Argument expected after "wpa2"），而系统存的是
+        //    加密凭据、拿不到明文，所以加密目标连不上，落到下面的关 WiFi
         if (allowed.isNotEmpty()) {
             val saved = shellExec("cmd wifi list-networks")?.let { parseNetworks(it) }.orEmpty()
             for (target in allowed) {
-                val security = saved.firstOrNull { it.ssid.equals(target, ignoreCase = true) }
-                    ?.security?.substringBefore('/')
-                    ?: "open"
+                val security = saved
+                    .firstOrNull { it.ssid.equals(target, ignoreCase = true) }
+                    ?.security
+                    ?.let { openSecurity(it) }
+                    ?: continue
                 val out = shellExec("cmd wifi connect-network \"$target\" $security") ?: continue
-                if (out.contains("Connection initiated")) {
+                // 这条子命令成功时不打印任何内容，只能看退出码（真机实测）
+                if (out.contains("exit=0")) {
                     return result("connect").put("channel", channel).put("target", target).put("currentSsid", current).toString()
                 }
             }
@@ -149,6 +155,17 @@ class WifiCurfewRunner(private val context: Context) {
     // ===== list-networks 解析 =====
     // 输出为固定列宽：%-12d %-32s %-4s，首行是表头
     private data class SavedNetwork(val ssid: String, val security: String)
+
+    /**
+     * list-networks 打印的是 open / owe^ / wpa2-psk / wpa3-sae^（^ 表 transition 模式），
+     * 而 connect-network 只接受 open|owe|wpa2|wpa3|wep。只有 open 与 owe 能不带密码连上，
+     * 其余返回 null 表示该目标跳过。
+     */
+    private fun openSecurity(raw: String): String? = when {
+        raw.startsWith("open", ignoreCase = true) -> "open"
+        raw.startsWith("owe", ignoreCase = true) -> "owe"
+        else -> null
+    }
 
     private fun parseNetworks(raw: String): List<SavedNetwork> {
         val out = mutableListOf<SavedNetwork>()
