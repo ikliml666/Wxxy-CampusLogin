@@ -3,7 +3,6 @@ package com.campuslogin.plugin.monitorservice
 import android.content.ComponentName
 import android.content.Context
 import android.content.ServiceConnection
-import android.content.pm.PackageManager
 import android.os.IBinder
 import org.json.JSONArray
 import org.json.JSONObject
@@ -50,7 +49,7 @@ class WifiCurfewRunner(private val context: Context) {
         val allowed = readList(cfg.optJSONArray("allowed"))
         val restoreStart = normalizeRestoreStart(cfg.optInt("restoreStart", 0))
         val inWindow = inCurfewWindow(restoreStart)
-        val channel = detectChannel()
+        val channel = CurfewChannel.name()
 
         if (!enabled || !inWindow) {
             return restore(channel)
@@ -177,38 +176,8 @@ class WifiCurfewRunner(private val context: Context) {
     /** 优先 Shizuku（user service，shell 身份），其次 root（su）。都没有返回 null。 */
     private fun shellExec(command: String): String? = withShizuku(command) ?: withRoot(command)
 
-    private fun shizukuReady(): Boolean = try {
-        Shizuku.pingBinder() && !Shizuku.isPreV11() &&
-            Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-    } catch (e: Throwable) {
-        false
-    }
-
-    /**
-     * 本次实际走哪条通道：`shizuku` / `root` / `none`。打进结果 JSON 是为了让日志能回答
-     * 「为什么没生效」——没有通道时任何动作都不会发生，而这一点从外部看不出来。
-     */
-    private fun detectChannel(): String = when {
-        shizukuReady() -> "shizuku"
-        rootAvailable() -> "root"
-        else -> "none"
-    }
-
-    /** `su -c id` 起得来且退出码为 0 才算有 root；不解析输出，避开各 ROM 的 su 提示差异 */
-    private fun rootAvailable(): Boolean = try {
-        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
-        if (process.waitFor(3, TimeUnit.SECONDS)) {
-            process.exitValue() == 0
-        } else {
-            process.destroy()
-            false
-        }
-    } catch (e: Throwable) {
-        false
-    }
-
     private fun withShizuku(command: String): String? {
-        if (!shizukuReady()) return null
+        if (!CurfewChannel.shizukuReady()) return null
         val component = ComponentName(context.packageName, RemoteShellService::class.java.name)
         val args = Shizuku.UserServiceArgs(component)
             .daemon(false)

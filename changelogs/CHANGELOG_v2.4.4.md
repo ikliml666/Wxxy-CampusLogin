@@ -11,6 +11,20 @@
 
 **验证**：`cargo test`（`android/core-logic`）18 passed；Kotlin 未编译验证（本机无 NDK/真机）。
 
+### WiFi 就寝守则：网络页显示执行通道状态（2026-11-15，安卓全栈）
+
+**为什么**：守则靠 Shizuku 或 root 执行，两者都不通时它会静默地什么都不做。用户此前反馈「用了 adb 权限也断不开」，根因就是没有任何地方显示通道到底通没通——`pm grant WRITE_SECURE_SETTINGS` 只能写 Settings.Global，与开关 WiFi 无关。
+
+**改了什么**
+
+- 新增 `CurfewChannel.kt`：把 `shizukuReady()` / `rootAvailable()` / `name()` 从执行器抽成共享对象，并补一个 UI 用的四态 `shizukuState()`：`ready` / `missing`（未安装）/ `inactive`（装了没跑）/ `denied`（跑着但未授权）。
+- `WifiCurfewRunner` 改为委托 `CurfewChannel`，删掉自身的重复实现与未用 import。
+- `MonitorServicePlugin.getCurfewChannel`：UI 进程查询通道状态，跑在后台线程——`rootAvailable()` 要起 su 进程并等最多 3 秒，放主线程会卡窗口。
+- 命令链：`foreground-service/src/lib.rs::get_curfew_channel` → `protocol_cmds::get_curfew_channel` → 前端 `tauriApi.getCurfewChannel()`。
+- 安卓网络页就寝守则卡内新增状态行：通道可用时绿色（Shizuku 已授权 / root），不可用时按四态给出具体原因，取代原来卡底那句笼统的警示。
+
+**验证**：`npx tsc --noEmit --incremental`（安卓前端）exit 0；两份 i18n JSON 各 6 个 `curfew*` 键且可解析；`cargo test`（`android/core-logic`）18 passed。Kotlin 与 `android/src-tauri` **未编译验证**（本机无 NDK/真机），出包前须 `pwsh android/build-apk.ps1`。
+
 ### WiFi 就寝守则：关/开 WiFi 加 `svc wifi` 回退与命令 trace（2026-11-14，安卓插件）
 
 **为什么**：用户实测「用 adb 权限也没法断开」。先厘清边界——`pm grant WRITE_SECURE_SETTINGS` 只能写 `Settings.Global`，与开关 WiFi 无关；开关 WiFi 需要 shell 身份。而 `cmd wifi set-wifi-enabled` 是 Android 11 才有的子命令，Android 10 与部分 ROM 上会直接失败，没有任何提示。

@@ -55,6 +55,12 @@ impl<R: Runtime> CampusMonitorService<R> {
         Ok((r.screen_on, r.wifi_connected))
     }
 
+    /// WiFi 就寝守则的执行通道就绪度：`{shizuku, root}`。
+    /// shizuku 取 ready / missing（未安装）/ inactive（装了未激活）/ denied（未授权）
+    pub fn get_curfew_channel(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("getCurfewChannel", ())
+    }
+
     /// 开关开机自启(BOOT_COMPLETED receiver 组件启停 + SharedPreferences 记忆)
     pub fn set_boot_autostart(&self, enabled: bool) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("setBootAutostart", serde_json::json!({ "enabled": enabled }))

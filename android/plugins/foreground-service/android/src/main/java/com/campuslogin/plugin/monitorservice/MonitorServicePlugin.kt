@@ -93,6 +93,22 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
      * 按交互档位切换窗口刷新率：活跃时选当前分辨率下最高档，静止时回落最低档。
      * 只改窗口模式偏好，不涉及应用内容；WebView 的 rAF 节拍随系统模式一起变化。
      */
+    /**
+     * WiFi 就寝守则的执行通道就绪度：Shizuku 四态 + root 可用性。
+     *
+     * 必须在后台线程做——rootAvailable() 要起 su 进程并等最多 3 秒，主线程会卡住窗口。
+     */
+    @Command
+    fun getCurfewChannel(invoke: Invoke) {
+        val ctx = activity.applicationContext
+        Thread({
+            val ret = JSObject()
+            ret.put("shizuku", CurfewChannel.shizukuState(ctx))
+            ret.put("root", CurfewChannel.rootAvailable())
+            invoke.resolve(ret)
+        }, "curfew-channel").start()
+    }
+
     @Command
     fun setRefreshRateHint(invoke: Invoke) {
         invoke.resolve(applyRefreshRate(invoke.parseArgs(RefreshRateArgs::class.java).active))
