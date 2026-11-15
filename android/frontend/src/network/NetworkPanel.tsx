@@ -5,20 +5,15 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, Copy, Check, Network, BedDouble, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, X } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
-import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import { m } from 'framer-motion'
-import { tauriApiWithRetry, type AvoidBadWifiStatus, type CurfewChannelStatus, type PrivateDnsStatus } from '@/hooks/tauriApi'
+import { tauriApiWithRetry, type CurfewChannelStatus, type PrivateDnsStatus } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
-import { useQualityStore } from '@/hooks/useQualityStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useShallow } from 'zustand/react/shallow'
-import { useDnsSetup } from './useDnsSetup'
-import { DnsAdapterCard } from './DnsAdapterCard'
 
 interface NetworkPanelProps {
   onUpdateConfig: (partial: Partial<Config>) => void
@@ -41,11 +36,6 @@ const RESTORE_TIME_DEFAULT_MINUTES = 450
 /** 恢复时刻上限 22:59：必须早于最早的切换时刻 23:00（1380），否则恢复窗为空、
  *  永不还原。与后端 `restore_start_minutes` 的「>= 1380 判越界」同口径 */
 const RESTORE_TIME_MAX_MINUTES = 1379
-/** 恢复时刻下限 05:00：产品口径（比后端纯函数的 `> 0` 更紧）。原因是 00:00–05:00
- *  是「凌晨补切窗口」——机器错过切点时靠这段补切；把恢复点设进该窗口会让补切
- *  与还原互相顶掉，用户几乎总是误触，故 UI 层钳到 05:00，后端另有归一化兜底 */
-const RESTORE_TIME_MIN_MINUTES = 300
-
 /** 阿里云公共 DNS 的 DoT 主机名（官方：dns.alidns.com:853），用作「指定主机」的默认预填 */
 const ALI_DOT_HOST = 'dns.alidns.com'
 /** 一键可填的两家国内 DoT 服务（主机名与官方文档一致） */
@@ -143,44 +133,8 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
     return () => { mountedRef.current = false }
   }, [])
 
-  const dnsStatus = useQualityStore(s => s.dnsDohStatus)
-  const dnsChecking = useQualityStore(s => s.dnsChecking)
-  // DNS 检测/一键优化逻辑与 busy 态（useDnsSetup.ts）
-  const { dnsFamily, setDnsFamily, dohEnabling, handleCheckDns, handleSetupDnsDoh } = useDnsSetup()
-  const familyTabs = [
-    { key: 'ipv4', label: 'IPv4', icon: Network, color: 'text-primary', bg: '' },
-    { key: 'ipv6', label: 'IPv6', icon: Globe, color: 'text-primary', bg: '' },
-    { key: 'both', label: t('network.dnsFamilyBoth'), icon: Layers, color: 'text-primary', bg: '' },
-  ]
-
-  // 夜间出站切换卡：复制 adb 引导命令到剪贴板，成功后短暂置位供按钮图标反馈；失败静默（WebView 剪贴板权限受限场景）
+  // 复制引导命令到剪贴板，成功后短暂置位供按钮图标反馈；失败静默（WebView 剪贴板权限受限场景）
   const [adbCopied, setAdbCopied] = useState(false)
-  const handleCopyAdbCommand = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(t('network.avoidBadWifiCommand'))
-      setAdbCopied(true)
-      setTimeout(() => setAdbCopied(false), 2000)
-    } catch {
-      // 剪贴板不可用时不弹提示，按钮未变为对勾即未复制成功
-    }
-  }, [t])
-
-  // Settings.Global 写通道状态：WRITE_SECURE_SETTINGS 授权与否决定引导块显示
-  // "自动管理"还是 adb 命令；快照存在时显示手动还原按钮
-  const [secureStatus, setSecureStatus] = useState<AvoidBadWifiStatus | null>(null)
-  const [restoring, setRestoring] = useState(false)
-  const refreshSecureStatus = useCallback(async () => {
-    try {
-      const status = await ipc.getAvoidBadWifiStatus()
-      if (mountedRef.current) setSecureStatus(status)
-    } catch {
-      // 查询失败（旧包/桌面）保持 null，引导块回落到 adb 命令形态
-      if (mountedRef.current) setSecureStatus(null)
-    }
-  }, [ipc])
-  useEffect(() => {
-    void refreshSecureStatus()
-  }, [refreshSecureStatus])
 
   // ===== 私人 DNS（DoT）=====
   // 写入走插件声明的 WRITE_SECURE_SETTINGS（与夜间出站切换同一条 adb 授权）；
@@ -262,141 +216,9 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
     }
   }, [t])
 
-  const handleRestoreWritten = useCallback(async () => {
-    setRestoring(true)
-    try {
-      const result = await ipc.restoreWrittenSettings()
-      if (!mountedRef.current) return
-      const anyOk = Object.values(result?.restored ?? {}).some(Boolean)
-      if (anyOk) {
-        useLogToastStore.getState().addToast(t('network.secureSettingsRestored'), 'success')
-      } else {
-        useLogToastStore.getState().addToast(t('network.secureSettingsNothingToRestore'), 'info')
-      }
-    } catch (e) {
-      if (mountedRef.current) {
-        useLogToastStore.getState().addToast(t('network.secureSettingsRestoreFailed'), 'error', extractErrorMessage(e))
-      }
-    } finally {
-      if (mountedRef.current) setRestoring(false)
-      await refreshSecureStatus()
-    }
-  }, [ipc, mountedRef, t, refreshSecureStatus])
-
   return (
     <div className="space-y-4">
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <MoonStar className="h-5 w-5 text-primary" />
-                </div>
-                <CardTitle className="whitespace-nowrap">{t('network.nightOutboundSwitch')}</CardTitle>
-              </div>
-              <Switch
-                checked={config.enableNightOutboundSwitch}
-                onCheckedChange={checked => onUpdateConfig({ enableNightOutboundSwitch: checked })}
-                className="shrink-0"
-              />
-            </div>
-            <CardDescription className="mt-2">
-              {t('network.nightOutboundSwitchDesc', { time: formatRestoreTime(config.nightRestoreMinutes) })}
-            </CardDescription>
-            {/* 恢复时刻可配置（2026-10-26 新增，与桌面同字段）：校园网恢复时刻因
-                作息而异，硬编码 07:30 无法适配；开关关闭时置灰 */}
-            <div className="flex items-center justify-between gap-3 mt-3">
-              <div className="min-w-0">
-                <Label htmlFor="night-restore-time" className="text-sm font-medium">
-                  {t('network.nightRestoreTime')}
-                </Label>
-                <p className="text-xs text-muted-foreground leading-snug mt-0.5">{t('network.nightRestoreTimeDesc')}</p>
-              </div>
-              <Input
-                id="night-restore-time"
-                type="time"
-                value={formatRestoreTime(config.nightRestoreMinutes)}
-                disabled={!config.enableNightOutboundSwitch}
-                onChange={e => {
-                  const [h, min] = e.target.value.split(':').map(Number)
-                  if (!isNaN(h) && !isNaN(min)) {
-                    // 钳到 [05:00, 22:59]（理由见 RESTORE_TIME_MIN/MAX 常量注释）；
-                    // 后端 restore_start_minutes 另有归一化兜底
-                    onUpdateConfig({
-                      nightRestoreMinutes: Math.min(
-                        RESTORE_TIME_MAX_MINUTES,
-                        Math.max(RESTORE_TIME_MIN_MINUTES, h * 60 + min)
-                      ),
-                    })
-                  }
-                }}
-                className="w-24 h-7 text-sm font-mono shrink-0"
-              />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="p-3.5 rounded-xl bg-muted/30 space-y-2">
-              {secureStatus?.granted ? (
-                <div className="flex items-start gap-2 p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                  <span className="text-xs text-emerald-600">{t('network.avoidBadWifiGranted')}</span>
-                </div>
-              ) : (
-                <>
-                  <p className="text-xs text-muted-foreground">{t('network.avoidBadWifiGuide')}</p>
-                  <div className="flex items-center justify-between gap-2">
-                    <code className="text-xs font-mono text-foreground/80 break-all min-w-0">{t('network.avoidBadWifiGrantCommand')}</code>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-[11px] gap-1 shrink-0"
-                      onClick={handleCopyGrantCommand}
-                      title={t('network.avoidBadWifiGrantCommand')}
-                    >
-                      {adbCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                      {adbCopied ? t('network.avoidBadWifiCopied') : t('network.avoidBadWifiCopy')}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">{t('network.avoidBadWifiAltGuide')}</p>
-                  <div className="flex items-center justify-between gap-2">
-                    <code className="text-xs font-mono text-foreground/80 break-all min-w-0">{t('network.avoidBadWifiCommand')}</code>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-[11px] gap-1 shrink-0"
-                      onClick={handleCopyAdbCommand}
-                      title={t('network.avoidBadWifiCommand')}
-                    >
-                      {adbCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                      {adbCopied ? t('network.avoidBadWifiCopied') : t('network.avoidBadWifiCopy')}
-                    </Button>
-                  </div>
-                </>
-              )}
-              <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
-                <span className="text-xs text-amber-600">{t('network.avoidBadWifiCaveats')}</span>
-              </div>
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <span className="text-xs text-muted-foreground">{t('network.secureSettingsRestoreHint')}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-[11px] gap-1 shrink-0"
-                  onClick={handleRestoreWritten}
-                  disabled={restoring}
-                >
-                  {restoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                  {t('network.secureSettingsRestore')}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </AnimatedCard>
-      </div>
-
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">
@@ -473,102 +295,7 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
         </AnimatedCard>
       </div>
 
-      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
-        <AnimatedCard noEnterAnimation>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Shield className="h-5 w-5 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <CardTitle className="whitespace-nowrap">{t('network.dnsOptimization')}</CardTitle>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <m.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleCheckDns}
-                  disabled={dnsChecking}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors whitespace-nowrap',
-                    // 暗色下白 60% 叠暗卡会变浅灰底，配主题近白字对比度崩坏，加暗色变体
-                    'bg-white/60 hover:bg-white/80 text-foreground dark:bg-white/10 dark:hover:bg-white/15',
-                    'shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]',
-                    'backdrop-blur-sm',
-                    dnsChecking && 'opacity-70 cursor-wait'
-                  )}
-                >
-                  {dnsChecking ? <Loader2 className="h-3 w-3 animate-spin" /> : <Shield className="h-3 w-3 text-muted-foreground" />}
-                  {dnsChecking ? t('network.checkingDns') : t('network.checkDns')}
-                </m.button>
-                <m.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleSetupDnsDoh}
-                  disabled={dohEnabling}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium transition-colors whitespace-nowrap',
-                    'text-white',
-                    'shadow-[0_2px_8px_rgba(99,102,241,0.3)]',
-                    dohEnabling && 'opacity-80 cursor-wait'
-                  )}
-                  style={{
-                    background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                  }}
-                >
-                  {dohEnabling ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                  {dohEnabling ? t('network.settingUp') : t('network.oneClickOptimize')}
-                </m.button>
-              </div>
-            </div>
-            {/* 功能描述移到标题行下方整行显示：原 CardDescription 占标题行宽度，
-                会把右侧"检测DNS/一键优化"按钮挤到折行 */}
-            <CardDescription className="mt-2">{t('network.dnsOptimizationDesc')}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <Label className="text-xs font-medium text-muted-foreground shrink-0">{t('network.dnsFamilyLabel')}</Label>
-              <SegmentTabs
-                tabs={familyTabs}
-                activeKey={dnsFamily}
-                onTabChange={key => setDnsFamily(key as 'both' | 'ipv4' | 'ipv6')}
-              />
-            </div>
-            {!dnsStatus && !dnsChecking && (
-              <div className="text-center py-6">
-                <Shield className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">{t('network.clickToCheckDns')}</p>
-                <p className="text-xs text-muted-foreground/60 mt-1">{t('network.recommendedDnsTip')}</p>
-              </div>
-            )}
-            {dnsChecking && !dnsStatus && (
-              <div className="text-center py-6">
-                <Loader2 className="h-8 w-8 text-primary/40 mx-auto mb-2 animate-spin" />
-                <p className="text-sm text-muted-foreground">{t('network.detectingDns')}</p>
-              </div>
-            )}
-            {dnsStatus && (
-              <div className="space-y-3">
-                {dnsStatus.adapters.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">{t('network.noActiveAdapters')}</p>
-                )}
-                {dnsStatus.adapters.map((adapter) => (
-                  <DnsAdapterCard key={adapter.name} adapter={adapter} autoDohEnabled={dnsStatus.autoDohEnabled} />
-                ))}
-                {!dnsStatus.dohSupported && (
-                  <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/10">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                    <span className="text-xs text-amber-600">{t('network.dohNotSupported')}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </AnimatedCard>
-      </div>
-      <div className="card-enter" style={{ '--stagger-i': 4 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3 min-w-0">
