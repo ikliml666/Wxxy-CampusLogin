@@ -487,31 +487,17 @@ fn portal_route_delete_row(route: &PortalRoute) -> String {
 /// （首次切换记录现值、改切补记的也是现值），被抬到 100 的是运行期跃点而非快照值。
 /// 快照首行恒为目标卡（merge_retarget_snapshot 保证），其余第一张即原出口。
 fn rebuild_portal_bypass_from_snapshot(config: &crate::config::Config) -> Option<PortalRoute> {
-    let dest = portal_probe_host(&config.portal_url);
-    if dest.is_empty() {
-        return None;
-    }
     let rows = parse_outbound_snapshot(&config.outbound_metric_restore).ok()?;
     let target_guid = rows.first()?.guid.clone();
-    let origin_guid = rows.iter().map(|row| row.guid.clone()).find(|guid| guid != &target_guid)?;
+    let origin_guid = rows
+        .iter()
+        .map(|row| row.guid.clone())
+        .find(|guid| guid != &target_guid)?;
     let origin = crate::network::get_adapters_cached()
         .ok()?
         .into_iter()
         .find(|adapter| adapter.guid == origin_guid)?;
-    let gateway = crate::network::get_adapter_details_cached()
-        .ok()?
-        .into_iter()
-        .find(|detail| detail.name == origin.name)
-        .map(|detail| detail.gateway)?;
-    if gateway.is_empty() {
-        return None;
-    }
-    Some(PortalRoute {
-        dest,
-        gateway,
-        if_index: origin.if_index,
-        metric: 1,
-    })
+    build_portal_bypass_route(config, &origin.name)
 }
 
 /// 切换态下确保 Portal 旁路路由就绪（快照为空 = 首次添加失败，补一次）。
@@ -622,10 +608,7 @@ pub(crate) fn manual_set_adapter_metric(
     if adapter.guid.is_empty() {
         return Err(format!("网卡 {adapter_name} 缺少 GUID，无法设置跃点"));
     }
-    let rows = vec![
-        format!("{}:2:0:{metric}", adapter.guid),
-        format!("{}:23:0:{metric}", adapter.guid),
-    ];
+    let rows = encode_metric_rows(&adapter.guid, &[2, 23], metric);
     run_helper_op("set_metric", &rows, outbound_allow_uac()).map_err(|failure| {
         note_channel_failure(&failure);
         failure.reason
@@ -883,11 +866,9 @@ fn read_family_rows(guid: &str) -> Result<Vec<MetricRow>, String> {
         .collect())
 }
 
-/// 按名字解析出站目标卡：必须有 IP 与 GUID，且能读到 IPv4/IPv6 跃点行。
-/// 「条目按钮指定目标」与「切换态改切」共用这套校验与报错文案。
-fn resolve_switch_target(
-    adapter_name: &str,
-) -> Result<(crate::network::Adapter, Vec<MetricRow>), String> {
+/// 按名字解析出站目标卡：必须有 IP 与 GUID。
+/// 跃点行不在这里读——执行阶段统一读一次（点名切换原先预读一次又丢弃，等于白读）。
+fn resolve_switch_target(adapter_name: &str) -> Result<crate::network::Adapter, String> {
     let adapters = crate::network::get_adapters_cached()?;
     let Some(adapter) = adapters.iter().find(|a| a.name == adapter_name) else {
         return Err(format!("未找到网卡 {adapter_name}"));
@@ -898,11 +879,15 @@ fn resolve_switch_target(
     if adapter.guid.is_empty() {
         return Err(format!("网卡 {adapter_name} 缺少 GUID，无法设置跃点"));
     }
-    let rows = read_family_rows(&adapter.guid)?;
-    if rows.is_empty() {
-        return Err(format!("网卡 {adapter_name} 没有 IPv4/IPv6 跃点配置行"));
-    }
-    Ok((adapter.clone(), rows))
+    Ok(adapter.clone())
+}
+
+/// 跃点写入条目编码：`{guid}:{family}:0:{metric}`（helper `set_metric` 的 argv 形状）。
+fn encode_metric_rows(guid: &str, families: &[u16], metric: u32) -> Vec<String> {
+    families
+        .iter()
+        .map(|family| format!("{guid}:{family}:0:{metric}"))
+        .collect()
 }
 
 /// 构建夜间出站切换计划：**纯只读**（选卡 + 绑源探测 + 读跃点 + 算禁用名单），
@@ -944,8 +929,8 @@ fn build_outbound_plan(
     // 用户显式指定目标卡（条目「立即切换出站」）：只要求有 IP 与 GUID，跳过
     // 校园网判定与全部探测——显式动作优先，想切到哪张就切到哪张。
     if let Some(name) = forced_target {
-        // 点名切换只校验「卡在、有 IP、有 GUID、有跃点行」，不做校园判定与任何探测
-        let (adapter, _) = resolve_switch_target(name)?;
+        // 点名切换只校验「卡在、有 IP、有 GUID」，不做校园判定与任何探测
+        let adapter = resolve_switch_target(name)?;
         return Ok(OutboundSwitchPlan {
             target_name: adapter.name,
             target_guid: adapter.guid,
@@ -1117,8 +1102,24 @@ pub(super) fn apply_outbound_switch_with_health(
         plan.target_name,
         plan.target_guid,
     );
-    // 一次 helper 下发两卡跃点：目标卡压到 1、原出口卡抬到 100。抬高必须与压低
-    // 同批下发——分开调用时中间态是「两张卡都低」，出口会跳到 routeMetric 更小的那张。
+    // ① 先把原出口卡下线再启用：跃点只影响新建连接，钉在它上面的 TCP 与 UDP
+    //    （远程控制、加速器的打洞会话）必须靠接口 down 一次才会失效并重连到新出口。
+    //    这一步排在写跃点之前：此时系统只被动过快照，禁用失败可以整笔撤回。
+    if let Some((name, guid, _)) = &origin_rows {
+        if let Err(reason) = bounce_origin_adapter(app_handle, name, guid) {
+            // 跃点与路由都还没动过：清掉刚落的快照与名单，回到非切换态让下一拍重来
+            persist_config_update(app_handle, |fresh| {
+                fresh.outbound_metric_restore = String::new();
+                fresh.outbound_disabled_adapters = String::new();
+            });
+            mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+            return Err(reason);
+        }
+    }
+    // ② 一次 helper 下发两卡跃点：目标卡压到 1、原出口卡抬到 100。抬高必须与压低
+    //    同批下发——分开调用时中间态是「两张卡都低」，出口会跳到 routeMetric 更小的那张。
+    //    放在启用之后还有一个必要理由：接口重建可能把跃点重置为自动值，这次写入同时
+    //    就是「启用后复核」，原卡不会凭更低的 routeMetric 抢回出口。
     let families: Vec<u16> = target_rows.iter().map(|r| r.family).collect();
     let origin_families: Vec<u16> = origin_rows
         .as_ref()
@@ -1142,23 +1143,13 @@ pub(super) fn apply_outbound_switch_with_health(
             "夜间出站切换: 已将原出口 {origin_name} 跃点抬到 {SWITCHED_ORIGIN_METRIC}"
         );
     }
-    // 原出口卡下线再恢复：跃点只影响新建连接，钉在原卡上的 TCP 与 UDP（远程控制、
-    // 加速器的打洞会话）必须靠接口 down 一次才会失效并重连到新出口。
-    let bounced_origin = match &origin_rows {
-        Some((name, guid, _)) => {
-            bounce_origin_adapter(app_handle, name, guid)?;
-            // 接口重建可能把跃点重置为自动值，不一致就补写回 100，否则原卡会抢回出口
-            rewrite_origin_metric_if_needed(app_handle, name, guid)?;
-            Some(name.clone())
-        }
-        None => None,
-    };
+    // ③ 跃点写入成功 ≠ 出口真的换了（TUN/代理可能持有 metric=0 的默认路由）
     verify_switch_effect(&plan.target_name, plan.target_if_index)?;
-    // Portal 旁路：默认出口已在目标卡，但登录请求仍需到达校园 Portal——给原卡加一条
-    // /32 主机路由让这部分流量绕回原卡。它只影响「切换态内回原卡登录」，不决定出口
-    // 是否已切换，故后台执行、失败只记日志。
-    if let Some(origin_name) = bounced_origin {
-        match build_portal_bypass_route(config, &origin_name) {
+    // ④ Portal 旁路：默认出口已在目标卡，但登录请求仍需到达校园 Portal——给原卡加一条
+    //    /32 主机路由让这部分流量绕回原卡。它只影响「切换态内回原卡登录」，不决定
+    //    出口是否已切换，故后台执行、失败只记日志。
+    if let Some((origin_name, _, _)) = &origin_rows {
+        match build_portal_bypass_route(config, origin_name) {
             Some(portal_route) => spawn_portal_bypass(app_handle, portal_route),
             None => crate::log_debug!(
                 "outbound",
@@ -1247,8 +1238,9 @@ const ORIGIN_DISABLE_HOLD_MS: u64 = 1000;
 /// 用户态也没有任何 API 能删除他人 socket。接口 down 一次是让这些绑定全部失效的
 /// 唯一手段，应用重连时按已抬高的跃点落到目标卡。
 ///
-/// 顺序约束：必须在跃点写入**之后**（接口 down 后 SetIpInterfaceEntry 找不到接口行）、
-/// 旁路路由**之前**（旁路要按启用后的实时 ifIndex 建）。
+/// 顺序约束：必须在跃点写入**之前**——接口 down 时 SetIpInterfaceEntry 找不到接口行，
+/// 跃点写不进去；排在前面还有个好处：禁用失败时系统只被动过快照，调用方整笔撤回即可。
+/// 旁路路由则在启用**之后**建（要按启用后的实时 ifIndex）。
 /// 名单先落盘：禁用后若启用失败或进程被杀，还原与重放要凭它把卡救回来。
 fn bounce_origin_adapter(app_handle: &AppHandle, name: &str, guid: &str) -> Result<(), String> {
     let json = serde_json::to_string(&[DisabledRow {
@@ -1300,34 +1292,13 @@ fn bounce_origin_adapter(app_handle: &AppHandle, name: &str, guid: &str) -> Resu
     }
 }
 
-/// 启用后的跃点复核与补写：设备禁用再启用会重建接口，跃点可能被重置为自动值，
-/// 那样原卡会凭自己更低的 routeMetric 抢回出口。只有不一致时才补写（幂等）。
-fn rewrite_origin_metric_if_needed(app_handle: &AppHandle, name: &str, guid: &str) -> Result<(), String> {
-    let rows = read_family_rows(guid).unwrap_or_default();
-    if rows.is_empty() {
-        // 卡不在（禁用后未能恢复）：没有可写的接口行，交由还原处理
-        return Ok(());
-    }
-    let stale: Vec<u16> = rows
-        .iter()
-        .filter(|r| r.automatic || r.metric != SWITCHED_ORIGIN_METRIC)
-        .map(|r| r.family)
-        .collect();
-    if stale.is_empty() {
-        return Ok(());
-    }
-    let encoded: Vec<String> = stale
-        .iter()
-        .map(|family| format!("{guid}:{family}:0:{SWITCHED_ORIGIN_METRIC}"))
-        .collect();
-    run_set_metric(app_handle, name, &encoded, false, "")
-}
-
 /// 补齐/重放切换动作：按快照把"切换没写完"的部分补齐，两个分支各自独立、
 /// 全部幂等（可反复调用），任一分支失败不影响其余分支：
-/// ① 跃点补写：只写"快照记录过原值 + 当前仍存在"的协议栈的 Metric=1，不动快照原值；
-/// ② 禁用残留收尾：切换流程「禁用 → 保持 → 启用」原出口卡，进程若在中间被杀，卡会
-///    停在禁用态；名单里记的正是本功能亲手禁用、尚未确认恢复的卡，逐个启用回来。
+/// ① 禁用残留收尾：切换流程「禁用 → 保持 → 启用」原出口卡，进程若在中间被杀，卡会
+///    停在禁用态；名单里记的正是本功能亲手禁用、尚未确认恢复的卡，逐个启用回来；
+/// ② 跃点补写：按快照逐卡写运行期值（首行目标卡 1、其余原出口 100），不动快照原值。
+///    排在启用之后是必要的——卡刚启用回来的同一次重放就把跃点补上，否则这次会清掉
+///    失败计数，下一拍不再重放，原卡凭自动跃点抢回出口。
 /// （原"③ 兜底路由补加"分支已随 2026-10-18 事故删除：该路由在 Windows 上无法与目标卡
 /// 自己的 DHCP 默认路由共存，route add 恒报「文件已存在」，详见 platform/route_table。）
 /// 两个入口共用：
@@ -1352,47 +1323,8 @@ pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::con
         return;
     };
     let mut any_fail = false;
-    // —— 分支①：跃点补写 ——
-    let snapshot = match parse_outbound_snapshot(&config.outbound_metric_restore) {
-        Ok(rows) if !rows.is_empty() => Some(rows),
-        Ok(_) => None,
-        Err(e) => {
-            crate::log_warn!("outbound", "夜间出站切换: 跃点快照解析失败，跳过补齐: {e}");
-            None
-        }
-    };
-    if let Some(snapshot) = &snapshot {
-        let guid = snapshot[0].guid.clone();
-        let rows = match crate::platform::metric::read_interface_metrics(&guid) {
-            Ok(rows) => rows,
-            Err(e) => {
-                // 读取失败只影响本分支：记失败后跳过补写，落回②③（不整体 return）
-                any_fail = true;
-                crate::log_warn!("outbound", "夜间出站切换: 读取目标卡({guid})跃点失败: {e}");
-                Vec::new()
-            }
-        };
-        // 只写快照有原值、且当前确实存在的协议栈：保证"写过的都能按快照还原"
-        let families: Vec<u16> = snapshot
-            .iter()
-            .map(|r| r.family)
-            .filter(|family| rows.iter().any(|r| r.family == *family))
-            .collect();
-        let name = {
-            let adapters = crate::network::get_adapters_cached().unwrap_or_default();
-            adapters
-                .iter()
-                .find(|a| a.guid == guid)
-                .map(|a| a.name.clone())
-                .unwrap_or_else(|| guid.clone())
-        };
-        if !families.is_empty()
-            && write_outbound_metric(app_handle, &name, &guid, &families, false, "", None).is_err()
-        {
-            any_fail = true;
-        }
-    }
-    // —— 分支②：禁用残留补做 ——
+    // —— 分支①：禁用残留补做（必须排在跃点补写之前：卡启用回来后同一次重放就要把
+    //    它的跃点写回 100，否则这次重放清掉失败计数，下一拍不再补写，原卡会抢回出口）——
     // 切换流程会「禁用 → 保持 → 启用」原出口卡，进程若在中间被杀，卡会停在禁用态。
     // 名单里记的正是本功能亲手禁用、尚未确认恢复的卡（启用成功即清空）。
     // 不走适配器列表闸门：设备级禁用后接口可能从枚举中消失，而 enable_adapter
@@ -1431,6 +1363,58 @@ pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::con
             "outbound",
             "夜间出站切换: 禁用名单解析失败，跳过启用补做: {e}"
         ),
+    }
+    // —— 分支②：跃点补写 ——
+    let snapshot = match parse_outbound_snapshot(&config.outbound_metric_restore) {
+        Ok(rows) if !rows.is_empty() => Some(rows),
+        Ok(_) => None,
+        Err(e) => {
+            crate::log_warn!("outbound", "夜间出站切换: 跃点快照解析失败，跳过补齐: {e}");
+            None
+        }
+    };
+    if let Some(snapshot) = &snapshot {
+        let target_guid = snapshot[0].guid.clone();
+        // 逐卡分组，与首次切换同口径：首行（目标卡）压到 1，其余（被抬高的原出口）
+        // 抬到 100——只补目标卡会让被启用回来的原卡凭更低的 routeMetric 抢回出口。
+        let mut by_guid: std::collections::BTreeMap<String, Vec<u16>> =
+            std::collections::BTreeMap::new();
+        for row in snapshot.iter() {
+            by_guid.entry(row.guid.clone()).or_default().push(row.family);
+        }
+        let adapters = crate::network::get_adapters_cached().unwrap_or_default();
+        let mut encoded: Vec<String> = Vec::new();
+        for (guid, families) in &by_guid {
+            let live = match crate::platform::metric::read_interface_metrics(guid) {
+                Ok(rows) => rows,
+                Err(e) => {
+                    any_fail = true;
+                    crate::log_warn!("outbound", "夜间出站切换: 读取 {guid} 跃点失败: {e}");
+                    continue;
+                }
+            };
+            // 只写快照有原值、且当前确实存在的协议栈：保证"写过的都能按快照还原"
+            let present: Vec<u16> = families
+                .iter()
+                .copied()
+                .filter(|family| live.iter().any(|r| r.family == *family))
+                .collect();
+            if present.is_empty() {
+                continue;
+            }
+            let metric = if guid == &target_guid { 1 } else { SWITCHED_ORIGIN_METRIC };
+            encoded.extend(encode_metric_rows(guid, &present, metric));
+        }
+        if !encoded.is_empty() {
+            let name = adapters
+                .iter()
+                .find(|a| a.guid == target_guid)
+                .map(|a| a.name.clone())
+                .unwrap_or_else(|| target_guid.clone());
+            if run_set_metric(app_handle, &name, &encoded, false, "").is_err() {
+                any_fail = true;
+            }
+        }
     }
     // 全部分支无新增失败：此前的失败已被补齐动作补救，清掉切换失败计数，
     // needs_replay 回稳态 false（否则每拍 60s 重放 + 提权空转直到天亮）
@@ -1909,7 +1893,11 @@ fn retarget_outbound_switch(app_handle: &AppHandle, adapter_name: &str) -> Resul
         return Err("另一出站动作进行中，请稍后再试".to_string());
     };
     let config = app_handle.state::<AppState>().config.load_full();
-    let (adapter, target_rows) = resolve_switch_target(adapter_name)?;
+    let adapter = resolve_switch_target(adapter_name)?;
+    let target_rows = read_family_rows(&adapter.guid)?;
+    if target_rows.is_empty() {
+        return Err(format!("网卡 {} 没有 IPv4/IPv6 跃点配置行", adapter.name));
+    }
     // 快照是原值的唯一凭据：损坏时拒绝改切（按错的「原值」写回会让还原还原出错误值）。
     // metric 快照为空而禁用名单/兜底路由非空时切换态仍成立但无原值可保——
     // 此时目标卡的现值就是原值，由 merge_retarget_snapshot 补记。
@@ -1963,25 +1951,21 @@ fn retarget_outbound_switch(app_handle: &AppHandle, adapter_name: &str) -> Resul
             adapter.name
         );
     }
-    // 新目标压到 1，当前出口抬到 100；不把上一次的目标卡写回原值——写回会让它
-    // 凭自己更低的跃点抢回出口（原设计因此要多一轮「退回抬高」重试）。原值已在
-    // 快照里，留给最终还原统一写回。
-    let mut encoded: Vec<String> = target_rows
-        .iter()
-        .map(|r| format!("{}:{}:0:1", adapter.guid, r.family))
-        .collect();
-    if let Some((_, guid, rows)) = &origin_rows {
-        encoded.extend(
-            rows.iter()
-                .map(|r| format!("{guid}:{}:0:{SWITCHED_ORIGIN_METRIC}", r.family)),
-        );
-    }
-    run_set_metric(app_handle, &adapter.name, &encoded, false, "")?;
-    // 改切同样要断掉钉在旧出口上的连接（含 UDP）：跃点只影响新建连接
+    // 先把当前出口卡下线再启用：钉在它上面的既有连接（含 UDP 打洞会话）不跟随跃点
+    // 迁移。排在写跃点之前——这一步失败时跃点尚未改动，用户可原样重试。
     if let Some((name, guid, _)) = &origin_rows {
         bounce_origin_adapter(app_handle, name, guid)?;
-        rewrite_origin_metric_if_needed(app_handle, name, guid)?;
     }
+    // 新目标压到 1，当前出口抬到 100；不把上一次的目标卡写回原值——写回会让它凭
+    // 自己更低的跃点抢回出口（原设计因此要多一轮「退回抬高」重试）。原值已在快照里，
+    // 留给最终还原统一写回。写入发生在启用之后，同时就是「接口重建后跃点复核」。
+    let families: Vec<u16> = target_rows.iter().map(|r| r.family).collect();
+    let mut encoded = encode_metric_rows(&adapter.guid, &families, 1);
+    if let Some((_, guid, rows)) = &origin_rows {
+        let origin_families: Vec<u16> = rows.iter().map(|r| r.family).collect();
+        encoded.extend(encode_metric_rows(guid, &origin_families, SWITCHED_ORIGIN_METRIC));
+    }
+    run_set_metric(app_handle, &adapter.name, &encoded, false, "")?;
     verify_switch_effect(&adapter.name, adapter.if_index)?;
     Ok(())
 }

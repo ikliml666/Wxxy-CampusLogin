@@ -1,3 +1,24 @@
+### 夜间出站切换评审修复：顺序改为「先下线原卡再写跃点」，失败可整笔回退（2026-11-15，桌面后端）
+
+**为什么**：上一轮把切换改成「写跃点 → 下线原卡 → 启用」，两轴 code-review 查出三个真问题：① 禁用失败时跃点已写、快照已落盘，而 set_metric 成功已清掉失败计数，`needs_replay` 恒假 → 系统停在「跃点已切、旧连接未断」且不再重试；② 启用后复核用 `read_family_rows(..).unwrap_or_default()` 吞掉读失败，接口未就绪时静默跳过补写；③ 重放只补目标卡 metric=1，被启用回来的原卡不带 100，会凭更低的 routeMetric 抢回出口。
+
+**改了什么**（`monitor/outbound_night.rs`、`helper/mod.rs`）
+
+- **顺序改为「落快照 → 原卡下线→保持→启用 → 一次写两卡跃点 → 验证 → 旁路」**：跃点写入落在启用之后，天然成为「接口重建后复核」，`rewrite_origin_metric_if_needed` 随之删除（连带消掉吞读失败那处）。
+- **禁用失败可整笔回退**：此时系统只被动过快照，清掉快照与名单并记一次失败后返回；下一拍 `evaluate_outbound_action` 会重新给出 Switch，自动重来（原来会永久停在半切换态）。改切同样把下线提前——失败时跃点尚未改动，用户可原样重试。
+- **重放分支顺序调整**：先「启用残留卡」再「补跃点」，补写按卡分组——首行目标卡 1、其余原出口 100，与首次切换同口径。原顺序会把卡救回来后立刻清掉失败计数，下一拍不再重放。
+- **点名切换只读一次跃点**：`resolve_switch_target` 不再预读（原来读了又丢弃），执行阶段统一读一次。
+- **跃点编码收敛**：新增 `encode_metric_rows`，`write_outbound_metric`／改切／重放／手动设跃点四处手拼统一。
+- **旁路路由构造合并**：`rebuild_portal_bypass_from_snapshot` 委托 `build_portal_bypass_route`，不再两处各写一份网关查询。
+
+**验证**（当轮实际输出）
+
+- `cargo check --all-targets`：exit 0（无 error／unused 警告）
+- `cargo test --lib`：`663 passed; 0 failed; 4 ignored`
+- 前端未改动，沿用上一轮的 `npx tsc --noEmit`（exit 0）与 `npx vite build`（✓ built）
+
+**评审里判定不修的两条**：①「改动直接进 main」不成立——`AGENTS.md` 必守 2 允许任务收尾 `--ff-only` 合回 main；② `.codewiki/` 文章与验证基线数字由流水线维护（禁止手改），wiki 编译两次失败（引擎锁版本不一致 → 已重置；模型通道空产出 3/3 中断在 articles 阶段），需重跑。
+
 ### 夜间出站切换：原出口网卡「下线再启用」断掉既有连接，删除 TCP-only 中断（2026-11-15，桌面后端 + 前端文案）
 
 **为什么**：用户实测切换后 UU 远程仍在走原以太网卡。根因不是「只关 TCP 不够」，而是**改跃点只影响新建连接**——已建立 TCP 连接的 TCB、以及 UDP socket 首次 `sendto` 时隐式绑定的源地址都不跟随默认路由（Vista 起 strong host model），而 UDP 没有 TCB、用户态也没有任何 API 能删除他人 socket。原 `close_tcp_conns` 只删 TCP TCB，对 UDP 打洞类应用（远程控制、加速器）完全无效，也没有能在用户态补上的手段。唯一能让这些绑定失效的是让原卡接口 down 一次。
