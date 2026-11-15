@@ -189,7 +189,8 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
       : RESTORE_TIME_DEFAULT_MINUTES
 
   // 光有权限不够：Shizuku 的 user service 绑定可能失败，届时命令一条也落地不了
-  const curfewProbeOk = Boolean(curfewChannel?.probe?.startsWith('uid='))
+  // 自检返回的是 `exit=0\nuid=...`（RemoteShellService 把退出码一并回传）
+  const curfewProbeOk = Boolean(curfewChannel?.probe?.startsWith('exit=0'))
   const curfewReady =
     curfewProbeOk &&
     (config.wifiCurfewChannel === 'adb'
