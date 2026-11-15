@@ -398,6 +398,11 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                   </button>
                 )}
               </div>
+              {!curfewReady && curfewChannel?.probe && (
+                <p className="text-[10px] font-mono text-muted-foreground/70 break-all">
+                  通道自检: {curfewChannel.probe}
+                </p>
+              )}
             </div>
           </CardContent>
         </AnimatedCard>

@@ -227,8 +227,49 @@ class WifiCurfewRunner(private val context: Context) {
         ""
     }
 
-    /** 通道自检：真跑一条无害命令，确认这条通道不止「有权限」而且能落地 */
-    fun probeChannel(): String = shellExec("id")?.trim() ?: "unavailable"
+    /**
+     * 通道自检：真跑一条无害命令，确认这条通道不止「有权限」而且能落地。
+     * 失败时回报具体环节——否则「无执行权限」把绑定超时、binder 为空、
+     * 命令报错全糊成一团，只能靠猜。
+     */
+    fun probeChannel(): String {
+        if (!CurfewChannel.shizukuReady()) return "shizuku-not-ready"
+        val component = ComponentName(context.packageName, RemoteShellService::class.java.name)
+        val args = Shizuku.UserServiceArgs(component)
+            .daemon(false)
+            .processNameSuffix("shell")
+            .debuggable(false)
+            .version(1)
+        val latch = CountDownLatch(1)
+        var output: String? = null
+        var error: String? = null
+        val conn = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                try {
+                    output = IRemoteShell.Stub.asInterface(binder)?.exec("id")
+                    if (output == null) error = "binder-null"
+                } catch (e: Throwable) {
+                    error = "exec:" + e.javaClass.simpleName + ":" + e.message
+                } finally {
+                    latch.countDown()
+                }
+            }
+
+            override fun onServiceDisconnected(name: ComponentName?) {}
+        }
+        return try {
+            Shizuku.bindUserService(args, conn)
+            if (latch.await(SHELL_WAIT_MS, TimeUnit.MILLISECONDS)) {
+                output?.trim()?.takeIf { it.isNotEmpty() } ?: (error ?: "no-output")
+            } else {
+                "bind-timeout"
+            }
+        } catch (e: Throwable) {
+            "bind:" + e.javaClass.simpleName + ":" + e.message
+        } finally {
+            runCatching { Shizuku.unbindUserService(args, conn, true) }
+        }
+    }
 
     // ===== shell 通道 =====
 
