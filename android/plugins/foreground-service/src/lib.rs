@@ -61,6 +61,12 @@ impl<R: Runtime> CampusMonitorService<R> {
         self.0.run_mobile_plugin("getCurfewChannel", ())
     }
 
+    /// 向 Shizuku 申请授权：调用后 Shizuku App 会弹授权框，**要等用户操作完才返回**
+    /// （返回 granted + reason）。调用方必须放在不阻塞事件循环的线程上。
+    pub fn request_curfew_permission(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("requestCurfewPermission", ())
+    }
+
     /// 开关开机自启(BOOT_COMPLETED receiver 组件启停 + SharedPreferences 记忆)
     pub fn set_boot_autostart(&self, enabled: bool) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("setBootAutostart", serde_json::json!({ "enabled": enabled }))

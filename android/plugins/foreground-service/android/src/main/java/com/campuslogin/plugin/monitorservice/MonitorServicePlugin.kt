@@ -10,6 +10,8 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
@@ -21,10 +23,15 @@ import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
+import rikka.shizuku.Shizuku
 
 // 文件级 TAG:MonitorServicePlugin 与 BootReceiver(同文件顶层类)共用,
 // 放 Companion 会因 private 对 BootReceiver 不可见导致编译失败。
 private const val TAG = "CampusMonitorService"
+
+// Shizuku 授权的请求码：只要应用内唯一即可，Shizuku 会原样回传
+private const val CURFEW_PERMISSION_CODE = 4201
 
 // 缺参安全:args 字段可空(parseArgs 对缺失键留 null),调用点判空后 log+reject,
 // 避免 lateinit 的 UninitializedPropertyAccessException 直接炸掉插件线程。
@@ -93,6 +100,69 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
      * 按交互档位切换窗口刷新率：活跃时选当前分辨率下最高档，静止时回落最低档。
      * 只改窗口模式偏好，不涉及应用内容；WebView 的 rAF 节拍随系统模式一起变化。
      */
+    /**
+     * 向 Shizuku 申请授权：由 Shizuku App 弹出授权框，结果经 listener 回填。
+     *
+     * 三个前置条件缺一不可——`requestPermission` 内部走 `requireService()`，binder 不在线会抛；
+     * 11 以下的 Shizuku 没有这套运行时授权，只能让用户去 Shizuku 里开。
+     * listener 必须带主线程 Handler：回调线程不确定，而 invoke.resolve 只该在解析一次后发生。
+     */
+    @Command
+    fun requestCurfewPermission(invoke: Invoke) {
+        val ctx = activity.applicationContext
+        val ret = JSObject()
+        if (!CurfewChannel.shizukuInstalled(ctx)) {
+            ret.put("granted", false)
+            ret.put("reason", "not_installed")
+            invoke.resolve(ret)
+            return
+        }
+        if (!Shizuku.pingBinder()) {
+            ret.put("granted", false)
+            ret.put("reason", "not_running")
+            invoke.resolve(ret)
+            return
+        }
+        if (Shizuku.isPreV11()) {
+            ret.put("granted", false)
+            ret.put("reason", "too_old")
+            invoke.resolve(ret)
+            return
+        }
+        if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+            ret.put("granted", true)
+            invoke.resolve(ret)
+            return
+        }
+        val done = AtomicBoolean(false)
+        val handler = Handler(Looper.getMainLooper())
+        val listener = object : Shizuku.OnRequestPermissionResultListener {
+            override fun onRequestPermissionResult(requestCode: Int, grantResult: Int) {
+                if (requestCode != CURFEW_PERMISSION_CODE) return
+                if (!done.compareAndSet(false, true)) return
+                Shizuku.removeRequestPermissionResultListener(this)
+                val granted = grantResult == PackageManager.PERMISSION_GRANTED
+                ret.put("granted", granted)
+                if (!granted) ret.put("reason", "denied")
+                invoke.resolve(ret)
+            }
+        }
+        Shizuku.addRequestPermissionResultListener(listener, handler)
+        // requestPermission 是同步 binder 调用，别占主线程
+        Thread({
+            try {
+                Shizuku.requestPermission(CURFEW_PERMISSION_CODE)
+            } catch (e: Throwable) {
+                if (done.compareAndSet(false, true)) {
+                    Shizuku.removeRequestPermissionResultListener(listener)
+                    ret.put("granted", false)
+                    ret.put("reason", e.message ?: "request_failed")
+                    invoke.resolve(ret)
+                }
+            }
+        }, "curfew-permission").start()
+    }
+
     /**
      * WiFi 就寝守则的执行通道就绪度：Shizuku 四态 + root 可用性。
      *

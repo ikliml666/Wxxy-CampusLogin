@@ -122,6 +122,26 @@ pub async fn get_curfew_channel(app: tauri::AppHandle) -> Result<serde_json::Val
     }
 }
 
+/// 向 Shizuku 申请授权：`{granted, reason?}`。会等用户操作授权框，故走 spawn_blocking。
+#[tauri::command]
+pub async fn request_curfew_permission(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            app.campus_monitor_service().request_curfew_permission()
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        outcome.map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err("仅安卓端支持".to_string())
+    }
+}
+
 /// 读取系统私人 DNS（DoT）设置：`{granted, mode, specifier}`。
 /// mode 取值 off / opportunistic / hostname（系统内部值）；granted=false 表示
 /// 缺 WRITE_SECURE_SETTINGS，前端据此显示 adb 引导。

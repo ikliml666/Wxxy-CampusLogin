@@ -72,6 +72,9 @@ object CurfewChannel {
         false
     }
 
+    /** Shizuku 官方 App 是否已安装（未装时不该调 requestPermission） */
+    fun shizukuInstalled(context: Context): Boolean = isInstalled(context)
+
     private fun isInstalled(context: Context): Boolean = try {
         context.packageManager.getPackageInfo(SHIZUKU_PACKAGE, 0)
         true

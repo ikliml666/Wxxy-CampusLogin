@@ -5,7 +5,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, X, Loader2 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -184,6 +184,25 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
       ? 'network.wifiCurfewChannelReadyShizuku'
       : 'network.wifiCurfewChannelReadyRoot'
 
+  // 申请 Shizuku 授权：调用会一直挂到用户在授权框上操作完，期间按钮转圈
+  const [curfewRequesting, setCurfewRequesting] = useState(false)
+  const handleRequestCurfewAccess = useCallback(async () => {
+    setCurfewRequesting(true)
+    try {
+      const result = await ipc.requestCurfewPermission()
+      if (result.granted) {
+        useLogToastStore.getState().addToast(t('network.wifiCurfewAccessGranted'), 'success')
+      } else {
+        useLogToastStore.getState().addToast(t('network.wifiCurfewAccessDenied'), 'info', result.reason)
+      }
+      await refreshCurfewChannel()
+    } catch (e) {
+      useLogToastStore.getState().addToast(t('network.wifiCurfewAccessFailed'), 'error', extractErrorMessage(e))
+    } finally {
+      if (mountedRef.current) setCurfewRequesting(false)
+    }
+  }, [ipc, t, refreshCurfewChannel])
+
   const applyDot = useCallback(
     async (mode: 'off' | 'auto' | 'hostname', host?: string) => {
       setDotSaving(true)
@@ -330,6 +349,17 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
               <div className={cn('flex items-center gap-1.5 text-[12px]', curfewReady ? 'text-emerald-600' : 'text-amber-600')}>
                 {curfewReady ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <AlertTriangle className="h-3.5 w-3.5 shrink-0" />}
                 <span>{curfewReady ? t(curfewReadyLabel) : t('network.wifiCurfewNoPermission')}</span>
+                {!curfewReady && config.wifiCurfewChannel !== 'root' && (
+                  <button
+                    type="button"
+                    onClick={handleRequestCurfewAccess}
+                    disabled={curfewRequesting}
+                    className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium text-primary bg-primary/10 hover:bg-primary/15 transition-colors disabled:opacity-60"
+                  >
+                    {curfewRequesting && <Loader2 className="h-3 w-3 animate-spin" />}
+                    {t('network.wifiCurfewRequestAccess')}
+                  </button>
+                )}
               </div>
             </div>
           </CardContent>

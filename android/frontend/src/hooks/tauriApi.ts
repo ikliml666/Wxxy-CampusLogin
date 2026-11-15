@@ -155,6 +155,8 @@ interface TauriApi {
   setPrivateDns: (params: { mode: 'off' | 'auto' | 'hostname'; host?: string }) => Promise<SetPrivateDnsResult>
   /** WiFi 就寝守则的执行通道就绪度（Shizuku / root） */
   getCurfewChannel: () => Promise<CurfewChannelStatus>
+  /** 向 Shizuku 申请授权；会等用户在授权框上操作完才 resolve */
+  requestCurfewPermission: () => Promise<CurfewPermissionResult>
 }
 
 export interface AvoidBadWifiStatus {
@@ -178,6 +180,13 @@ export interface CurfewChannelStatus {
   shizuku: 'ready' | 'missing' | 'inactive' | 'denied'
   /** su 可用 */
   root: boolean
+}
+
+export interface CurfewPermissionResult {
+  /** 授权是否已给到本应用 */
+  granted: boolean
+  /** 未授权原因：not_installed / not_running / too_old / denied / 原生异常信息 */
+  reason?: string
 }
 
 export interface PrivateDnsStatus {
@@ -372,6 +381,7 @@ const tauriApi: TauriApi = {
   setPrivateDns: (params) =>
     invoke<SetPrivateDnsResult>('set_private_dns', { mode: params.mode, host: params.host ?? '' }),
   getCurfewChannel: () => invoke<CurfewChannelStatus>('get_curfew_channel'),
+  requestCurfewPermission: () => invoke<CurfewPermissionResult>('request_curfew_permission'),
 }
 
 function isRetryableError(e: unknown): boolean {
