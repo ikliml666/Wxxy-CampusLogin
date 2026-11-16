@@ -34,6 +34,7 @@
 
 - `npx tsc --noEmit --incremental` exit 0；`npx vite build` ✓ built
 - 浏览器 mock 实测：预选 CMCC 两项 → 整行高亮 + 实心对勾，chip 点「取消选择」后该行回到未选态；预选 i-wxxy → 绿色「开放」标签；暗色模式（主题设置里关浅色）下高亮/对勾/chip 对比正常
+- 真机 RMX3300（Android 15）：`build-apk.ps1` 出包 + `adb install -r` 后截图确认——断开网络 4 枚 chip、放行网络 1 枚 chip、候选行 WiFi 图标 + 加密小锁 + 空心圆、底栏「网络」高亮，排版与 mock 一致
 
 ### 安卓端 WiFi 连接管控不生效：两处根因与调试入口（2026-11-16，安卓）
 
