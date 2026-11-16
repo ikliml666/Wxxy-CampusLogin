@@ -122,6 +122,50 @@ pub async fn get_curfew_channel(app: tauri::AppHandle) -> Result<serde_json::Val
     }
 }
 
+/// 调试：立即执行一次就寝守则（`force` 跳过时段判定），返回动作结果。
+#[tauri::command]
+pub async fn test_wifi_curfew(
+    app: tauri::AppHandle,
+    config: String,
+    force: bool,
+) -> Result<serde_json::Value, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            app.campus_monitor_service().test_curfew(&config, force)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        outcome.map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, config, force);
+        Err("仅安卓端支持".to_string())
+    }
+}
+
+/// 调试：直接开关 WiFi（跳过守则规则）。
+#[tauri::command]
+pub async fn test_wifi_switch(app: tauri::AppHandle, enable: bool) -> Result<serde_json::Value, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            app.campus_monitor_service().test_wifi_switch(enable)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        outcome.map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, enable);
+        Err("仅安卓端支持".to_string())
+    }
+}
+
 /// 向 Shizuku 申请授权：`{granted, reason?}`。会等用户操作授权框，故走 spawn_blocking。
 #[tauri::command]
 pub async fn request_curfew_permission(app: tauri::AppHandle) -> Result<serde_json::Value, String> {

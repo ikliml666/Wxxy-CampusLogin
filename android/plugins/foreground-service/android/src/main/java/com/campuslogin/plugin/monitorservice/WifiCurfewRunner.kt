@@ -44,8 +44,13 @@ class WifiCurfewRunner(private val context: Context) {
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** 单拍：入参出参都是 JSON 字符串，异常不外抛（:core 侧只记日志） */
-    fun run(json: String): String {
+    /**
+     * 单拍：入参出参都是 JSON 字符串，异常不外抛（:core 侧只记日志）。
+     *
+     * [force] 供界面上的调试入口使用：跳过「是否在就寝时段」判定，
+     * 直接按当前配置走一次动作，不必等到深夜才能验规则有没有生效。
+     */
+    fun run(json: String, force: Boolean = false): String {
         // 跨进程入参：CoreService 的暂存值在 set 之前为空串，JSONObject("") 会抛，
         // 抛进 :core 的 Service 就是一次崩溃，这里按空配置处理
         val cfg = JSONObject(json.ifBlank { "{}" })
@@ -54,7 +59,7 @@ class WifiCurfewRunner(private val context: Context) {
         val allowed = readList(cfg.optJSONArray("allowed"))
         val restoreStart = normalizeRestoreStart(cfg.optInt("restoreStart", 0))
         val weakRssi = cfg.optInt("weakRssi", 0)
-        val inWindow = inCurfewWindow(restoreStart)
+        val inWindow = force || inCurfewWindow(restoreStart)
         val channel = CurfewChannel.name(cfg.optString("channel", "auto"))
 
         if (!enabled || !inWindow) {
@@ -269,6 +274,12 @@ class WifiCurfewRunner(private val context: Context) {
         } finally {
             runCatching { Shizuku.unbindUserService(args, conn, true) }
         }
+    }
+
+    /** 调试用：直接开关 WiFi，跳过守则的窗口与名单判定 */
+    fun testWifiEnabled(enable: Boolean): String {
+        val trace = setWifiEnabled(enable)
+        return JSONObject().put("ok", trace.ok).put("detail", trace.detail).toString()
     }
 
     // ===== shell 通道 =====

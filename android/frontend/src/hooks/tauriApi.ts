@@ -157,6 +157,10 @@ interface TauriApi {
   getCurfewChannel: () => Promise<CurfewChannelStatus>
   /** 向 Shizuku 申请授权；会等用户在授权框上操作完才 resolve */
   requestCurfewPermission: () => Promise<CurfewPermissionResult>
+  /** 调试：立即按给定配置执行一次守则（force 跳过时段判定） */
+  testWifiCurfew: (config: string, force: boolean) => Promise<Record<string, unknown>>
+  /** 调试：直接开关 WiFi，跳过守则规则 */
+  testWifiSwitch: (enable: boolean) => Promise<Record<string, unknown>>
 }
 
 export interface AvoidBadWifiStatus {
@@ -384,6 +388,9 @@ const tauriApi: TauriApi = {
     invoke<SetPrivateDnsResult>('set_private_dns', { mode: params.mode, host: params.host ?? '' }),
   getCurfewChannel: () => invoke<CurfewChannelStatus>('get_curfew_channel'),
   requestCurfewPermission: () => invoke<CurfewPermissionResult>('request_curfew_permission'),
+  testWifiCurfew: (config: string, force: boolean) =>
+    invoke<Record<string, unknown>>('test_wifi_curfew', { config, force }),
+  testWifiSwitch: (enable: boolean) => invoke<Record<string, unknown>>('test_wifi_switch', { enable }),
 }
 
 function isRetryableError(e: unknown): boolean {

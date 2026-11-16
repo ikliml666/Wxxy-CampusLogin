@@ -5,7 +5,6 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, X, Loader2 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
@@ -39,12 +38,7 @@ const RESTORE_TIME_DEFAULT_MINUTES = 450
 const RESTORE_TIME_MAX_MINUTES = 1379
 /** 恢复时刻下限 05:00：00:00–05:00 是「凌晨补切窗口」，把恢复点设进那里会让补切与还原互相顶掉 */
 const RESTORE_TIME_MIN_MINUTES = 300
-/** 恢复时刻可选档：05:00–22:30 每 30 分钟一档 */
-const RESTORE_TIME_OPTIONS = (() => {
-  const out: number[] = []
-  for (let m = RESTORE_TIME_MIN_MINUTES; m <= RESTORE_TIME_MAX_MINUTES; m += 30) out.push(m)
-  return out
-})()
+
 /** 阿里云公共 DNS 的 DoT 主机名（官方：dns.alidns.com:853），用作「指定主机」的默认预填 */
 const ALI_DOT_HOST = 'dns.alidns.com'
 /** 一键可填的两家国内 DoT 服务（主机名与官方文档一致） */
@@ -221,6 +215,47 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
       if (mountedRef.current) setCurfewRequesting(false)
     }
   }, [ipc, t, refreshCurfewChannel])
+  // 调试入口：立即按当前配置跑一次守则，不必等到深夜
+  const [curfewTestRunning, setCurfewTestRunning] = useState(false)
+  const [curfewSwitching, setCurfewSwitching] = useState(false)
+  const buildCurfewPayload = useCallback(
+    () =>
+      JSON.stringify({
+        enabled: config.enableWifiCurfew,
+        excluded: config.wifiCurfewExcluded,
+        allowed: config.wifiCurfewAllowed,
+        restoreStart: config.nightRestoreMinutes,
+        weakRssi: config.wifiCurfewWeakRssi ?? 0,
+        channel: config.wifiCurfewChannel ?? 'auto',
+      }),
+    [config]
+  )
+  const handleTestCurfew = useCallback(async () => {
+    setCurfewTestRunning(true)
+    try {
+      const result = await ipc.testWifiCurfew(buildCurfewPayload(), true)
+      useLogToastStore.getState().addToast(t('network.wifiCurfewTestDone'), 'info', JSON.stringify(result))
+    } catch (e) {
+      useLogToastStore.getState().addToast(t('network.wifiCurfewTestFailed'), 'error', extractErrorMessage(e))
+    } finally {
+      if (mountedRef.current) setCurfewTestRunning(false)
+    }
+  }, [ipc, t, buildCurfewPayload])
+  const handleWifiSwitch = useCallback(async (enable: boolean) => {
+    setCurfewSwitching(true)
+    try {
+      const result = await ipc.testWifiSwitch(enable)
+      useLogToastStore.getState().addToast(
+        enable ? t('network.wifiCurfewTestWifiOn') : t('network.wifiCurfewTestWifiOff'),
+        'info',
+        JSON.stringify(result)
+      )
+    } catch (e) {
+      useLogToastStore.getState().addToast(t('network.wifiCurfewTestFailed'), 'error', extractErrorMessage(e))
+    } finally {
+      if (mountedRef.current) setCurfewSwitching(false)
+    }
+  }, [ipc, t])
 
   const applyDot = useCallback(
     async (mode: 'off' | 'auto' | 'hostname', host?: string) => {
@@ -293,22 +328,25 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <Label className="text-xs font-medium">{t('network.wifiCurfewRestoreAt')}</Label>
-              <Select
-                value={String(restoreMinutes)}
-                onValueChange={value => onUpdateConfig({ nightRestoreMinutes: Number(value) })}
-              >
-                <SelectTrigger className="h-8 w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {RESTORE_TIME_OPTIONS.map(minutes => (
-                    <SelectItem key={minutes} value={String(minutes)}>
-                      {formatRestoreTime(minutes)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="wifi-curfew-restore-time" className="text-xs font-medium cursor-pointer">
+                {t('network.wifiCurfewRestoreAt')}
+              </Label>
+              <Input
+                id="wifi-curfew-restore-time"
+                type="time"
+                min="05:00"
+                max="22:59"
+                value={formatRestoreTime(restoreMinutes)}
+                onChange={e => {
+                  const [h, min] = e.target.value.split(':').map(Number)
+                  if (isNaN(h) || isNaN(min)) return
+                  const total = h * 60 + min
+                  if (total >= RESTORE_TIME_MIN_MINUTES && total < RESTORE_TIME_MAX_MINUTES + 1) {
+                    onUpdateConfig({ nightRestoreMinutes: total })
+                  }
+                }}
+                className="w-32 h-8 text-sm font-mono"
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -404,6 +442,36 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                   通道自检: {curfewChannel.probe}
                 </p>
               )}
+              <div className="pt-1 space-y-1.5">
+                <p className="text-[11px] text-muted-foreground">{t('network.wifiCurfewTestHint')}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleTestCurfew}
+                    disabled={curfewTestRunning}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border border-input bg-card hover:bg-accent/50 transition-colors disabled:opacity-60"
+                  >
+                    {curfewTestRunning && <Loader2 className="h-3 w-3 animate-spin" />}
+                    {t('network.wifiCurfewTestRun')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleWifiSwitch(false)}
+                    disabled={curfewSwitching}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-input bg-card hover:bg-accent/50 transition-colors disabled:opacity-60"
+                  >
+                    {t('network.wifiCurfewTestWifiOff')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleWifiSwitch(true)}
+                    disabled={curfewSwitching}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-input bg-card hover:bg-accent/50 transition-colors disabled:opacity-60"
+                  >
+                    {t('network.wifiCurfewTestWifiOn')}
+                  </button>
+                </div>
+              </div>
             </div>
           </CardContent>
         </AnimatedCard>

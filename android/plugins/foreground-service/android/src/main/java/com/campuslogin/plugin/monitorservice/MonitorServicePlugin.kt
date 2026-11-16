@@ -22,6 +22,7 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import rikka.shizuku.Shizuku
@@ -179,6 +180,42 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
             ret.put("probe", WifiCurfewRunner(ctx).probeChannel())
             invoke.resolve(ret)
         }, "curfew-channel").start()
+    }
+    /** 调试入口：立即按当前配置走一次守则动作，不等就寝时段 */
+    @InvokeArg
+    class CurfewTestArgs {
+        var config: String? = null
+        var force: Boolean = false
+    }
+
+    @Command
+    fun testCurfew(invoke: Invoke) {
+        val args = invoke.parseArgs(CurfewTestArgs::class.java)
+        val ctx = activity.applicationContext
+        Thread({
+            val out = try {
+                WifiCurfewRunner(ctx).run(args.config ?: "{}", args.force)
+            } catch (e: Throwable) {
+                Log.w(TAG, "testCurfew 失败", e)
+                "{\"error\":\"" + e.javaClass.simpleName + ": " + e.message + "\"}"
+            }
+            invoke.resolve(JSONObject(out))
+        }, "curfew-test").start()
+    }
+
+    /** 调试入口：直接开关 WiFi，跳过窗口与名单判定 */
+    @InvokeArg
+    class WifiSwitchArgs {
+        var enable: Boolean = false
+    }
+
+    @Command
+    fun testWifiSwitch(invoke: Invoke) {
+        val args = invoke.parseArgs(WifiSwitchArgs::class.java)
+        val ctx = activity.applicationContext
+        Thread({
+            invoke.resolve(JSONObject(WifiCurfewRunner(ctx).testWifiEnabled(args.enable)))
+        }, "wifi-switch-test").start()
     }
 
     @Command

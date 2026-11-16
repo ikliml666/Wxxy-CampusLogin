@@ -69,6 +69,8 @@ pub fn run() {
             protocol_cmds::restore_written_settings,
             protocol_cmds::get_curfew_channel,
             protocol_cmds::request_curfew_permission,
+            protocol_cmds::test_wifi_curfew,
+            protocol_cmds::test_wifi_switch,
             protocol_cmds::get_private_dns_status,
             protocol_cmds::set_private_dns,
             protocol_cmds::check_portal_status,

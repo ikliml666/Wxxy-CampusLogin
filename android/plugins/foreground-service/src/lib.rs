@@ -61,6 +61,20 @@ impl<R: Runtime> CampusMonitorService<R> {
         self.0.run_mobile_plugin("getCurfewChannel", ())
     }
 
+    /// 调试：立即按给定配置执行一次守则（`force` 跳过时段判定），返回执行结果 JSON
+    pub fn test_curfew(&self, config: &str, force: bool) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin(
+            "testCurfew",
+            serde_json::json!({ "config": config, "force": force }),
+        )
+    }
+
+    /// 调试：直接开关 WiFi，跳过守则的全部规则判定
+    pub fn test_wifi_switch(&self, enable: bool) -> Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin("testWifiSwitch", serde_json::json!({ "enable": enable }))
+    }
+
     /// 向 Shizuku 申请授权：调用后 Shizuku App 会弹授权框，**要等用户操作完才返回**
     /// （返回 granted + reason）。调用方必须放在不阻塞事件循环的线程上。
     pub fn request_curfew_permission(&self) -> Result<serde_json::Value> {
