@@ -211,6 +211,21 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
         }, "curfew-test").start()
     }
 
+    /** 设置页名单数据源：读系统已保存的 WiFi（shell 通道，可能耗时，走后台线程） */
+    @Command
+    fun listSavedWifiNetworks(invoke: Invoke) {
+        val ctx = activity.applicationContext
+        Thread({
+            val out = try {
+                WifiCurfewRunner(ctx).listSavedNetworks()
+            } catch (e: Throwable) {
+                Log.w(TAG, "listSavedWifiNetworks 失败", e)
+                "{\"networks\":[],\"error\":\"" + e.javaClass.simpleName + "\"}"
+            }
+            invoke.resolve(toJsObject(out))
+        }, "curfew-saved-networks").start()
+    }
+
     /** 调试入口：直接开关 WiFi，跳过窗口与名单判定 */
     @InvokeArg
     class WifiSwitchArgs {

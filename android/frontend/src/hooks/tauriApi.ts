@@ -157,10 +157,24 @@ interface TauriApi {
   getCurfewChannel: () => Promise<CurfewChannelStatus>
   /** 向 Shizuku 申请授权；会等用户在授权框上操作完才 resolve */
   requestCurfewPermission: () => Promise<CurfewPermissionResult>
+  /** 系统已保存的 WiFi 列表（守则名单数据源）；error=no_shell 表示执行通道未就绪 */
+  listSavedWifiNetworks: () => Promise<SavedWifiNetworksResult>
   /** 调试：立即按给定配置执行一次守则（force 跳过时段判定） */
   testWifiCurfew: (config: string, force: boolean) => Promise<Record<string, unknown>>
   /** 调试：直接开关 WiFi，跳过守则规则 */
   testWifiSwitch: (enable: boolean) => Promise<Record<string, unknown>>
+}
+
+export interface SavedWifiNetwork {
+  ssid: string
+  /** list-networks 的原始安全列：open / owe / wpa2-psk / wpa3-sae 等 */
+  security: string
+}
+
+export interface SavedWifiNetworksResult {
+  networks: SavedWifiNetwork[]
+  /** no_shell = Shizuku/root 都不可用，名单读不出来 */
+  error?: string
 }
 
 export interface AvoidBadWifiStatus {
@@ -388,6 +402,7 @@ const tauriApi: TauriApi = {
     invoke<SetPrivateDnsResult>('set_private_dns', { mode: params.mode, host: params.host ?? '' }),
   getCurfewChannel: () => invoke<CurfewChannelStatus>('get_curfew_channel'),
   requestCurfewPermission: () => invoke<CurfewPermissionResult>('request_curfew_permission'),
+  listSavedWifiNetworks: () => invoke<SavedWifiNetworksResult>('list_saved_wifi_networks'),
   testWifiCurfew: (config: string, force: boolean) =>
     invoke<Record<string, unknown>>('test_wifi_curfew', { config, force }),
   testWifiSwitch: (enable: boolean) => invoke<Record<string, unknown>>('test_wifi_switch', { enable }),

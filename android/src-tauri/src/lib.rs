@@ -70,6 +70,7 @@ pub fn run() {
             protocol_cmds::get_curfew_channel,
             protocol_cmds::request_curfew_permission,
             protocol_cmds::test_wifi_curfew,
+            protocol_cmds::list_saved_wifi_networks,
             protocol_cmds::test_wifi_switch,
             protocol_cmds::get_private_dns_status,
             protocol_cmds::set_private_dns,

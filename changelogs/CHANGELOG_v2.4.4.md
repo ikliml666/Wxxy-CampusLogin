@@ -1,3 +1,24 @@
+### 安卓 WiFi 连接管控：有放行网络即主动切换，名单改读系统已保存网络（2026-11-16，安卓）
+
+**为什么**：原实现两处与设计不符——① 只有当前网络命中「断开网络」名单时才会尝试切到放行网络，连着无关网络或没连 WiFi 时直接 keep，放行名单在这些场景下形同虚设；② 断开/放行名单靠手输 SSID，大小写/空格易错，也看不到系统里实际保存了哪些网络。
+
+**改了什么**
+
+- **窗口内目标状态改为「待在放行网络上」**（`WifiCurfewRunner.run`）：已连放行网络 → 保持；否则有放行名单就主动 `connect-network` 切过去（不再要求当前命中断开名单）；放行目标都连不上时，只有当前网络命中断开名单才关 WiFi，未连接或连着无关网络保持原样，切换失败原因经 tried 带回。
+- **新增 `list_saved_wifi_networks` 读取通道**：Kotlin `listSavedNetworks`（`cmd wifi list-networks`）→ 插件 `listSavedWifiNetworks` → Rust IPC → 前端 `listSavedWifiNetworks` 封装。Android 15 同一网络按安全模式拆多行（wpa2-psk + wpa3-sae^、open + owe^），按 SSID 去重（不区分大小写）。
+- **名单 UI 改为系统已保存网络勾选**（`NetworkPanel.SavedNetworkPicker` 替换手输 `SsidListEditor`）：已选但系统里已不存在的条目保留在末尾标「未保存」，取消勾选即移除；通道未就绪时显示原因 + 重试，不显示误导性空名单；授权成功后自动重读。i18n 删 `wifiCurfewAddPlaceholder` / `wifiCurfewRemove`，新增 5 个键（zh/en 同步）。
+- 桌面端不动：Windows 守则是「黑名单 profile 改手动连接 + 断开」，没有切放行网络动作；名单来源是安卓系统能力，属平台专属改动（AGENTS 第 3 条例外）。
+
+**保留的已知限制**：加密网络（wpa2/wpa3/wep）的放行目标仍连不上——`cmd wifi connect-network` 必须要明文密码，系统凭据拿不到明文；此时按规则落到关 WiFi / 保持，tried 注明具体原因（与本次改动前的行为一致）。
+
+**验证**
+
+- `npx tsc --noEmit --incremental`（android/frontend）exit 0；`npx vite build` ✓ built（chunk 体积警告为既有基线）；zh/en 的 network 键集合一致
+- `pwsh android/build-apk.ps1` 出包成功（Rust aarch64 + Kotlin 编译通过），新包已 `adb install -r` 到 RMX3300
+- 真机 RMX3300（Android 15）`cmd wifi list-networks` 实际输出逐行核对列宽解析（含带空格 SSID `DESKTOP-UQP0PUB 0967`）正确，并据此发现同 SSID 多行重复问题、修复去重
+- 浏览器 mock 实测（`vite.mock.config.ts` + `tauri-mock.js`，名单数据同真机）：两个名单框渲染系统已保存网络复选框（去重后 8 条）；放行勾选 i-wxxy →「立即执行」提示「已切换到「i-wxxy」」；只留加密网络 kiku-5G → 提示「保持当前网络」并附「命令行连接必须给明文密码」原因；`?curfewshell=off` → 显示通道未就绪 + 重新读取；`?unsaved=1` → 已删网络 `OldRouter-2.4G` 保留标「未保存」、取消勾选即移除；底栏「网络」高亮正确
+- **未实测**：真机端到端（UI 点击 → 真实 Shizuku 切换）——测试期间手机处于锁屏状态无法自动解锁；另修复 mock 环境：桌面浏览器短边≥600px 曾被 `useFormFactor` 判成平板外壳，导致此前所有 `?panel=network` 截图落在平板布局，mock 现已默认手机视口（`?form=tablet` 可显式要平板）
+
 ### 安卓端 WiFi 连接管控不生效：两处根因与调试入口（2026-11-16，安卓）
 
 **为什么**：真机（RMX3300 / Android 15）在就寝时段内、通道自检通过、名单命中，WiFi 依然连着。查到两个各自独立都会让规则彻底失效的缺陷。

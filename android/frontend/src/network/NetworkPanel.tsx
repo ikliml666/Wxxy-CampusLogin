@@ -5,11 +5,11 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, X, Loader2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, Loader2 } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { tauriApiWithRetry, type CurfewChannelStatus, type PrivateDnsStatus } from '@/hooks/tauriApi'
+import { tauriApiWithRetry, type CurfewChannelStatus, type PrivateDnsStatus, type SavedWifiNetwork } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useShallow } from 'zustand/react/shallow'
@@ -50,9 +50,9 @@ function describeCurfewResult(result: Record<string, unknown>): { title: string;
   const triedText = tried.join('；')
   switch (action) {
     case 'keep':
-      return { title: '当前网络不在管控范围', detail: `当前：${current}` }
+      return { title: '保持当前网络', detail: [triedText, `当前：${current}`].filter(Boolean).join('；') }
     case 'would-keep':
-      return { title: '试运行：不会做任何处理', detail: `当前：${current}` }
+      return { title: '试运行：保持当前网络', detail: [triedText, `当前：${current}`].filter(Boolean).join('；') }
     case 'connect':
       return { title: `已切换到「${String(result.target ?? '')}」`, detail: `原网络：${current}` }
     case 'would-connect':
@@ -93,67 +93,88 @@ function formatRestoreTime(minutes: number | undefined): string {
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 }
 
-/** 就寝守则的 WiFi 名单编辑器：已选项以 chip 呈现，输入框回车追加、点 × 移除。
- *  名单是纯文本（用户手输 SSID），去重不区分大小写。 */
-const SsidListEditor = memo(function SsidListEditor({
+/** 就寝守则的 WiFi 名单选择器：选项直接来自系统已保存的网络（不再手输 SSID）。
+ *  已选但系统里已不存在的条目保留在末尾（标记「未保存」），取消勾选即移除；
+ *  匹配不区分大小写，与后端 isBlocked 同口径。 */
+const SavedNetworkPicker = memo(function SavedNetworkPicker({
   id,
   items,
-  placeholder,
-  removeLabel,
+  saved,
+  loadError,
   disabled,
   onChange,
+  onRetry,
 }: {
   id: string
   items: string[]
-  placeholder: string
-  removeLabel: (name: string) => string
+  /** null = 正在读取 */
+  saved: SavedWifiNetwork[] | null
+  loadError: boolean
   disabled?: boolean
   onChange: (next: string[]) => void
+  onRetry: () => void
 }) {
-  const [draft, setDraft] = useState('')
-  const commit = useCallback(() => {
-    const value = draft.trim()
-    if (!value) return
-    if (!items.some((it) => it.toLowerCase() === value.toLowerCase())) {
-      onChange([...items, value])
+  const { t } = useTranslation()
+  const rows = (saved ?? []).map((n) => ({ ssid: n.ssid, inSystem: true }))
+  for (const it of items) {
+    if (!rows.some((r) => r.ssid.toLowerCase() === it.toLowerCase())) {
+      rows.push({ ssid: it, inSystem: false })
     }
-    setDraft('')
-  }, [draft, items, onChange])
+  }
+  const toggle = (ssid: string, checked: boolean) => {
+    if (checked) {
+      if (!items.some((it) => it.toLowerCase() === ssid.toLowerCase())) onChange([...items, ssid])
+    } else {
+      onChange(items.filter((it) => it.toLowerCase() !== ssid.toLowerCase()))
+    }
+  }
 
   return (
-    <div className={cn('flex flex-wrap items-center gap-1.5', disabled && 'opacity-60')}>
-      {items.map((name) => (
-        <span
-          key={name}
-          className="inline-flex items-center gap-1 rounded-full bg-primary/10 py-1 pl-2.5 pr-1.5 text-[12px] text-primary"
-        >
-          {name}
+    <div className={cn('rounded-xl border border-input bg-card', disabled && 'opacity-60')}>
+      {loadError ? (
+        <div className="flex items-center justify-between gap-2 px-3 py-2.5 text-[12px] text-muted-foreground">
+          <span>{t('network.wifiCurfewSavedError')}</span>
           <button
             type="button"
-            disabled={disabled}
-            aria-label={removeLabel(name)}
-            onClick={() => onChange(items.filter((it) => it !== name))}
-            className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-primary/20 disabled:opacity-50"
+            onClick={onRetry}
+            className="shrink-0 rounded-lg border border-input px-2 py-1 text-[11px] text-primary transition-colors hover:bg-primary/10"
           >
-            <X className="h-3 w-3" />
+            {t('network.wifiCurfewSavedRetry')}
           </button>
-        </span>
-      ))}
-      <input
-        id={id}
-        value={draft}
-        disabled={disabled}
-        placeholder={placeholder}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            commit()
-          }
-        }}
-        className="h-7 w-32 rounded-lg border border-input bg-card px-2 text-[12px] outline-none hover:border-input/70 focus-visible:border-ring"
-      />
+        </div>
+      ) : saved === null ? (
+        <div className="flex items-center gap-2 px-3 py-2.5 text-[12px] text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {t('network.wifiCurfewSavedLoading')}
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="px-3 py-2.5 text-[12px] text-muted-foreground">{t('network.wifiCurfewSavedEmpty')}</div>
+      ) : (
+        <div className="max-h-44 overflow-y-auto py-1">
+          {rows.map((row, index) => {
+            const checked = items.some((it) => it.toLowerCase() === row.ssid.toLowerCase())
+            return (
+              <label
+                key={row.inSystem ? row.ssid : `extra-${row.ssid}`}
+                className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-[12px] transition-colors hover:bg-primary/5"
+              >
+                <input
+                  id={index === 0 ? id : undefined}
+                  type="checkbox"
+                  checked={checked}
+                  disabled={disabled}
+                  onChange={(e) => toggle(row.ssid, e.target.checked)}
+                  className="h-3.5 w-3.5 shrink-0 accent-primary"
+                />
+                <span className="flex-1 truncate">{row.ssid}</span>
+                {!row.inSystem && (
+                  <span className="shrink-0 text-[10px] text-muted-foreground/70">{t('network.wifiCurfewNotSaved')}</span>
+                )}
+              </label>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 })
@@ -212,6 +233,31 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
     void refreshCurfewChannel()
   }, [refreshCurfewChannel])
 
+  // ===== 系统已保存的 WiFi（断开/放行名单的数据源）=====
+  // 读取与执行同走 Shizuku/root 通道；通道未就绪时报错并给重试，不显示误导性的空名单
+  const [savedNetworks, setSavedNetworks] = useState<SavedWifiNetwork[] | null>(null)
+  const [savedNetworksError, setSavedNetworksError] = useState(false)
+  const refreshSavedNetworks = useCallback(async () => {
+    if (mountedRef.current) {
+      setSavedNetworks(null)
+      setSavedNetworksError(false)
+    }
+    try {
+      const result = await ipc.listSavedWifiNetworks()
+      if (!mountedRef.current) return
+      setSavedNetworks(result.networks ?? [])
+      setSavedNetworksError(Boolean(result.error))
+    } catch {
+      // 旧包没有这条命令：按读取失败处理，用户升级/授权后可重试
+      if (!mountedRef.current) return
+      setSavedNetworks([])
+      setSavedNetworksError(true)
+    }
+  }, [ipc])
+  useEffect(() => {
+    void refreshSavedNetworks()
+  }, [refreshSavedNetworks])
+
   // 按用户选的执行方式评估可用性：显式选了 adb / root 就不再回落
   // 0 / 越界都按默认 07:30 显示，与后端 restore_start_minutes 的归一化同口径
   const restoreMinutes =
@@ -246,12 +292,13 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
         useLogToastStore.getState().addToast(t('network.wifiCurfewAccessDenied'), 'info', result.reason)
       }
       await refreshCurfewChannel()
+      await refreshSavedNetworks()
     } catch (e) {
       useLogToastStore.getState().addToast(t('network.wifiCurfewAccessFailed'), 'error', extractErrorMessage(e))
     } finally {
       if (mountedRef.current) setCurfewRequesting(false)
     }
-  }, [ipc, t, refreshCurfewChannel])
+  }, [ipc, t, refreshCurfewChannel, refreshSavedNetworks])
   // 调试入口：立即按当前配置跑一次守则，不必等到深夜
   const [curfewTestRunning, setCurfewTestRunning] = useState(false)
   const [curfewSwitching, setCurfewSwitching] = useState(false)
@@ -399,25 +446,27 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
 
             <div className="space-y-1.5">
               <Label htmlFor="wifi-curfew-excluded" className="text-xs font-medium">{t('network.wifiCurfewExcluded')}</Label>
-              <SsidListEditor
+              <SavedNetworkPicker
                 id="wifi-curfew-excluded"
                 items={config.wifiCurfewExcluded}
-                placeholder={t('network.wifiCurfewAddPlaceholder')}
-                removeLabel={name => t('network.wifiCurfewRemove', { name })}
+                saved={savedNetworks}
+                loadError={savedNetworksError}
                 disabled={!config.enableWifiCurfew}
                 onChange={next => onUpdateConfig({ wifiCurfewExcluded: next })}
+                onRetry={() => void refreshSavedNetworks()}
               />
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="wifi-curfew-allowed" className="text-xs font-medium">{t('network.wifiCurfewAllowed')}</Label>
-              <SsidListEditor
+              <SavedNetworkPicker
                 id="wifi-curfew-allowed"
                 items={config.wifiCurfewAllowed}
-                placeholder={t('network.wifiCurfewAddPlaceholder')}
-                removeLabel={name => t('network.wifiCurfewRemove', { name })}
+                saved={savedNetworks}
+                loadError={savedNetworksError}
                 disabled={!config.enableWifiCurfew}
                 onChange={next => onUpdateConfig({ wifiCurfewAllowed: next })}
+                onRetry={() => void refreshSavedNetworks()}
               />
             </div>
 

@@ -146,6 +146,26 @@ pub async fn test_wifi_curfew(
     }
 }
 
+/// 设置页名单数据源：系统已保存的 WiFi 列表（`{networks:[{ssid,security}], error?}`）。
+#[tauri::command]
+pub async fn list_saved_wifi_networks(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_campus_monitor_service::CampusMonitorServiceExt;
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            app.campus_monitor_service().list_saved_wifi_networks()
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        outcome.map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        Err("仅安卓端支持".to_string())
+    }
+}
+
 /// 调试：直接开关 WiFi（跳过守则规则）。
 #[tauri::command]
 pub async fn test_wifi_switch(app: tauri::AppHandle, enable: bool) -> Result<serde_json::Value, String> {

@@ -14,11 +14,11 @@ import java.util.concurrent.TimeUnit
 /**
  * WiFi 就寝守则的安卓执行器（跑在 `:core` 进程）。
  *
- * **动作只有两种，都不改变系统里保存的任何配置**：
- * 1. 允许列表里有目标 → `cmd wifi connect-network <ssid> <security>` 直接连过去
- *    （网络已保存在系统里，密码沿用已有的，所以不传 passphrase）；
- * 2. 没有目标或连不上 → `cmd wifi set-wifi-enabled disabled` 关掉 WiFi 走流量，
- *    次日恢复时刻 `enabled` 打开。
+ * **窗口内的目标状态是「待在放行网络上」，动作都不改变系统里保存的配置**：
+ * 1. 已连放行网络 → 不动；连着其它网络或没连 → `cmd wifi connect-network <ssid> <security>`
+ *    主动切到放行网络（网络已保存在系统里，密码沿用已有的，所以不传 passphrase）；
+ * 2. 放行目标连不上，且当前网络命中断开名单 → `cmd wifi set-wifi-enabled disabled`
+ *    关掉 WiFi 走流量，次日恢复时刻 `enabled` 打开；未连接或当前网络不在名单里则保持原样。
  *
  * 刻意**不用 `forget-network`**：那会删掉系统里的网络配置，加密网络恢复时还得
  * 重新输密码，代价不可接受。
@@ -77,13 +77,14 @@ class WifiCurfewRunner(private val context: Context) {
         }
 
         val current = currentSsid()
-        if (!isBlocked(excluded, allowed, current)) {
-            // 当前网络不在黑名单里（含本来就没连 WiFi）：不动
+        // 已连放行网络：不动（放行优先于断开名单）
+        if (current.isNotEmpty() && allowed.any { it.equals(current, ignoreCase = true) }) {
             val action = if (dryRun) "would-keep" else "keep"
             return result(action).put("channel", channel).put("currentSsid", current).toString()
         }
 
-        // 1) 有允许列表 → 只连免密可用的那些
+        // 1) 有放行列表 → 主动切过去：无论当前是否命中断开名单、是否连着 WiFi，
+        //    窗口内的目标状态就是放行网络；只连免密可用的那些
         //    connect-network 对 wpa2/wpa3/wep 必须给明文密码（真机实测缺参报
         //    IllegalArgumentException: Argument expected after "wpa2"），而系统存的是
         //    加密凭据、拿不到明文，所以加密目标连不上，落到下面的关 WiFi
@@ -117,12 +118,19 @@ class WifiCurfewRunner(private val context: Context) {
                 tried.add("「" + target + "」连接命令执行失败")
             }
         }
+        // 2) 放行目标都连不上：只有当前网络命中断开名单才关 WiFi；
+        //    未连接或连着不在名单里的网络保持原样（tried 带回切换失败的原因）
+        if (!isBlocked(excluded, allowed, current)) {
+            val action = if (dryRun) "would-keep" else "keep"
+            return result(action).put("channel", channel).put("currentSsid", current)
+                .put("tried", JSONArray(tried)).toString()
+        }
         if (dryRun) {
             return result("would-wifi-off").put("channel", channel).put("currentSsid", current)
                 .put("tried", JSONArray(tried)).toString()
         }
 
-        // 2) 兜底：关掉 WiFi 走流量（只记「本程序关的」，出窗才打开）
+        // 3) 兜底：关掉 WiFi 走流量（只记「本程序关的」，出窗才打开）
         val trace = setWifiEnabled(false)
         if (trace.ok) {
             prefs.edit().putBoolean(KEY_DISABLED, true).apply()
@@ -301,6 +309,23 @@ class WifiCurfewRunner(private val context: Context) {
         } finally {
             runCatching { Shizuku.unbindUserService(args, conn, true) }
         }
+    }
+
+    /**
+     * 系统已保存的 WiFi 列表（设置页名单的数据源）：`{networks: [{ssid, security}]}`。
+     * Android 15 上同一网络会按安全模式拆成多行（wpa2-psk + wpa3-sae^、open + owe^），
+     * 按 SSID 去重（不区分大小写，保留首行，与切换目标的 firstOrNull 匹配同口径）。
+     * 通道不可用返回 error=no_shell——前端据此提示先就绪执行通道，
+     * 而不是显示空名单让人以为系统没保存过网络。
+     */
+    fun listSavedNetworks(): String {
+        val raw = shellExec("cmd wifi list-networks")
+            ?: return JSONObject().put("networks", JSONArray()).put("error", "no_shell").toString()
+        val networks = JSONArray()
+        for (entry in parseNetworks(raw).distinctBy { it.ssid.lowercase() }) {
+            networks.put(JSONObject().put("ssid", entry.ssid).put("security", entry.security))
+        }
+        return JSONObject().put("networks", networks).toString()
     }
 
     /** 调试用：直接开关 WiFi，跳过守则的窗口与名单判定 */

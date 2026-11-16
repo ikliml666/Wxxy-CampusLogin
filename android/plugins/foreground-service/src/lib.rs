@@ -69,6 +69,11 @@ impl<R: Runtime> CampusMonitorService<R> {
         )
     }
 
+    /// 设置页名单数据源：系统已保存的 WiFi 列表（`{networks:[{ssid,security}], error?}`）
+    pub fn list_saved_wifi_networks(&self) -> Result<serde_json::Value> {
+        self.0.run_mobile_plugin("listSavedWifiNetworks", ())
+    }
+
     /// 调试：直接开关 WiFi，跳过守则的全部规则判定
     pub fn test_wifi_switch(&self, enable: bool) -> Result<serde_json::Value> {
         self.0

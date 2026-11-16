@@ -12,6 +12,12 @@
       nomotionStyle.textContent = '*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition-duration:0s!important;transition-delay:0s!important}'
       document.documentElement.appendChild(nomotionStyle)
     }
+    // 浏览器桌面视口短边≥600px 会被判成平板外壳（useFormFactor），mock 默认按手机 360px
+    // 覆盖 innerWidth/innerHeight（只在本 mock 配置生效；?form=tablet 可显式要平板）
+    if (window.location.search.indexOf('form=tablet') < 0) {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, get: function () { return 360 } })
+      Object.defineProperty(window, 'innerHeight', { configurable: true, get: function () { return 800 } })
+    }
   } catch (e) { /* 忽略 */ }
 
   // 跳过安卓首启引导与系统通知弹窗（浏览器测试不需要）；直接落在账号页
@@ -41,6 +47,13 @@
     themeMode: (function () { try { var m = window.location.search.match(/theme=(\w+)/); if (m && (m[1] === 'light' || m[1] === 'dark')) return m[1] } catch (e) {} return 'system' })(),
     // 设备别名：验证设备命名功能（键 = 原始 12 位 hex MAC）
     deviceAliases: { B025AA6CA580: '实验室台式机' },
+    // WiFi 连接管控：默认开启，便于 ?panel=network 直接看到名单选择器
+    enableWifiCurfew: true,
+    wifiCurfewExcluded: ['i-wxxy'],
+    wifiCurfewAllowed: (function () { try { if (window.location.search.indexOf('unsaved=1') >= 0) return ['OldRouter-2.4G'] } catch (e) {} return [] })(),
+    wifiCurfewWeakRssi: 0,
+    wifiCurfewChannel: 'auto',
+    nightRestoreMinutes: 450,
   }
 
   // ---- mock 账号列表（AccountItem {id, displayName, user, operator, passwordSaved}）----
@@ -100,6 +113,47 @@
       }
     },
     get_config: function () { return config },
+    // ---- WiFi 连接管控：名单数据源取真机 RMX3300 / Android 15 的实际保存列表（已按 SSID 去重）----
+    // ?curfewshell=off 模拟 Shizuku/root 都不可用 → error=no_shell，验证错误态 + 重试
+    list_saved_wifi_networks: function () {
+      try { if (window.location.search.indexOf('curfewshell=off') >= 0) return { networks: [], error: 'no_shell' } } catch (e) {}
+      return {
+        networks: [
+          { ssid: 'CMCC-2Psu_5G', security: 'wpa2-psk' },
+          { ssid: 'CMCC-kiku_5G', security: 'wpa2-psk' },
+          { ssid: 'DESKTOP-UQP0PUB 0967', security: 'wpa2-psk' },
+          { ssid: 'H3CIE', security: 'wpa2-psk' },
+          { ssid: 'REDMI K80 Ultra', security: 'wpa2-psk' },
+          { ssid: 'Realme GT 8 Pro', security: 'wpa2-psk' },
+          { ssid: 'i-wxxy', security: 'open' },
+          { ssid: 'kiku-5G', security: 'wpa2-psk' }
+        ]
+      }
+    },
+    get_curfew_channel: function () { return { shizuku: 'ready', root: false, probe: 'exit=0\nuid=0(root)' } },
+    request_curfew_permission: function () { return { granted: true } },
+    // 试运行文案链路：allowed 非空 → would-connect（目标为首个放行网络），否则保持当前网络
+    test_wifi_curfew: function (args) {
+      var cfg = {}
+      try { cfg = JSON.parse((args && args.config) || '{}') } catch (e) {}
+      var allowed = cfg.allowed || []
+      var excluded = cfg.excluded || []
+      // 与真机同口径：只有 open / owe 能免密 connect-network；wpa2/wpa3 必须明文密码
+      var open = allowed.filter(function (s) { return s.toLowerCase() === 'i-wxxy' })
+      var tried = allowed.filter(function (s) { return open.indexOf(s) < 0 })
+        .map(function (s) { return '「' + s + '」是加密网络（wpa2-psk），命令行连接必须给明文密码' })
+      if (open.length > 0) {
+        return { action: cfg.dryRun ? 'would-connect' : 'connect', channel: 'shizuku', target: open[0], currentSsid: 'kiku-5G', tried: tried }
+      }
+      // 放行目标连不上：当前 kiku-5G 不在断开名单 → 保持 + tried 原因
+      var blocked = excluded.indexOf('*') >= 0 || excluded.some(function (s) { return s.toLowerCase() === 'kiku-5g' })
+      if (!blocked) {
+        return { action: cfg.dryRun ? 'would-keep' : 'keep', channel: 'shizuku', currentSsid: 'kiku-5G', tried: tried }
+      }
+      return { action: cfg.dryRun ? 'would-wifi-off' : 'wifi-off', channel: 'shizuku', currentSsid: 'kiku-5G', tried: tried }
+    },
+    test_wifi_switch: function (args) { return { ok: true, detail: 'mock switch ' + (args && args.enable) } },
+    get_private_dns_status: function () { return { granted: true, mode: 'opportunistic', specifier: '' } },
     save_config: function (args) {
       if (args && args.config) {
         var incoming = args.config
