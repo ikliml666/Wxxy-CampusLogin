@@ -37,6 +37,7 @@ pub const METHOD_SIGNATURES: &[(&str, JavaSignature)] = &[
     ("decrypt", JavaSignature::StrToStr),
     ("encrypt", JavaSignature::StrToStr),
     ("emit", JavaSignature::TwoStrToVoid),
+    ("trace", JavaSignature::StrToVoid),
     ("notifySystem", JavaSignature::StrToVoid),
     ("updateNotification", JavaSignature::StrToVoid),
     ("beginProbeWindow", JavaSignature::ZeroToVoid),
@@ -89,11 +90,26 @@ mod tests {
     #[test]
     fn 通知与探针方法签名正确() {
         assert_eq!(signature_of("notifySystem"), Some(JavaSignature::StrToVoid));
-        assert_eq!(signature_of("updateNotification"), Some(JavaSignature::StrToVoid));
-        assert_eq!(signature_of("beginProbeWindow"), Some(JavaSignature::ZeroToVoid));
-        assert_eq!(signature_of("endProbeWindow"), Some(JavaSignature::ZeroToVoid));
-        assert_eq!(signature_of("startWifiWatcher"), Some(JavaSignature::StrToVoid));
-        assert_eq!(signature_of("stopWifiWatcher"), Some(JavaSignature::ZeroToVoid));
+        assert_eq!(
+            signature_of("updateNotification"),
+            Some(JavaSignature::StrToVoid)
+        );
+        assert_eq!(
+            signature_of("beginProbeWindow"),
+            Some(JavaSignature::ZeroToVoid)
+        );
+        assert_eq!(
+            signature_of("endProbeWindow"),
+            Some(JavaSignature::ZeroToVoid)
+        );
+        assert_eq!(
+            signature_of("startWifiWatcher"),
+            Some(JavaSignature::StrToVoid)
+        );
+        assert_eq!(
+            signature_of("stopWifiWatcher"),
+            Some(JavaSignature::ZeroToVoid)
+        );
         assert_eq!(signature_of("runIdleStop"), Some(JavaSignature::ZeroToVoid));
         assert_eq!(signature_of("powerState"), Some(JavaSignature::ZeroToStr));
         assert_eq!(signature_of("bindToWifi"), Some(JavaSignature::ZeroToStr));
@@ -122,21 +138,30 @@ mod tests {
             return;
         };
         for (name, sig) in METHOD_SIGNATURES {
-            let block = method_block(&src, name)
-                .unwrap_or_else(|| panic!("CoreService 缺少方法 {name}"));
-            let returns_string = block.split(')').nth(1).map(|tail| tail.contains(": String")).unwrap_or(false);
+            let block =
+                method_block(&src, name).unwrap_or_else(|| panic!("CoreService 缺少方法 {name}"));
+            let returns_string = block
+                .split(')')
+                .nth(1)
+                .map(|tail| tail.contains(": String"))
+                .unwrap_or(false);
             match sig {
                 JavaSignature::StrToStr | JavaSignature::ZeroToStr => {
                     assert!(returns_string, "{name} 应返回 String");
                 }
-                JavaSignature::StrToVoid | JavaSignature::ZeroToVoid | JavaSignature::TwoStrToVoid => {
+                JavaSignature::StrToVoid
+                | JavaSignature::ZeroToVoid
+                | JavaSignature::TwoStrToVoid => {
                     assert!(!returns_string, "{name} 应返回 Unit");
                 }
             }
             if matches!(sig, JavaSignature::ZeroToStr | JavaSignature::ZeroToVoid) {
                 let head = &block[..block.find(')').unwrap_or(0)];
                 let args = head.split('(').nth(1).unwrap_or("");
-                assert!(args.trim().is_empty(), "{name} 应为无参方法,实际参数: {args}");
+                assert!(
+                    args.trim().is_empty(),
+                    "{name} 应为无参方法,实际参数: {args}"
+                );
             }
         }
     }

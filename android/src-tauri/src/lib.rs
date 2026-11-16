@@ -39,9 +39,7 @@ pub fn run() {
         .manage(android_state::AndroidState::default());
     #[cfg(not(mobile))]
     let builder = builder.manage(android_state::AndroidState::default());
-    let builder = builder
-        .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
+    let builder = builder.plugin(tauri_plugin_opener::init()).setup(|app| {
         // 安卓日志落应用私有目录(get_log_dir 的 android 分支与之一致)
         let log_dir = app
             .path()
@@ -152,6 +150,13 @@ fn ui_startup(app: tauri::AppHandle) {
         // 日志等级以配置为准(默认 warning):init_logger 用默认等级起步,读到配置即应用
         campus_login_lib::infra::logger::apply_config_level(&settings.log_level);
         campus_login_lib::infra::logger::apply_module_levels(&settings.log_module_levels);
+        // 安装更新/强制停止后，START_STICKY 与开机广播都不保证及时恢复核心。
+        // 仅后台监测明确开启时拉起；关闭时打开 UI 不得凭空出现常驻通知。
+        if settings.enable_background_check {
+            if let Err(e) = crate::core_bridge_cmds::call(&app, "start", "{}").await {
+                campus_login_lib::log_error!("monitor", "UI 启动恢复后台核心失败: {e}");
+            }
+        }
         if settings.enable_network_quality {
             let enable_latency = settings.enable_latency_test;
             let app2 = app.clone();

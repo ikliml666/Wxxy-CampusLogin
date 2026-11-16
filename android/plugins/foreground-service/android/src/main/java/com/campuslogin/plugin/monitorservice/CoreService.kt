@@ -53,7 +53,9 @@ class CoreService : Service() {
         const val EXTRA_PAYLOAD = "payload"
         const val MSG_COMMAND = 1
         const val MSG_RESULT = 2
-        const val NOTIFY_CHECK_INTERVAL_MS = 10 * 60 * 1000L
+        // 服务心跳用于发现 tokio 循环已退出而 Java 服务仍在的假活；
+        // 不再用通知新鲜度刷新 last_tick_ms（巡检活性只看真实巡检）
+        const val NOTIFY_CHECK_INTERVAL_MS = 30 * 1000L
 
         /** RSSI 触发守则的最小跨档幅度（dBm）：回调高频，同档不重判 */
         private const val RSSI_BUCKET_DBM = 5
@@ -140,6 +142,11 @@ class CoreService : Service() {
     }
 
     // ===== Rust 调用的平台方法(与 core::jni_platform 一一对应) =====
+
+    /** Rust :core 的可观测性出口（只传状态与原因，不传凭据） */
+    fun trace(message: String) {
+        Log.i("CampusCoreMonitor", message)
+    }
 
     fun emit(event: String, payload: String) {
         val intent = Intent(ACTION_EVENT)

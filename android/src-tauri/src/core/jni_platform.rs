@@ -119,6 +119,12 @@ impl CorePlatform for JniPlatform {
         }
     }
 
+    fn trace(&self, message: &str) {
+        if let Err(e) = self.call_str_void("trace", message) {
+            eprintln!("[core] trace 失败: {e}");
+        }
+    }
+
     fn notify_system(&self, title: &str, body: &str, mascot: &str) {
         let payload = serde_json::json!({ "title": title, "body": body, "mascot": mascot });
         if let Err(e) = self.call_str_void("notifySystem", &payload.to_string()) {
@@ -229,9 +235,7 @@ impl CorePlatform for JniPlatform {
 }
 
 fn read_string(env: &mut JNIEnv, value: &JString) -> String {
-    env.get_string(value)
-        .map(|s| s.into())
-        .unwrap_or_default()
+    env.get_string(value).map(|s| s.into()).unwrap_or_default()
 }
 
 #[no_mangle]

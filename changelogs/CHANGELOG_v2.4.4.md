@@ -1,3 +1,28 @@
+### 后台持续监测：修复启动恢复、循环退出与状态假活（2026-11-17）
+
+**为什么**：实测发现后台只有 WiFi 事件偶尔触发，周期监测没有第二拍，UI 回前台也不刷新。除此前已修正的灭屏/蜂窝 5 分钟跳拍外，还存在三个会让修复失效的真实缺陷：安装更新或强制停止后打开 UI 不恢复 `:core`；boot 与 UI 恢复并发时先发布 `running=true` 再推进代际，导致周期循环首拍被当作旧循环退出；服务心跳和 `status` 查询刷新 `last_tick_ms`，把死循环伪装成运行中。
+
+**改了什么**
+
+- **取消过度省电跳拍**：亮屏/灭屏、WiFi/蜂窝均使用用户配置的检测间隔，不再灭屏跳至 5 分钟；WiFi 回调仍即时补检，保留配置的校园网检测时段，非校园网不盲登。
+- **修复周期循环代际竞态**：先推进 generation 再发布 running，循环启动/退出记录代际；boot 与 UI 恢复并发不再让唯一周期循环首拍退出。
+- **UI 启动按配置恢复核心**：`ui_startup` 读取 `enableBackgroundCheck`，开启时经既有 core start 命令拉起服务；已关闭时 `start_background_check` 明确返回未运行，不会反向打开用户开关。
+- **活性只认真实巡检**：`last_tick_ms` 仅由 `run_check_once` 开始写入，通知心跳与 `status` 查询不再刷新；活性过期窗口从旧版 15 分钟改为 3 分钟。
+- **WiFi 切换重新判定**：清 Portal 缓存、上一网络在线记忆与重连预算，避免旧 SSID 状态或重连冷却阻断新网络登录。
+- **UI 状态自动对账**：回前台立即读取 `:core` 状态，可见时每 5 秒对账；后台广播与主动读取共用 `applyBackgroundStatus`，不再依赖 WebView 后台定时器。
+- **可观测性**：核心关键阶段通过 JNI `trace` 写入 `CampusCoreMonitor`，可在 release 真机直接区分循环启动、周期 tick、WiFi 强制刷新和静默期跳过。
+
+**验证**
+
+- `cargo test --manifest-path android/core-logic/Cargo.toml`：19 passed，含 Kotlin 签名回归与 3 分钟活性过期测试。
+- 安卓前端 `npx tsc --noEmit --incremental`、`npx vite build`：通过。
+- `pwsh android/build-apk.ps1`：出包成功，RMX3300 / Android 15 安装。
+- 真机强制停止后重开：`巡检循环启动 generation=1 interval=60000ms`，随后首拍正常执行。
+- 灭屏 Dozing：00:27:29 巡检 #3、00:28:29 巡检 #4，连续 60 秒周期不再首拍退出。
+- 灭屏切换 WiFi：00:28:30 lost → 巡检 #5，00:28:39 available → 巡检 #6。
+- 当前用户设置检测时段为 07:40–23:00，以上夜间拍均明确记录静默期跳过，因此未在家用 WiFi 上执行登录；校园网 Portal 自动登录需在检测时段与真实校园网复核。
+- UI 自动对账已通过类型与构建检查；设备保持锁定，未完成解锁后的界面目视验证。
+
 ### 后台监测事件驱动化：WiFi 回调迁入 :core 常驻服务（2026-11-16）
 
 **为什么**：WiFi 变化监听此前挂在 Activity 插件（network-bind）上，UI 进程被系统回收或锁屏后监听随进程消亡，「跟随 WiFi 变化登录」失效；弱信号断开只随巡检周期（灭屏闲时 5 分钟）判定，后台同样不可用。

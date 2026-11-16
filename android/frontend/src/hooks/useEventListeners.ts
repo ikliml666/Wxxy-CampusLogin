@@ -11,8 +11,25 @@ import { mergeNetworkQuality } from '@/lib/latency'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
 
+function applyBackgroundStatus(data: BackgroundStatus) {
+  if (!data) return
+  useAuthStore.getState().setBgStatus((prev: BackgroundStatus) => ({
+    ...prev,
+    ...data,
+    isRunning: data.isRunning ?? prev.isRunning,
+    checkCount: data.checkCount ?? prev.checkCount,
+    serverAvailable: data.serverAvailable ?? prev.serverAvailable,
+    online: data.online ?? prev.online,
+  }))
+  if (data.online !== undefined && data.message) {
+    useAuthStore.getState().setStatus({
+      text: data.message,
+      state: data.online ? 'online' : 'offline',
+    })
+  }
+}
+
 export function useEventListeners() {
-  const lastBgCheckTimeRef = useRef(0)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -80,39 +97,38 @@ export function useEventListeners() {
     window.addEventListener('pagehide', flushPendingNow)
 
     const unsub1 = api.onBackgroundCheckResult?.((data) => {
-      if (!mountedRef.current) return
-      if (!data) return
-      const now = Date.now()
-      if (now - lastBgCheckTimeRef.current < 1000) return
-      lastBgCheckTimeRef.current = now
-      useAuthStore.getState().setBgStatus((prev: BackgroundStatus) => {
-        return {
-          ...prev,
-          serverAvailable: data.serverAvailable ?? prev.serverAvailable,
-          online: data.online ?? prev.online,
-          onlineOperator: data.onlineOperator !== undefined ? data.onlineOperator : prev.onlineOperator,
-          checkCount: data.checkCount ?? prev.checkCount,
-          isRunning: data.isRunning ?? prev.isRunning,
-          currentSsid: data.currentSsid ?? prev.currentSsid,
-          onCampusNetwork: data.onCampusNetwork ?? prev.onCampusNetwork,
-          enableNetworkNameCheck: data.enableNetworkNameCheck ?? prev.enableNetworkNameCheck,
-          requiredNetworkName: data.requiredNetworkName ?? prev.requiredNetworkName,
-          campusWifi: data.campusWifi !== undefined ? data.campusWifi : prev.campusWifi,
-          campusWired: data.campusWired !== undefined ? data.campusWired : prev.campusWired,
-        }
-      })
-      if (data.online !== undefined && data.message) {
-        const statusText = data.message
-        const statusState = data.online ? 'online' : 'offline'
-        // 历史缺陷：每次后台检测都无条件 setStatus 产生新对象，StatusBar 订阅 status
-        // 每次整卡重渲染。text/state 未变化时跳过，保持引用稳定。
-        const cur = useAuthStore.getState().status
-        if (cur.text !== statusText || cur.state !== statusState) {
-          useAuthStore.getState().setStatus({ text: statusText, state: statusState })
-        }
-      }
+      if (mountedRef.current && data) applyBackgroundStatus(data)
     }) ?? (() => {})
     if (unsub1) unlisteners.push(unsub1)
+
+    // WebView 后台会暂停 JS 定时器、系统也可能冻结 UI 进程，后台事件不能作为
+    // 回前台状态的唯一来源。可见时立即向 :core 拉最新状态，之后每 5s 对账一次；
+    // 这是 Binder/状态文件读取，不重复 Portal 探测，也不影响后台核心周期
+    let refreshingStatus = false
+    const refreshBackgroundStatus = async () => {
+      if (!mountedRef.current || document.visibilityState !== 'visible' || refreshingStatus) return
+      refreshingStatus = true
+      try {
+        const status = await api.getBackgroundStatus()
+        if (mountedRef.current && status) applyBackgroundStatus(status)
+      } catch (e) {
+        if (import.meta.env.DEV) console.warn('读取核心监测状态失败:', e)
+      } finally {
+        refreshingStatus = false
+      }
+    }
+    const onVisible = () => { void refreshBackgroundStatus() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    window.addEventListener('pageshow', onVisible)
+    const statusTimer = window.setInterval(() => { void refreshBackgroundStatus() }, 5000)
+    void refreshBackgroundStatus()
+    unlisteners.push(() => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+      window.removeEventListener('pageshow', onVisible)
+      window.clearInterval(statusTimer)
+    })
 
     const unsub2 = api.onAutoLoginResult?.((result) => {
       if (!mountedRef.current) return

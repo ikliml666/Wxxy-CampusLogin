@@ -2,8 +2,8 @@
 //! → emit background-check-result / login-log。决策逻辑抽纯函数便于 TDD,
 //! 循环体跑在 :core 进程的 tokio runtime 上。
 
-use chrono::{Datelike, Timelike};
 use campus_login_lib::campus::rules::{expected_operator_display, portal_origin};
+use chrono::{Datelike, Timelike};
 use lazy_static::lazy_static;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -57,13 +57,14 @@ pub struct MonitorState {
     /// 最近一次登录成功(含手动登录)的 epoch ms:本拍探测开始后成功过,
     /// 说明本拍 online 是登录前的旧结论,不再发起自动重登
     pub last_login_success_ms: AtomicU64,
+    /// 最近一次 WiFi 网络切换时间：用于重连预算按网络代际重置，避免在 A 网络
+    /// 用满次数后到 B 校园网永远不自动登录
+    pub wifi_generation_ms: AtomicU64,
     pub was_online: AtomicBool,
     pub last_result: Mutex<Option<serde_json::Value>>,
     /// 运行中循环的目标检测间隔(ms):start_background_check 每次调用刷新,
     /// 循环体逐 tick 对比实现"改间隔立即生效"(否则幂等分支吞掉新间隔)
     pub desired_interval_ms: AtomicU64,
-    /// 闲时巡检间隔(ms):蜂窝/灭屏时生效,start_background_check 从配置刷新
-    pub idle_interval_ms: AtomicU64,
     /// 注销保护期截止(epoch ms):手动注销后一段时间内不自动重登,登录成功清零
     pub logout_protected_until_ms: AtomicU64,
     /// 最近一次 WiFi 变化事件的 epoch ms:去抖与"风暴内最后事件生效"判定
@@ -96,23 +97,12 @@ fn wifi_event_is_burst_start(last_event_ms: u64, now_ms: u64, debounce_ms: u64) 
     last_event_ms == 0 || now_ms.saturating_sub(last_event_ms) >= debounce_ms
 }
 
-/// 巡检分档(纯函数,单测锁定):WiFi 且屏幕亮着 → 基础间隔(默认 60s);
-/// 蜂窝网络或屏幕熄灭 → 闲时间隔(默认 5min)。
-/// 拉长间隔不改变正确性:WiFi 变化事件仍即时触发检测(handle_wifi_event),
-/// 且无明确离线证据时在线状态保持上一拍记忆(三态护栏)。
-/// 闲时间隔不足基础间隔时以基础间隔为准,避免配置误配成更频繁。
-pub fn effective_interval_ms(
-    base_ms: u64,
-    idle_ms: u64,
-    screen_on: bool,
-    wifi_connected: bool,
-) -> u64 {
-    let base = base_ms.max(5000);
-    if screen_on && wifi_connected {
-        base
-    } else {
-        idle_ms.max(base)
-    }
+/// 巡检间隔：屏幕状态与当前网络类型不参与降频。
+/// 一次 Portal 探测是几个短 HTTP 请求，真正的功耗来自常驻 WakeLock 和 WebView
+/// 后台定时器；把灭屏/蜂窝从 1 分钟拉到 5 分钟省不了多少，却让状态长期不刷新。
+/// WiFi 事件仍会即时补检，基础周期作为回调失效时的可靠兜底。
+pub fn effective_interval_ms(base_ms: u64) -> u64 {
+    base_ms.max(5000)
 }
 
 /// 本 tick 是否应尝试登录(纯函数,全量条件显式入参)
@@ -161,13 +151,15 @@ pub fn status_snapshot() -> serde_json::Value {
 pub fn status_value(ctx: &CoreCtx) -> serde_json::Value {
     let v = status_snapshot();
     ctx.mark_status(|s| {
+        let previous_tick = s.last_tick_ms;
         s.is_running = MONITOR.running.load(Ordering::Relaxed);
         s.check_count = MONITOR.check_count.load(Ordering::Relaxed);
         s.consecutive_failures = MONITOR.consecutive_failures.load(Ordering::Relaxed);
         s.reconnect_count = MONITOR.reconnect_count.load(Ordering::Relaxed);
         s.watcher_failed = WATCHER_FAILED.load(Ordering::Relaxed);
         s.last_result = MONITOR.last_result.lock().ok().and_then(|g| g.clone());
-        s.last_tick_ms = crate::core::platform::now_ms();
+        // 查询状态不能伪装成一次巡检，否则 UI 每 5 秒对账会让死循环永远新鲜
+        s.last_tick_ms = previous_tick;
     });
     v
 }
@@ -175,8 +167,6 @@ pub fn status_value(ctx: &CoreCtx) -> serde_json::Value {
 pub fn is_running() -> bool {
     MONITOR.running.load(Ordering::Relaxed)
 }
-
-
 
 /// 探测/登录失败通知追加 VPN 接管提示:全量 VPN(Clash/UU 等)未排除本应用时,
 /// socket 探测与登录流量被 tun 劫持——SO_BINDTODEVICE 旁路在 secure VPN 或被
@@ -192,21 +182,26 @@ fn with_vpn_hint(body: &str) -> String {
 
 pub async fn start_background_check(ctx: CoreCtx) -> Result<serde_json::Value, String> {
     let settings = ctx.settings().await?;
+    if !settings.enable_background_check {
+        // UI 只负责按配置恢复服务，外部关闭监测时不能把用户开关重新打开
+        return Ok(serde_json::json!({ "isRunning": false }));
+    }
     let curfew_config = wifi_curfew_config_json(&settings);
     let want = settings.background_check_interval.max(5000);
     MONITOR.desired_interval_ms.store(want, Ordering::Relaxed);
-    MONITOR
-        .idle_interval_ms
-        .store(settings.background_check_idle_interval, Ordering::Relaxed);
-    if is_running() {
+    if MONITOR.running.load(Ordering::SeqCst) {
         #[cfg(mobile)]
         start_wifi_watcher(&ctx, &curfew_config);
         return Ok(serde_json::json!({ "isRunning": true }));
     }
-    MONITOR.running.store(true, Ordering::Relaxed);
+    // running 必须在 generation 推进后发布：否则 boot 与 UI 恢复命令并发时，
+    // 第二条路径会看到 running=true 直接返回，却把第一条循环的代际作废，
+    // 最终只剩 WiFi 事件能巡检、周期循环永远没有第二拍（真机已复现）。
+    let gen = MONITOR_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    MONITOR.running.store(true, Ordering::SeqCst);
+    ctx.trace(&format!("巡检循环启动 generation={gen} interval={want}ms"));
     #[cfg(mobile)]
     start_wifi_watcher(&ctx, &curfew_config);
-    let gen = MONITOR_GENERATION.fetch_add(1, Ordering::Relaxed);
     tokio::spawn(monitor_tick_loop(ctx.clone(), want, gen));
     ctx.emit_log("后台监控已启动", "info");
     ctx.mark_status(|s| {
@@ -302,9 +297,31 @@ pub(crate) async fn handle_wifi_event(ctx: CoreCtx, event: String) {
         if MONITOR.wifi_event_ms.load(Ordering::Relaxed) != now {
             return;
         }
-        campus_login_lib::log_info!("monitor", "检测到 WiFi 变化({event}),立即执行网络状态检测");
-        run_check_once(&ctx).await;
+        handle_wifi_change_check(&ctx, event).await;
     });
+}
+
+/// WiFi 变化时：缓存必须失效，尤其切到新 SSID 时上一次的校园网判定不再有效。
+/// lost 零延迟刷新离线状态；available/validated 的 2.5s 等待保留，用于 DHCP 与路由收敛。
+async fn handle_wifi_change_check(ctx: &CoreCtx, event: String) {
+    crate::core::net_state::invalidate().await;
+    // WiFi 切换是新的网络会话：清掉上一张网络的掉线记忆与重连预算。
+    // 是否真的要登录仍由本轮校园网/Portal 探测决定，绝不盲登非校园网
+    MONITOR.was_online.store(false, Ordering::Relaxed);
+    MONITOR.reconnect_count.store(0, Ordering::Relaxed);
+    MONITOR
+        .wifi_generation_ms
+        .store(crate::core::platform::now_ms(), Ordering::Relaxed);
+    campus_login_lib::log_info!(
+        "monitor",
+        "WiFi 变化({event})触发即时检测，开始刷新校园网状态"
+    );
+    ctx.trace(&format!("WiFi 事件 {event} → 强制刷新检测"));
+    ctx.emit_log(
+        &format!("WiFi 变化({event})，正在检测并尝试恢复登录"),
+        "info",
+    );
+    run_check_once(ctx).await;
 }
 
 pub async fn trigger_background_check(ctx: &CoreCtx) -> Result<(), String> {
@@ -388,7 +405,7 @@ async fn auto_login_on_start(
     }
     // 探测/登录前强制绑 WiFi:WiFi+流量同开时默认路由可能落蜂窝,探测与登录走错网络
     ctx.ensure_wifi_bound().await;
-        let (probe, _ssid) = match probe_with_retry(ctx, settings).await {
+    let (probe, _ssid) = match probe_with_retry(ctx, settings).await {
         (Ok(p), ssid) => (p, ssid),
         (Err(e), _) => {
             ctx.emit_log(&format!("启动自动登录:校园网判定失败 {e}"), "warning");
@@ -405,7 +422,13 @@ async fn auto_login_on_start(
         return;
     };
     ctx.emit_log("检测到校园网环境,执行启动自动登录", "info");
-    match crate::core::login::run_login(ctx, &settings.user, &settings.password, &settings.operator, attempt)
+    match crate::core::login::run_login(
+        ctx,
+        &settings.user,
+        &settings.password,
+        &settings.operator,
+        attempt,
+    )
     .await
     {
         Ok(v) if v["success"].as_bool().unwrap_or(false) => {
@@ -449,19 +472,6 @@ impl Drop for ProbeWindowGuard {
     }
 }
 
-/// 电源状态:(屏幕交互中, 当前活动网络为 WiFi)。
-/// 查询失败按保守值 (true, true) 处理——按基础间隔巡检,不因查询异常漏检测
-/// (省电是优化项,漏检是功能缺陷)。
-#[cfg(mobile)]
-fn power_state(ctx: &CoreCtx) -> (bool, bool) {
-    ctx.power_state()
-}
-
-#[cfg(not(mobile))]
-fn power_state(_ctx: &CoreCtx) -> (bool, bool) {
-    (true, true)
-}
-
 async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
     // 下限 5s:防误配超小间隔打爆探测
     let mut current = interval_ms.max(5000);
@@ -489,9 +499,16 @@ async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
     }
     loop {
         tick.tick().await;
+        ctx.trace("巡检 tick 到期，开始本拍");
         // 代际校验:stop/新一轮 start 推进代际后旧循环立即自退(比 running 标志
         // 更强——running 可能已被新一轮置回 true,旧循环不得继续跑)
-        if !is_running() || MONITOR_GENERATION.load(Ordering::Relaxed) != gen {
+        if !is_running() || MONITOR_GENERATION.load(Ordering::SeqCst) != gen {
+            ctx.trace(&format!(
+                "巡检循环退出 generation={} currentGeneration={} running={}",
+                gen,
+                MONITOR_GENERATION.load(Ordering::SeqCst),
+                is_running()
+            ));
             break;
         }
         // 定时登录/定时注销判定(P2-32):置于巡检分档跳拍与校园网检测静默期之前——
@@ -504,16 +521,18 @@ async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
         // 间隔热更新:运行中改检测间隔(start_background_check 刷新 desired),
         // 重建计时器;tokio interval 重建后首个 tick 立即返回,吃掉保持节奏
         let want = MONITOR.desired_interval_ms.load(Ordering::Relaxed);
+        ctx.trace(&format!(
+            "巡检间隔配置 base={}ms desired={}ms",
+            current, want
+        ));
         if want != 0 && want != current {
             current = want;
             tick = tokio::time::interval(std::time::Duration::from_millis(current));
             tick.tick().await;
         }
-        // 分档:唤醒周期恒为基础间隔(保证亮屏/回 WiFi 后最迟一拍恢复),
-        // 是否真正跑探针由闲时间隔决定——蜂窝/灭屏时跳拍,省掉整轮 Portal 探测
-        let idle_ms = MONITOR.idle_interval_ms.load(Ordering::Relaxed);
-        let (screen_on, wifi_connected) = power_state(&ctx);
-        let effective = effective_interval_ms(current, idle_ms, screen_on, wifi_connected);
+        // 不再按灭屏/蜂窝跳拍：Portal 探测是几个短 HTTP 请求，
+        // 为省这点流量让监测停 5 分钟，换来的是回调稍有问题就永远看不到状态
+        let effective = effective_interval_ms(current);
         let now = crate::core::platform::now_ms();
         if last_probe_ms != 0 && now.saturating_sub(last_probe_ms) < effective {
             continue;
@@ -523,8 +542,8 @@ async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
     }
     // 只有代际匹配才清 running 标志:stop 已推进代际时标志清理由 stop 自身负责
     // (新一轮 start 可能已把 running 置回 true,旧循环退出不得误清)
-    if MONITOR_GENERATION.load(Ordering::Relaxed) == gen {
-        MONITOR.running.store(false, Ordering::Relaxed);
+    if MONITOR_GENERATION.load(Ordering::SeqCst) == gen {
+        MONITOR.running.store(false, Ordering::SeqCst);
     }
 }
 
@@ -542,7 +561,8 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
             return;
         }
     };
-    let active = campus_login_lib::config::wifi_curfew::in_curfew_window_now(settings.night_restore_minutes);
+    let active =
+        campus_login_lib::config::wifi_curfew::in_curfew_window_now(settings.night_restore_minutes);
     let was_active = CURFEW_ACTIVE.swap(active, Ordering::Relaxed);
     let now = chrono::Local::now();
     // INFO 级：就寝守则到点必须可追溯，debug 会被 log_module_levels 过滤掉
@@ -598,9 +618,7 @@ async fn latest_settings(
     ctx: &CoreCtx,
     fallback: &crate::config_state::Settings,
 ) -> crate::config_state::Settings {
-    ctx.settings()
-        .await
-        .unwrap_or_else(|_| fallback.clone())
+    ctx.settings().await.unwrap_or_else(|_| fallback.clone())
 }
 
 /// 切换侧注销:返回"离线是否已生效"(true=可以建立出站切换态)。
@@ -617,7 +635,7 @@ async fn logout_for_outbound_switch(ctx: &CoreCtx) -> bool {
         ctx.emit_log("夜间出站切换: 未检测到校园网在线,跳过注销请求", "info");
         return true;
     }
-        match crate::core::login::run_logout(ctx, None, "scheduled").await {
+    match crate::core::login::run_logout(ctx, None, "scheduled").await {
         Ok(v) => {
             let radius_ok = v["radiusOk"].as_bool().unwrap_or(false);
             let unbind_ok = v["unbindOk"].as_bool().unwrap_or(false);
@@ -655,8 +673,6 @@ fn switch_logout_unconfirmed(ctx: &CoreCtx, reason: &str) -> bool {
         false
     }
 }
-
-
 
 /// 定时登录/定时注销(P2-32)判定与执行,附自动切换运营商（原晚间断网自动切换）:
 /// - 判定复用桌面 crate 的跨平台纯函数 `campus_login_lib::config::schedule::should_fire_scheduled_action`
@@ -722,10 +738,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
                     // 保留手动开启提示(设置页文案;常开=1 对用户无害,本就应常开)
                     ensure_avoid_bad_wifi(ctx).await;
                     trigger_wifi_recheck(ctx).await;
-                    ctx.emit_log(
-                        "夜间出站切换: 已注销校园网，等待系统切换移动数据",
-                        "info",
-                    );
+                    ctx.emit_log("夜间出站切换: 已注销校园网，等待系统切换移动数据", "info");
                 }
             }
         }
@@ -767,10 +780,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
                         outbound_active = false;
                         // 放弃自动还原也收尾系统态:avoid_bad_wifi 不停在 1
                         restore_avoid_bad_wifi(ctx).await;
-                        ctx.emit_log(
-                            "夜间出站切换: 自动还原失败已放弃，请手动登录",
-                            "error",
-                        );
+                        ctx.emit_log("夜间出站切换: 自动还原失败已放弃，请手动登录", "error");
                     }
                 } else {
                     ctx.emit_log(
@@ -822,10 +832,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
                 {
                     let _ = night_switch_login(ctx, &switched).await;
                     // 独立 tokio 任务验证登录是否生效,不阻塞监控循环
-                    tokio::spawn(verify_night_switch(
-                        ctx.clone(),
-                        switched.operator.clone(),
-                    ));
+                    tokio::spawn(verify_night_switch(ctx.clone(), switched.operator.clone()));
                 }
             }
             campus_login_lib::config::night_switch::NightSwitchAction::Restore => {
@@ -836,10 +843,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
                 .await
                 {
                     let _ = night_switch_login(ctx, &switched).await;
-                    tokio::spawn(verify_night_switch(
-                        ctx.clone(),
-                        switched.operator.clone(),
-                    ));
+                    tokio::spawn(verify_night_switch(ctx.clone(), switched.operator.clone()));
                 }
             }
             campus_login_lib::config::night_switch::NightSwitchAction::None => {}
@@ -896,7 +900,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
             ),
             "info",
         );
-                match crate::core::login::run_logout(ctx, None, "scheduled").await {
+        match crate::core::login::run_logout(ctx, None, "scheduled").await {
             Ok(v) => {
                 let success = v["success"].as_bool().unwrap_or(false);
                 let message = v["message"].as_str().unwrap_or("").to_string();
@@ -914,10 +918,7 @@ async fn run_scheduled_actions(ctx: &CoreCtx) {
 /// 返回 None 表示落盘失败(已记 error 日志),调用方跳过登录触发,下一拍重试。
 /// 注意：夜切只改运行态 operator，不在这里同步账号档案——档案要保留用户原始运营商，
 /// 否则切回该账号时会把临时的无锡学院空串当成原值写回。
-async fn persist_settings<F>(
-    ctx: &CoreCtx,
-    mutate: F,
-) -> Option<crate::config_state::Settings>
+async fn persist_settings<F>(ctx: &CoreCtx, mutate: F) -> Option<crate::config_state::Settings>
 where
     F: FnOnce(&mut crate::config_state::Settings),
 {
@@ -954,7 +955,13 @@ async fn night_switch_login(
     };
     // 登录前强制绑 WiFi(同 auto_login_on_start;WiFi+流量同开时默认路由可能落蜂窝)
     ctx.ensure_wifi_bound().await;
-        match crate::core::login::run_login(ctx, &settings.user, &settings.password, &settings.operator, attempt)
+    match crate::core::login::run_login(
+        ctx,
+        &settings.user,
+        &settings.password,
+        &settings.operator,
+        attempt,
+    )
     .await
     {
         Ok(v) => {
@@ -964,7 +971,11 @@ async fn night_switch_login(
                 &format!("晚间断网切换登录: {msg}"),
                 if success { "success" } else { "error" },
             );
-            if success { NightLoginOutcome::Succeeded } else { NightLoginOutcome::Failed }
+            if success {
+                NightLoginOutcome::Succeeded
+            } else {
+                NightLoginOutcome::Failed
+            }
         }
         Err(e) => {
             ctx.emit_log(&format!("晚间断网切换登录失败: {e}"), "error");
@@ -1012,10 +1023,7 @@ async fn verify_night_switch(ctx: CoreCtx, expected_operator: String) {
         return;
     }
     if let Ok(uid) = night_switch_verify_round(&settings, &expected_operator).await {
-        ctx.emit_log(
-            &format!("夜切验证: 已生效, 在线账号 {uid}"),
-            "success",
-        );
+        ctx.emit_log(&format!("夜切验证: 已生效, 在线账号 {uid}"), "success");
         return;
     }
     // 未生效:注销→再登录→复验一轮(复登前复查 operator,用户手动改走则止步,
@@ -1034,19 +1042,13 @@ async fn verify_night_switch(ctx: CoreCtx, expected_operator: String) {
     if settings.operator != expected_operator {
         return;
     }
-        if let Err(e) = crate::core::login::run_logout(&ctx, None, "scheduled").await {
-        ctx.emit_log(
-            &format!("夜切验证: 注销失败, 继续复登: {e}"),
-            "warning",
-        );
+    if let Err(e) = crate::core::login::run_logout(&ctx, None, "scheduled").await {
+        ctx.emit_log(&format!("夜切验证: 注销失败, 继续复登: {e}"), "warning");
     }
     let _ = night_switch_login(&ctx, &settings).await;
     tokio::time::sleep(std::time::Duration::from_secs(NIGHT_VERIFY_WAIT_SECS)).await;
     match night_switch_verify_round(&settings, &expected_operator).await {
-        Ok(uid) => ctx.emit_log(
-            &format!("夜切验证: 已生效, 在线账号 {uid}"),
-            "success",
-        ),
+        Ok(uid) => ctx.emit_log(&format!("夜切验证: 已生效, 在线账号 {uid}"), "success"),
         Err(e) => {
             ctx.emit_log(&format!("夜切验证: {e}, 请手动检查"), "warning");
             ctx.notify_system(
@@ -1127,7 +1129,10 @@ async fn night_switch_check_once(
 
 /// 单次检测:校园网判定 → Portal 探测 → 状态机 → 自动重登 → emit
 pub async fn run_check_once(ctx: &CoreCtx) {
-    MONITOR.check_count.fetch_add(1, Ordering::Relaxed);
+    let count = MONITOR.check_count.fetch_add(1, Ordering::Relaxed) + 1;
+    // 安卓 release 包的 Rust 日志文件不可经 adb 读取，关键状态必须同时进 logcat。
+    // 这条只记次数，不含凭据或网络请求内容
+    ctx.trace(&format!("巡检开始 #{count}"));
     ctx.mark_status(|s| {
         s.last_tick_ms = crate::core::platform::now_ms();
         s.check_count = MONITOR.check_count.load(Ordering::Relaxed);
@@ -1135,6 +1140,7 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     let settings = match ctx.settings().await {
         Ok(s) => s,
         Err(e) => {
+            ctx.trace(&format!("巡检 #{count} 配置读取失败: {e}"));
             ctx.emit_log(&format!("读取配置失败,跳过本轮检测: {e}"), "error");
             #[cfg(mobile)]
             apply_notification_text(ctx, campus_core_logic::notify::TEXT_CONFIG_UNAVAILABLE).await;
@@ -1148,6 +1154,7 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     // (handle_wifi_event)与手动检测(trigger_background_check)三条路径共用这一个闸。
     // run_scheduled_actions 不经过此闸:晨间还原判定必须在切换态下照常执行
     if !settings.night_outbound_restore.is_empty() {
+        ctx.trace(&format!("巡检 #{count} 跳过: 夜间出站切换中"));
         campus_login_lib::log_debug!("monitor", "出站切换态,跳过本轮巡检");
         #[cfg(mobile)]
         apply_notification_text(ctx, campus_core_logic::notify::TEXT_OUTBOUND_SWITCH).await;
@@ -1179,6 +1186,7 @@ pub async fn run_check_once(ctx: &CoreCtx) {
         restore_pass = false;
     }
     if silent_now && !restore_pass {
+        ctx.trace(&format!("巡检 #{count} 跳过: 用户设置的校园网检测静默期"));
         // 非检测时段不探测,但常驻通知不能停在上一拍的"在线"(2026-09-13 真机反馈)
         #[cfg(mobile)]
         apply_notification_text(ctx, campus_core_logic::notify::TEXT_CHECK_SILENT).await;
@@ -1262,6 +1270,11 @@ pub async fn run_check_once(ctx: &CoreCtx) {
 
     // 3. 状态机:在线清零计数,记录 was_online
     if online {
+        // 新 WiFi 上探测到 online=true 可能来自另一会话；重连预算留给
+        // 下一次真实的离线事件，不再被上一张网络的计数卡住
+        if MONITOR.wifi_generation_ms.load(Ordering::Relaxed) >= tick_start_ms {
+            MONITOR.last_login_attempt_ms.store(0, Ordering::Relaxed);
+        }
         MONITOR.reconnect_count.store(0, Ordering::Relaxed);
         MONITOR.consecutive_failures.store(0, Ordering::Relaxed);
         // 注销后探测失败会继承 prev_online，不能把继承态当作真实登录成功清除保护期；
@@ -1305,6 +1318,11 @@ pub async fn run_check_once(ctx: &CoreCtx) {
             since,
             settings.auto_login_cooldown_secs,
         );
+    ctx.trace(&format!(
+        "登录判定 online={online} wasOnline={was_online} campus={on_campus} autoEnabled={} should={should} cooldown={}s",
+        settings.auto_login_on_preparation,
+        settings.auto_login_cooldown_secs
+    ));
     // 启动首拍且「可登录时自动登录」关闭:明确告诉用户为什么只检测不登录,
     // 否则用户只会看到状态是「未登录」却没有任何动作,也无从知道是开关没开
     if !should
@@ -1319,7 +1337,11 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     }
     // 所有入口共享同一登录所有权；已有尝试时跳过，而不是等待后再登一次。
     let login_needed = should && !settings.user.is_empty() && !settings.password.is_empty();
-    let attempt = if login_needed { crate::core::login::try_begin_login() } else { None };
+    let attempt = if login_needed {
+        crate::core::login::try_begin_login()
+    } else {
+        None
+    };
     if login_needed && attempt.is_none() {
         ctx.emit_log("自动重登: 已有登录任务进行中,本次跳过", "info");
     }
@@ -1336,7 +1358,13 @@ pub async fn run_check_once(ctx: &CoreCtx) {
                 "mascot_offline",
             );
         } else {
-                        match crate::core::login::run_login(ctx, &settings.user, &settings.password, &settings.operator, attempt)
+            match crate::core::login::run_login(
+                ctx,
+                &settings.user,
+                &settings.password,
+                &settings.operator,
+                attempt,
+            )
             .await
             {
                 Ok(v) => {
@@ -1422,10 +1450,18 @@ pub async fn run_check_once(ctx: &CoreCtx) {
         "sourceIp": source_ip.map(|i| i.to_string()),
         "autoLogin": login_result,
     });
+    ctx.trace(&format!(
+        "巡检完成 #{}, online={}, campus={}, ssid={}, autoLogin={}",
+        payload["checkCount"],
+        payload["online"],
+        payload["onCampusNetwork"],
+        payload["currentSsid"],
+        payload["autoLogin"]
+    ));
     if let Ok(mut last) = MONITOR.last_result.lock() {
         *last = Some(payload.clone());
     }
-        let _ = ctx.emit("background-check-result", payload);
+    let _ = ctx.emit("background-check-result", payload);
 
     // 常驻通知同步实时状态:按完整文案去重(同状态码但失败原因变化也要更新,
     // 否则失败路径会把"在线"永久钉住)。每拍重建仍是稳态功耗点,文案相同即跳过
@@ -1443,7 +1479,6 @@ pub async fn run_check_once(ctx: &CoreCtx) {
 async fn apply_notification_text(ctx: &CoreCtx, text: &str) {
     ctx.update_running_notification(text);
 }
-
 
 #[cfg(test)]
 #[allow(non_snake_case)]
@@ -1569,32 +1604,21 @@ mod tests {
     }
 
     #[test]
-    fn 巡检分档_wifi且亮屏走基础间隔_其余走闲时() {
-        // WiFi + 亮屏 → 基础间隔
-        assert_eq!(effective_interval_ms(60_000, 300_000, true, true), 60_000);
-        // 蜂窝 → 闲时间隔
-        assert_eq!(effective_interval_ms(60_000, 300_000, true, false), 300_000);
-        // 灭屏 → 闲时间隔
-        assert_eq!(effective_interval_ms(60_000, 300_000, false, true), 300_000);
-        // 灭屏 + 蜂窝 → 闲时间隔
-        assert_eq!(
-            effective_interval_ms(60_000, 300_000, false, false),
-            300_000
-        );
+    fn 并发启动_代际发布先于运行标志() {
+        // boot 与 UI 恢复同时进入时，第二条路径若先看到 running=true 会幂等返回；
+        // generation 必须先推进，否则它会把第一条路径刚启动的循环判为旧代际。
+        let source = include_str!("monitor.rs");
+        let start = source.split("pub async fn start_background_check").nth(1).unwrap();
+        let generation = start.find("MONITOR_GENERATION.fetch_add(1, Ordering::SeqCst)").unwrap();
+        let running = start.find("MONITOR.running.store(true, Ordering::SeqCst)").unwrap();
+        assert!(generation < running);
     }
 
     #[test]
-    fn 巡检分档_闲时间隔小于基础间隔时取基础间隔() {
-        assert_eq!(
-            effective_interval_ms(120_000, 30_000, false, false),
-            120_000
-        );
-    }
-
-    #[test]
-    fn 巡检分档_基础间隔下限5s() {
-        assert_eq!(effective_interval_ms(1_000, 300_000, true, true), 5_000);
-        assert_eq!(effective_interval_ms(1_000, 0, false, false), 5_000);
+    fn 巡检不按灭屏或蜂窝降频() {
+        assert_eq!(effective_interval_ms(60_000), 60_000);
+        assert_eq!(effective_interval_ms(120_000), 120_000);
+        assert_eq!(effective_interval_ms(1_000), 5_000);
     }
 
     // portal_origin / expected_operator_display 的用例已随实现迁至

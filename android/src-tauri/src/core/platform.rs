@@ -14,6 +14,8 @@ pub trait CorePlatform: Send + Sync {
     fn decrypt(&self, cipher: &str) -> Result<String, String>;
     fn encrypt(&self, plain: &str) -> Result<String, String>;
     fn emit(&self, event: &str, payload: serde_json::Value);
+    /// 后台生命体征：release 包不能靠 adb 读应用私有日志文件，关键巡检阶段必须进 logcat
+    fn trace(&self, message: &str);
     fn notify_system(&self, title: &str, body: &str, mascot: &str);
     fn update_notification(&self, text: &str);
     fn begin_probe_window(&self);
@@ -110,6 +112,10 @@ impl CoreCtx {
         self.platform.emit(event, payload);
     }
 
+    pub fn trace(&self, message: &str) {
+        self.platform.trace(message);
+    }
+
     pub fn emit_log(&self, message: &str, log_type: &str) {
         self.emit(
             "login-log",
@@ -159,7 +165,6 @@ impl CoreCtx {
         mutate(&mut status);
         self.platform.write_status(&status);
     }
-
 
     pub fn begin_probe_window(&self) {
         self.platform.begin_probe_window();
@@ -238,7 +243,10 @@ impl CoreCtx {
                 v["reason"].as_str().unwrap_or("unknown")
             ),
             Err(e) => {
-                campus_login_lib::log_warn!("wifi-bind", "core WiFi 绑定调用失败（回落默认路由）: {e}")
+                campus_login_lib::log_warn!(
+                    "wifi-bind",
+                    "core WiFi 绑定调用失败（回落默认路由）: {e}"
+                )
             }
         }
     }
@@ -253,8 +261,13 @@ impl CoreCtx {
         }
     }
 
-    pub async fn probe_campus_with_ssid(&self, settings: &Settings) -> (Result<CampusProbe, String>, Option<String>) {
-        let mut probe = crate::campus_detect::probe_campus(&settings.campus_gateway, &settings.portal_url).await;
+    pub async fn probe_campus_with_ssid(
+        &self,
+        settings: &Settings,
+    ) -> (Result<CampusProbe, String>, Option<String>) {
+        let mut probe =
+            crate::campus_detect::probe_campus(&settings.campus_gateway, &settings.portal_url)
+                .await;
         let mut ssid = None;
         if settings.enable_network_name_check {
             ssid = self.wifi_ssid().await;
@@ -270,10 +283,9 @@ impl CoreCtx {
     pub async fn report_wifi_unusable(&self) {
         let p = self.platform.clone();
         match tokio::task::spawn_blocking(move || p.report_wifi_unusable()).await {
-            Ok(Ok(v)) if v["reported"].as_bool().unwrap_or(false) => campus_login_lib::log_info!(
-                "monitor",
-                "夜间出站切换: 已触发系统 WiFi 重检 {v}"
-            ),
+            Ok(Ok(v)) if v["reported"].as_bool().unwrap_or(false) => {
+                campus_login_lib::log_info!("monitor", "夜间出站切换: 已触发系统 WiFi 重检 {v}")
+            }
             Ok(Ok(v)) => campus_login_lib::log_warn!(
                 "monitor",
                 "夜间出站切换: 触发系统 WiFi 重检未生效({})",
@@ -313,10 +325,11 @@ impl CoreCtx {
                 v["previous"].as_i64().unwrap_or(-1)
             ),
             Ok(_) => {}
-            Err(e) => campus_login_lib::log_warn!("monitor", "restore_avoid_bad_wifi 任务异常: {e}"),
+            Err(e) => {
+                campus_login_lib::log_warn!("monitor", "restore_avoid_bad_wifi 任务异常: {e}")
+            }
         }
     }
-
 }
 
 pub fn now_ms() -> u64 {

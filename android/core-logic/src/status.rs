@@ -5,9 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 
-/// 心跳/通知允许的最大静默时长。
-/// 闲时间隔上限按默认 5min 计,留 3 拍余量;超过即视为核心已停或通知未更新。
-pub const MAX_STATUS_AGE_MS: u64 = 15 * 60 * 1000;
+/// 巡检/通知允许的最大静默时长。默认 60s 周期留约 3 拍余量，
+/// 不再按已删除的 5min 灭屏降频设计等待 15min 才暴露故障。
+pub const MAX_STATUS_AGE_MS: u64 = 3 * 60 * 1000;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -24,7 +24,8 @@ pub struct CoreStatus {
     pub consecutive_failures: u32,
     /// WiFi watcher 是否注册失败(退化为纯周期检测)
     pub watcher_failed: bool,
-    /// 最近一拍或服务定时心跳时间(epoch ms)
+    /// 最近一次真实巡检开始时间(epoch ms)。服务心跳不得刷新它，
+    /// 否则通知定时器会掩盖已经停止的 tokio 巡检循环
     pub last_tick_ms: u64,
     /// 最近一次写入常驻通知的文案
     pub notification_text: String,
@@ -110,6 +111,13 @@ mod tests {
         let now = 10_000_000;
         let status = alive(now, now - MAX_STATUS_AGE_MS - 1);
         assert!(notification_stale(&status, now, MAX_STATUS_AGE_MS));
+    }
+
+    #[test]
+    fn 心跳过期判定不使用旧版十五分钟窗口() {
+        assert_eq!(MAX_STATUS_AGE_MS, 180_000);
+        let now = 10_000_000;
+        assert!(!core_is_alive(&alive(now - 181_000, now), now, MAX_STATUS_AGE_MS));
     }
 
     #[test]

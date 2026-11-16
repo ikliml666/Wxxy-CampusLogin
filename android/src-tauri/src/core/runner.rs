@@ -44,7 +44,9 @@ pub fn start(data_dir: PathBuf, platform: Arc<dyn CorePlatform>) {
         eprintln!("[core] nativeStart 重复调用,忽略(旧 runtime 未释放)");
         return;
     }
-    if let Err(e) = campus_login_lib::infra::logger::init_logger_with_tag(data_dir.join("logs"), "core") {
+    if let Err(e) =
+        campus_login_lib::infra::logger::init_logger_with_tag(data_dir.join("logs"), "core")
+    {
         eprintln!("[core] 日志初始化失败: {e}");
     }
     let rt = match tokio::runtime::Builder::new_multi_thread()
@@ -71,7 +73,10 @@ pub fn start(data_dir: PathBuf, platform: Arc<dyn CorePlatform>) {
         s.last_tick_ms = crate::core::platform::now_ms();
     });
     BOOT_ACTIVE.store(true, Ordering::Release);
-    let core = Arc::new(CoreRuntime { rt, ctx: ctx.clone() });
+    let core = Arc::new(CoreRuntime {
+        rt,
+        ctx: ctx.clone(),
+    });
     *guard = Some(core.clone());
     drop(guard);
     campus_login_lib::log_info!("monitor", ":core 进程核心已初始化");
@@ -114,11 +119,7 @@ async fn boot(ctx: CoreCtx) {
     if settings.auto_login_on_start {
         crate::core::monitor::auto_login_on_start_pub(ctx.clone()).await;
     }
-    if !should_keep_service(
-        running,
-        crate::core::login::login_in_progress(),
-        false,
-    ) {
+    if !should_keep_service(running, crate::core::login::login_in_progress(), false) {
         ctx.stop_service();
     }
 }
@@ -262,8 +263,16 @@ pub fn heartbeat() {
         guard.as_ref().map(|core| core.ctx.clone())
     };
     if let Some(ctx) = ctx {
+        // last_tick_ms 只由真实巡检更新；服务心跳刷新 core_alive 与 check_count，
+        // 否则通知每 10 分钟一跳会把「循环已死但服务还活着」伪装成运行中
+        let snapshot = crate::core::monitor::status_snapshot();
         ctx.mark_status(|status| {
-            status.last_tick_ms = crate::core::platform::now_ms();
+            status.core_alive = true;
+            status.is_running = snapshot["isRunning"].as_bool().unwrap_or(false);
+            status.check_count = snapshot["checkCount"].as_u64().unwrap_or(0);
+            status.last_result = snapshot["lastResult"]
+                .as_object()
+                .map(|_| snapshot["lastResult"].clone());
         });
     }
 }
