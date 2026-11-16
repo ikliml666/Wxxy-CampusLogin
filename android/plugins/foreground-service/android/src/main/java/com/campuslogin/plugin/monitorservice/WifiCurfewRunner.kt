@@ -61,8 +61,13 @@ class WifiCurfewRunner(private val context: Context) {
         val weakRssi = cfg.optInt("weakRssi", 0)
         val inWindow = force || inCurfewWindow(restoreStart)
         val channel = CurfewChannel.name(cfg.optString("channel", "auto"))
+        // 试运行：只判定会做什么、为什么切换会失败，不真的动 WiFi
+        val dryRun = cfg.optBoolean("dryRun", false)
 
         if (!enabled || !inWindow) {
+            if (dryRun) {
+                return result("would-restore").put("channel", channel).put("currentSsid", currentSsid()).toString()
+            }
             val restored = restore(channel)
             // 弱信号只在窗口外生效：窗口内守则已经决定了断连，不该被信号强度二次干预
             if (weakRssi < 0) {
@@ -74,27 +79,47 @@ class WifiCurfewRunner(private val context: Context) {
         val current = currentSsid()
         if (!isBlocked(excluded, allowed, current)) {
             // 当前网络不在黑名单里（含本来就没连 WiFi）：不动
-            return result("keep").put("channel", channel).put("currentSsid", current).toString()
+            val action = if (dryRun) "would-keep" else "keep"
+            return result(action).put("channel", channel).put("currentSsid", current).toString()
         }
 
         // 1) 有允许列表 → 只连免密可用的那些
         //    connect-network 对 wpa2/wpa3/wep 必须给明文密码（真机实测缺参报
         //    IllegalArgumentException: Argument expected after "wpa2"），而系统存的是
         //    加密凭据、拿不到明文，所以加密目标连不上，落到下面的关 WiFi
+        val tried = mutableListOf<String>()
         if (allowed.isNotEmpty()) {
             val saved = shellExec("cmd wifi list-networks")?.let { parseNetworks(it) }.orEmpty()
             for (target in allowed) {
-                val security = saved
-                    .firstOrNull { it.ssid.equals(target, ignoreCase = true) }
-                    ?.security
-                    ?.let { openSecurity(it) }
-                    ?: continue
-                val out = shellExec("cmd wifi connect-network \"$target\" $security") ?: continue
+                val entry = saved.firstOrNull { it.ssid.equals(target, ignoreCase = true) }
+                if (entry == null) {
+                    tried.add("「" + target + "」系统里没有保存过，拿不到免密连接需要的信息")
+                    continue
+                }
+                val security = openSecurity(entry.security)
+                if (security == null) {
+                    tried.add("「" + target + "」是加密网络（" + entry.security + "），命令行连接必须给明文密码")
+                    continue
+                }
+                if (dryRun) {
+                    return result("would-connect").put("channel", channel).put("target", target)
+                        .put("currentSsid", current).put("tried", JSONArray(tried)).toString()
+                }
+                val out = shellExec("cmd wifi connect-network \"$target\" $security")
+                if (out == null) {
+                    tried.add("「" + target + "」通道没有返回结果")
+                    continue
+                }
                 // 这条子命令成功时不打印任何内容，只能看退出码（真机实测）
                 if (out.contains("exit=0")) {
                     return result("connect").put("channel", channel).put("target", target).put("currentSsid", current).toString()
                 }
+                tried.add("「" + target + "」连接命令执行失败")
             }
+        }
+        if (dryRun) {
+            return result("would-wifi-off").put("channel", channel).put("currentSsid", current)
+                .put("tried", JSONArray(tried)).toString()
         }
 
         // 2) 兜底：关掉 WiFi 走流量（只记「本程序关的」，出窗才打开）

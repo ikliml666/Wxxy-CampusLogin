@@ -370,6 +370,7 @@
     "wifiCurfewAccessFailed": "Could not request Shizuku access",
     "wifiCurfewTestHint": "Debug: run now without waiting for the window",
     "wifiCurfewTestRun": "Run now",
+    "wifiCurfewTestDryRun": "Dry run",
     "wifiCurfewTestWifiOff": "WiFi off",
     "wifiCurfewTestWifiOn": "WiFi on",
     "wifiCurfewTestDone": "Curfew result",

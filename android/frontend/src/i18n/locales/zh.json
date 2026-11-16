@@ -370,6 +370,7 @@
     "wifiCurfewAccessFailed": "申请 Shizuku 权限失败",
     "wifiCurfewTestHint": "调试：立即执行，不必等到时段",
     "wifiCurfewTestRun": "立即执行",
+    "wifiCurfewTestDryRun": "试运行",
     "wifiCurfewTestWifiOff": "关闭 WiFi",
     "wifiCurfewTestWifiOn": "打开 WiFi",
     "wifiCurfewTestDone": "守则执行结果",

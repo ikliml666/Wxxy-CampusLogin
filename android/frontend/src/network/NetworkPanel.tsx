@@ -37,6 +37,43 @@ const RESTORE_TIME_DEFAULT_MINUTES = 450
  *  永不还原。与后端 `restore_start_minutes` 的「>= 1380 判越界」同口径 */
 const RESTORE_TIME_MAX_MINUTES = 1379
 /** 恢复时刻下限 05:00：00:00–05:00 是「凌晨补切窗口」，把恢复点设进那里会让补切与还原互相顶掉 */
+/**
+ * 把守则执行结果译成中文。这是临时调试面板，文案不走 i18n；
+ * 正式功能确认无误后应随之删除。
+ */
+function describeCurfewResult(result: Record<string, unknown>): { title: string; detail: string } {
+  const action = String(result.action ?? '')
+  const current = result.currentSsid ? String(result.currentSsid) : '未连接'
+  const channel = String(result.channel ?? '')
+  const tried = Array.isArray(result.tried) ? (result.tried as string[]) : []
+  const trace = result.trace ? String(result.trace) : ''
+  const triedText = tried.join('；')
+  switch (action) {
+    case 'keep':
+      return { title: '当前网络不在管控范围', detail: `当前：${current}` }
+    case 'would-keep':
+      return { title: '试运行：不会做任何处理', detail: `当前：${current}` }
+    case 'connect':
+      return { title: `已切换到「${String(result.target ?? '')}」`, detail: `原网络：${current}` }
+    case 'would-connect':
+      return {
+        title: `试运行：会切换到「${String(result.target ?? '')}」`,
+        detail: [triedText, `当前：${current}`].filter(Boolean).join('；'),
+      }
+    case 'wifi-off':
+      return { title: '已断开 WiFi', detail: [triedText, `当前：${current}`].filter(Boolean).join('；') }
+    case 'would-wifi-off':
+      return { title: '试运行：会断开 WiFi', detail: triedText || `当前：${current}` }
+    case 'restore':
+      return { title: '已恢复 WiFi', detail: `通道：${channel}` }
+    case 'would-restore':
+      return { title: '试运行：会恢复 WiFi', detail: `当前：${current}` }
+    case 'failed':
+      return { title: '断开失败', detail: [triedText, trace].filter(Boolean).join('；') }
+    default:
+      return { title: `执行完成（${action}）`, detail: trace || `通道：${channel}` }
+  }
+}
 const RESTORE_TIME_MIN_MINUTES = 300
 
 /** 阿里云公共 DNS 的 DoT 主机名（官方：dns.alidns.com:853），用作「指定主机」的默认预填 */
@@ -219,7 +256,7 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
   const [curfewTestRunning, setCurfewTestRunning] = useState(false)
   const [curfewSwitching, setCurfewSwitching] = useState(false)
   const buildCurfewPayload = useCallback(
-    () =>
+    (dryRun: boolean) =>
       JSON.stringify({
         enabled: config.enableWifiCurfew,
         excluded: config.wifiCurfewExcluded,
@@ -227,29 +264,40 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
         restoreStart: config.nightRestoreMinutes,
         weakRssi: config.wifiCurfewWeakRssi ?? 0,
         channel: config.wifiCurfewChannel ?? 'auto',
+        dryRun,
       }),
     [config]
   )
-  const handleTestCurfew = useCallback(async () => {
-    setCurfewTestRunning(true)
-    try {
-      const result = await ipc.testWifiCurfew(buildCurfewPayload(), true)
-      useLogToastStore.getState().addToast(t('network.wifiCurfewTestDone'), 'info', JSON.stringify(result))
-    } catch (e) {
-      useLogToastStore.getState().addToast(t('network.wifiCurfewTestFailed'), 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) setCurfewTestRunning(false)
-    }
-  }, [ipc, t, buildCurfewPayload])
+  const handleTestCurfew = useCallback(
+    async (dryRun: boolean) => {
+      setCurfewTestRunning(true)
+      try {
+        const result = await ipc.testWifiCurfew(buildCurfewPayload(dryRun), true)
+        const described = describeCurfewResult(result)
+        useLogToastStore.getState().addToast(described.title, 'info', described.detail, 15000)
+      } catch (e) {
+        useLogToastStore
+          .getState()
+          .addToast(t('network.wifiCurfewTestFailed'), 'error', extractErrorMessage(e), 15000)
+      } finally {
+        if (mountedRef.current) setCurfewTestRunning(false)
+      }
+    },
+    [ipc, t, buildCurfewPayload]
+  )
   const handleWifiSwitch = useCallback(async (enable: boolean) => {
     setCurfewSwitching(true)
     try {
       const result = await ipc.testWifiSwitch(enable)
-      useLogToastStore.getState().addToast(
-        enable ? t('network.wifiCurfewTestWifiOn') : t('network.wifiCurfewTestWifiOff'),
-        'info',
-        JSON.stringify(result)
-      )
+      const described = describeCurfewResult(result)
+      useLogToastStore
+        .getState()
+        .addToast(
+          enable ? t('network.wifiCurfewTestWifiOn') : t('network.wifiCurfewTestWifiOff'),
+          'info',
+          described.title,
+          15000
+        )
     } catch (e) {
       useLogToastStore.getState().addToast(t('network.wifiCurfewTestFailed'), 'error', extractErrorMessage(e))
     } finally {
@@ -447,12 +495,20 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
-                    onClick={handleTestCurfew}
+                    onClick={() => handleTestCurfew(false)}
                     disabled={curfewTestRunning}
                     className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border border-input bg-card hover:bg-accent/50 transition-colors disabled:opacity-60"
                   >
                     {curfewTestRunning && <Loader2 className="h-3 w-3 animate-spin" />}
                     {t('network.wifiCurfewTestRun')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTestCurfew(true)}
+                    disabled={curfewTestRunning}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-input bg-card hover:bg-accent/50 transition-colors disabled:opacity-60"
+                  >
+                    {t('network.wifiCurfewTestDryRun')}
                   </button>
                   <button
                     type="button"
