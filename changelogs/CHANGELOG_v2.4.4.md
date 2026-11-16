@@ -52,6 +52,7 @@
 - `npx tsc --noEmit --incremental` exit 0；`npx vite build` ✓ built
 - 浏览器 mock 实测：入口显示「已选 1 个网络」；弹窗内点选 CMCC-kiku_5G → 行高亮 + 对勾；Esc 关闭后入口变「已选 2 个网络」且 chip 同步新增；浅色/暗色两种模式弹窗排版正常
 - 弹窗版 APK 已 `adb install -r` 到 RMX3300；真机截图时手机再次锁屏（同上次），弹窗真机实测未做，以 mock 实测为准
+- **弹窗列表行间距修正**：列表容器加 `flex-col gap-2`（8px 垂直间距），行高由 `py-2` 收到 `py-1.5` 并加 `shrink-0`——原先相邻选中行的圆角高亮块上下相接，连选两项时看起来是一整块，现在边界清晰。mock 复测：连选 CMCC-2Psu_5G + CMCC-kiku_5G 两行间隙可见，浅色/暗色一致
 
 ### 安卓端 WiFi 连接管控不生效：两处根因与调试入口（2026-11-16，安卓）
 
