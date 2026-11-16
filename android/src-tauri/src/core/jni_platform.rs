@@ -202,9 +202,9 @@ impl CorePlatform for JniPlatform {
         self.call_zero_str("runWifiCurfew")
     }
 
-    fn start_wifi_watcher(&self) -> Result<(), String> {
+    fn start_wifi_watcher(&self, config_json: &str) -> Result<(), String> {
         // 必须传播失败:静默吞掉会让 WATCHER_FAILED 永不置位、WiFi 即时触发失效
-        self.call_zero_void("startWifiWatcher")
+        self.call_str_void("startWifiWatcher", config_json)
     }
 
     fn stop_wifi_watcher(&self) {

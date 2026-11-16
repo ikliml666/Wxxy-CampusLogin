@@ -21,7 +21,9 @@ pub trait CorePlatform: Send + Sync {
     fn power_state(&self) -> (bool, bool);
     /// VPN 是否处于激活状态（安卓 ConnectivityManager + TRANSPORT_VPN）。
     fn is_vpn_active(&self) -> bool;
-    fn start_wifi_watcher(&self) -> Result<(), String>;
+    /// 注册 :core 常驻 WiFi 回调；[config_json] 与守则配置同构，
+    /// Kotlin 侧据此在回调里驱动 WiFi 守则（RSSI/窗口），不再只等巡检周期。
+    fn start_wifi_watcher(&self, config_json: &str) -> Result<(), String>;
     fn stop_wifi_watcher(&self);
     fn stop_service(&self);
     fn bind_to_wifi(&self) -> Result<serde_json::Value, String>;

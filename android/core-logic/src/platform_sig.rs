@@ -52,7 +52,7 @@ pub const METHOD_SIGNATURES: &[(&str, JavaSignature)] = &[
     // 不走 String→String（该签名只留给 decrypt/encrypt，见本文件测试的由来）
     ("setWifiCurfewConfig", JavaSignature::StrToVoid),
     ("runWifiCurfew", JavaSignature::ZeroToStr),
-    ("startWifiWatcher", JavaSignature::ZeroToVoid),
+    ("startWifiWatcher", JavaSignature::StrToVoid),
     ("stopWifiWatcher", JavaSignature::ZeroToVoid),
     ("runIdleStop", JavaSignature::ZeroToVoid),
 ];
@@ -92,7 +92,7 @@ mod tests {
         assert_eq!(signature_of("updateNotification"), Some(JavaSignature::StrToVoid));
         assert_eq!(signature_of("beginProbeWindow"), Some(JavaSignature::ZeroToVoid));
         assert_eq!(signature_of("endProbeWindow"), Some(JavaSignature::ZeroToVoid));
-        assert_eq!(signature_of("startWifiWatcher"), Some(JavaSignature::ZeroToVoid));
+        assert_eq!(signature_of("startWifiWatcher"), Some(JavaSignature::StrToVoid));
         assert_eq!(signature_of("stopWifiWatcher"), Some(JavaSignature::ZeroToVoid));
         assert_eq!(signature_of("runIdleStop"), Some(JavaSignature::ZeroToVoid));
         assert_eq!(signature_of("powerState"), Some(JavaSignature::ZeroToStr));

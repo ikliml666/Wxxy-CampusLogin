@@ -27,32 +27,6 @@ impl<R: Runtime> CampusNetworkBind<R> {
         self.0.run_mobile_plugin("acceptWifiNetwork", ())
     }
 
-    /// 注册 WiFi 变化监听：channel 经基类 registerListener 绑定为 "wifiChanged"
-    /// 事件的接收端，Kotlin 侧 NetworkCallback 触发时 send {"event": ...}
-    pub fn start_wifi_watcher(
-        &self,
-        channel: tauri::ipc::Channel<serde_json::Value>,
-    ) -> Result<serde_json::Value> {
-        self.0
-            .run_mobile_plugin::<serde_json::Value>(
-                "registerListener",
-                serde_json::json!({ "event": "wifiChanged", "handler": channel }),
-            )?;
-        self.0
-            .run_mobile_plugin::<serde_json::Value>("startWifiWatcher", ())
-    }
-
-    /// 注销监听：移除 listener channel + 注销系统回调。
-    /// removeListener 失败不阻断（插件可能尚未注册过 listener）
-    pub fn stop_wifi_watcher(&self, channel_id: u32) -> Result<serde_json::Value> {
-        let _ = self.0.run_mobile_plugin::<serde_json::Value>(
-            "removeListener",
-            serde_json::json!({ "event": "wifiChanged", "channelId": channel_id as u64 }),
-        );
-        self.0
-            .run_mobile_plugin::<serde_json::Value>("stopWifiWatcher", ())
-    }
-
     /// 取当前 WiFi SSID（只读，Kotlin 侧绝不弹权限框）：
     /// `{"granted": bool, "ssid": String}`——未授权/低版本/未连 WiFi 时 ssid 为空串。
     /// JNI 阻塞调用，调用方须走 spawn_blocking（同 bind_to_wifi）。

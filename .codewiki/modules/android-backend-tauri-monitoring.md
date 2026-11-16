@@ -1,477 +1,456 @@
 ---
-title: Android 后端监控与定时编排（android_backend_tauri_monitoring）
+title: 安卓后台监控模块
 type: module
 source_files:
-  - android/src-tauri/src/monitor_loop.rs
   - android/src-tauri/src/battery_cmds.rs
   - android/src-tauri/src/cpu_affinity.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_backend_tauri/android_backend_tauri_monitoring.md
 ---
-# Android 后端监控与定时编排（android_backend_tauri_monitoring）
+# 安卓后台监控模块
 
 ## 简介
 
-`android_backend_tauri_monitoring` 对应安卓端 Rust 后端中最复杂的运行时模块
-[android/src-tauri/src/monitor_loop.rs](../../android/src-tauri/src/monitor_loop.rs)。
-它是校园网登录助手在 Android 上的**后台自治引擎**：应用退到后台、屏幕熄灭甚至锁屏时，
-仍由一个 tokio 巡检循环持续判定校园网在线状态、掉线自动重登、执行夜间切换与定时动作，
-并把结果以事件流推给前端、以常驻通知呈现给用户。
+`android_backend_tauri_monitoring` 是校园网登录助手**安卓端后台巡检与保活**的核心模块。它把"周期性探测校园网状态 → 判定是否需要自动重登 → 执行定时/夜间编排动作 → 把结果推给 UI 与常驻通知"这条链路落在 `:core` 独立进程里,并对外提供一组 Tauri 命令供前端调用;同时补齐安卓平台特有的**电池优化白名单引导**、**厂商自启设置页跳转**与**大小核绑核省电**能力。
 
-文件头部注释概括了它的主链路：
+模块由三块组成(模块树中写作 `monitor_loop.rs` 的部分,在当前代码库中实际由 UI 进程的命令面与 `:core` 进程的循环实现共同承担):
 
-> 后台监控循环:tick = 校园网判定 → Portal 探测 → 掉线自动重登(cooldown + 次数上限)
-> → emit `background-check-result` / `login-log`。
+| 代码单元 | 所在进程 | 职责 |
+| --- | --- | --- |
+| `android/src-tauri/src/core_bridge_cmds.rs` | UI 进程(`:main`) | 后台检测命令面:`start/stop/trigger/get_background_status`、开机自启与通知开关;经 `campus-monitor-service` 插件把命令转发到 `:core` |
+| `android/src-tauri/src/core/monitor.rs` | `:core` 进程 | 巡检循环本体:tick 编排、校园网/Portal 探测、掉线自动重登、夜间出站切换、运营商夜切、定时登录/注销、WiFi 就寝守则、夜切验证 |
+| `android/src-tauri/src/battery_cmds.rs` | UI 进程 | 电池优化白名单查询/申请、厂商保活设置页与通知设置页跳转(平台专属,桌面无对应实现) |
+| `android/src-tauri/src/cpu_affinity.rs` | 任意线程 | 解析 `/sys/.../cpuinfo_max_freq` 识别小核簇,把探测线程绑定到小核以降低稳态功耗 |
 
-本模块在 [android_backend_tauri](android-backend-tauri.md) 总览中的定位是其三大子模块之一
-（另两个为 [android_backend_tauri_commands](android-backend-tauri-commands.md)
-与 [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md)）。
-监控循环本身不含协议实现：登录/注销走 `protocol_cmds`，校园网探针走 `campus_detect`，
-判定类纯函数（夜间切换、定时调度、出站切换）全部复用桌面共享 crate `campus_login_lib::config::*`，
-实现双端单点、杜绝漂移。
+> 命名提示:模块树中的 `monitor_loop.rs` 条目是历史/合并视图;实际实现分布在 `core_bridge_cmds.rs`(命令面)与 `core/monitor.rs`(循环体)。本文档按真实文件路径描述。
+
+---
 
 ## 架构总览
 
+安卓端采用**双进程架构**:UI 进程只负责 WebView 与命令转发,后台巡检与登录协议执行全部在 `:core` 前台服务进程内完成。两进程通过 **Binder(命令转发)**、**状态文件(状态读取)**、**广播(事件回传)** 三条通道协作,避免 UI 进程被系统回收后巡检中断。
+
 ```mermaid
-flowchart TB
-    subgraph Frontend["安卓前端"]
-        UM["useMonitor 启停/立即检测"]
-        US["设置页 通知/自启/静默期 开关"]
+flowchart TD
+    subgraph UI["UI 进程 (:main)"]
+        FE["React 前端 (WebView)"]
+        CMD["core_bridge_cmds.rs<br/>start / stop / trigger / status"]
+        BAT["battery_cmds.rs<br/>电池优化与设置页"]
+        KSP["MonitorServicePlugin.kt<br/>coreCommand / startMonitor / stopMonitor"]
+        CLIENT["CoreClient (Binder 客户端)"]
+        UIB["core::ui_bridge<br/>core 事件 -> WebView 事件"]
+        CFG["config_state.rs<br/>配置读写 (Keystore 加密)"]
     end
 
-    subgraph Entry["命令面（前端 invoke 入口）"]
-        SB["start_background_check"]
-        SP["stop_background_check"]
-        TG["trigger_background_check"]
-        GS["get_background_status"]
-        GA["get/set_boot_autostart"]
-        GN["get/set_notification_enabled"]
+    subgraph CORE["核心进程 (:core)"]
+        SVC["CoreService (前台服务)"]
+        JNI["JNI 桥 nativeStart / nativeCommand"]
+        RUN["core::runner<br/>runtime + command 分发"]
+        MON["core::monitor<br/>巡检循环 / 定时编排"]
+        PLAT["CorePlatform (JniPlatform)<br/>通知 / WifiLock / WiFi 绑定"]
     end
 
-    subgraph Core["monitor_loop.rs 运行时内核"]
-        LOOP["monitor_tick_loop<br/>分档间隔 + 代际 token 防竞速"]
-        RCO["run_check_once<br/>单拍检测 + 状态机 + 自动重登"]
-        RSA["run_scheduled_actions<br/>出站切换/运营商夜切/定时登录注销"]
-        RST["run_startup_tasks<br/>启动恢复并行编排"]
-        WE["handle_wifi_event<br/>WiFi 变化即时触发"]
+    subgraph SYS["Android 系统能力"]
+        WIFI["WifiManager / ConnectivityManager"]
+        NOTI["常驻通知 + WakeLock + WifiLock"]
+        SET["系统设置页 (电池/通知/厂商自启)"]
+        CPU["cpufreq 拓扑 (小核簇)"]
     end
 
-    subgraph Deps["依赖模块"]
-        PC["protocol_cmds<br/>run_login / do_logout / ensure_wifi_bound"]
-        CD["campus_detect<br/>probe_campus_with_ssid"]
-        CFG["config_state<br/>Settings 读写"]
-        LIB["campus_login_lib::config<br/>schedule / night_switch / outbound_switch"]
-    end
-
-    subgraph Plugins["自研插件"]
-        FS["foreground-service<br/>FGS/常驻通知/探针锁/电源态/自启"]
-        NB["network-bind<br/>WiFi watcher/avoid_bad_wifi/reportUnusable"]
-    end
-
-    subgraph Events["emit 事件流"]
-        EV1["background-check-result"]
-        EV2["login-log"]
-        EV3["auto-login-result"]
-        EV4["startup-failed"]
-    end
-
-    UM --> SB & SP & TG & GS
-    US --> GA & GN
-    SB --> LOOP
-    SB --> WE
-    SP --> WE
-    TG --> RCO
-    LOOP --> RCO
-    LOOP --> RSA
-    WE --> RCO
-    RST --> SB
-    RST --> PC
-    RCO --> CD
-    RCO --> PC
-    RCO --> LIB
-    RSA --> PC
-    RSA --> LIB
-    LOOP --> FS
-    RCO --> FS
-    WE --> NB
-    RSA --> NB
-    RCO --> EV1 & EV2
-    RCO --> EV3
-    RST --> EV4
+    FE -->|invoke| CMD
+    FE -->|invoke| BAT
+    CMD -->|plugin command| KSP
+    KSP --> CLIENT
+    CLIENT -->|Binder action=start/stop/trigger| SVC
+    SVC --> JNI --> RUN --> MON
+    MON --> PLAT
+    PLAT --> NOTI
+    PLAT --> WIFI
+    BAT --> KSP
+    KSP --> SET
+    MON -->|探测线程绑小核| CPU
+    MON -->|状态文件 core_status.json| CMD
+    SVC -->|事件广播| UIB --> FE
+    MON -->|settings / update_settings| CFG
 ```
 
-## 运行时状态：`MonitorState`
+### 进程与通道职责
 
-`MONITOR` 是进程级 `lazy_static!` 单例，全部字段为原子类型，供循环体与命令面并发读写：
+```mermaid
+flowchart LR
+    A["命令通道<br/>Binder + JNI"] -->|"start/stop/trigger/login/logout/status"| B["core::runner::command"]
+    C["状态通道<br/>core_status.json 原子写"] -->|"is_running / check_count / last_result"| D["core_bridge_cmds::read_background_status"]
+    E["事件通道<br/>CoreClient 广播"] -->|"background-check-result / auto-login-result / login-log"| F["core::ui_bridge -> WebView"]
+    G["配置通道<br/>共享配置锁 + Keystore 加密"] --> H["CoreCtx::settings / update_settings"]
+```
 
-| 字段 | 类型 | 语义 |
+- **命令通道**:`core_bridge_cmds::call()` 在 `spawn_blocking` 中调用 `forward()`,由插件 `coreCommand` 在独立线程经 Binder 等待 `:core` 返回 JSON;`parse_result` 把 `{"error": ...}` 统一转成 `Err`。
+- **状态通道**:`:core` 每拍把 `CoreStatus` 原子写入 `core_status.json`(临时文件 + rename),UI 侧用 `campus_core_logic::status::core_is_alive` 判定存活,避免读到"进程已死但文件还在"的假运行态。
+- **事件通道**:`CoreCtx::emit` → `CorePlatform::emit` → 广播 → `ui_bridge::set_app_handle` 持有的 AppHandle → WebView 事件(`background-check-result`、`auto-login-result`、`login-log` 等)。
+
+---
+
+## 巡检循环:tick 编排
+
+`core::monitor::monitor_tick_loop` 是 `:core` 内唯一的周期驱动源。每拍按固定顺序执行,**定时类动作放在省电分档与静默期门控之前**,保证"到点必须执行"。
+
+```mermaid
+flowchart TD
+    T["tick 到点"] --> G{"is_running 且代际匹配?"}
+    G -->|否| EXIT["退出循环<br/>(代际匹配才清 running)"]
+    G -->|是| S1["run_scheduled_actions<br/>夜间出站切换 / 运营商夜切 / 定时登录注销"]
+    S1 --> S2["run_wifi_curfew<br/>WiFi 就寝守则单拍"]
+    S2 --> S3["间隔热更新<br/>desired_interval_ms 变化则重建 timer"]
+    S3 --> S4["分档判定<br/>effective_interval_ms(base, idle, screen_on, wifi)"]
+    S4 --> S5{"距上次探针 < 有效间隔?"}
+    S5 -->|是| SKIP["跳过本拍探针(省电)"]
+    S5 -->|否| S6["run_check_once<br/>探测 + 自动重登 + emit"]
+    SKIP --> T
+    S6 --> T
+```
+
+启动对账(防冷启动误触发):循环首次进入时,若当日**定时注销**时刻已过,只消耗当日额度而不执行动作——避免用户刚打开监控就被踢下线;定时**登录**不做此对账(补登录即补上线,正是预期)。
+
+### 间隔分档
+
+`effective_interval_ms` 为纯函数,受 `android/src-tauri/src/core/monitor.rs` 单元测试锁定:
+
+- `base = background_check_interval.max(5000)`(5s 下限,防误配打爆探测)
+- **亮屏且连 WiFi** → `base`(默认 60s)
+- **蜂窝网络或灭屏** → `max(idle_interval, base)`(默认 5min)
+- 唤醒周期恒为基础间隔,保证回到 WiFi/亮屏后最迟一拍恢复;拉长间隔不改变正确性,因为 WiFi 变化事件仍即时触发检测,且无明确离线证据时在线状态保持上一拍记忆。
+
+---
+
+## 单拍检测流程(run_check_once)
+
+`run_check_once` 是**全入口共用体**:周期拍、WiFi 变化事件(`handle_wifi_event`)与手动"立即检测"(`trigger_background_check`)三条路径都走同一套门控与判定,避免三份语义漂移。
+
+```mermaid
+flowchart TD
+    A["进入 run_check_once"] --> B["check_count+1, 刷新 last_tick_ms"]
+    B --> C{"读取配置成功?"}
+    C -->|否| C1["记 error 日志 + 通知文案<br/>TEXT_CONFIG_UNAVAILABLE, 返回"]
+    C -->|是| D{"处于夜间出站切换态?<br/>night_outbound_restore 非空"}
+    D -->|是| D1["跳过整轮巡检<br/>通知文案 TEXT_OUTBOUND_SWITCH"]
+    D -->|否| E{"校园网检测静默期?<br/>is_campus_check_silent"}
+    E -->|"静默且未放行"| E1["跳过探测<br/>通知文案 TEXT_CHECK_SILENT"]
+    E -->|"静默但 RESTORE_SILENT_PASS"| E2["放行本轮(持续到离开静默期)"]
+    E -->|否| F["开探针窗口<br/>WifiLock + WakeLock (guard 保证释放)"]
+    E2 --> F
+    F --> G["ensure_wifi_bound<br/>强制把进程绑到 WiFi"]
+    G --> H["probe_campus_with_ssid<br/>校园网判定 + SSID 缓存"]
+    H -->|失败| H1["TEXT_PROBE_FAILED, 返回"]
+    H -->|成功| I["cache_source_ip<br/>供自动重登与质量测试绑定"]
+    I --> J{"Portal 探测前置条件"}
+    J -->|"WiFi 未连接"| J1["短路: WiFi 未连接"]
+    J -->|"不在校园网"| J2["短路: 不在校园网, 跳过探测"]
+    J -->|可探测| K["net_state::portal_status<br/>单飞 + 缓存窗口 + 失败退避"]
+    J1 --> L["三态裁决 online"]
+    J2 --> L
+    K --> L
+    L --> M{"error_kind 为 None?"}
+    M -->|"确定判定"| N["online = status.online"]
+    M -->|"Unknown/Failed 且 on_campus"| O["沿用 prev_online 记忆"]
+    M -->|"Unknown/Failed 且非校园网"| P["online = false"]
+    N --> Q["在线则清零 reconnect / failures"]
+    O --> Q
+    P --> Q
+    Q --> R["was_online 交换<br/>在线->离线且在校园网则发掉线通知"]
+    R --> S{"自动重登判定 should_attempt_login"}
+    S -->|否| V["组装 payload"]
+    S -->|是| T{"注销保护期 / 熔断 5 次 /<br/>本拍已登录成功?"}
+    T -->|任一成立| V
+    T -->|都不成立| U["try_begin_login 取登录所有权<br/>run_login + 登录历史落账 + 结果事件"]
+    U --> V
+    V --> W["写 last_result 并 emit background-check-result"]
+    W --> X["按完整文案去重刷新常驻通知 running_text"]
+```
+
+### 关键护栏
+
+| 护栏 | 语义 | 位置 |
 | --- | --- | --- |
-| `running` | `AtomicBool` | 巡检循环是否运行中 |
-| `check_count` | `AtomicU64` | 累计检测拍数（随 payload 发给前端） |
-| `consecutive_failures` | `AtomicU32` | 连续自动登录失败数，达 5 次熔断 |
-| `reconnect_count` | `AtomicU32` | 本在线周期内自动重连次数，达 `max_disconnect_reconnect` 暂停 |
-| `last_login_attempt_ms` | `AtomicU64` | 上次自动登录时刻，驱动 cooldown 判定 |
-| `was_online` | `AtomicBool` | 上一拍在线记忆（三态护栏的核心） |
-| `last_result` | `Mutex<Option<Value>>` | 最近一次检测结果，`status_value()` 与启动初值共用 |
-| `desired_interval_ms` | `AtomicU64` | 目标基础间隔，循环体逐 tick 对比实现改间隔热生效 |
-| `idle_interval_ms` | `AtomicU64` | 闲时间隔（蜂窝/灭屏生效，默认 5min） |
-| `logout_protected_until_ms` | `AtomicU64` | 手动/定时注销后的保护期截止（默认 60s，防注销即登回） |
-| `wifi_event_ms` | `AtomicU64` | 最近一次 WiFi 事件时刻，去抖与"风暴内最后事件生效"判定 |
-| `notified_online` | `AtomicU8` | 常驻通知已展示的状态码（仅翻转时重建通知） |
-| `scheduled_login_day` / `scheduled_logout_day` | `AtomicI32` | 当日定时登录/注销已触发标记（`num_days_from_ce`，跨天自然重置） |
+| 出站切换态闸 | `night_outbound_restore` 非空时整轮巡检跳过——已注销等系统切蜂窝时 Portal 检测必失败,继续跑会每拍误报掉线并触发自动重登 | `run_check_once` 入口 |
+| 静默期闸 | 早于 `campus_check_start_minutes` 或晚于结束时间整拍跳过;在线状态保持上一拍记忆 | `run_check_once` |
+| 还原放行标记 | `RESTORE_SILENT_PASS`:夜间出站还原后,本轮静默期剩余时段**持续**放行(而非只放一轮),离开静默期自动清除,不跨日残留 | `RESTORE_SILENT_PASS` + `run_check_once` |
+| 三态裁决 | 仅"确定判定"(`error_kind == None`)才翻转在线状态;`Unknown`/`Failed` 不构成可信离线证据 | `run_check_once` |
+| 非校园网清零 | `on_campus == false` 时 `online` 强制为 `false`,防止"在线"被永久钉住(WiFi 断开走蜂窝场景) | `run_check_once` |
+| 注销保护期 | 手动注销后一段时间内不自动重登,避免"注销即被登回" | `MONITOR.logout_protected_until_ms` |
+| 连续失败熔断 | 达 5 次停止本会话自动重登,手动登录成功清零,避免凭据错误时每拍刷日志耗流量 | `MONITOR.consecutive_failures` |
+| 重连次数上限 | `reconnect_count >= max_disconnect_reconnect` 只发通知不再执行,回到在线清零 | `MONITOR.reconnect_count` |
+| 登录所有权 | `core::login::try_begin_login()` 单飞:已有登录任务时**跳过**而不是等待后重登 | `core::login` |
+| 本拍已登录保护 | `last_login_success_ms >= tick_start_ms` 时不重复登录(同 IP 重复认证会挂满客户端超时) | `run_check_once` |
+| 登录成功冷却 | `LOGIN_SUCCESS_COOLDOWN_MS = 5000`,成功后 5s 内的重复请求直接返回"已登录" | `core::login::run_login` |
+| VPN 提示 | `with_vpn_hint` 在检测到 VPN TUN 存在时给通知体追加"请在 VPN 中排除本应用"提示 | `core::monitor` |
 
-另有四个文件级静态常量治理并发与重试预算：
+### WiFi 事件即时触发
 
-- **`MONITOR_GENERATION: AtomicU64`** — 代际 token。`start`/`stop` 各自 `fetch_add` 一次，
-  循环持有启动代际值并每拍校验；退出时只有代际匹配才清 `running` 标志，
-  防止 `stop→start` 竞速下旧循环退出时误清新循环的运行标志。
-- **`LOGIN_ATTEMPT_LOCK: tokio::sync::Mutex<()>`** — 自动登录读-判-写段互斥。
-  tick 循环、WiFi 事件、手动触发三条入口并发进入 `run_check_once` 时，
-  串行化「判在线 → `should_attempt_login` → `run_login` → 计数」段，避免重复探测/重复登录/计数错乱。
-- **`OUTBOUND_RESTORE_FAIL_COUNT` / `OUTBOUND_SWITCH_FAIL_COUNT`** — 各连续失败上限 3 次
-  （`OUTBOUND_RESTORE_MAX_FAILS` / `OUTBOUND_SWITCH_MAX_FAILS`），达上限即放弃自动还原/
-  按断网规律建态，防止注定失败的请求每拍重发。
-- **`RESTORE_SILENT_PASS: AtomicBool`** — 夜间出站还原后「静默期持续放行」标记（见下文调度编排）。
+`handle_wifi_event` 只在监控运行中生效,带**去抖与风暴合并**:
 
-## 命令面：前端可调用入口
+- `WIFI_EVENT_DEBOUNCE_MS = 1000`:距上次事件不足 1s 视为同一次风暴的后续事件,不再重复安排(`wifi_event_is_burst_start` 纯函数)
+- 连上方向延迟 `WIFI_EVENT_DELAY_MS = 2500`(等 DHCP/路由就绪)
+- 断开方向延迟 `WIFI_LOST_EVENT_DELAY_MS = 0`(断开即事实,感知 ≤1-2s)
+- 延迟到点后校验 `wifi_event_ms` 是否仍是本次值,风暴内**最后一条事件生效**
 
-| 命令 | 行为 |
+---
+
+## 定时与夜间编排(run_scheduled_actions)
+
+每拍的定时编排严格按 **出站切换 → 运营商夜切 → 定时登录/注销** 顺序,互斥通过 `outbound_active` 门控实现,而非提前 `return`——保证"出站没切上时运营商夜切照常"。
+
+```mermaid
+flowchart TD
+    A["run_scheduled_actions"] --> B["读配置(失败则静默,下拍重试)"]
+    B --> C["evaluate_outbound_action_with_restore<br/>(共享纯函数, 双端单点)"]
+    C --> D{"出站动作"}
+    D -->|Switch| D1["logout_for_outbound_switch<br/>在线才发注销; radiusOk||unbindOk 视为生效"]
+    D1 -->|成功| D2["落盘 night_outbound_restore=logged_out"]
+    D2 --> D3["ensure_avoid_bad_wifi<br/>+ trigger_wifi_recheck 等系统切蜂窝"]
+    D1 -->|"失败未确认"| D4["失败计数+1<br/>达 3 次按断网规律建态"]
+    D -->|Restore| E1["night_switch_login"]
+    E1 -->|Succeeded| E2["清标记 + restore_avoid_bad_wifi<br/>置 RESTORE_SILENT_PASS"]
+    E1 -->|Busy| E3["保留切换态,不计失败"]
+    E1 -->|Failed| E4["失败计数+1<br/>达 3 次放弃自动还原并清标记"]
+    D -->|None| F
+    D3 --> F
+    D4 --> F
+    E2 --> F
+    E3 --> F
+    E4 --> F
+    F["重读最新配置(避免 stale 快照复活标记)"] --> G["evaluate_night_switch_gated_with_restore<br/>运营商夜切(切换态下恒 None)"]
+    G --> H{"动作"}
+    H -->|SwitchToCampus| H1["暂存原运营商 -> operator 置空<br/>night_switch_login + 异步 verify_night_switch"]
+    H -->|Restore| H2["取回原运营商<br/>night_switch_login + 异步 verify_night_switch"]
+    H -->|None| I
+    H1 --> I
+    H2 --> I
+    I{"定时登录与注销均禁用?"} -->|是| Z["早退"]
+    I -->|否| J["evaluate_scheduled_actions<br/>切换态下定时登录跳过但不消耗当日额度"]
+    J --> K{"fire_login?"}
+    K -->|是| K1["置当日标记 + auto_login_on_start(respect_silent=false)"]
+    K -->|否| L
+    K1 --> L{"fire_logout?"}
+    L -->|是| L1["置当日标记 + run_logout(来源 scheduled)"]
+    L -->|否| Z
+    L1 --> Z
+```
+
+### 夜切验证(verify_night_switch)
+
+运营商夜切是"配置改了但协议可能没生效"的高风险动作,因此切换后起独立 tokio 任务验证,**不阻塞监控循环**:
+
+1. 若已进入出站切换态 → 直接放弃(验证会打断出站等待窗口)
+2. `sleep(NIGHT_VERIFY_WAIT_SECS)` 后复查 `operator` 是否仍等于期望值(用户手动改走则止步)
+3. 请求 `{portal_origin}/drcom/chkstatus`,用 `night_switch::parse_chkstatus` + `uid_matches` 比对在线账号与期望运营商
+4. 未生效则"注销 → 复登 → 再验证一轮",复登前**再查一次**出站切换态与 `operator`
+5. 最终失败发系统通知提示手动检查
+
+### WiFi 就寝守则(run_wifi_curfew)
+
+判定在共享纯函数 `config::wifi_curfew::in_curfew_window_now`,真正的 `cmd wifi` 动作在 Kotlin 侧(`WifiCurfewRunner`,经 Shizuku/root)。跨进程调用阻塞,走 `spawn_blocking`;`CURFEW_ACTIVE` 静态位保证**白天稳定态零 JNI 开销**(一次 Shizuku 绑定最长 8s 超时),只在"窗口内"或"刚出窗口"才跨进程。
+
+---
+
+## 状态模型
+
+### MonitorState(:core 进程内,原子字段)
+
+| 字段 | 含义 |
 | --- | --- |
-| `start_background_check` | 幂等启动：刷新目标间隔 → 先起 FGS 成功才置 `running` → 注册 WiFi watcher → `fetch_add` 代际后 spawn 循环。已在跑时仅重发一次 `start_monitor` 为前台服务保活（系统可单独回收 FGS，Rust 循环活着不代表服务活着） |
-| `stop_background_check` | 先推进代际再清标志 → 注销 WiFi watcher → 停 FGS → 记 `login-log` |
-| `trigger_background_check` | 仅在监控运行中放行一次 `run_check_once`；停跑时明确拒绝（避免产生无 watch/无通知管理的孤立检测） |
-| `get_background_status` | 返回 `status_value()`：运行标志、计数、连续失败、重连次数、最近结果、`watcherFailed`，并把 `online`/`message`/`onlineOperator`/`serverAvailable`/`onCampusNetwork` 五个关键字段展平到顶层——前端启动初值的唯一可靠来源（首轮 emit 先于 WebView 监听建立，事件会丢） |
-| `get_boot_autostart` / `set_boot_autostart` | 开机自启开关：插件组件启停 + `enable_boot_autostart` 配置字段同步落盘（详见 [android_plugins_foreground_service](android-plugins-foreground-service.md) 的 `BootReceiver`） |
-| `get_notification_enabled` / `set_notification_enabled` | 系统通知开关：`enable_notification` 配置字段读写，失败分支不发 `notify_system` |
+| `running` | 巡检循环是否在跑 |
+| `check_count` | 已完成检测次数 |
+| `consecutive_failures` | 连续失败次数(熔断计数,5 次停) |
+| `reconnect_count` | 本次在线周期内自动重连次数 |
+| `last_login_attempt_ms` | 最近一次登录尝试时刻(cooldown 依据) |
+| `last_login_success_ms` | 最近一次登录成功时刻(本拍去重依据) |
+| `was_online` | 上一拍在线状态(掉线翻转判定) |
+| `last_result` | 最近一次 payload(`Mutex<Option<Value>>`) |
+| `desired_interval_ms` | 运行中目标检测间隔(支持热更新) |
+| `idle_interval_ms` | 闲时巡检间隔 |
+| `logout_protected_until_ms` | 注销保护期截止 |
+| `wifi_event_ms` | 最近一次 WiFi 事件时刻(去抖) |
+| `scheduled_login_day` / `scheduled_logout_day` | 定时动作当日已触发标记(`num_days_from_ce`) |
 
-## 启动恢复：`run_startup_tasks`
+进程级另有:`MONITOR_GENERATION`(启动代际,防 stop→start 竞速下旧循环误清新循环标志)、`RESTORE_SILENT_PASS`、`OUTBOUND_RESTORE_FAIL_COUNT`、`OUTBOUND_SWITCH_FAIL_COUNT`、`CURFEW_ACTIVE`、`WATCHER_FAILED`。
 
-对齐桌面 `startup.rs → watcher::run_startup_tasks` 的安卓版：此前后台检测、质量测试、
-自动登录三者只在用户手动切换时启动，重启 app 后"开关开着却不运行"——
-自动登录无效/定时测试不跑/后台检测无效三个反馈的共性根因。
+### CoreStatus(跨进程状态文件)
 
-```mermaid
-sequenceDiagram
-    participant Lib as lib.rs setup 钩子
-    participant RST as run_startup_tasks
-    participant CFG as config_state
-    participant SB as start_background_check
-    participant QC as quality_cmds
-    participant UL as update_cmds
-    participant AL as auto_login_on_start
-    participant FS as foreground-service 插件
+`core_status.json` 由 `core::status_file::write` 原子写(临时文件 + rename),UI 侧 `read` 容错(文件缺失/损坏一律返回 `default`)。存活判定:
 
-    Lib->>RST: spawn(500ms 就绪窗口)
-    RST->>CFG: current_settings()
-    alt 读配置失败
-        CFG-->>RST: Err
-        RST->>RST: log_error + emit startup-failed
-        RST->>FS: stop_monitor()（尽力停 FGS，消除假"运行中"通知）
-    else 成功
-        RST->>RST: set_log_retention_days(settings.log_retention_days)
-        par 并行拉起三条启动链
-            RST->>SB: enable_background_check → start_background_check
-            RST->>QC: enable_network_quality → 首测/启动延迟测试
-            RST->>AL: auto_login_on_start → 探测 + 登录
-        end
-        RST->>UL: start_update_check_loop（24h 自动更新）
-        RST->>UL: cleanup_stale_apks（清理超龄历史安装包）
-        RST->>RST: night_outbound_restore 为空时 restore_avoid_bad_wifi 兜底还原
-    end
+- `core_is_alive(status, now, MAX_STATUS_AGE_MS)`:`core_alive && last_tick_ms != 0 && now - last_tick_ms <= max_age`
+- `notification_stale(...)`:核心已死或通知文案超过时限未更新 → 常驻通知被视为过期
+
+`read_background_status` 把状态文件与 `copy_last_result_fields` 合并成前端 `BackgroundStatus` 形状(`isRunning`、`checkCount`、`consecutiveFailures`、`reconnectCount`、`lastResult`、`watcherFailed`、`coreAlive`、`notificationStale` 及展平的最近结果字段)。
+
+### background-check-result payload
+
+字段名刻意对齐桌面端 `background-check-result` 的**可适用子集**,前端可共用类型:
+
+```json
+{
+  "serverAvailable": true,
+  "loginAvailable": true,
+  "online": true,
+  "message": "在线",
+  "onlineOperator": "@telecom",
+  "timestamp": 1730000000000,
+  "checkCount": 42,
+  "isRunning": true,
+  "onCampusNetwork": true,
+  "campusMessage": "校园网",
+  "currentSsid": "WXXY-Student",
+  "sourceIp": "10.1.2.3",
+  "autoLogin": { "success": true, "message": "登录成功" }
+}
 ```
 
-关键设计：
+`onlineOperator` 由 Portal `uid` 经 `auth::portal::operator_suffix_from_uid` 推导(`@telecom`/`@unicom`/`@cmcc`/`""` = 校方默认线路,离线为 `null`),驱动前端运营商徽标。
 
-- **并行 spawn 而非串行 await**：质量首测要跑完 12 个外网域名（数秒级），串行时自动登录被压在最后；
-  并行即 tokio multi-thread 运行时的多核利用。就绪窗口从桌面同款 1.5s 收窄到 500ms，
-  网络未就绪由自动登录的一次重试与后台检测下一拍兜底。
-- **`probe_with_retry`**：启动探测未确认在校园网时 3s 后重试一次，
-  应对开机瞬间 DHCP/路由未就绪；SSID 感知版经 `probe_campus_with_ssid` 判定。
-- **启动对账**：监控启动时若当日定时注销时刻已过，只消耗今日额度不执行动作
-  （避免"过点补触发"让用户刚打开监控就被踢下线）；定时登录不消耗（补登录正是预期）。
+---
 
-## 巡检循环：`monitor_tick_loop` 与分档间隔
+## 保活体系:前台服务、开机自启与电池优化
 
-```mermaid
-flowchart TB
-    TICK["tick.tick()"] --> GEN{"running 且代际匹配?"}
-    GEN -- 否 --> EXIT["退出（仅代际匹配才清 running）"]
-    GEN -- 是 --> SSA["run_scheduled_actions<br/>出站/夜切/定时登录注销"]
-    SSA --> HOT{"desired_interval 已变更?"}
-    HOT -- 是 --> REBUILD["重建 tokio interval（吃掉首拍）"]
-    REBUILD --> POWER
-    HOT -- 否 --> POWER["power_state() 取（屏幕亮, WiFi 连）"]
-    POWER --> EFF["effective_interval_ms 分档"]
-    EFF --> GATE{"距上次探测 < effective?"}
-    GATE -- 是 --> TICK
-    GATE -- 否 --> RCO["run_check_once"]
-    RCO --> TICK
-```
+### 前台服务与开机自启
 
-- **分档纯函数 `effective_interval_ms(base, idle, screen_on, wifi_connected)`**：
-  WiFi 且屏幕亮 → 基础间隔（默认 60s，下限 5s 防误配）；蜂窝或灭屏 → 闲时间隔（默认 5min）。
-  唤醒周期恒为基础间隔（保证亮屏/回 WiFi 后最迟一拍恢复），是否真正跑探针由闲时间隔决定——
-  拉长间隔不改变正确性：WiFi 变化事件仍即时触发检测，且无明确离线证据时在线状态保持上一拍记忆。
-  闲时间隔小于基础间隔时以基础间隔为准（防配置误配成更频繁）。
-- **`power_state()`** 走插件 `get_power_state()`，查询失败按保守值 `(true, true)` 处理——
-  省电是优化项，漏检是功能缺陷。
+- 插件 `tauri-plugin-campus-monitor-service`(`android/plugins/foreground-service`)负责**常驻通知 + WifiLock + WakeLock + 开机自启**,业务逻辑全在 Rust 循环;插件通过 `CampusMonitorServiceExt::campus_monitor_service()` 暴露 `coreCommand`、`set_boot_autostart`、`is_boot_autostart_enabled`、`get_battery_optimization_info` 等命令。
+- `BootReceiver` 收到 `ACTION_BOOT_COMPLETED` 且 `campus_settings.boot_autostart == true` 时**只拉起 `CoreService`**,不拉起 `MainActivity`——核心不依赖 Activity,开机即恢复巡检与 WiFi watcher。
+- `set_boot_autostart` 通过 `PackageManager.setComponentEnabledSetting` 启用/禁用 `BootReceiver`(不需要 `DONT_KILL_APP` 之外的额外权限),同时写 `SharedPreferences` 快照与 Rust 侧配置 `enable_boot_autostart` 双写。
+- 服务存活判定 `should_keep_service(is_running, login_in_progress, boot_active)`:三者皆否才 `stop_service()`,避免"关闭后台检测后仍常驻通知"。
 
-## 单拍检测：`run_check_once` 状态机
+### 电池优化白名单(battery_cmds.rs)
 
-`run_check_once` 是全入口共用体（周期拍、WiFi 事件、手动触发三条路径共用），流程为：
+安卓端保活的最大变量是厂商的电池策略,本文件提供三条能力,全部在 `#[cfg(mobile)]` 下转发给 Kotlin,`#[cfg(not(mobile))]` 统一返回"仅安卓端可用"错误(桌面无对应 API):
+
+| 命令 | 返回 | 说明 |
+| --- | --- | --- |
+| `get_battery_optimization_info` | `BatteryOptimizationInfo { ignoring, brand, has_vendor_target }` | `ignoring` = 已在"不优化电池"白名单;`brand` = `Build.BRAND` 小写(前端据此只显示对应厂商项);`has_vendor_target` = 该品牌是否有专用跳转页 |
+| `request_ignore_battery_optimizations` | `bool`(确认框是否弹出) | 一次性申请,走系统 `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`;用户是否点"允许"由系统 UI 决定,前端需延迟重查刷新状态。**不做静默加入**——应用商店审核要求 UI 先有明确用户确认步骤 |
+| `open_vendor_battery_settings` | `{ path, target, tried }` | 厂商自启/省电页降级链 |
+| `open_notification_settings` | `bool`(系统页是否拉起) | 通知设置页降级链,服务"系统弹框不可得"场景(13 以下无弹框 / 13+ 永久拒绝 / 用户手动关闭) |
+
+**厂商页降级链**(判定与候选表在 Kotlin 侧 `vendorTargets` / `openVendorBatterySettings`):
 
 ```mermaid
-flowchart TB
-    START["check_count += 1; 读配置"] --> G1{"night_outbound_restore 非空?"}
-    G1 -- 切换态 --> SKIP1["跳过本轮巡检<br/>（已注销等系统切蜂窝，探测必失败）"]
-    G1 -- 否 --> SILENT{"校园网检测静默期?"}
-    SILENT -- 是 且非放行 --> NOTI["通知状态码 3 = 非检测时段<br/>（仅翻转时重建）"]
-    SILENT -- 是 但 RESTORE_SILENT_PASS --> PROBE
-    SILENT -- 否 --> PROBE["探针窗口<br/>ProbeWindowGuard 持 WifiLock + WakeLock"]
-    PROBE --> BIND["ensure_wifi_bound 强制绑 WiFi"]
-    BIND --> CAMP["probe_campus_with_ssid<br/>校园网判定 + 源 IP 缓存"]
-    CAMP --> PORTAL{"(源 IP, 在校园网) 组合"}
-    PORTAL -- "Some, true" --> LCORE["portal_probe_on_little_cores<br/>专用短命线程绑小核"]
-    PORTAL -- "Some, false" --> PERR["Err: 不在校园网,跳过 Portal 探测"]
-    PORTAL -- "None" --> PERR2["Err: WiFi 未连接,跳过 Portal 探测"]
-    LCORE --> ONLINE["三态在线裁决"]
-    PERR --> ONLINE
-    PERR2 --> ONLINE
-    ONLINE --> SM["状态机：在线清零计数/写 was_online<br/>在线翻离线且在校园网 → 掉线系统通知"]
-    SM --> GUARD{"注销保护期?<br/>连续失败 ≥5?<br/>should_attempt_login?"}
-    GUARD -- 否 --> EMIT
-    GUARD -- 是 --> LOCK["LOGIN_ATTEMPT_LOCK 互斥段<br/>run_login + 记账 + 熔断/达上限通知"]
-    LOCK --> EMIT["组装 payload<br/>emit background-check-result"]
-    EMIT --> NOTIF["常驻通知状态码翻转才 update_notification"]
+flowchart TD
+    A["open_vendor_battery_settings"] --> B{"brand 有候选组件?"}
+    B -->|是| C["逐个 ComponentName try/catch<br/>失败即试下一个"]
+    C -->|成功| OK["path = vendor<br/>返回 target + tried"]
+    C -->|全失败| D{"brand == meizu?"}
+    B -->|否| D
+    D -->|是| E["受保护 action<br/>com.meizu.safe.security.SHOW_APPSEC"]
+    E -->|成功| OK2["path = vendor_action"]
+    E -->|失败| F
+    D -->|否| F["ACTION_APPLICATION_DETAILS_SETTINGS<br/>应用详情页"]
+    F -->|成功| OK3["path = app_details"]
+    F -->|失败| G["ACTION_SETTINGS<br/>通用系统设置"]
+    G --> OK4["path = settings / none<br/>tried 全量返回"]
 ```
 
-### 三道关键护栏
+设计要点:**不用 `resolveActivity` 预探测**——Android 11+ 包可见性限制会让未声明 `<queries>` 的厂商包 `resolveActivity` 返回 null,误判"页面不存在"而直接降级;直接 `startActivity` 捕获异常才能拿到真实结论,且零权限成本。通知设置页降级链同理:API 26+ 用 `ACTION_APP_NOTIFICATION_SETTINGS` + `EXTRA_APP_PACKAGE`,21-25 用裸 action + `app_package`/`app_uid`。
 
-1. **三态在线记忆**：仅"确定判定"（`error_kind = None`）才翻转在线状态；
-   `Unknown`（在线页面特征失配，如 GBK 中文乱码）/`Failed`（探测超时）保持上一拍记忆。
-   此前无条件折叠成 `online = false`，Portal 页面特征间歇失配即误判掉线：状态点每拍打灰 +
-   自动重登"已经在线"。真正离线（Portal 返回登录页）由 `Determined(false)` 正常翻转。
-   例外：`on_campus = false` 时不存在"校园网在线"——WiFi 断开走蜂窝或连家用 WiFi 时
-   子网/网关/Portal 三判据全否且探测必败，一律沿用 `prev_online` 会把"在线"永久钉住，
-   故直接置 `false`。
-2. **自动登录判定纯函数 `should_attempt_login`**：在线或非校园网永不尝试；
-   非掉线场景（启动即离线）需显式开启 `auto_login_on_preparation`，掉线重连只受总开关管；
-   重连次数达 `max_disconnect_reconnect` 暂停；距上次尝试不足 `cooldown_secs` 不重试。
-   另有调用侧两道闸：注销保护期（默认 60s 防注销即登回）与连续失败熔断（达 5 次停，
-   手动登录成功清零）。
-3. **Portal 探测绑小核**：`portal_probe_on_little_cores` 用独立短命线程执行
-   `check_portal_full` 并绑小核——60s 一拍的稳态周期任务不应拖 tokio worker 与
-   spawn_blocking 池上的前台任务（如登录）。裸线程内须先 `Handle::enter()`（reqwest 计时器
-   需要 reactor context，缺失即 panic），并以 `catch_unwind` 兜底把 panic 转成 `Err` 回传。
+前端类型(`android/frontend/src/hooks/tauriApi.ts`)与后端严格对应:`BatteryOptimizationInfo { ignoring, brand, hasVendorTarget }`、`VendorSettingsResult { path: 'vendor' | 'vendor_action' | 'app_details' | 'settings' | 'none', target, tried }`。
 
-### 通知分级
+---
 
-- **常驻通知（FGS）**：`notify_state(online, wifi_off)` 纯函数产出状态码
-  1=在线 / 2=未连接 / 3=非检测时段 / 4=WiFi 未连接；仅状态翻转时才 `update_notification`
-  （每拍重建是 60s 一拍 IPC + notify 的稳态功耗点）。
-- **系统通知 `notify_system`**：掉线、自动重登失败、达上限、夜切验证失败等关键事件，
-  带看板娘大图（`mascot_alert` / `mascot_offline` drawable，缺失时降级纯文本）；
-  `enable_notification = false` 时静默。失败文案经 `with_vpn_hint` 追加 VPN 接管提示
-  （`vpn_tun_present()` 为真时提示用户在 VPN 中排除本应用）。
-- **应用内事件**：`auto-login-result`（成功失败都发，供前端 toast）、`login-log`（全量日志流）。
+## 功耗适配:大小核绑核(cpu_affinity.rs)
 
-## WiFi 事件驱动：即时检测
+天玑/骁龙 DynamIQ 架构下,巡检探针线程若被调度到大核会显著抬高稳态功耗。本模块提供最小侵入的绑核能力:
 
-随后台检测起停的 NetworkCallback watcher 注册在 `start_wifi_watcher` / `stop_wifi_watcher`
-（经 [android_plugins_network_bind](android-plugins-network-bind.md) 的 channel 推送，
-事件体为 `{"event": "available|lost|validated|unvalidated"}`）：
+```mermaid
+flowchart TD
+    A["little_core_ids()"] --> B["读 cpu0..cpu15 的<br/>cpufreq/cpuinfo_max_freq"]
+    B --> C{"读到 2 个以上核心?"}
+    C -->|否| E["返回空: 不绑定"]
+    C -->|是| D{"max*100 小于 min*130?<br/>即频率差不足 30%"}
+    D -->|是| E
+    D -->|否| F["返回最低频簇 = 小核(A55 类)"]
+    F --> G["pin_current_thread_to_little_cores()"]
+    G --> H["CPU_ZERO + CPU_SET + sched_setaffinity(0, ...)"]
+    H -->|成功| I["返回 true"]
+    H -->|"任何失败"| J["返回 false: 退回内核 EAS 自动决策"]
+    E --> J
+```
+
+**失败一律静默**:节点缺失、权限不足、无大小核拓扑都只返回 `false`,只影响功耗不影响正确性。host(桌面 CI)恒 `false`,`#[cfg(test)]` 中"host 环境恒不绑定"与"同构拓扑返回空"两条用例锁定该语义。
+
+实际使用点:`core::net_state::probe_on_little_cores` 把 Portal 探测放到专用短命线程 `portal-probe`,线程内先 `pin_current_thread_to_little_cores()` 再执行 `check_portal_full`。该线程同时需 `Handle::try_current()` 拿到 tokio handle 并 `enter()`,否则 reqwest 构造超时计时器会 panic "there is no reactor running";`catch_unwind` 兜底把线程 panic 转成 `Err` 回传,避免每拍静默失败。线程创建失败时降级回 `spawn_blocking`(只保正确性)。
+
+`libc` 依赖在 `android/src-tauri/Cargo.toml` 中显式声明(`sched_setaffinity`),注释说明"依赖树内已有,零成本引入"。
+
+---
+
+## 命令参考
+
+以下命令在 `android/src-tauri/src/lib.rs::run` 的 `generate_handler!` 中注册,前端经 `android/frontend/src/hooks/tauriApi.ts::TauriApi` 调用。
+
+### 后台检测(`core_bridge_cmds.rs`)
+
+| 命令 | 签名 | 行为 |
+| --- | --- | --- |
+| `start_background_check` | `() -> Value` | 转发 `action=start`;`:core` 侧刷新 `desired_interval_ms` / `idle_interval_ms`,幂等(已运行则只刷新间隔并重启 WiFi watcher) |
+| `stop_background_check` | `() -> Value` | 转发 `action=stop`;推进代际 + 清 `running` + 停 WiFi watcher + 通知改为"监控已停止" |
+| `trigger_background_check` | `() -> ()` | 转发 `action=trigger`;先 `net_state::invalidate()` 使"立即检测"不吃缓存窗口,再跑一拍 |
+| `get_background_status` | `() -> Value` | 不转发,直接读 `core_status.json` 并合并存活/过期判定 |
+| `get_boot_autostart` / `set_boot_autostart` | `(enabled)` | 经插件读写 `BootReceiver` 组件状态,并同步配置 `enable_boot_autostart` |
+| `get_notification_enabled` / `set_notification_enabled` | `(enabled) -> bool` | 读写配置 `enable_notification` |
+
+`call()` 用 `tauri::async_runtime::spawn_blocking` 包住 Binder 阻塞等待(插件 `coreCommand` 在 `campus-core-command` 线程执行,超时 `login/logout` 60s、其余 15s);`parse_result` 把 `{"error": ...}` 转 `Err`,非 JSON 也转 `Err`。
+
+### 电池与通知设置(`battery_cmds.rs`)
+
+见上文「电池优化白名单」表格。
+
+### `:core` 命令分发(`core::runner::command`)
+
+`nativeCommand` 收到的 action 与实现映射:
+
+| action | 实现 |
+| --- | --- |
+| `start` / `stop` / `trigger` | `monitor::start_background_check` / `stop_background_check` / `trigger_background_check` |
+| `status` | `monitor::status_value`(快照 + 刷新状态文件) |
+| `portalStatus` | `net_state::portal_status`(UI 的 `check_portal_status` 与巡检**共用同一次探测**) |
+| `restoreAvoidBadWifi` | `ctx.restore_avoid_bad_wifi()` |
+| `login` / `logout` | `core::login::run_login` / `run_logout` |
+| 其他 | `Err("未知 core 命令")` |
+
+返回体为 `{ "result": <json string>, "keepService": bool }`,`keepService` 决定 `CoreService` 是否继续存活。
+
+---
+
+## 与其它模块的关系
 
 ```mermaid
 flowchart LR
-    EV["channel 事件到达<br/>handle_wifi_event"] --> RUN{"监控运行中?"}
-    RUN -- 否 --> DROP
-    RUN -- 是 --> BURST{"wifi_event_is_burst_start?<br/>首事件或距上次 ≥1000ms"}
-    BURST -- 否（风暴内） --> DROP["丢弃（已安排的任务覆盖）"]
-    BURST -- 是 --> MARK["写 wifi_event_ms = now"]
-    MARK --> DELAY{"event == 'lost'?"}
-    DELAY -- 是 --> ZERO["零延迟执行"]
-    DELAY -- 否 --> TWO["延迟 2500ms 执行<br/>（等 DHCP/路由稳定）"]
-    ZERO --> CHECK{"本任务时间戳仍为 now?"}
-    TWO --> CHECK
-    CHECK -- 否（过期） --> DIE["自杀：最后安排的任务执行"]
-    CHECK -- 是 --> RCO["run_check_once"]
+    MON["本模块<br/>安卓后台监控"]
+    CMD["android_backend_tauri_commands<br/>登录/自助/VPN/更新命令面"]
+    ST["android_backend_tauri_state_storage<br/>配置/状态/历史持久化"]
+    FS["android_plugins_foreground_service<br/>前台服务与系统页跳转"]
+    KS["android_plugins_keystore<br/>配置密文加解密"]
+    NB["android_plugins_network_bind<br/>bindProcessToNetwork"]
+    DB["desktop_backend_monitoring<br/>桌面巡检与夜间编排"]
+    DCFG["desktop_backend_configuration<br/>共享纯函数(静默期/夜切/出站)"]
+    FE["android_frontend_monitoring_network<br/>状态栏与质量面板"]
+    SET["android_frontend_settings<br/>保活与自动化设置项"]
+    BUILD["build_deployment_configuration_android_build<br/>Cargo profile 与 Gradle 构建"]
 ```
 
-- 连上方向延迟 2500ms：连上瞬间 DHCP/路由未就绪，立即探测必失败；延迟同时充当
-  "事件风暴合并窗口"（连上 WiFi 会连发 `onAvailable` + `onCapabilitiesChanged` 等多条）。
-- 断开方向零延迟：断开即事实，等待只会拉长常驻通知的翻转时间（要求断开感知 ≤1-2s）。
-- 注册失败只记日志并置 `WATCHER_FAILED = true`（经 `get_background_status` 暴露给前端
-  "变化即时感知不可用"提示），退化为纯周期检测，不静默。
+- **共享协议与纯函数**:本模块不复制登录协议与定时判定,统一复用 `campus-login`(桌面 crate,path 依赖)中的 `auth::protocol`、`config::schedule`、`config::night_switch`、`config::outbound_switch`、`config::scheduled_tick`、`config::wifi_curfew`、`campus::rules`。判定逻辑的双端一致性见 [desktop_backend_configuration](desktop-backend-configuration.md) 与 [desktop_backend_monitoring](desktop-backend-monitoring.md)。
+- **纯逻辑契约层**:`android/core-logic`(`campus-core-logic`)提供 `boot_plan`、`CoreStatus`、`core_is_alive`、`notification_stale`、`notify::running_text` 等无 JNI/无 tauri 的 host 可测逻辑,`Cargo.toml` 注释明确"独立 workspace:避免被上层 workspace 吸收"。
+- **配置与状态持久化**:`CoreCtx::settings()` **每次读盘不做内存缓存**(配置由 UI 进程写,缓存会读到旧值);写走 `update_at_dir` 的 load→mutate→save 统一事务与跨进程锁。详见 [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md)。
+- **命令面整体**:登录、自助服务、VPN、更新、账号等命令见 [android_backend_tauri_commands](android-backend-tauri-commands.md)。
+- **插件**:前台服务与设置页跳转的 Kotlin 侧实现见 [android_plugins_foreground_service](android-plugins-foreground-service.md);Keystore 加密见 [android_plugins_keystore](android-plugins-keystore.md);WiFi 绑定见 [android_plugins_network_bind](android-plugins-network-bind.md)。
+- **前端**:状态栏/质量面板消费 `background-check-result` 与 `get_background_status`,见 [android_frontend_monitoring_network](android-frontend-monitoring-network.md);保活与自动化设置项(检测间隔、闲时间隔、检测时段、定时登录注销、夜间切换)见 [android_frontend_settings](android-frontend-settings.md)。
+- **构建**:`:core` 与 UI 同 crate,`android/src-tauri/Cargo.toml` 声明 `[profile.release] lto = "fat"`、`codegen-units = 1`、`strip = true`(本 crate 是安卓构建的 workspace 根,缺省时 `.so` 不 strip、无 LTO,体积可达配置后近两倍),且**不设 `panic = "abort"`**——async 任务 panic 时 unwind 捕获为任务失败,abort 会直接杀死整个进程让前台服务与保活陪葬。详见 [build_deployment_configuration_android_build](build-deployment-configuration-android-build.md)。
 
-## 定时与夜间编排：`run_scheduled_actions`
+---
 
-每拍循环的最先执行（置于分档跳拍与静默期闸之前——定时动作常配在静默期/灭屏闲时段）。
-编排顺序是硬约束：**出站切换 → 运营商夜切 → 定时登录/注销**。
+## 设计约束与注意事项
 
-```mermaid
-flowchart TB
-    START["读配置（失败静默跳过）"] --> OUT["evaluate_outbound_action_with_restore<br/>出站切换判定（共享纯函数）"]
-    OUT --> SW{"NightOutboundAction::Switch?"}
-    SW -- 是 --> LOGOUT["logout_for_outbound_switch<br/>判据 radiusOk || unbindOk"]
-    LOGOUT --> P1["落盘 night_outbound_restore=logged_out"]
-    P1 --> ENSURE["ensure_avoid_bad_wifi<br/>（adb 授权时程序化写=1,快照）"]
-    ENSURE --> RECHECK["trigger_wifi_recheck<br/>reportNetworkUnusable"]
-    OUT --> REST{"NightOutboundAction::Restore?"}
-    REST -- 是 --> NSLOGIN["night_switch_login 重登"]
-    NSLOGIN -- 成功 --> P2["清标记 + restore_avoid_bad_wifi<br/>+ RESTORE_SILENT_PASS = true"]
-    NSLOGIN -- 失败 --> RETRY{"连续失败 < 3?"}
-    RETRY -- 是 --> WAIT["保留切换态下拍重试"]
-    RETRY -- 否 --> ABANDON["放弃自动还原：清标记恢复巡检<br/>提示手动登录"]
-    OUT --> RELOAD["latest_settings 重读新鲜配置<br/>（防 stale 快照复活刚清的标记）"]
-    RELOAD --> NIGHT["evaluate_night_switch_gated_with_restore<br/>运营商夜切判定（出站态让位）"]
-    NIGHT --> NACT{"SwitchToCampus / Restore?"}
-    NACT -- 是 --> P3["落盘 operator/night_operator_restore<br/>+ night_switch_login<br/>+ spawn verify_night_switch"]
-    RELOAD --> SCHED["evaluate_scheduled_actions<br/>定时登录/注销（共享纯函数）"]
-    SCHED --> SL{"fire_login?"}
-    SL -- 是 --> AUTOIN["置 scheduled_login_day<br/>auto_login_on_start 全编排"]
-    SCHED --> SO{"fire_logout?"}
-    SO -- 是 --> LOGOUT2["置 scheduled_logout_day<br/>do_logout（带 60s 保护期）"]
-```
-
-### 夜间出站切换（安卓独有）
-
-桌面端靠改路由表 metric/禁用网卡实现，安卓无权限，改为"注销校园网 → 让系统切蜂窝"：
-
-1. `logout_for_outbound_switch`：上一拍不在线则跳过注销请求照常建态（计数清零）；
-   在线时"离线生效"判据取 `radiusOk || unbindOk`（只看 `success` 会把 `(false, true)`
-   误判为注销失败，导致掉线重连→再注销整夜摆动）；两信号都未生效则按连续失败计数收敛，
-   达 3 次按"断网规律"建态交系统侧验证。
-2. 落盘 `night_outbound_restore = "logged_out"` 标记——切换态成立后 `run_check_once` 整轮跳过
-   （已注销等系统切蜂窝时 Portal 检测必失败，继续跑会每拍误报掉线并触发自动重登）。
-3. `ensure_avoid_bad_wifi`：用户经 adb `pm grant` 授予 `WRITE_SECURE_SETTINGS` 后程序化确保
-   `network_avoid_bad_wifi=1`（系统把默认网络让给蜂窝的前提），插件记录原值快照；
-   未授权时保留手动开启提示。
-4. `trigger_wifi_recheck`：`reportNetworkUnusable` 是应用侧唯一合法的"让出站口切蜂窝"通道。
-5. 晨间还原时刻（`night_restore_minutes`，默认 07:30）：`night_switch_login` 成功才清标记、
-   按快照还原 `avoid_bad_wifi`、开启 `RESTORE_SILENT_PASS`。
-
-### `RESTORE_SILENT_PASS` 静默期放行
-
-还原点（默认 07:30）常落在检测静默期（`campus_check_start_minutes` 默认 07:40）之前，
-不放行就等于让用户干等到静默期结束才恢复登录。语义：还原后本轮静默期的剩余时段持续放行
-`run_check_once`，直到进入检测时段才恢复常规门控；放行期由"离开静默期"自动终结，不跨日残留。
-
-### 运营商夜切与 `verify_night_switch`
-
-晚间断网自动切运营商（周日/周一 23:00、周五/周六 23:30 切无锡学院，次日 7:30 起恢复），
-判定纯函数依据当前 `operator` / `night_operator_restore` 状态天然防重（落盘即收敛）。
-出站切换态成立时运营商夜切让位（切换态下切运营商需注销重登，必然打断出站等待窗口）。
-
-夜切登录后由独立 tokio 任务 `verify_night_switch` 自动验证（不阻塞监控循环）：
-
-```mermaid
-flowchart TB
-    START["Loop spawn verify_night_switch(expected_operator)"] --> WAIT["等待 15s（eportal 在线表非即时）"]
-    WAIT --> G1{"处于出站切换态?"}
-    G1 -- 是 --> ABANDON["放弃本轮验证"]
-    G1 -- 否 --> G2{"operator 已被用户手改?"}
-    G2 -- 是 --> ABANDON
-    G2 -- 否 --> CHK["chkstatus 查询（重试 3 次, 间隔 5s）"]
-    CHK --> MATCH{"uid 与期望运营商后缀匹配?"}
-    MATCH -- 是 --> OK["记 success 日志"]
-    MATCH -- 否 --> REL["注销 → night_switch_login → 再等 15s 复验一轮"]
-    REL --> MATCH2{"复验后仍不符?"}
-    MATCH2 -- 是 --> ALERT["notify_system 夜切验证失败"]
-    MATCH2 -- 否 --> OK
-```
-
-- 验证时序参数：等待 15s、重试 3 次、间隔 5s、单次 HTTP 超时 15s（与桌面同构）。
-- `portal_origin(portal_url)` 取 scheme + host 去路径查询（`chkstatus` 与 portal 同源，
-  eportal 按请求源 IP 判定本机；空值回退 `default_portal_url()`）。
-- `expected_operator_display`：空串展示为"无锡学院"，其余原样（`@telecom` 等）。
-
-### 定时登录/注销
-
-- 判定复用 `evaluate_scheduled_actions`：到点即触发含过点补触发；当日单次（成败不重试，
-  避免凭据错误时每拍重发请求刷通知）；双禁用（`SCHEDULED_DISABLED_MINUTES` 哨兵，0=真实 00:00）
-  时免读时钟早退。
-- 出站切换态下定时登录跳过但**不消耗**当日标记——过点补触发语义要求还原成功后下一拍仍能补登；
-  定时注销不受影响。门控注入拍后（出站）切换态。
-- 定时登录复用 `auto_login_on_start` 全编排（凭据检查/强制绑 WiFi/校园网探测/成功置
-  `was_online` 并清注销保护期/失败系统通知）；定时注销复用 `do_logout`（两步注销/
-  login_history 落账/60s 注销保护期）。
-
-## 落盘与事件同步：`persist_settings`
-
-夜间切换改写配置后统一经 `persist_settings` 落盘并重读：
-
-- 经 `CryptoBridge` 重新加密凭据落盘（与 `save_config` 命令同链路，详见
-  [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md)）；
-- 刷新 `AndroidState.config` 内存缓存；
-- `auto_create_account_for_current` 同步本地账号档案；
-- `emit_config_changed` 广播掩码后配置——夜切改的 `operator`/`night_operator_restore`
-  须即时推到前端，否则 UI 停留旧运营商、用户随后改任意设置会用旧快照把夜切字段覆盖回去。
-
-## 与其他模块的关系
-
-```mermaid
-flowchart LR
-    subgraph 前端
-        UM2["android_frontend_monitoring_network<br/>useMonitor 启停/立即检测"]
-        US2["android_frontend_settings<br/>通知/自启/静默期设置页"]
-    end
-
-    subgraph 命令兄弟
-        PC2["android_backend_tauri_commands<br/>protocol_cmds / campus_detect / config_state"]
-        SS2["android_backend_tauri_state_storage<br/>AndroidState / login_history"]
-    end
-
-    subgraph 插件
-        FS2["android_plugins_foreground_service<br/>FGS/常驻通知/探针锁/电源态/BootReceiver"]
-        NB2["android_plugins_network_bind<br/>WiFi watcher/avoid_bad_wifi/reportUnusable"]
-    end
-
-    subgraph 共享与对照
-        LIB2["campus_login_lib::config<br/>schedule/night_switch/outbound_switch（桌面单点）"]
-        DBM["desktop_backend_monitoring<br/>桌面巡检对照实现"]
-    end
-
-    This["monitor_loop（本模块）"]
-
-    UM2 -->|"start/stop/trigger/get_background_status"| This
-    US2 -->|"boot_autostart/notification"| This
-    This --> PC2
-    This --> SS2
-    This --> FS2
-    This --> NB2
-    This --> LIB2
-    LIB2 -.-> DBM
-```
-
-- **前端消费**：[android_frontend_monitoring_network](android-frontend-monitoring-network.md)
-  的 `useMonitor` 调本模块命令启停巡检并同步 `bgStatus`；状态页经
-  `useAuthStore` 订阅 `background-check-result` / `login-log` / `auto-login-result` 事件流。
-- **命令兄弟**：登录/注销/绑 WiFi 的实现在
-  [android_backend_tauri_commands](android-backend-tauri-commands.md)
-  （`protocol_cmds::run_login` / `do_logout` / `ensure_wifi_bound`、`campus_detect` 探针、
-  `config_state::Settings` 读写）；`AndroidState`、`login_history`、`WATCHER_FAILED` 的
-  持久化语义见 [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md)。
-- **插件**：FGS 保活、常驻通知、探针窗口电源锁、开机自启组件的 Kotlin 实现见
-  [android_plugins_foreground_service](android-plugins-foreground-service.md)；
-  WiFi watcher 通道、`avoid_bad_wifi` 快照写回、`reportNetworkUnusable` 见
-  [android_plugins_network_bind](android-plugins-network-bind.md)。
-- **共享判定**：调度/夜切/出站判定全部为 `campus_login_lib::config::*` 纯函数（桌面同源），
-  与桌面 [desktop_backend_monitoring](desktop-backend-monitoring.md) 保持同语义对照。
-- **构建**：本模块随 [build_deployment_configuration_android_build](build-deployment-configuration-android-build.md)
-  交叉编译为 `libcampus_login_android_lib.so` 打入 APK。
-
-## 单测锁定的纯函数
-
-文件内置 `#[cfg(test)] mod tests`，以中文测试名锁定全部关键决策点（TDD 纪律）：
-
-| 测试 | 锁定行为 |
-| --- | --- |
-| `通知状态_wifi短路独立码` | 状态码 1/2/4 不与"非检测时段"3 冲突 |
-| `在线或非校园网_永不尝试` / `掉线重连_不受自动登录开关管` / `启动即离线_需显式开启自动登录` | `should_attempt_login` 各分支 |
-| `重连达上限_暂停` / `cooldown_未到_不重试` / `cooldown_为零_立即重试` | 熔断与冷却边界 |
-| `wifi事件_首事件与窗口外为起点_窗口内不算` | 事件风暴去抖 `wifi_event_is_burst_start` |
-| `巡检分档_wifi且亮屏走基础间隔_其余走闲时` / `闲时间隔小于基础间隔时取基础间隔` / `基础间隔下限5s` | `effective_interval_ms` 三档与下限 |
-| `portal_origin_取scheme加host_去路径端口路径与查询` | origin 裁剪 |
-| `期望运营商展示_空串为无锡学院_其余原样` | `expected_operator_display` |
-| `status_value_展平最近一次检测含运营商` | 启动初值顶层展平（`onlineOperator` 徽标数据源） |
+1. **`:core` 进程不启动 tauri**:`core::platform::CorePlatform` 刻意不出现 tauri 类型,保证核心可脱离 Activity 运行;平台能力(通知、WifiLock、WiFi 绑定、就寝守则)全部经该 trait 注入,`:core` 由 `jni_platform::JniPlatform` 实现。
+2. **跨进程配置以磁盘为准**:任何"读配置 → 判定 → 写配置"的编排在写后必须 `latest_settings` **重读**,否则 stale 快照会把刚清掉的 `night_outbound_restore` 复活写回。
+3. **落盘成功才推进状态机**:夜间出站切换/还原的标记只在 `persist_settings` 返回 `Some` 后才认为切换态成立,落盘失败则下一拍重试整段(不产生"内存态已切、磁盘态未切"的分裂)。
+4. **连续失败上限是自愈出口**:出站还原连续失败 3 次即放弃自动还原并清标记,否则标记会永久压住巡检且每拍发起注定失败的登录。
+5. **通知文案去重按完整文案**:同状态码但失败原因变化也要更新,否则失败路径会把"在线"永久钉住;但文案相同即跳过(每拍重建是稳态功耗点)。
+6. **功耗优先的降级策略**:闲时跳拍、绑小核、就寝守则白天零 JNI、`CURFEW_ACTIVE` 门控——所有省电手段都以"不改变正确性"为前提,WiFi 事件即时触发与三态护栏保证不漏判。

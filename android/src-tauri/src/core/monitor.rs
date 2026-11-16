@@ -192,6 +192,7 @@ fn with_vpn_hint(body: &str) -> String {
 
 pub async fn start_background_check(ctx: CoreCtx) -> Result<serde_json::Value, String> {
     let settings = ctx.settings().await?;
+    let curfew_config = wifi_curfew_config_json(&settings);
     let want = settings.background_check_interval.max(5000);
     MONITOR.desired_interval_ms.store(want, Ordering::Relaxed);
     MONITOR
@@ -199,12 +200,12 @@ pub async fn start_background_check(ctx: CoreCtx) -> Result<serde_json::Value, S
         .store(settings.background_check_idle_interval, Ordering::Relaxed);
     if is_running() {
         #[cfg(mobile)]
-        start_wifi_watcher(&ctx);
+        start_wifi_watcher(&ctx, &curfew_config);
         return Ok(serde_json::json!({ "isRunning": true }));
     }
     MONITOR.running.store(true, Ordering::Relaxed);
     #[cfg(mobile)]
-    start_wifi_watcher(&ctx);
+    start_wifi_watcher(&ctx, &curfew_config);
     let gen = MONITOR_GENERATION.fetch_add(1, Ordering::Relaxed);
     tokio::spawn(monitor_tick_loop(ctx.clone(), want, gen));
     ctx.emit_log("后台监控已启动", "info");
@@ -233,16 +234,16 @@ pub async fn stop_background_check(ctx: CoreCtx) -> Result<serde_json::Value, St
 static WIFI_WATCHER_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 #[cfg(mobile)]
-pub(crate) fn start_wifi_watcher(ctx: &CoreCtx) {
-    match ctx.platform().start_wifi_watcher() {
+pub(crate) fn start_wifi_watcher(ctx: &CoreCtx, config_json: &str) {
+    match ctx.platform().start_wifi_watcher(config_json) {
         Ok(_) => {
             WIFI_WATCHER_ACTIVE.store(true, Ordering::Relaxed);
             WATCHER_FAILED.store(false, Ordering::Relaxed);
-            campus_login_lib::log_info!("monitor", "WiFi 变化监听已启动(WiFi 变化即时触发检测)");
+            campus_login_lib::log_info!("monitor", "WiFi 常驻回调已注册(变化/RSSI 事件驱动)");
         }
         Err(e) => {
             WATCHER_FAILED.store(true, Ordering::Relaxed);
-            campus_login_lib::log_warn!("monitor", "WiFi 变化监听启动失败,退化为纯周期检测: {e}");
+            campus_login_lib::log_warn!("monitor", "WiFi 常驻回调注册失败,退化为纯周期检测: {e}");
         }
     }
 }
@@ -256,10 +257,29 @@ pub(crate) fn stop_wifi_watcher(ctx: &CoreCtx) {
     campus_login_lib::log_info!("monitor", "WiFi 变化监听已停止");
 }
 
+/// 守则与常驻回调共用的配置 JSON：字段与 Kotlin WifiCurfewRunner 的解析一一对应。
+fn wifi_curfew_config_json(settings: &crate::config_state::Settings) -> String {
+    serde_json::json!({
+        "enabled": settings.enable_wifi_curfew,
+        "excluded": settings.wifi_curfew_excluded,
+        "allowed": settings.wifi_curfew_allowed,
+        "restoreStart": settings.night_restore_minutes,
+        "weakRssi": settings.wifi_curfew_weak_rssi,
+        "channel": settings.wifi_curfew_channel,
+    })
+    .to_string()
+}
+
 #[cfg(mobile)]
 pub(crate) async fn handle_wifi_event(ctx: CoreCtx, event: String) {
     if !is_running() {
         return;
+    }
+    // 回调里的守则动作由 Kotlin 侧驱动；这里每次事件用最新配置刷新一次，
+    // 既热更新配置，也在首次注册失败(WATCHER_FAILED)时自动恢复
+    #[cfg(mobile)]
+    if let Ok(settings) = ctx.settings().await {
+        start_wifi_watcher(&ctx, &wifi_curfew_config_json(&settings));
     }
     let now = crate::core::platform::now_ms();
     if !wifi_event_is_burst_start(

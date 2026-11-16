@@ -13,6 +13,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
@@ -26,6 +27,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.Base64
 import android.util.Log
+import rikka.shizuku.Shizuku
 import java.security.KeyStore
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -53,6 +55,9 @@ class CoreService : Service() {
         const val MSG_RESULT = 2
         const val NOTIFY_CHECK_INTERVAL_MS = 10 * 60 * 1000L
 
+        /** RSSI 触发守则的最小跨档幅度（dBm）：回调高频，同档不重判 */
+        private const val RSSI_BUCKET_DBM = 5
+
         /** 通知陈旧阈值:与 campus_core_logic::status::MAX_STATUS_AGE_MS 一致 */
         private const val STATUS_STALE_MS = 15 * 60 * 1000L
     }
@@ -66,10 +71,28 @@ class CoreService : Service() {
 
     private var wifiLock: WifiManager.WifiLock? = null
     private var probeWakeLock: PowerManager.WakeLock? = null
+
+    /**
+     * 常驻网络回调：WiFi 变化 + RSSI 都在 :core 进程内消费，不依赖 UI/Activity。
+     * 事件用主线程 handler 投递，保证 watcher 启动、停止与回调串行。
+     */
     private var networkWatcher: ConnectivityManager.NetworkCallback? = null
+    @Volatile
+    private var watcherHandler: Handler? = null
+    /** 上一次触发守则的 RSSI 档位（±5dBm）；null = 尚未采样 */
+    private var lastRssiBucket: Int? = null
 
     @Volatile
     private var lastNotificationText = "校园网监控运行中"
+
+    private val shizukuPermissionListener = rikka.shizuku.Shizuku.OnRequestPermissionResultListener { _, grantResult ->
+        if (grantResult == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Log.i(TAG, "Shizuku 已授权(:core 进程收到),立即执行一次守则")
+            runCurfewFromEvent("shizuku-granted")
+        } else {
+            Log.w(TAG, "Shizuku 授权被拒绝(:core 进程)")
+        }
+    }
 
     private val notifyTick = object : Runnable {
         override fun run() {
@@ -88,6 +111,9 @@ class CoreService : Service() {
         // 数据目录与 tauri 的 app_data_dir 一致(tauri android: getDataDir = activity.dataDir)
         nativeStart(this, applicationInfo.dataDir)
         notifyHandler.postDelayed(notifyTick, NOTIFY_CHECK_INTERVAL_MS)
+        // Shizuku 授权弹窗在 UI 进程，但守则动作在 :core 进程执行——
+        // 不监听授权结果的话 :core 的 CurfewChannel 永远拿到 denied，事件守则形同虚设
+        Shizuku.addRequestPermissionResultListener(shizukuPermissionListener, notifyHandler)
         Log.i(TAG, "CoreService 已创建,核心启动")
     }
 
@@ -99,6 +125,7 @@ class CoreService : Service() {
     override fun onBind(intent: Intent?): IBinder = messenger.binder
 
     override fun onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
         notifyHandler.removeCallbacks(notifyTick)
         releaseProbeLocks()
         stopWifiWatcher()
@@ -347,6 +374,8 @@ class CoreService : Service() {
 
     /** 守则配置暂存：Rust 侧先 set 再 run（签名契约里 String→String 只留给加解密） */
     @Volatile private var wifiCurfewConfig: String = ""
+    private val curfewLock = Any()
+    @Volatile private var lastCurfewChannel: String = ""
 
     fun setWifiCurfewConfig(json: String) {
         wifiCurfewConfig = json
@@ -356,51 +385,117 @@ class CoreService : Service() {
      * WiFi 就寝守则单拍，返回执行结果 JSON。判定与 `cmd wifi` 动作在 [WifiCurfewRunner]。
      */
     fun runWifiCurfew(): String {
-        return WifiCurfewRunner(applicationContext).run(wifiCurfewConfig)
+        // 回调线程与巡检线程都会进来：守则动作（切网/关 WiFi）必须串行，
+        // 否则两次 run 交错会出现「刚切过去又被另一拍关掉」
+        synchronized(curfewLock) {
+            return WifiCurfewRunner(applicationContext).run(wifiCurfewConfig)
+        }
     }
 
-    fun startWifiWatcher() {
-        stopWifiWatcher()
-        val cm = getSystemService(ConnectivityManager::class.java)
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            private var lastValidated: Boolean? = null
+    /**
+     * 注册常驻 WiFi 回调，[configJson] 是最近一次巡检的配置（与 setWifiCurfewConfig 同构）。
+     * 每次调用都用最新配置重建回调——配置热更新不需要重启监控。
+     *
+     * 回调运行在 binder 线程，这里切到主线程 handler 执行注册，避免与 stop 交错。
+     */
+    fun startWifiWatcher(configJson: String) {
+        wifiCurfewConfig = configJson
+        if (watcherHandler == null) watcherHandler = Handler(Looper.getMainLooper())
+        watcherHandler?.post {
+            // 幂等：已注册就只更新配置，不重建回调（配置字段本身就是 @Volatile）
+            if (networkWatcher != null) return@post
+            val cm = getSystemService(ConnectivityManager::class.java)
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                private var lastValidated: Boolean? = null
 
-            override fun onAvailable(network: Network) {
-                nativeWifiEvent("available")
-            }
-
-            override fun onLost(network: Network) {
-                lastValidated = null
-                nativeWifiEvent("lost")
-            }
-
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                if (lastValidated != null && validated != lastValidated) {
-                    nativeWifiEvent(if (validated) "validated" else "unvalidated")
+                override fun onAvailable(network: Network) {
+                    nativeWifiEvent("available")
+                    runCurfewFromEvent("available")
                 }
-                lastValidated = validated
+
+                override fun onLost(network: Network) {
+                    lastValidated = null
+                    nativeWifiEvent("lost")
+                    runCurfewFromEvent("lost")
+                }
+
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    if (lastValidated != null && validated != lastValidated) {
+                        nativeWifiEvent(if (validated) "validated" else "unvalidated")
+                        runCurfewFromEvent(if (validated) "validated" else "unvalidated")
+                    }
+                    lastValidated = validated
+                    handleRssi(caps)
+                }
+            }
+            val request = NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .build()
+            cm.registerNetworkCallback(request, callback)
+            networkWatcher = callback
+            Log.i(TAG, "WiFi 回调已注册(:core 常驻)")
+        }
+    }
+
+    fun stopWifiWatcher() {
+        if (watcherHandler == null) watcherHandler = Handler(Looper.getMainLooper())
+        watcherHandler?.post {
+            unregisterNetworkCallback()
+            Log.i(TAG, "WiFi 回调已注销")
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        networkWatcher?.let { callback ->
+            try {
+                (getSystemService(ConnectivityManager::class.java)).unregisterNetworkCallback(callback)
+            } catch (e: Exception) {
+                Log.w(TAG, "注销网络回调失败: ${e.message}")
             }
         }
-        val request = NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-            .build()
-        cm.registerNetworkCallback(request, callback)
-        networkWatcher = callback
+        networkWatcher = null
+    }
+
+    /**
+     * RSSI 只在跨档时触发守则，避免 onCapabilitiesChanged 的高频回调刷 Shizuku：
+     * 每档 ±5dBm（-70 与 -72 视为同档），跨档才重判弱信号与窗口。
+     */
+    private fun handleRssi(caps: NetworkCapabilities) {
+        val wifiInfo = caps.transportInfo as? WifiInfo ?: return
+        val rssi = wifiInfo.rssi
+        // INVALID_RSSI = -127（WifiManager 常量，未关联/未知时的哨兵值）
+        if (rssi == -127) return
+        val bucket = rssi / RSSI_BUCKET_DBM
+        val lastBucket = lastRssiBucket
+        if (lastBucket != null && lastBucket == bucket) return
+        lastRssiBucket = bucket
+        runCurfewFromEvent("rssi:$rssi")
+    }
+
+    private fun runCurfewFromEvent(reason: String) {
+        // 守则执行内部会经 Shizuku/shell 同步等待，放到 IO 线程，不能占着回调线程
+        Thread({
+            try {
+                val outcome = runWifiCurfew()
+                // 通道不可用时（未授权/无 root）结果恒为 channel=none：只在首次与恢复时记，
+                // 不随每次 RSSI 回调刷屏；UI 侧用 curfew_event 展示失败原因即可
+                val noneChannel = outcome.contains("\"channel\":\"none\"")
+                if (!noneChannel || lastCurfewChannel != "none") {
+                    Log.i(TAG, "WiFi 事件($reason)守则: $outcome")
+                }
+                lastCurfewChannel = if (noneChannel) "none" else "ready"
+                // 结果写事件广播：核心日志在应用私有目录（release 包读不到），
+                // UI 的监测页与 logcat 都需要这条链路确认后台事件确实驱动了动作
+                emit("curfew_event", "{\"reason\":\"$reason\",\"result\":$outcome}")
+            } catch (e: Throwable) {
+                Log.w(TAG, "WiFi 事件($reason)守则失败: ${e.message}")
+            }
+        }, "campus-curfew-event").start()
     }
 
     fun runIdleStop() {
         stopSelf()
-    }
-
-    fun stopWifiWatcher() {
-        networkWatcher?.let { callback ->
-            try {
-                (getSystemService(ConnectivityManager::class.java)).unregisterNetworkCallback(callback)
-            } catch (_: Exception) {
-            }
-        }
-        networkWatcher = null
     }
 
     fun decrypt(data: String): String {

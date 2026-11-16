@@ -1,3 +1,24 @@
+### 后台监测事件驱动化：WiFi 回调迁入 :core 常驻服务（2026-11-16）
+
+**为什么**：WiFi 变化监听此前挂在 Activity 插件（network-bind）上，UI 进程被系统回收或锁屏后监听随进程消亡，「跟随 WiFi 变化登录」失效；弱信号断开只随巡检周期（灭屏闲时 5 分钟）判定，后台同样不可用。
+
+**改了什么**
+
+- **回调迁移到 :core 前台服务**（`CoreService.startWifiWatcher(configJson)`）：常驻 `ConnectivityManager.NetworkCallback` 注册在 :core 进程，UI 进程被杀/锁屏后照常收到 `onAvailable/onLost/onCapabilitiesChanged`；UI 侧 network-bind 插件的重复 watcher（`startWifiWatcher/stopWifiWatcher` 与 `wifiChanged` channel）整体删除，Rust 封装同步移除。
+- **事件驱动守则**：回调内除 `nativeWifiEvent` 触发 Rust 巡检外，还直接驱动 WiFi 守则——连上/断开/认证翻转立即判定，RSSI 跨 ±5dBm 档位时重判弱信号（`handleRssi`，`transportInfo as? WifiInfo`），不再等巡检周期；守则动作 `synchronized(curfewLock)` 串行，避免回调与巡检交错动 WiFi。
+- **配置一次分发**：`start_wifi_watcher(config_json)` 把守则配置（enabled/excluded/allowed/restoreStart/weakRssi/channel）随注册交给 Kotlin，`wifi_curfew_config_json()` 单点构造；事件到达时用最新配置刷新（幂等：已注册只更新配置不重建回调），首次注册失败也会在下个事件自动恢复。
+- **签名契约同步**：`CorePlatform::start_wifi_watcher` 改为带配置参数，`platform_sig.rs` 映射 `startWifiWatcher` → `StrToVoid`，Kotlin 源码回归测试继续锁定（`cargo test -p campus-core-logic` 18 passed）。
+- **核心进程监听 Shizuku 授权**：授权弹窗在 UI 进程，:core 进程现在注册 `OnRequestPermissionResultListener`，授权成功立即补一次守则；此前 :core 永远 denied，事件守则形同虚设。
+- **可观测性**：事件守则结果经 `curfew_event` 广播回 UI（含 reason 与完整结果 JSON）；`channel=none` 的失败只在首次与恢复时记日志，不再随 RSSI 回调刷屏。
+
+**验证**
+
+- `cargo test`（android/core-logic）18 passed，含 `核心服务源码签名与Rust映射一致`
+- `pwsh android/build-apk.ps1` 出包成功并装机
+- 真机 RMX3300（Android 15）锁屏后台验证：`svc wifi disable` → `WiFi 事件(lost)守则`；`svc wifi enable` → `WiFi 事件(available)守则` + `WiFi 事件(validated)守则`，全部来自 :core 进程（pid 2766，UI 在后台）
+- 注册日志：`WiFi 回调已注册(:core 常驻)`；开机自启 `CoreService 已创建,核心启动` 后立即收到 `available` 与 `rssi:-42` 事件
+- 未端到端验证：Shizuku 授权在重装后被重置，真机授权弹窗需用户解锁点允许，事件驱动的真实切网/弱信号断开未实测（回调与判定链路已验证）
+
 ### 评审修复：切换复核、多 netId、root 回落、双端弹窗对齐（2026-11-16）
 
 **为什么**：上一版把加密网络切换改走 `IWifiManager#enableNetwork(netId)` 后，评审发现三类问题——切换结果不复核（系统受理即报「已切换」，目标不可达时误导）、同一 SSID 的多条配置只试首条、纯 root 通道彻底切不动；另有文档与前端口径不一致。
