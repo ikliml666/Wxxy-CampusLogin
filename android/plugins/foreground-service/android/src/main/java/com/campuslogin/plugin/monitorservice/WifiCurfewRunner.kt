@@ -225,11 +225,13 @@ class WifiCurfewRunner(private val context: Context) {
         return out
     }
 
-    private fun currentSsid(): String = try {
-        val manager = context.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
-        manager?.connectionInfo?.ssid?.trim('"') ?: ""
-    } catch (e: Throwable) {
-        ""
+    /**
+     * 走 shell 读 SSID。WifiManager.connectionInfo 在 Android 12+ 对新应用一律脱敏成
+     * "<unknown ssid>"，拿它判定等于永远读不到当前网络——守则会一直以为没连 WiFi 而不动作。
+     */
+    private fun currentSsid(): String {
+        val out = shellExec("cmd wifi status") ?: return ""
+        return Regex("connected to \"([^\"]+)\"").find(out)?.groupValues?.get(1)?.trim().orEmpty()
     }
 
     /**
