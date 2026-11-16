@@ -1,3 +1,20 @@
+### 安卓端 WiFi 连接管控不生效：两处根因与调试入口（2026-11-16，安卓）
+
+**为什么**：真机（RMX3300 / Android 15）在就寝时段内、通道自检通过、名单命中，WiFi 依然连着。查到两个各自独立都会让规则彻底失效的缺陷。
+
+**改了什么**
+
+- **Shizuku 的 UserService 组件从未在 Manifest 声明**（`android/plugins/foreground-service/android/src/main/AndroidManifest.xml`）：`Shizuku.bindUserService` 绑不到未声明的 `<service>`，表现为「权限已授权、状态显示绿色，但命令一条也执行不了」。补 `RemoteShellService` 声明后，通道自检返回 `exit=0 uid=0(root)`。
+- **当前 SSID 读不到**（`WifiCurfewRunner.currentSsid()`）：`WifiManager.connectionInfo.ssid` 在 Android 12+ 对新应用一律脱敏成 `<unknown ssid>`，判定永远落在「没连 WiFi」分支直接 keep。改用 `cmd wifi status` 的输出解析（走 Shizuku 通道，实测输出含 `Wifi is connected to "..."`）。
+- **通道状态加真执行自检**：之前只看 `Shizuku.checkSelfPermission()`，权限够就显示绿色。新增 `probeChannel()` 真跑一条 `id`，失败回报 `shizuku-not-ready` / `bind-timeout` / `binder-null` / `exec:...` 具体环节。
+- **恢复时刻改用原生时间输入**：与桌面端、监测页「检测时间段」一致，去掉 30 分钟档下拉——该下拉在手机上视口只有 `p-1`，36 个选项被 `overflow-hidden` 裁掉且滚不动，后面的时间根本选不到。
+- **连接管控卡加调试入口**「立即执行 / 关闭 WiFi / 打开 WiFi」：不必等到 23:00 才能验证规则。守则 payload 加 `force` 绕过时段判定（`WifiCurfewRunner.run(json, force)`）。
+
+**验证**
+
+- 真机点击「关闭 WiFi」后 `adb shell cmd wifi status` 返回 `Wifi is disabled`，点「打开 WiFi」恢复连接 —— 证明 React → Tauri → Kotlin → Shizuku → `cmd wifi` 整条链路可用
+- `./gradlew :tauri-plugin-campus-monitor-service:compileReleaseKotlin` BUILD SUCCESSFUL
+- `npx tsc --noEmit --incremental`（`android/frontend`）exit 0
 ### 夜间出站切换评审修复：顺序改为「先下线原卡再写跃点」，失败可整笔回退（2026-11-15，桌面后端）
 
 **为什么**：上一轮把切换改成「写跃点 → 下线原卡 → 启用」，两轴 code-review 查出三个真问题：① 禁用失败时跃点已写、快照已落盘，而 set_metric 成功已清掉失败计数，`needs_replay` 恒假 → 系统停在「跃点已切、旧连接未断」且不再重试；② 启用后复核用 `read_family_rows(..).unwrap_or_default()` 吞掉读失败，接口未就绪时静默跳过补写；③ 重放只补目标卡 metric=1，被启用回来的原卡不带 100，会凭更低的 routeMetric 抢回出口。
