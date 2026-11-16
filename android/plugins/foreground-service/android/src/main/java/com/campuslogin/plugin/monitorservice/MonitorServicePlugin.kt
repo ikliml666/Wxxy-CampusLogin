@@ -31,6 +31,14 @@ import rikka.shizuku.Shizuku
 // 放 Companion 会因 private 对 BootReceiver 不可见导致编译失败。
 private const val TAG = "CampusMonitorService"
 
+/** runner 返回的是 JSON 文本，而 invoke.resolve 只收 JSObject（该类型没有 String 构造） */
+private fun toJsObject(raw: String): JSObject {
+    val src = JSONObject(raw)
+    val out = JSObject()
+    src.keys().forEach { key -> out.put(key, src.get(key)) }
+    return out
+}
+
 // Shizuku 授权的请求码：只要应用内唯一即可，Shizuku 会原样回传
 private const val CURFEW_PERMISSION_CODE = 4201
 
@@ -199,7 +207,7 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
                 Log.w(TAG, "testCurfew 失败", e)
                 "{\"error\":\"" + e.javaClass.simpleName + ": " + e.message + "\"}"
             }
-            invoke.resolve(JSONObject(out))
+            invoke.resolve(toJsObject(out))
         }, "curfew-test").start()
     }
 
@@ -214,7 +222,7 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
         val args = invoke.parseArgs(WifiSwitchArgs::class.java)
         val ctx = activity.applicationContext
         Thread({
-            invoke.resolve(JSONObject(WifiCurfewRunner(ctx).testWifiEnabled(args.enable)))
+            invoke.resolve(toJsObject(WifiCurfewRunner(ctx).testWifiEnabled(args.enable)))
         }, "wifi-switch-test").start()
     }
 
