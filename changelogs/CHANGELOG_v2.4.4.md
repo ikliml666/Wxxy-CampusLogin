@@ -51,6 +51,7 @@
 
 - `npx tsc --noEmit --incremental` exit 0；`npx vite build` ✓ built
 - 浏览器 mock 实测：入口显示「已选 1 个网络」；弹窗内点选 CMCC-kiku_5G → 行高亮 + 对勾；Esc 关闭后入口变「已选 2 个网络」且 chip 同步新增；浅色/暗色两种模式弹窗排版正常
+- 弹窗版 APK 已 `adb install -r` 到 RMX3300；真机截图时手机再次锁屏（同上次），弹窗真机实测未做，以 mock 实测为准
 
 ### 安卓端 WiFi 连接管控不生效：两处根因与调试入口（2026-11-16，安卓）
 
