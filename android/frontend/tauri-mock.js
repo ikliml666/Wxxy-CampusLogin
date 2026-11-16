@@ -129,14 +129,14 @@
       try { if (window.location.search.indexOf('curfewshell=off') >= 0) return { networks: [], error: 'no_shell' } } catch (e) {}
       return {
         networks: [
-          { ssid: 'CMCC-2Psu_5G', security: 'wpa2-psk' },
-          { ssid: 'CMCC-kiku_5G', security: 'wpa2-psk' },
-          { ssid: 'DESKTOP-UQP0PUB 0967', security: 'wpa2-psk' },
-          { ssid: 'H3CIE', security: 'wpa2-psk' },
-          { ssid: 'REDMI K80 Ultra', security: 'wpa2-psk' },
-          { ssid: 'Realme GT 8 Pro', security: 'wpa2-psk' },
-          { ssid: 'i-wxxy', security: 'open' },
-          { ssid: 'kiku-5G', security: 'wpa2-psk' }
+          { ssid: 'CMCC-2Psu_5G', security: 'wpa2-psk', netIds: [0] },
+          { ssid: 'CMCC-kiku_5G', security: 'wpa2-psk', netIds: [1] },
+          { ssid: 'DESKTOP-UQP0PUB 0967', security: 'wpa2-psk', netIds: [2] },
+          { ssid: 'H3CIE', security: 'wpa2-psk', netIds: [3] },
+          { ssid: 'REDMI K80 Ultra', security: 'wpa2-psk', netIds: [4] },
+          { ssid: 'Realme GT 8 Pro', security: 'wpa2-psk', netIds: [5] },
+          { ssid: 'i-wxxy', security: 'open', netIds: [6] },
+          { ssid: 'kiku-5G', security: 'wpa2-psk', netIds: [7] }
         ]
       }
     },
@@ -148,12 +148,12 @@
       try { cfg = JSON.parse((args && args.config) || '{}') } catch (e) {}
       var allowed = cfg.allowed || []
       var excluded = cfg.excluded || []
-      // 与真机同口径：只有 open / owe 能免密 connect-network；wpa2/wpa3 必须明文密码
-      var open = allowed.filter(function (s) { return s.toLowerCase() === 'i-wxxy' })
-      var tried = allowed.filter(function (s) { return open.indexOf(s) < 0 })
-        .map(function (s) { return '「' + s + '」是加密网络（wpa2-psk），命令行连接必须给明文密码' })
-      if (open.length > 0) {
-        return { action: cfg.dryRun ? 'would-connect' : 'connect', channel: 'shizuku', target: open[0], currentSsid: 'kiku-5G', tried: tried }
+      // 与真机同口径：Shizuku 通道按 netId 走系统接口，加密网络同样用已存凭据，不需要密码；
+      // 只有通道不可用时加密网络才切不动（会落到 kept 的 tried 里说明原因）
+      var channelReady = window.location.search.indexOf('curfewshell=off') < 0
+      var tried = channelReady ? [] : allowed.map(function (s) { return '「' + s + '」是加密网络，免密切换需要 Shizuku 通道' })
+      if (channelReady && allowed.length > 0) {
+        return { action: cfg.dryRun ? 'would-connect' : 'connect', channel: 'shizuku', target: allowed[0], currentSsid: 'kiku-5G', tried: tried }
       }
       // 放行目标连不上：当前 kiku-5G 不在断开名单 → 保持 + tried 原因
       var blocked = excluded.indexOf('*') >= 0 || excluded.some(function (s) { return s.toLowerCase() === 'kiku-5g' })

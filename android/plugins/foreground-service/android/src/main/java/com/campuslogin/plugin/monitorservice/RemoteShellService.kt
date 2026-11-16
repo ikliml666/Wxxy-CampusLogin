@@ -15,7 +15,10 @@ class RemoteShellService : IRemoteShell.Stub() {
     private companion object {
         const val TAG = "CurfewShell"
 
-        /** Shizuku 发往 UserService 的 destroy 事务码（AIDL 里写作 16777114） */
+        /**
+         * Shizuku 发往 UserService 的 destroy 事务码。服务端收发两侧数值不同是 Shizuku 的约定：
+         * 它向 UserService 发 16777115，而 AIDL 文件里声明的是 16777114（README 原文）。
+         */
         const val TRANSACTION_DESTROY = 16777115
     }
 
@@ -64,15 +67,22 @@ class RemoteShellService : IRemoteShell.Stub() {
         // uid 2000 走 com.android.shell；root 后端下该包名与 uid 对不上，用 android
         val pkg = if (android.os.Process.myUid() == 0) "android" else "com.android.shell"
         return try {
-            // 服务端签名随版本变化：新版本带 packageName，旧版本只有 (netId, disableOthers)
+            // 服务端签名随版本变化：新版本 (int, boolean, String)，旧版本 (int, boolean)。
+            // 按参数类型精确匹配——只数参数个数，遇到签名不同会以 IllegalArgumentException 收场
             val modern = service.javaClass.methods.firstOrNull {
-                it.name == "enableNetwork" && it.parameterCount == 3
+                it.name == "enableNetwork" &&
+                    it.parameterTypes.contentEquals(
+                        arrayOf(Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType, String::class.java)
+                    )
             }
             val ok = if (modern != null) {
                 modern.invoke(service, netId, true, pkg) as? Boolean ?: false
             } else {
                 val legacy = service.javaClass.methods.firstOrNull {
-                    it.name == "enableNetwork" && it.parameterCount == 2
+                    it.name == "enableNetwork" &&
+                        it.parameterTypes.contentEquals(
+                            arrayOf(Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+                        )
                 } ?: return "error:no-enable-network"
                 legacy.invoke(service, netId, true) as? Boolean ?: false
             }

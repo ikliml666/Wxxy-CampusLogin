@@ -169,6 +169,8 @@ export interface SavedWifiNetwork {
   ssid: string
   /** list-networks 的原始安全列：open / owe / wpa2-psk / wpa3-sae 等 */
   security: string
+  /** 同一 SSID 可能有多条配置（Android 15 按安全模式拆分），各自独立 networkId */
+  netIds: number[]
 }
 
 export interface SavedWifiNetworksResult {

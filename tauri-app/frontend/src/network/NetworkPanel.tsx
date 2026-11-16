@@ -6,8 +6,9 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, Route, RotateCcw, SlidersHorizontal, BedDouble, X } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, Route, RotateCcw, SlidersHorizontal, BedDouble, X, ChevronRight } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { SettingRow } from '@/components/ui/setting-row'
@@ -169,6 +170,8 @@ function formatRestoreTime(minutes: number | undefined): string {
  *  名单是纯文本（用户手输 SSID）；去重不区分大小写——Windows 对 SSID 的比较本身也不区分 */
 const SsidListEditor = memo(function SsidListEditor({
   id,
+  title,
+  description,
   items,
   placeholder,
   removeLabel,
@@ -176,12 +179,16 @@ const SsidListEditor = memo(function SsidListEditor({
   onChange,
 }: {
   id: string
+  title: string
+  description: string
   items: string[]
   placeholder: string
   removeLabel: (name: string) => string
   disabled?: boolean
   onChange: (next: string[]) => void
 }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const commit = useCallback(() => {
     const value = draft.trim()
@@ -193,43 +200,91 @@ const SsidListEditor = memo(function SsidListEditor({
   }, [draft, items, onChange])
 
   return (
-    <div className={cn('flex flex-wrap items-center gap-1.5', disabled && 'opacity-60')}>
-      {items.map((name) => (
-        <span
-          key={name}
-          className="inline-flex items-center gap-1 rounded-full bg-primary/10 py-1 pl-2.5 pr-1.5 text-[12px] text-primary"
-        >
-          {name}
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={removeLabel(name)}
-            title={removeLabel(name)}
-            onClick={() => onChange(items.filter((it) => it !== name))}
-            className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-primary/20 disabled:opacity-50"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </span>
-      ))}
-      <input
+    <div className={cn('space-y-2', disabled && 'opacity-60')}>
+      <button
         id={id}
-        value={draft}
+        type="button"
         disabled={disabled}
-        placeholder={placeholder}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            commit()
-          } else if (e.key === 'Escape') {
-            e.preventDefault()
-            setDraft('')
-          }
-        }}
-        className="h-7 w-32 rounded-lg border border-input bg-card px-2 text-[12px] outline-none transition-colors duration-150 hover:border-input/70 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-      />
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center justify-between rounded-xl border border-input/70 bg-muted/30 px-3 py-2 text-[12px] transition-colors hover:bg-primary/5 disabled:opacity-50"
+      >
+        <span className="text-muted-foreground">
+          {items.length > 0
+            ? t('network.wifiCurfewSelectCount', { count: items.length })
+            : t('network.wifiCurfewSelectNone')}
+        </span>
+        <span className="inline-flex items-center gap-1 text-primary">
+          {t('network.wifiCurfewSelectAction')}
+          <ChevronRight className="h-3.5 w-3.5" />
+        </span>
+      </button>
+      {items.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {items.map((name) => (
+            <span
+              key={name}
+              className="inline-flex items-center gap-1 rounded-full bg-primary/10 py-0.5 pl-2 pr-1 text-[11px] font-medium text-primary"
+            >
+              {name}
+              <button
+                type="button"
+                disabled={disabled}
+                aria-label={removeLabel(name)}
+                title={removeLabel(name)}
+                onClick={() => onChange(items.filter((it) => it !== name))}
+                className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full transition-colors hover:bg-primary/20 disabled:opacity-50"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="flex max-h-[80vh] w-[calc(100vw-2rem)] max-w-sm flex-col gap-3 p-4">
+          <DialogHeader>
+            <DialogTitle className="text-base">{title}</DialogTitle>
+            <DialogDescription className="text-[12px]">{description}</DialogDescription>
+          </DialogHeader>
+          {items.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {items.map((name) => (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 py-1 pl-2.5 pr-1.5 text-[12px] text-primary"
+                >
+                  {name}
+                  <button
+                    type="button"
+                    aria-label={removeLabel(name)}
+                    title={removeLabel(name)}
+                    onClick={() => onChange(items.filter((it) => it !== name))}
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-primary/20"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <Input
+            value={draft}
+            autoFocus
+            placeholder={placeholder}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                commit()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                setDraft('')
+              }
+            }}
+            className="h-9 text-[13px]"
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 })
@@ -878,6 +933,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               <Label htmlFor="wifi-curfew-excluded" className="text-xs font-medium">{t('network.wifiCurfewExcluded')}</Label>
               <SsidListEditor
                 id="wifi-curfew-excluded"
+                title={t('network.wifiCurfewExcludedTitle')}
+                description={t('network.wifiCurfewExcludedDesc')}
                 items={config.wifiCurfewExcluded}
                 placeholder={t('network.wifiCurfewAddPlaceholder')}
                 removeLabel={name => t('network.wifiCurfewRemove', { name })}
@@ -890,6 +947,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               <Label htmlFor="wifi-curfew-allowed" className="text-xs font-medium">{t('network.wifiCurfewAllowed')}</Label>
               <SsidListEditor
                 id="wifi-curfew-allowed"
+                title={t('network.wifiCurfewAllowedTitle')}
+                description={t('network.wifiCurfewAllowedDesc')}
                 items={config.wifiCurfewAllowed}
                 placeholder={t('network.wifiCurfewAddPlaceholder')}
                 removeLabel={name => t('network.wifiCurfewRemove', { name })}

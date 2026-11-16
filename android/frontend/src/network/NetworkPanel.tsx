@@ -104,8 +104,10 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
   items,
   saved,
   loadError,
+  conflict,
   disabled,
   onChange,
+  onConflict,
   onRetry,
 }: {
   id: string
@@ -117,8 +119,11 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
   /** null = 正在读取 */
   saved: SavedWifiNetwork[] | null
   loadError: boolean
+  /** 另一份名单里的 SSID：放行与断开互斥，选中时会从对方移除 */
+  conflict: string[]
   disabled?: boolean
   onChange: (next: string[]) => void
+  onConflict: (ssid: string) => void
   onRetry: () => void
 }) {
   const { t } = useTranslation()
@@ -132,6 +137,7 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
   const isOpen = (security: string) => /^(open|owe)/i.test(security)
   const toggle = (ssid: string, checked: boolean) => {
     if (checked) {
+      if (conflict.some((it) => it.toLowerCase() === ssid.toLowerCase())) onConflict(ssid)
       if (!items.some((it) => it.toLowerCase() === ssid.toLowerCase())) onChange([...items, ssid])
     } else {
       onChange(items.filter((it) => it.toLowerCase() !== ssid.toLowerCase()))
@@ -207,6 +213,7 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
               {rows.map((row) => {
                 const checked = items.some((it) => it.toLowerCase() === row.ssid.toLowerCase())
                 const openNet = row.inSystem && isOpen(row.security)
+                const inConflict = conflict.some((it) => it.toLowerCase() === row.ssid.toLowerCase())
                 return (
                   <div
                     key={row.inSystem ? row.ssid : `extra-${row.ssid}`}
@@ -235,7 +242,11 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
                       <Wifi className="h-4 w-4" />
                     </span>
                     <span className="flex-1 truncate font-medium">{row.ssid}</span>
-                    {!row.inSystem ? (
+                    {inConflict && !checked ? (
+                      <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-400">
+                        {t('network.wifiCurfewInOtherList')}
+                      </span>
+                    ) : !row.inSystem ? (
                       <span className="shrink-0 text-[10px] text-muted-foreground/70">{t('network.wifiCurfewNotSaved')}</span>
                     ) : openNet ? (
                       <span className="shrink-0 text-[10px] text-emerald-600 dark:text-emerald-400">{t('network.wifiCurfewOpen')}</span>
@@ -330,9 +341,10 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
       if (!mountedRef.current) return
       setSavedNetworks(result.networks ?? [])
       setSavedNetworksError(Boolean(result.error))
-    } catch {
-      // 旧包没有这条命令：按读取失败处理，用户升级/授权后可重试
+    } catch (e) {
+      // 旧包没有这条命令 + 通道未就绪都走这里：记下原因便于排查，UI 统一显示可重试
       if (!mountedRef.current) return
+      console.warn('[curfew] 读取系统已保存网络失败', e)
       setSavedNetworks([])
       setSavedNetworksError(true)
     }
@@ -536,8 +548,16 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                 items={config.wifiCurfewExcluded}
                 saved={savedNetworks}
                 loadError={savedNetworksError}
+                conflict={config.wifiCurfewAllowed}
                 disabled={!config.enableWifiCurfew}
                 onChange={next => onUpdateConfig({ wifiCurfewExcluded: next })}
+                onConflict={name =>
+                  onUpdateConfig({
+                    wifiCurfewAllowed: config.wifiCurfewAllowed.filter(
+                      it => it.toLowerCase() !== name.toLowerCase()
+                    ),
+                  })
+                }
                 onRetry={() => void refreshSavedNetworks()}
               />
             </div>
@@ -551,8 +571,16 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                 items={config.wifiCurfewAllowed}
                 saved={savedNetworks}
                 loadError={savedNetworksError}
+                conflict={config.wifiCurfewExcluded}
                 disabled={!config.enableWifiCurfew}
                 onChange={next => onUpdateConfig({ wifiCurfewAllowed: next })}
+                onConflict={name =>
+                  onUpdateConfig({
+                    wifiCurfewExcluded: config.wifiCurfewExcluded.filter(
+                      it => it.toLowerCase() !== name.toLowerCase()
+                    ),
+                  })
+                }
                 onRetry={() => void refreshSavedNetworks()}
               />
             </div>

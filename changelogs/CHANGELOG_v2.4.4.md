@@ -1,3 +1,24 @@
+### 评审修复：切换复核、多 netId、root 回落、双端弹窗对齐（2026-11-16）
+
+**为什么**：上一版把加密网络切换改走 `IWifiManager#enableNetwork(netId)` 后，评审发现三类问题——切换结果不复核（系统受理即报「已切换」，目标不可达时误导）、同一 SSID 的多条配置只试首条、纯 root 通道彻底切不动；另有文档与前端口径不一致。
+
+**改了什么**
+
+- **切换后复核**（`WifiCurfewRunner.awaitSsid`）：`enableNetwork` 返回 true 只代表系统受理请求，现在轮询 `cmd wifi status` 最长 8s 确认真的连上目标，未连上则记入 `tried` 继续下一个放行目标，不再误报 `connect`。
+- **多 netId 全试**：`parseNetworks` 按 SSID 聚合全部 networkId（Android 15 同一网络按安全模式拆多行），切换时逐个尝试，首个不可用不再直接失败；`list_saved_wifi_networks` 出口同时返回 `netIds`。
+- **root 通道回落**：没有 Shizuku 时对 open/owe 网络回落 `cmd wifi connect-network <ssid> open|owe`（免密），加密网络如实回报「免密切换需要 Shizuku 通道」——不再出现纯 root 用户连开放网络都切不动的回归。
+- **反射按类型匹配**：`enableNetwork` 的 3 参/2 参重载改为校验参数类型（int, boolean, [String]），不再只数个数。
+- **双端 UI 对齐**：桌面 `SsidListEditor` 改为同一套入口按钮 + 弹窗交互（已选计数 / chip / 弹窗内输入），两端 zh/en 新增同名键 `wifiCurfewSelectNone/SelectCount/SelectAction/ExcludedTitle/ExcludedDesc/AllowedTitle/AllowedDesc`。
+- **名单互斥**：同一 SSID 同时出现在断开与放行时，弹窗行标「在另一名单」，选中即从对方名单移除——避免用户以为命中断开名单而实际放行优先。
+- **文案与 mock 校正**：`wifiCurfewAllowedDesc` 不再声称加密网络需要密码；`tauri-mock.js` 的守则模拟改为「通道就绪即按系统凭据切换」，并补 `netIds`。
+- 清理：删掉只写不读的 `channelConn`；通道读取失败的 catch 记录原因（`console.warn`）；旧条目里「加密网络仍连不上」的已知限制标注为「同日已解除」。
+
+**验证**
+
+- 两端 `npx tsc --noEmit --incremental` exit 0；两端 `npx vite build` ✓ built；`pwsh android/build-apk.ps1` 出包成功并装机
+- 真机 RMX3300（Android 15）「试运行」→ `{"action":"would-connect","target":"Realme GT 8 Pro","tried":[]}`
+- 真机「立即执行」→ `enableSavedNetwork(5) 结果=true` → 8s 内未连上目标（热点不在范围）→ `{"action":"wifi-off","tried":["「Realme GT 8 Pro」netId=5 未连上（ok）"]}`，不再误报已切换
+
 ### 安卓 WiFi 切换改走系统已存凭据：加密网络不再要求输入密码（2026-11-16，安卓）
 
 **为什么**：守则切放行网络时用 `cmd wifi connect-network <ssid> <security>`，这条子命令对 wpa2/wpa3/wep **强制要求显式密码**（真机实测缺参直接报 `IllegalArgumentException: Argument expected after "wpa2"`）。系统里存的是加密凭据、拿不到明文，所以加密的放行目标永远切不过去——正是"切换要输密码"的来源。
@@ -26,9 +47,9 @@
 - **窗口内目标状态改为「待在放行网络上」**（`WifiCurfewRunner.run`）：已连放行网络 → 保持；否则有放行名单就主动 `connect-network` 切过去（不再要求当前命中断开名单）；放行目标都连不上时，只有当前网络命中断开名单才关 WiFi，未连接或连着无关网络保持原样，切换失败原因经 tried 带回。
 - **新增 `list_saved_wifi_networks` 读取通道**：Kotlin `listSavedNetworks`（`cmd wifi list-networks`）→ 插件 `listSavedWifiNetworks` → Rust IPC → 前端 `listSavedWifiNetworks` 封装。Android 15 同一网络按安全模式拆多行（wpa2-psk + wpa3-sae^、open + owe^），按 SSID 去重（不区分大小写）。
 - **名单 UI 改为系统已保存网络勾选**（`NetworkPanel.SavedNetworkPicker` 替换手输 `SsidListEditor`）：已选但系统里已不存在的条目保留在末尾标「未保存」，取消勾选即移除；通道未就绪时显示原因 + 重试，不显示误导性空名单；授权成功后自动重读。i18n 删 `wifiCurfewAddPlaceholder` / `wifiCurfewRemove`，新增 5 个键（zh/en 同步）。
-- 桌面端不动：Windows 守则是「黑名单 profile 改手动连接 + 断开」，没有切放行网络动作；名单来源是安卓系统能力，属平台专属改动（AGENTS 第 3 条例外）。
+- 桌面名单编辑器随后改为同一套弹窗交互（见本文件首条）。
 
-**保留的已知限制**：加密网络（wpa2/wpa3/wep）的放行目标仍连不上——`cmd wifi connect-network` 必须要明文密码，系统凭据拿不到明文；此时按规则落到关 WiFi / 保持，tried 注明具体原因（与本次改动前的行为一致）。
+**当时的已知限制**（同日已解除，见本文件首条「加密网络不再要求输入密码」）：加密网络（wpa2/wpa3/wep）的放行目标连不上——`cmd wifi connect-network` 必须要明文密码，系统凭据拿不到明文。
 
 **验证**
 

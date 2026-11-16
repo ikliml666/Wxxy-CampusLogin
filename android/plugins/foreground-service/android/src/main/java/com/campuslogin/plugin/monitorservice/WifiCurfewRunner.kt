@@ -42,9 +42,11 @@ class WifiCurfewRunner(private val context: Context) {
         /** 弱信号关掉后隔这么久复探一次：WiFi 关着读不到 RSSI，只能开回来再判 */
         private const val WEAK_PROBE_MS = 5 * 60 * 1000L
         private const val SHELL_WAIT_MS = 8000L
+        /** 切换后等系统连上目标的最长时间与轮询间隔 */
+        private const val SWITCH_CONFIRM_MS = 8000L
+        private const val SWITCH_CONFIRM_STEP_MS = 800L
         /** 常驻的 UserService 连接（runner 每次新建，所以缓存放伴生对象里） */
         @Volatile private var channel: IRemoteShell? = null
-        @Volatile private var channelConn: ServiceConnection? = null
         private val CHANNEL_LOCK = Any()
         private const val DEFAULT_RESTORE_START = 450
         private const val RESTORE_END = 1380
@@ -99,32 +101,51 @@ class WifiCurfewRunner(private val context: Context) {
         val tried = mutableListOf<String>()
         if (allowed.isNotEmpty()) {
             val saved = shellExec("cmd wifi list-networks")?.let { parseNetworks(it) }.orEmpty()
+            val useShizuku = CurfewChannel.shizukuReady()
             for (target in allowed) {
                 val entry = saved.firstOrNull { it.ssid.equals(target, ignoreCase = true) }
                 if (entry == null) {
                     tried.add("「" + target + "」系统里没有保存过该网络，无法切换")
                     continue
                 }
-                if (entry.netId == null) {
-                    tried.add("「" + target + "」读不到 networkId，无法按系统已存配置切换")
-                    continue
-                }
                 if (dryRun) {
                     return result("would-connect").put("channel", channel).put("target", target)
                         .put("currentSsid", current).put("tried", JSONArray(tried)).toString()
                 }
-                // 按 networkId 启用系统已保存的配置：与用户点选网络同一条路径，
-                // 走已存凭据，不需要明文密码（connect-network 做不到这点）
-                val out = enableSavedNetwork(entry.netId)
-                if (out == null) {
-                    tried.add("「" + target + "」通道没有返回结果")
-                    continue
+                // 先按 networkId 走系统接口（与用户点选网络同一条路径，用已存凭据、不要密码）；
+                // 没有 Shizuku 时回落 cmd wifi 对 open/owe 的免密连接——加密网络在 root 下
+                // 拿不到明文密码，如实回报原因而不是假装切过
+                var connected = false
+                if (useShizuku && entry.netIds.isNotEmpty()) {
+                    for (id in entry.netIds) {
+                        val out = enableSavedNetwork(id)
+                        if (out == null) {
+                            tried.add("「" + target + "」通道没有返回结果")
+                            continue
+                        }
+                        if (out == "ok" && awaitSsid(target)) {
+                            connected = true
+                            break
+                        }
+                        tried.add("「" + target + "」netId=" + id + " 未连上（" + out + "）")
+                    }
+                } else {
+                    val security = openSecurity(entry.security)
+                    if (security == null) {
+                        tried.add("「" + target + "」是加密网络，免密切换需要 Shizuku 通道")
+                    } else {
+                        val out = shellExec("cmd wifi connect-network \"" + target + "\" " + security)
+                        if (out != null && out.contains("exit=0") && awaitSsid(target)) {
+                            connected = true
+                        } else {
+                            tried.add("「" + target + "」连接命令未生效")
+                        }
+                    }
                 }
-                if (out == "ok") {
+                if (connected) {
                     return result("connect").put("channel", channel).put("target", target)
                         .put("currentSsid", current).toString()
                 }
-                tried.add("「" + target + "」切换失败（" + out + "）")
             }
         }
         // 2) 放行目标都连不上：只有当前网络命中断开名单才关 WiFi；
@@ -241,7 +262,12 @@ class WifiCurfewRunner(private val context: Context) {
 
     // ===== list-networks 解析 =====
     // 输出为固定列宽：%-12d %-32s %-4s，首行是表头
-    private data class SavedNetwork(val ssid: String, val security: String, val netId: Int?)
+    /**
+     * [netIds] 是同一 SSID 的全部配置行：Android 15 会把一个网络按安全模式拆成多条
+     * （wpa2-psk / wpa3-sae^、open / owe^），各自有独立 networkId。切换时要逐个试，
+     * 只取首行会在首个配置不可用时直接失败。
+     */
+    private data class SavedNetwork(val ssid: String, val security: String, val netIds: MutableList<Int>)
 
     private fun parseNetworks(raw: String): List<SavedNetwork> {
         val out = mutableListOf<SavedNetwork>()
@@ -252,7 +278,12 @@ class WifiCurfewRunner(private val context: Context) {
             val ssid = line.drop(12).take(33).trim()
             val security = line.drop(45).trim()
             if (ssid.isEmpty()) continue
-            out.add(SavedNetwork(ssid, security, id))
+            val existing = out.firstOrNull { it.ssid.equals(ssid, ignoreCase = true) }
+            if (existing == null) {
+                out.add(SavedNetwork(ssid, security, mutableListOf(id)))
+            } else if (!existing.netIds.contains(id)) {
+                existing.netIds.add(id)
+            }
         }
         return out
     }
@@ -264,6 +295,26 @@ class WifiCurfewRunner(private val context: Context) {
     private fun currentSsid(): String {
         val out = shellExec("cmd wifi status") ?: return ""
         return Regex("connected to \"([^\"]+)\"").find(out)?.groupValues?.get(1)?.trim().orEmpty()
+    }
+
+    /**
+     * 切换后确认真的连上了目标：enableNetwork 返回 true 只代表系统受理了请求，
+     * 目标不在范围内时它会回落到原网络，直接报「已切换」会误导用户。
+     */
+    private fun awaitSsid(target: String, timeoutMs: Long = SWITCH_CONFIRM_MS): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (currentSsid().equals(target, ignoreCase = true)) return true
+            Thread.sleep(SWITCH_CONFIRM_STEP_MS)
+        }
+        return currentSsid().equals(target, ignoreCase = true)
+    }
+
+    /** `list-networks` 打印 open / owe^ / wpa2-psk / wpa3-sae^，只有前两者能不给密码连 */
+    private fun openSecurity(raw: String): String? = when {
+        raw.startsWith("open", ignoreCase = true) -> "open"
+        raw.startsWith("owe", ignoreCase = true) -> "owe"
+        else -> null
     }
 
     /**
@@ -295,8 +346,13 @@ class WifiCurfewRunner(private val context: Context) {
         val raw = shellExec("cmd wifi list-networks")
             ?: return JSONObject().put("networks", JSONArray()).put("error", "no_shell").toString()
         val networks = JSONArray()
-        for (entry in parseNetworks(raw).distinctBy { it.ssid.lowercase() }) {
-            networks.put(JSONObject().put("ssid", entry.ssid).put("security", entry.security))
+        for (entry in parseNetworks(raw)) {
+            networks.put(
+                JSONObject()
+                    .put("ssid", entry.ssid)
+                    .put("security", entry.security)
+                    .put("netIds", JSONArray(entry.netIds))
+            )
         }
         return JSONObject().put("networks", networks).toString()
     }
@@ -380,7 +436,6 @@ class WifiCurfewRunner(private val context: Context) {
                     return null
                 }
                 channel = bound
-                channelConn = conn
                 bound
             } catch (e: Throwable) {
                 Log.w(TAG, "UserService 绑定失败", e)
@@ -392,7 +447,6 @@ class WifiCurfewRunner(private val context: Context) {
     /** binder 失效时丢掉旧连接，下次调用重新绑定 */
     private fun dropChannel() {
         channel = null
-        channelConn = null
     }
 
     private fun withRoot(command: String): String? = try {
