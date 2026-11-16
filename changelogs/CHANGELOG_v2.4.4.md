@@ -1,3 +1,22 @@
+### 安卓 WiFi 切换改走系统已存凭据：加密网络不再要求输入密码（2026-11-16，安卓）
+
+**为什么**：守则切放行网络时用 `cmd wifi connect-network <ssid> <security>`，这条子命令对 wpa2/wpa3/wep **强制要求显式密码**（真机实测缺参直接报 `IllegalArgumentException: Argument expected after "wpa2"`）。系统里存的是加密凭据、拿不到明文，所以加密的放行目标永远切不过去——正是"切换要输密码"的来源。
+
+**改了什么**
+
+- **切换走系统 `IWifiManager#enableNetwork(netId, disableOthers=true, packageName)`**（`RemoteShellService.enableSavedNetwork`）：`WifiServiceImpl` 在 `disableOthers=true` 时走 `triggerConnectAndReturnStatus`，语义等于用户在 WiFi 列表里点选一个已保存网络——用系统已有凭据连接，不需要密码，也不新建/改动配置。真机 `enableNetwork(5) 结果=true`（uid=0 root 后端），不再出现密码相关失败。
+- **执行器改用 networkId**（`WifiCurfewRunner`）：`list-networks` 解析保留首列 networkId（`SavedNetwork.netId`），切换时按 netId 调用上面的接口；删除已无用的 `openSecurity` 白名单判定与 `connect-network` 调用。
+- **修 UserService 进程泄漏**（同一处通道代码）：原实现每次读状态/列网络都 `bindUserService` 后 `unbind`，而 Shizuku 不会主动杀 UserService 进程，真机上累积到 **65 个** `com.campuslogin.client:shell` root 进程。改为**进程级常驻连接**——首次用到时 `daemon(true)` 绑一次、缓存 binder 复用，只有 binder 失效（进程被回收）才重建，常驻一个进程。
+- **AIDL 增加 `String enableSavedNetwork(int netId)`**，UserService 版本号 1→2（Shizuku 按版本号决定复用还是新起进程，改了接口必须升版本）。
+- 可观测性：`testCurfew` 打印结果 JSON；`wifi-off` 结果也带 `tried`（此前只有 keep 分支带，看不到为什么没切成功）；通道异常打日志而不是静默返回 null。
+
+**验证**
+
+- `pwsh android/build-apk.ps1` 出包成功；`adb install -r` 装机
+- 真机 RMX3300 / Android 15（Shizuku root 后端）：点「立即执行」→ 日志 `enableSavedNetwork(5) 结果=true` → `testCurfew 结果: {"action":"connect","channel":"shizuku","target":"Realme GT 8 Pro"}`，全程无密码提示；进程数稳定在 66（65 遗留 + 1 常驻），不再随调用增长
+- 遗留的 65 个旧进程无法从 adb 清理（root 身份，需重启手机或重启 Shizuku）
+- **未验证**：切到目标后是否稳定停留在目标网络——测试时放行目标 Realme GT 8 Pro 的热点已关闭（`list-scan-results` 只有 kiku / kiku-5G），系统接受切换请求后回落到原网络；端到端"停在新网络"需要在目标可见时复测
+
 ### 安卓 WiFi 连接管控：有放行网络即主动切换，名单改读系统已保存网络（2026-11-16，安卓）
 
 **为什么**：原实现两处与设计不符——① 只有当前网络命中「断开网络」名单时才会尝试切到放行网络，连着无关网络或没连 WiFi 时直接 keep，放行名单在这些场景下形同虚设；② 断开/放行名单靠手输 SSID，大小写/空格易错，也看不到系统里实际保存了哪些网络。

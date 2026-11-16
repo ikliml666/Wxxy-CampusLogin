@@ -202,7 +202,9 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
         val ctx = activity.applicationContext
         Thread({
             val out = try {
-                WifiCurfewRunner(ctx).run(args.config ?: "{}", args.force)
+                WifiCurfewRunner(ctx).run(args.config ?: "{}", args.force).also {
+                    Log.i(TAG, "testCurfew 结果: " + it)
+                }
             } catch (e: Throwable) {
                 Log.w(TAG, "testCurfew 失败", e)
                 "{\"error\":\"" + e.javaClass.simpleName + ": " + e.message + "\"}"

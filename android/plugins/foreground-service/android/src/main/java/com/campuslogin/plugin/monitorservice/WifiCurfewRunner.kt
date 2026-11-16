@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.ServiceConnection
 import android.os.IBinder
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
@@ -15,8 +16,10 @@ import java.util.concurrent.TimeUnit
  * WiFi 就寝守则的安卓执行器（跑在 `:core` 进程）。
  *
  * **窗口内的目标状态是「待在放行网络上」，动作都不改变系统里保存的配置**：
- * 1. 已连放行网络 → 不动；连着其它网络或没连 → `cmd wifi connect-network <ssid> <security>`
- *    主动切到放行网络（网络已保存在系统里，密码沿用已有的，所以不传 passphrase）；
+ * 1. 已连放行网络 → 不动；连着其它网络或没连 → 按 networkId 调系统
+ *    `WifiManager#enableNetwork(netId, true)` 主动切过去——与用户在 WiFi 列表里点选网络
+ *    同一条路径，**走系统已存凭据，不需要明文密码**（`cmd wifi connect-network`
+ *    对 wpa2/wpa3/wep 强制要显式密码，拿不到系统加密凭据，是我方旧实现切不动加密网络的根因）；
  * 2. 放行目标连不上，且当前网络命中断开名单 → `cmd wifi set-wifi-enabled disabled`
  *    关掉 WiFi 走流量，次日恢复时刻 `enabled` 打开；未连接或当前网络不在名单里则保持原样。
  *
@@ -29,6 +32,7 @@ import java.util.concurrent.TimeUnit
 class WifiCurfewRunner(private val context: Context) {
 
     companion object {
+        private const val TAG = "CurfewRunner"
         private const val PREFS = "wifi_curfew"
         /** 本程序关掉过 WiFi（只有它置位才会在出窗时打开，避免误开用户自己关的 WiFi） */
         private const val KEY_DISABLED = "disabled_wifi"
@@ -38,6 +42,10 @@ class WifiCurfewRunner(private val context: Context) {
         /** 弱信号关掉后隔这么久复探一次：WiFi 关着读不到 RSSI，只能开回来再判 */
         private const val WEAK_PROBE_MS = 5 * 60 * 1000L
         private const val SHELL_WAIT_MS = 8000L
+        /** 常驻的 UserService 连接（runner 每次新建，所以缓存放伴生对象里） */
+        @Volatile private var channel: IRemoteShell? = null
+        @Volatile private var channelConn: ServiceConnection? = null
+        private val CHANNEL_LOCK = Any()
         private const val DEFAULT_RESTORE_START = 450
         private const val RESTORE_END = 1380
     }
@@ -85,37 +93,38 @@ class WifiCurfewRunner(private val context: Context) {
 
         // 1) 有放行列表 → 主动切过去：无论当前是否命中断开名单、是否连着 WiFi，
         //    窗口内的目标状态就是放行网络；只连免密可用的那些
-        //    connect-network 对 wpa2/wpa3/wep 必须给明文密码（真机实测缺参报
-        //    IllegalArgumentException: Argument expected after "wpa2"），而系统存的是
-        //    加密凭据、拿不到明文，所以加密目标连不上，落到下面的关 WiFi
+        //    切换走 IWifiManager#enableNetwork(netId, true)：系统用已存凭据自己连，
+        //    不需要明文密码（connect-network 对 wpa2/wpa3/wep 强制要密码，真机实测缺参报
+        //    IllegalArgumentException: Argument expected after "wpa2"——那是旧实现切不动加密网络的根因）
         val tried = mutableListOf<String>()
         if (allowed.isNotEmpty()) {
             val saved = shellExec("cmd wifi list-networks")?.let { parseNetworks(it) }.orEmpty()
             for (target in allowed) {
                 val entry = saved.firstOrNull { it.ssid.equals(target, ignoreCase = true) }
                 if (entry == null) {
-                    tried.add("「" + target + "」系统里没有保存过，拿不到免密连接需要的信息")
+                    tried.add("「" + target + "」系统里没有保存过该网络，无法切换")
                     continue
                 }
-                val security = openSecurity(entry.security)
-                if (security == null) {
-                    tried.add("「" + target + "」是加密网络（" + entry.security + "），命令行连接必须给明文密码")
+                if (entry.netId == null) {
+                    tried.add("「" + target + "」读不到 networkId，无法按系统已存配置切换")
                     continue
                 }
                 if (dryRun) {
                     return result("would-connect").put("channel", channel).put("target", target)
                         .put("currentSsid", current).put("tried", JSONArray(tried)).toString()
                 }
-                val out = shellExec("cmd wifi connect-network \"$target\" $security")
+                // 按 networkId 启用系统已保存的配置：与用户点选网络同一条路径，
+                // 走已存凭据，不需要明文密码（connect-network 做不到这点）
+                val out = enableSavedNetwork(entry.netId)
                 if (out == null) {
                     tried.add("「" + target + "」通道没有返回结果")
                     continue
                 }
-                // 这条子命令成功时不打印任何内容，只能看退出码（真机实测）
-                if (out.contains("exit=0")) {
-                    return result("connect").put("channel", channel).put("target", target).put("currentSsid", current).toString()
+                if (out == "ok") {
+                    return result("connect").put("channel", channel).put("target", target)
+                        .put("currentSsid", current).toString()
                 }
-                tried.add("「" + target + "」连接命令执行失败")
+                tried.add("「" + target + "」切换失败（" + out + "）")
             }
         }
         // 2) 放行目标都连不上：只有当前网络命中断开名单才关 WiFi；
@@ -134,7 +143,8 @@ class WifiCurfewRunner(private val context: Context) {
         val trace = setWifiEnabled(false)
         if (trace.ok) {
             prefs.edit().putBoolean(KEY_DISABLED, true).apply()
-            return result("wifi-off").put("channel", channel).put("currentSsid", current).put("trace", trace.detail).toString()
+            return result("wifi-off").put("channel", channel).put("currentSsid", current)
+                .put("tried", JSONArray(tried)).put("trace", trace.detail).toString()
         }
         return result("failed").put("channel", channel).put("trace", trace.detail).toString()
     }
@@ -231,29 +241,18 @@ class WifiCurfewRunner(private val context: Context) {
 
     // ===== list-networks 解析 =====
     // 输出为固定列宽：%-12d %-32s %-4s，首行是表头
-    private data class SavedNetwork(val ssid: String, val security: String)
-
-    /**
-     * list-networks 打印的是 open / owe^ / wpa2-psk / wpa3-sae^（^ 表 transition 模式），
-     * 而 connect-network 只接受 open|owe|wpa2|wpa3|wep。只有 open 与 owe 能不带密码连上，
-     * 其余返回 null 表示该目标跳过。
-     */
-    private fun openSecurity(raw: String): String? = when {
-        raw.startsWith("open", ignoreCase = true) -> "open"
-        raw.startsWith("owe", ignoreCase = true) -> "owe"
-        else -> null
-    }
+    private data class SavedNetwork(val ssid: String, val security: String, val netId: Int?)
 
     private fun parseNetworks(raw: String): List<SavedNetwork> {
         val out = mutableListOf<SavedNetwork>()
         for (line in raw.lines()) {
             if (line.startsWith("Network Id") || line.isBlank()) continue
             // 首列必须是 networkId 数字，用来排除表头/空行等非数据行
-            line.take(12).trim().toIntOrNull() ?: continue
+            val id = line.take(12).trim().toIntOrNull() ?: continue
             val ssid = line.drop(12).take(33).trim()
             val security = line.drop(45).trim()
             if (ssid.isEmpty()) continue
-            out.add(SavedNetwork(ssid, security))
+            out.add(SavedNetwork(ssid, security, id))
         }
         return out
     }
@@ -273,41 +272,15 @@ class WifiCurfewRunner(private val context: Context) {
      * 命令报错全糊成一团，只能靠猜。
      */
     fun probeChannel(): String {
-        if (!CurfewChannel.shizukuReady()) return "shizuku-not-ready"
-        val component = ComponentName(context.packageName, RemoteShellService::class.java.name)
-        val args = Shizuku.UserServiceArgs(component)
-            .daemon(false)
-            .processNameSuffix("shell")
-            .debuggable(false)
-            .version(1)
-        val latch = CountDownLatch(1)
-        var output: String? = null
-        var error: String? = null
-        val conn = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                try {
-                    output = IRemoteShell.Stub.asInterface(binder)?.exec("id")
-                    if (output == null) error = "binder-null"
-                } catch (e: Throwable) {
-                    error = "exec:" + e.javaClass.simpleName + ":" + e.message
-                } finally {
-                    latch.countDown()
-                }
-            }
-
-            override fun onServiceDisconnected(name: ComponentName?) {}
+        val remote = shellChannel()
+        if (remote == null) {
+            return if (CurfewChannel.shizukuReady()) "bind-timeout" else "shizuku-not-ready"
         }
         return try {
-            Shizuku.bindUserService(args, conn)
-            if (latch.await(SHELL_WAIT_MS, TimeUnit.MILLISECONDS)) {
-                output?.trim()?.takeIf { it.isNotEmpty() } ?: (error ?: "no-output")
-            } else {
-                "bind-timeout"
-            }
+            remote.exec("id").trim().takeIf { it.isNotEmpty() } ?: "no-output"
         } catch (e: Throwable) {
-            "bind:" + e.javaClass.simpleName + ":" + e.message
-        } finally {
-            runCatching { Shizuku.unbindUserService(args, conn, true) }
+            dropChannel()
+            "exec:" + e.javaClass.simpleName + ":" + e.message
         }
     }
 
@@ -335,41 +308,91 @@ class WifiCurfewRunner(private val context: Context) {
     }
 
     // ===== shell 通道 =====
+    //
+    // Shizuku 的 UserService 是独立进程：bind 一次约 1 秒，而 unbind 之后进程不会自己退出
+    // （真机上累积到 65 个 root 进程）。所以这里只保留**一个常驻连接**——首次用到时 bind，
+    // 之后复用同一个 binder，只有进程死了（binder 失效）才重建。
 
-    /** 优先 Shizuku（user service，shell 身份），其次 root（su）。都没有返回 null。 */
-    private fun shellExec(command: String): String? = withShizuku(command) ?: withRoot(command)
+    /** 优先 Shizuku（user service），其次 root（su）。都没有返回 null。 */
+    private fun shellExec(command: String): String? {
+        val remote = shellChannel() ?: return withRoot(command)
+        return try {
+            remote.exec(command)
+        } catch (e: Throwable) {
+            Log.w(TAG, "shell 命令执行失败: " + command, e)
+            dropChannel()
+            withRoot(command)
+        }
+    }
 
-    private fun withShizuku(command: String): String? {
+    /**
+     * 按 networkId 让系统连上「已保存」的网络，返回 "ok" / "fail" / "error:..."。
+     *
+     * 与用户在 WiFi 列表里点选网络同一条系统路径：走已存凭据，不需要明文密码。
+     * 没有 Shizuku 通道返回 null，由调用方如实回报失败原因。
+     */
+    private fun enableSavedNetwork(netId: Int): String? {
+        val remote = shellChannel() ?: return null
+        return try {
+            remote.enableSavedNetwork(netId)
+        } catch (e: Throwable) {
+            Log.w(TAG, "enableSavedNetwork(" + netId + ") 调用失败", e)
+            dropChannel()
+            null
+        }
+    }
+
+    /**
+     * 取常驻的 UserService 连接。binder 还活着就直接复用；只有进程被回收才重新 bind。
+     * 绑不上（Shizuku 没就绪、超时）返回 null，调用方据此回落 root 或报错。
+     */
+    private fun shellChannel(): IRemoteShell? {
+        channel?.let { existing ->
+            if (runCatching { existing.asBinder().isBinderAlive }.getOrDefault(false)) return existing
+        }
         if (!CurfewChannel.shizukuReady()) return null
-        val component = ComponentName(context.packageName, RemoteShellService::class.java.name)
-        val args = Shizuku.UserServiceArgs(component)
-            .daemon(false)
-            .processNameSuffix("shell")
-            .debuggable(false)
-            .version(1)
-        val latch = CountDownLatch(1)
-        var output: String? = null
-        val conn = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                try {
-                    output = IRemoteShell.Stub.asInterface(binder)?.exec(command)
-                } catch (e: Throwable) {
-                    output = null
-                } finally {
+        synchronized(CHANNEL_LOCK) {
+            channel?.let { existing ->
+                if (runCatching { existing.asBinder().isBinderAlive }.getOrDefault(false)) return existing
+            }
+            val component = ComponentName(context.packageName, RemoteShellService::class.java.name)
+            val args = Shizuku.UserServiceArgs(component)
+                .daemon(true)
+                .processNameSuffix("shell")
+                .debuggable(false)
+                .version(2)
+            val latch = CountDownLatch(1)
+            var bound: IRemoteShell? = null
+            val conn = object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+                    bound = IRemoteShell.Stub.asInterface(binder)
                     latch.countDown()
                 }
-            }
 
-            override fun onServiceDisconnected(name: ComponentName?) {}
+                override fun onServiceDisconnected(name: ComponentName?) {
+                    dropChannel()
+                }
+            }
+            return try {
+                Shizuku.bindUserService(args, conn)
+                if (!latch.await(SHELL_WAIT_MS, TimeUnit.MILLISECONDS)) {
+                    Log.w(TAG, "UserService 绑定超时")
+                    return null
+                }
+                channel = bound
+                channelConn = conn
+                bound
+            } catch (e: Throwable) {
+                Log.w(TAG, "UserService 绑定失败", e)
+                null
+            }
         }
-        return try {
-            Shizuku.bindUserService(args, conn)
-            if (latch.await(SHELL_WAIT_MS, TimeUnit.MILLISECONDS)) output else null
-        } catch (e: Throwable) {
-            null
-        } finally {
-            runCatching { Shizuku.unbindUserService(args, conn, true) }
-        }
+    }
+
+    /** binder 失效时丢掉旧连接，下次调用重新绑定 */
+    private fun dropChannel() {
+        channel = null
+        channelConn = null
     }
 
     private fun withRoot(command: String): String? = try {
