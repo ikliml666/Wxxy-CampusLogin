@@ -2,10 +2,11 @@ import type { Config } from '@/settings'
 import { CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { AnimatedCard } from '@/components/ui/animated-card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, Loader2, Wifi, Lock, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, Loader2, Wifi, Lock, X, ChevronRight } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -98,6 +99,8 @@ function formatRestoreTime(minutes: number | undefined): string {
  *  匹配不区分大小写，与后端 isBlocked 同口径。 */
 const SavedNetworkPicker = memo(function SavedNetworkPicker({
   id,
+  title,
+  description,
   items,
   saved,
   loadError,
@@ -106,6 +109,10 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
   onRetry,
 }: {
   id: string
+  /** 弹窗标题（如「选择断开网络」） */
+  title: string
+  /** 弹窗副标题 */
+  description: string
   items: string[]
   /** null = 正在读取 */
   saved: SavedWifiNetwork[] | null
@@ -115,6 +122,7 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
   onRetry: () => void
 }) {
   const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
   const rows = (saved ?? []).map((n) => ({ ssid: n.ssid, security: n.security, inSystem: true }))
   for (const it of items) {
     if (!rows.some((r) => r.ssid.toLowerCase() === it.toLowerCase())) {
@@ -132,6 +140,23 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
 
   return (
     <div className={cn('space-y-2', disabled && 'opacity-60')}>
+      <button
+        id={id}
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center justify-between rounded-xl border border-input/70 bg-muted/30 px-3 py-2 text-[12px] transition-colors hover:bg-primary/5 disabled:opacity-50"
+      >
+        <span className="text-muted-foreground">
+          {items.length > 0
+            ? t('network.wifiCurfewSelectCount', { count: items.length })
+            : t('network.wifiCurfewSelectNone')}
+        </span>
+        <span className="inline-flex items-center gap-1 text-primary">
+          {t('network.wifiCurfewSelectAction')}
+          <ChevronRight className="h-3.5 w-3.5" />
+        </span>
+      </button>
       {items.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {items.map((name) => (
@@ -153,77 +178,86 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
           ))}
         </div>
       )}
-      <div className="overflow-hidden rounded-xl border border-input/70 bg-muted/30">
-        {loadError ? (
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5 text-[12px] text-muted-foreground">
-            <span>{t('network.wifiCurfewSavedError')}</span>
-            <button
-              type="button"
-              onClick={onRetry}
-              className="shrink-0 rounded-lg border border-input px-2 py-1 text-[11px] text-primary transition-colors hover:bg-primary/10"
-            >
-              {t('network.wifiCurfewSavedRetry')}
-            </button>
-          </div>
-        ) : saved === null ? (
-          <div className="flex items-center gap-2 px-3 py-2.5 text-[12px] text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {t('network.wifiCurfewSavedLoading')}
-          </div>
-        ) : rows.length === 0 ? (
-          <div className="px-3 py-2.5 text-[12px] text-muted-foreground">{t('network.wifiCurfewSavedEmpty')}</div>
-        ) : (
-          <div className="max-h-44 overflow-y-auto p-1.5">
-            {rows.map((row, index) => {
-              const checked = items.some((it) => it.toLowerCase() === row.ssid.toLowerCase())
-              const open = row.inSystem && isOpen(row.security)
-              return (
-                <label
-                  key={row.inSystem ? row.ssid : `extra-${row.ssid}`}
-                  className={cn(
-                    'flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-[12px] transition-colors',
-                    checked ? 'bg-primary/10 text-primary' : 'hover:bg-primary/5'
-                  )}
-                >
-                  <input
-                    id={index === 0 ? id : undefined}
-                    type="checkbox"
-                    checked={checked}
-                    disabled={disabled}
-                    onChange={(e) => toggle(row.ssid, e.target.checked)}
-                    className="sr-only"
-                  />
-                  <span
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="flex max-h-[80vh] w-[calc(100vw-2rem)] max-w-sm flex-col gap-3 p-4">
+          <DialogHeader>
+            <DialogTitle className="text-base">{title}</DialogTitle>
+            <DialogDescription className="text-[12px]">{description}</DialogDescription>
+          </DialogHeader>
+          {loadError ? (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-input/70 bg-muted/30 px-3 py-2.5 text-[12px] text-muted-foreground">
+              <span>{t('network.wifiCurfewSavedError')}</span>
+              <button
+                type="button"
+                onClick={onRetry}
+                className="shrink-0 rounded-lg border border-input px-2 py-1 text-[11px] text-primary transition-colors hover:bg-primary/10"
+              >
+                {t('network.wifiCurfewSavedRetry')}
+              </button>
+            </div>
+          ) : saved === null ? (
+            <div className="flex items-center gap-2 px-3 py-2.5 text-[12px] text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t('network.wifiCurfewSavedLoading')}
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="px-3 py-2.5 text-[12px] text-muted-foreground">{t('network.wifiCurfewSavedEmpty')}</div>
+          ) : (
+            <div className="-mx-1 flex-1 overflow-y-auto px-1">
+              {rows.map((row) => {
+                const checked = items.some((it) => it.toLowerCase() === row.ssid.toLowerCase())
+                const openNet = row.inSystem && isOpen(row.security)
+                return (
+                  <div
+                    key={row.inSystem ? row.ssid : `extra-${row.ssid}`}
+                    role="checkbox"
+                    aria-checked={checked}
+                    aria-label={row.ssid}
+                    tabIndex={0}
+                    onClick={() => toggle(row.ssid, !checked)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggle(row.ssid, !checked)
+                      }
+                    }}
                     className={cn(
-                      'flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
-                      checked ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+                      'flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-[13px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      checked ? 'bg-primary/10 text-primary' : 'hover:bg-primary/5'
                     )}
                   >
-                    <Wifi className="h-3.5 w-3.5" />
-                  </span>
-                  <span className="flex-1 truncate font-medium">{row.ssid}</span>
-                  {!row.inSystem ? (
-                    <span className="shrink-0 text-[10px] text-muted-foreground/70">{t('network.wifiCurfewNotSaved')}</span>
-                  ) : open ? (
-                    <span className="shrink-0 text-[10px] text-emerald-600 dark:text-emerald-400">{t('network.wifiCurfewOpen')}</span>
-                  ) : (
-                    <Lock className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-                  )}
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors',
-                      checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input'
+                    <span
+                      className={cn(
+                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
+                        checked ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+                      )}
+                    >
+                      <Wifi className="h-4 w-4" />
+                    </span>
+                    <span className="flex-1 truncate font-medium">{row.ssid}</span>
+                    {!row.inSystem ? (
+                      <span className="shrink-0 text-[10px] text-muted-foreground/70">{t('network.wifiCurfewNotSaved')}</span>
+                    ) : openNet ? (
+                      <span className="shrink-0 text-[10px] text-emerald-600 dark:text-emerald-400">{t('network.wifiCurfewOpen')}</span>
+                    ) : (
+                      <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
                     )}
-                  >
-                    {checked && <Check className="h-2.5 w-2.5" />}
-                  </span>
-                </label>
-              )
-            })}
-          </div>
-        )}
-      </div>
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        'flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full border transition-colors',
+                        checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input'
+                      )}
+                    >
+                      {checked && <Check className="h-3 w-3" />}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 })
@@ -497,6 +531,8 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
               <Label htmlFor="wifi-curfew-excluded" className="text-xs font-medium">{t('network.wifiCurfewExcluded')}</Label>
               <SavedNetworkPicker
                 id="wifi-curfew-excluded"
+                title={t('network.wifiCurfewExcludedTitle')}
+                description={t('network.wifiCurfewExcludedDesc')}
                 items={config.wifiCurfewExcluded}
                 saved={savedNetworks}
                 loadError={savedNetworksError}
@@ -510,6 +546,8 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
               <Label htmlFor="wifi-curfew-allowed" className="text-xs font-medium">{t('network.wifiCurfewAllowed')}</Label>
               <SavedNetworkPicker
                 id="wifi-curfew-allowed"
+                title={t('network.wifiCurfewAllowedTitle')}
+                description={t('network.wifiCurfewAllowedDesc')}
                 items={config.wifiCurfewAllowed}
                 saved={savedNetworks}
                 loadError={savedNetworksError}

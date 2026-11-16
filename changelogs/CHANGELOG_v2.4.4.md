@@ -36,6 +36,22 @@
 - 浏览器 mock 实测：预选 CMCC 两项 → 整行高亮 + 实心对勾，chip 点「取消选择」后该行回到未选态；预选 i-wxxy → 绿色「开放」标签；暗色模式（主题设置里关浅色）下高亮/对勾/chip 对比正常
 - 真机 RMX3300（Android 15）：`build-apk.ps1` 出包 + `adb install -r` 后截图确认——断开网络 4 枚 chip、放行网络 1 枚 chip、候选行 WiFi 图标 + 加密小锁 + 空心圆、底栏「网络」高亮，排版与 mock 一致
 
+### 安卓 WiFi 名单选择改弹窗：面板只留「已选 N 个 + 选择网络」入口（2026-11-16，安卓前端）
+
+**为什么**：内联两组复选框列表把管控卡撑得很长，长 SSID 列表挤占页面。改成点按钮弹出对话框选网络，面板回到紧凑形态。
+
+**改了什么**（`NetworkPanel.SavedNetworkPicker`）
+
+- **触发入口**：单行按钮「已选 N 个网络 / 未选择网络 + 选择网络 ›」，已选网络仍以 chip 呈现在按钮下方（× 即移除）。
+- **弹窗**：复用 `components/ui/dialog`（Radix），标题 + 副标题（断开/放行各自文案），列表限高 80vh 可滚动；行内 WiFi 图标、开放网络绿色「开放」标签、加密小锁、选中整行淡底 + 实心对勾圆点。
+- **可点性修正**：行内复选从 sr-only 隐藏 input 改为 `role="checkbox"` 的可点击行（aria-checked + Enter/Space 键盘切换）——弹窗自动化与可访问性都不再受隐藏 input 影响。
+- i18n 新增 `wifiCurfewSelectNone` / `wifiCurfewSelectCount` / `wifiCurfewSelectAction` / `wifiCurfewExcludedTitle` / `wifiCurfewExcludedDesc` / `wifiCurfewAllowedTitle` / `wifiCurfewAllowedDesc`（zh/en 同步）。
+
+**验证**
+
+- `npx tsc --noEmit --incremental` exit 0；`npx vite build` ✓ built
+- 浏览器 mock 实测：入口显示「已选 1 个网络」；弹窗内点选 CMCC-kiku_5G → 行高亮 + 对勾；Esc 关闭后入口变「已选 2 个网络」且 chip 同步新增；浅色/暗色两种模式弹窗排版正常
+
 ### 安卓端 WiFi 连接管控不生效：两处根因与调试入口（2026-11-16，安卓）
 
 **为什么**：真机（RMX3300 / Android 15）在就寝时段内、通道自检通过、名单命中，WiFi 依然连着。查到两个各自独立都会让规则彻底失效的缺陷。
