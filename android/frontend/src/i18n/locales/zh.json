@@ -360,6 +360,8 @@
     "wifiCurfewSavedRetry": "重新读取",
     "wifiCurfewSavedEmpty": "系统里没有已保存的 WiFi",
     "wifiCurfewNotSaved": "未保存",
+    "wifiCurfewOpen": "开放",
+    "wifiCurfewDeselect": "取消选择 {{name}}",
     "wifiCurfewWeakSignal": "弱信号断开",
     "wifiCurfewWeakSignalDesc": "当前网络低于阈值时关闭 WiFi，每 5 分钟复探一次",
     "wifiCurfewChannel": "执行方式",

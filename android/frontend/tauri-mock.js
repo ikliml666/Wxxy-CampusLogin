@@ -15,8 +15,10 @@
     // 浏览器桌面视口短边≥600px 会被判成平板外壳（useFormFactor），mock 默认按手机 360px
     // 覆盖 innerWidth/innerHeight（只在本 mock 配置生效；?form=tablet 可显式要平板）
     if (window.location.search.indexOf('form=tablet') < 0) {
+      var vh = 800
+      try { var vm = window.location.search.match(/vh=(\d+)/); if (vm) vh = parseInt(vm[1], 10) } catch (e) {}
       Object.defineProperty(window, 'innerWidth', { configurable: true, get: function () { return 360 } })
-      Object.defineProperty(window, 'innerHeight', { configurable: true, get: function () { return 800 } })
+      Object.defineProperty(window, 'innerHeight', { configurable: true, get: function () { return vh } })
     }
   } catch (e) { /* 忽略 */ }
 
@@ -50,7 +52,15 @@
     // WiFi 连接管控：默认开启，便于 ?panel=network 直接看到名单选择器
     enableWifiCurfew: true,
     wifiCurfewExcluded: ['i-wxxy'],
-    wifiCurfewAllowed: (function () { try { if (window.location.search.indexOf('unsaved=1') >= 0) return ['OldRouter-2.4G'] } catch (e) {} return [] })(),
+    wifiCurfewAllowed: (function () {
+      try {
+        if (window.location.search.indexOf('preselect=open') >= 0) return ['i-wxxy']
+        if (window.location.search.indexOf('preselect=cmcc') >= 0) return ['CMCC-2Psu_5G', 'CMCC-kiku_5G']
+        if (window.location.search.indexOf('preselect=kiku') >= 0) return ['kiku-5G', 'i-wxxy']
+        if (window.location.search.indexOf('unsaved=1') >= 0) return ['OldRouter-2.4G']
+      } catch (e) {}
+      return []
+    })(),
     wifiCurfewWeakRssi: 0,
     wifiCurfewChannel: 'auto',
     nightRestoreMinutes: 450,

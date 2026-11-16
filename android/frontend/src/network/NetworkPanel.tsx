@@ -5,7 +5,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, Loader2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, Loader2, Wifi, Lock, X } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -115,12 +115,13 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
   onRetry: () => void
 }) {
   const { t } = useTranslation()
-  const rows = (saved ?? []).map((n) => ({ ssid: n.ssid, inSystem: true }))
+  const rows = (saved ?? []).map((n) => ({ ssid: n.ssid, security: n.security, inSystem: true }))
   for (const it of items) {
     if (!rows.some((r) => r.ssid.toLowerCase() === it.toLowerCase())) {
-      rows.push({ ssid: it, inSystem: false })
+      rows.push({ ssid: it, security: '', inSystem: false })
     }
   }
+  const isOpen = (security: string) => /^(open|owe)/i.test(security)
   const toggle = (ssid: string, checked: boolean) => {
     if (checked) {
       if (!items.some((it) => it.toLowerCase() === ssid.toLowerCase())) onChange([...items, ssid])
@@ -130,51 +131,99 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
   }
 
   return (
-    <div className={cn('rounded-xl border border-input bg-card', disabled && 'opacity-60')}>
-      {loadError ? (
-        <div className="flex items-center justify-between gap-2 px-3 py-2.5 text-[12px] text-muted-foreground">
-          <span>{t('network.wifiCurfewSavedError')}</span>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="shrink-0 rounded-lg border border-input px-2 py-1 text-[11px] text-primary transition-colors hover:bg-primary/10"
-          >
-            {t('network.wifiCurfewSavedRetry')}
-          </button>
-        </div>
-      ) : saved === null ? (
-        <div className="flex items-center gap-2 px-3 py-2.5 text-[12px] text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          {t('network.wifiCurfewSavedLoading')}
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="px-3 py-2.5 text-[12px] text-muted-foreground">{t('network.wifiCurfewSavedEmpty')}</div>
-      ) : (
-        <div className="max-h-44 overflow-y-auto py-1">
-          {rows.map((row, index) => {
-            const checked = items.some((it) => it.toLowerCase() === row.ssid.toLowerCase())
-            return (
-              <label
-                key={row.inSystem ? row.ssid : `extra-${row.ssid}`}
-                className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-[12px] transition-colors hover:bg-primary/5"
+    <div className={cn('space-y-2', disabled && 'opacity-60')}>
+      {items.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {items.map((name) => (
+            <span
+              key={name}
+              className="inline-flex items-center gap-1 rounded-full bg-primary/10 py-0.5 pl-2 pr-1 text-[11px] font-medium text-primary"
+            >
+              {name}
+              <button
+                type="button"
+                disabled={disabled}
+                aria-label={t('network.wifiCurfewDeselect', { name })}
+                onClick={() => toggle(name, false)}
+                className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full transition-colors hover:bg-primary/20 disabled:opacity-50"
               >
-                <input
-                  id={index === 0 ? id : undefined}
-                  type="checkbox"
-                  checked={checked}
-                  disabled={disabled}
-                  onChange={(e) => toggle(row.ssid, e.target.checked)}
-                  className="h-3.5 w-3.5 shrink-0 accent-primary"
-                />
-                <span className="flex-1 truncate">{row.ssid}</span>
-                {!row.inSystem && (
-                  <span className="shrink-0 text-[10px] text-muted-foreground/70">{t('network.wifiCurfewNotSaved')}</span>
-                )}
-              </label>
-            )
-          })}
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
         </div>
       )}
+      <div className="overflow-hidden rounded-xl border border-input/70 bg-muted/30">
+        {loadError ? (
+          <div className="flex items-center justify-between gap-2 px-3 py-2.5 text-[12px] text-muted-foreground">
+            <span>{t('network.wifiCurfewSavedError')}</span>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="shrink-0 rounded-lg border border-input px-2 py-1 text-[11px] text-primary transition-colors hover:bg-primary/10"
+            >
+              {t('network.wifiCurfewSavedRetry')}
+            </button>
+          </div>
+        ) : saved === null ? (
+          <div className="flex items-center gap-2 px-3 py-2.5 text-[12px] text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {t('network.wifiCurfewSavedLoading')}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="px-3 py-2.5 text-[12px] text-muted-foreground">{t('network.wifiCurfewSavedEmpty')}</div>
+        ) : (
+          <div className="max-h-44 overflow-y-auto p-1.5">
+            {rows.map((row, index) => {
+              const checked = items.some((it) => it.toLowerCase() === row.ssid.toLowerCase())
+              const open = row.inSystem && isOpen(row.security)
+              return (
+                <label
+                  key={row.inSystem ? row.ssid : `extra-${row.ssid}`}
+                  className={cn(
+                    'flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-[12px] transition-colors',
+                    checked ? 'bg-primary/10 text-primary' : 'hover:bg-primary/5'
+                  )}
+                >
+                  <input
+                    id={index === 0 ? id : undefined}
+                    type="checkbox"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={(e) => toggle(row.ssid, e.target.checked)}
+                    className="sr-only"
+                  />
+                  <span
+                    className={cn(
+                      'flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
+                      checked ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+                    )}
+                  >
+                    <Wifi className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="flex-1 truncate font-medium">{row.ssid}</span>
+                  {!row.inSystem ? (
+                    <span className="shrink-0 text-[10px] text-muted-foreground/70">{t('network.wifiCurfewNotSaved')}</span>
+                  ) : open ? (
+                    <span className="shrink-0 text-[10px] text-emerald-600 dark:text-emerald-400">{t('network.wifiCurfewOpen')}</span>
+                  ) : (
+                    <Lock className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                  )}
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors',
+                      checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input'
+                    )}
+                  >
+                    {checked && <Check className="h-2.5 w-2.5" />}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 })

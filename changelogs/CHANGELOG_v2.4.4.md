@@ -19,6 +19,22 @@
 - 浏览器 mock 实测（`vite.mock.config.ts` + `tauri-mock.js`，名单数据同真机）：两个名单框渲染系统已保存网络复选框（去重后 8 条）；放行勾选 i-wxxy →「立即执行」提示「已切换到「i-wxxy」」；只留加密网络 kiku-5G → 提示「保持当前网络」并附「命令行连接必须给明文密码」原因；`?curfewshell=off` → 显示通道未就绪 + 重新读取；`?unsaved=1` → 已删网络 `OldRouter-2.4G` 保留标「未保存」、取消勾选即移除；底栏「网络」高亮正确
 - **未实测**：真机端到端（UI 点击 → 真实 Shizuku 切换）——测试期间手机处于锁屏状态无法自动解锁；另修复 mock 环境：桌面浏览器短边≥600px 曾被 `useFormFactor` 判成平板外壳，导致此前所有 `?panel=network` 截图落在平板布局，mock 现已默认手机视口（`?form=tablet` 可显式要平板）
 
+### 安卓 WiFi 名单选择器重设计：已选 chip + 图标化候选列表（2026-11-16，安卓前端）
+
+**为什么**：上一版直接渲染整组复选框列表，长 SSID 挤在一起，没有加密/开放区分，选中与不选中只有原生勾选框的差别，视觉单薄。
+
+**改了什么**（`NetworkPanel.SavedNetworkPicker`）
+
+- **已选网络以 chip 呈现**：primary 浅底胶囊 + × 按钮（aria-label 走 `wifiCurfewDeselect`），从名单区上方一眼看清当前选了什么，点 × 即移除。
+- **候选行图标化**：WiFi 图标放 muted 圆角方块里；开放网络（open/owe）显示绿色「开放」标签，加密网络显示小锁图标——一眼区分哪些能免密切换（与 runner 的免密限制同口径）。
+- **选中态整行高亮**：原生复选框 sr-only 隐藏，换成「整行淡 primary 底 + 右侧实心对勾圆点」，未选行是空心圆；容器改 muted/30 浅底 + 细分隔圆角，与卡片层级拉开。
+- mock 补 `?preselect=open|cmcc|kiku` 预选场景与 `?vh=` 视口高度覆盖；i18n 新增 `wifiCurfewOpen` / `wifiCurfewDeselect`（zh/en 同步）。
+
+**验证**
+
+- `npx tsc --noEmit --incremental` exit 0；`npx vite build` ✓ built
+- 浏览器 mock 实测：预选 CMCC 两项 → 整行高亮 + 实心对勾，chip 点「取消选择」后该行回到未选态；预选 i-wxxy → 绿色「开放」标签；暗色模式（主题设置里关浅色）下高亮/对勾/chip 对比正常
+
 ### 安卓端 WiFi 连接管控不生效：两处根因与调试入口（2026-11-16，安卓）
 
 **为什么**：真机（RMX3300 / Android 15）在就寝时段内、通道自检通过、名单命中，WiFi 依然连着。查到两个各自独立都会让规则彻底失效的缺陷。

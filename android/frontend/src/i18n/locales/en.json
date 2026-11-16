@@ -360,6 +360,8 @@
     "wifiCurfewSavedRetry": "Retry",
     "wifiCurfewSavedEmpty": "No saved WiFi networks on this device",
     "wifiCurfewNotSaved": "not saved",
+    "wifiCurfewOpen": "open",
+    "wifiCurfewDeselect": "Deselect {{name}}",
     "wifiCurfewWeakSignal": "Weak signal",
     "wifiCurfewWeakSignalDesc": "Turn WiFi off below the threshold, re-probe every 5 minutes",
     "wifiCurfewChannel": "Execution",
