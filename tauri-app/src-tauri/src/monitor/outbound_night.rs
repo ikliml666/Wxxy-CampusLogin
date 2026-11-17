@@ -1584,6 +1584,32 @@ pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::con
 /// 全部完成后清三份快照 + 通知；连续失败达 OUTBOUND_RESTORE_ALERT_FAILS 各发一次告警
 /// 并保留快照。返回 Ok(())=切换态已清（还原完成或无需还原）；Err(原因)=本拍未完成、
 /// 保留切换态退避重试，原因透传给手动入口的 toast 文案。
+/// 还原时要重新启用的卡名（去重、名单顺序在前）。
+///
+/// 名单（`outboundDisabledAdapters`）只记本功能亲手禁用的卡；用户在系统「高级网络
+/// 设置」里手动禁用原出口卡时它不在名单。切换流程唯一下线过的就是原出口卡（快照
+/// 非首行），所以这些卡处于禁用态时一律纳入启用集合——否则还原会跳过它们却仍报
+/// 「已还原」，校园网卡整天停在禁用态。首行恒为目标卡、从未被下线，不纳入，避免把
+/// 用户主动禁用的热点卡在还原时打开。
+fn restore_enable_targets(
+    disabled: &[DisabledRow],
+    snapshot: &[OutboundSnapshotRow],
+    adapters: &[crate::network::Adapter],
+) -> Vec<String> {
+    let mut targets: Vec<String> = disabled.iter().map(|row| row.name.clone()).collect();
+    for guid in snapshot.iter().skip(1).map(|row| &row.guid) {
+        let Some(adapter) = adapters.iter().find(|a| &a.guid == guid) else {
+            continue;
+        };
+        if adapter.status == crate::network::discovery::AdapterStatus::Disabled
+            && !targets.iter().any(|name| name == &adapter.name)
+        {
+            targets.push(adapter.name.clone());
+        }
+    }
+    targets
+}
+
 pub(super) fn apply_outbound_restore(
     app_handle: &AppHandle,
     config: &crate::config::Config,
@@ -1891,26 +1917,35 @@ pub(super) fn apply_outbound_restore(
             Vec::new()
         }
     };
-    if !disabled.is_empty() {
+    // 需要重新启用的卡：名单内全部 + 快照里处于禁用态的非首行卡（原出口卡）。
+    // 名单只记本功能亲手禁用的卡；用户在系统「高级网络设置」里手动禁用原出口卡时
+    // 它不在名单，旧实现据此跳过启用却仍报「已还原」，校园网卡整天停在禁用态。
+    // 判据落在实测状态上（Disabled），已被手动恢复的卡不会进集合。
+    let enable_targets = restore_enable_targets(
+        &disabled,
+        &parse_outbound_snapshot(&config.outbound_metric_restore).unwrap_or_default(),
+        &crate::network::get_adapters_cached().unwrap_or_default(),
+    );
+    if !enable_targets.is_empty() {
         let present: std::collections::HashSet<String> = crate::network::get_adapters_cached()
             .unwrap_or_default()
             .into_iter()
             .map(|a| a.name)
             .collect();
-        for row in &disabled {
-            if !present.contains(&row.name) {
+        for name in &enable_targets {
+            if !present.contains(name) {
                 crate::log_debug!(
                     "outbound",
-                    "夜间出站还原: 禁用名单中的 {} 已不存在，跳过启用",
-                    row.name
+                    "夜间出站还原: 待启用网卡 {} 已不存在，跳过启用",
+                    name
                 );
                 continue;
             }
-            match enable_campus_adapter(&row.name, allow_uac) {
+            match enable_campus_adapter(name, allow_uac) {
                 Ok(()) => {
                     clear_outbound_channel_failure();
                     enabled_count += 1;
-                    crate::log_info!("outbound", "夜间出站还原: 已重新启用校园网卡 {}", row.name);
+                    crate::log_info!("outbound", "夜间出站还原: 已重新启用校园网卡 {name}");
                 }
                 Err(failure) => {
                     note_channel_failure(&failure);
@@ -1921,7 +1956,7 @@ pub(super) fn apply_outbound_restore(
                     crate::log_warn!(
                         "outbound",
                         "夜间出站还原: 启用 {} 失败(第 {count} 次): {}",
-                        row.name,
+                        name,
                         failure.reason
                     );
                     if outbound_restore_alert_due(count) {
@@ -1930,16 +1965,13 @@ pub(super) fn apply_outbound_restore(
                             "夜间出站还原失败",
                             &format!(
                                 "校园网网卡 {} 未能自动恢复启用，请在系统「网络设置」中手动启用",
-                                row.name
+                                name
                             ),
                             "mascot-alert",
                         );
                     }
                     enable_ok = false;
-                    fail_reasons.push(format!(
-                        "启用校园网卡 {} 失败: {}",
-                        row.name, failure.reason
-                    ));
+                    fail_reasons.push(format!("启用校园网卡 {} 失败: {}", name, failure.reason));
                 }
             }
         }
@@ -2582,6 +2614,61 @@ mod tests {
         assert!(should_hold(false, true, true), "首次实际切换保持自动还原");
         assert!(!should_hold(true, false, true), "切换态内点当前卡不得新增保持");
         assert!(!should_hold(false, false, false), "无操作成功不得留下保持");
+    }
+
+    fn snapshot_row(guid: &str) -> OutboundSnapshotRow {
+        OutboundSnapshotRow {
+            guid: guid.to_string(),
+            family: 2,
+            automatic: false,
+            metric: 30,
+        }
+    }
+
+    fn disabled_adapter(name: &str, status: crate::network::discovery::AdapterStatus) -> Adapter {
+        let mut a = adapter(name, "", true);
+        a.status = status;
+        a
+    }
+
+    #[test]
+    fn 还原启用目标_覆盖被手动禁用的原出口卡() {
+        use crate::network::discovery::AdapterStatus;
+        let snapshot = vec![snapshot_row("{WLAN}"), snapshot_row("{以太网}")];
+        // 名单为空：用户在系统设置里手动禁用了原出口卡
+        let adapters = vec![
+            disabled_adapter("WLAN", AdapterStatus::Connected),
+            disabled_adapter("以太网", AdapterStatus::Disabled),
+        ];
+        let targets = restore_enable_targets(&[], &snapshot, &adapters);
+        assert_eq!(targets, vec!["以太网".to_string()]);
+    }
+
+    #[test]
+    fn 还原启用目标_首行目标卡不纳入且名单不重复() {
+        use crate::network::discovery::AdapterStatus;
+        let snapshot = vec![snapshot_row("{WLAN}"), snapshot_row("{以太网}")];
+        let list = vec![DisabledRow {
+            guid: "{以太网}".to_string(),
+            name: "以太网".to_string(),
+        }];
+        let adapters = vec![
+            disabled_adapter("WLAN", AdapterStatus::Disabled),
+            disabled_adapter("以太网", AdapterStatus::Disabled),
+        ];
+        let targets = restore_enable_targets(&list, &snapshot, &adapters);
+        assert_eq!(targets, vec!["以太网".to_string()], "不重复纳入，且目标卡不参与");
+    }
+
+    #[test]
+    fn 还原启用目标_原卡已恢复则不纳入() {
+        use crate::network::discovery::AdapterStatus;
+        let snapshot = vec![snapshot_row("{WLAN}"), snapshot_row("{以太网}")];
+        let adapters = vec![
+            disabled_adapter("WLAN", AdapterStatus::Connected),
+            disabled_adapter("以太网", AdapterStatus::Connected),
+        ];
+        assert!(restore_enable_targets(&[], &snapshot, &adapters).is_empty());
     }
 
     #[test]

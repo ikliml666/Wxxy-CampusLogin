@@ -54,6 +54,21 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
                     );
                     dyn_interval.next_ms(last_outcome, base_eff)
                 };
+                // 静默期（暂停时段）内把下一拍提前到静默期结束时刻：静默期内巡检整轮
+                // 跳过，退避可能已拉到上限，不裁剪就要多等一个周期才补上状态刷新拍。
+                let interval_ms = {
+                    let s = app_h.state::<AppState>();
+                    let cfg = s.config.load();
+                    let now_min = crate::infra::local_now_minutes();
+                    match super::background_check::silent_remaining_ms(
+                        now_min,
+                        cfg.campus_check_start_minutes,
+                        cfg.campus_check_end_minutes,
+                    ) {
+                        Some(remaining) => interval_ms.min(remaining.max(1_000)).max(1_000),
+                        None => interval_ms,
+                    }
+                };
                 let mut interval_timer = tokio::time::interval(Duration::from_millis(interval_ms));
                 interval_timer.tick().await;
                 tokio::select! {
@@ -84,11 +99,20 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
 /// 再裸 spawn 一轮——is_checking 信号量由 run_background_check 内部 try_acquire
 /// 兜底，并发轮次安全跳过。
 pub fn spawn_background_check_once(app_handle: &AppHandle) {
+    spawn_background_check_once_with(app_handle, super::background_check::CheckTrigger::Auto);
+}
+
+/// 带触发来源的一次性巡检：手动触发用 Manual（静默期照常刷新状态但不登录）。
+pub fn spawn_background_check_once_with(
+    app_handle: &AppHandle,
+    trigger: super::background_check::CheckTrigger,
+) {
     let app_h = app_handle.clone();
     let spawned = app_handle.state::<AppState>().task_manager.spawn(
         "background_check_once",
         move |cancel_token| async move {
-            run_background_check(&app_h, cancel_token.clone()).await;
+            super::background_check::run_background_check_with(&app_h, cancel_token.clone(), trigger)
+                .await;
         },
     );
     if let Err(e) = spawned {
@@ -97,7 +121,7 @@ pub fn spawn_background_check_once(app_handle: &AppHandle) {
         if let Some(token) = s.task_manager.cancel_token("background_check_once") {
             let app_h2 = app_handle.clone();
             tauri::async_runtime::spawn(async move {
-                super::background_check::run_background_check(&app_h2, token).await;
+                super::background_check::run_background_check_with(&app_h2, token, trigger).await;
             });
         } else {
             crate::log_warn!("background", "一次性后台检测注册失败且令牌缺失: {}", e);

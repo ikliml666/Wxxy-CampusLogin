@@ -33,7 +33,11 @@ pub fn trigger_background_check(_state: State<'_, AppState>, app_handle: AppHand
     }
     // 审计 A9：改走统一注册入口——检测任务经 task_manager 注册运行，
     // 取消令牌全程可达（旧实现取不到周期任务令牌时新建孤儿令牌，不可取消）
-    crate::monitor::background_task::spawn_background_check_once(&app_handle);
+    // 手动触发用 Manual：校园网检测静默期（暂停时段）内照常刷新状态，只是不自动登录
+    crate::monitor::background_task::spawn_background_check_once_with(
+        &app_handle,
+        crate::monitor::background_check::CheckTrigger::Manual,
+    );
     Ok(CommandResult::ok_msg("已触发后台检测"))
 }
 

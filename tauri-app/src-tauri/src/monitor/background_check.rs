@@ -64,7 +64,12 @@ pub(crate) fn request_check_after_outbound_restore() {
     RESTORE_SILENT_PASS.store(true, Ordering::Release);
 }
 
-pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppState, cancel_token: &tokio_util::sync::CancellationToken) -> CheckOutcome {
+pub(crate) fn run_background_check_blocking(
+    app_handle: &AppHandle,
+    state: &AppState,
+    cancel_token: &tokio_util::sync::CancellationToken,
+    trigger: CheckTrigger,
+) -> CheckOutcome {
     if state.exit.is_quitting.load(Ordering::Acquire) || cancel_token.is_cancelled() {
         return CheckOutcome::Skipped;
     }
@@ -98,11 +103,14 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     let now_min = crate::infra::local_now_minutes();
     // 出站切换态（三份快照任一非空）：巡检整体跳过（portal 检测走热点出站必失败，
     // 会累计触发 MAC 重置提权与整夜告警；见 decisions/night-outbound-switch）。下一拍（30s）恢复。
-    if crate::config::outbound_switch::outbound_restore_active(
+    let switch_active = crate::config::outbound_switch::outbound_restore_active(
         &config.outbound_metric_restore,
         &config.outbound_disabled_adapters,
         &config.outbound_standby_route,
-    ) {
+    );
+    // 切换态整轮跳过：Portal 检测走热点出口必失败，会累计触发 MAC 重置提权与整夜告警。
+    // 手动触发例外——用户点了就该看到真实判定结果，只刷新状态、不登录不换 MAC。
+    if switch_active && trigger != CheckTrigger::Manual {
         crate::log_debug!("background", "出站切换态，跳过本轮巡检");
         return CheckOutcome::Skipped;
     }
@@ -133,7 +141,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     // 把校园网卡从设备级禁用里启用、DHCP 已就绪，此刻不判定就等于让用户等静默期结束才
     // 恢复登录——默认还原时刻 07:30 就在静默期内（检测时段 07:40 起），这条路径必被踩到。
     // 放行持续到静默期结束，让还原后的每一拍都能判定/自动登录，直到常规节奏接管。
-    if campus_silent && !forced {
+    if campus_silent && trigger.skips_silent() && !forced {
         cancel_campus_exit(app_handle, state);
         state.network.update(|s| {
             s.current_ssid = None;
@@ -142,13 +150,35 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
             // 第一拍就带着静默期之前残留的计数直接触发退出。
             s.campus_fail_streak = 0;
         });
+        // 记下「静默期结束后要补一拍只读检测」，离开静默期时由非静默分支消费
+        SILENT_EXIT_PENDING.store(true, Ordering::Release);
         crate::log_debug!("background", "校园网检测静默期，跳过本轮巡检（Portal 检测/自动登录/断连重连均不执行）");
         return CheckOutcome::Skipped;
     }
+    // 静默期结束后的第一拍：用户要求补一次「只检测不登录」的状态刷新
+    let trigger = if trigger == CheckTrigger::Auto && !campus_silent
+        && SILENT_EXIT_PENDING.swap(false, Ordering::AcqRel)
+    {
+        crate::log_info!(
+            "background",
+            "校园网检测静默期结束，补一拍状态检测（只刷新校园网状态，不自动登录）"
+        );
+        CheckTrigger::SilentExit
+    } else {
+        trigger
+    };
     if campus_silent && forced {
         crate::log_debug!(
             "background",
             "夜间出站还原后静默期放行：照常执行本轮巡检（放行持续到静默期结束）"
+        );
+    }
+    // 静默期内的手动/补检只刷新状态：不自动登录、不换 MAC、不启动退出流程
+    let status_only = !trigger.allows_login(campus_silent) || switch_active;
+    if status_only {
+        crate::log_debug!(
+            "background",
+            "本轮为状态刷新（静默期/静默结束补检）：跳过自动登录与断连重连"
         );
     }
     // 校园网检测只看解析后的主/副适配器：其他适配器的连接不属本应用管理范围
@@ -164,7 +194,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         let Some(status) = adapter_campus_status(name, &adapters, &campus_result) else {
             continue;
         };
-        if status.health == crate::campus::rules::CampusHealth::AuthBroken {
+        if status.health == crate::campus::rules::CampusHealth::AuthBroken && !status_only {
             super::auth_recovery::spawn_auth_recovery(app_handle, &config, name);
             break;
         }
@@ -235,6 +265,12 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
                 "background",
                 "校园网检测未通过（连续 {}/{} 拍），暂不退出，等待下一拍复核",
                 fail_streak, CAMPUS_FAIL_EXIT_THRESHOLD
+            );
+        } else if status_only {
+            // 状态刷新不做退出决策：静默期内退出会把用户踢出应用，且此时并无登录资格
+            crate::log_info!(
+                "background",
+                "校园网检测未通过（连续 {fail_streak} 拍），状态刷新模式不触发退出流程"
             );
         } else {
             // 连续多拍未通过：确认离开校园网，触发最小化+退出流程
@@ -482,13 +518,15 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
         },
     );
 
-    try_auto_login_on_preparation(app_handle, state, login_available, online, &config);
-
-    let reconnected = try_disconnect_reconnect(
-        app_handle, state, online, secondary_online,
-        a1, a2, &adapter1_name, &adapter2_name,
-        reachable, login_available, secondary_result.as_ref(), &config,
-    );
+    let mut reconnected = false;
+    if !status_only {
+        try_auto_login_on_preparation(app_handle, state, login_available, online, &config);
+        reconnected = try_disconnect_reconnect(
+            app_handle, state, online, secondary_online,
+            a1, a2, &adapter1_name, &adapter2_name,
+            reachable, login_available, secondary_result.as_ref(), &config,
+        );
+    }
 
     // 重连成功时状态已在 try_disconnect_reconnect 内设置，
     // 跳过 update_network_state 避免用重连前旧 Portal 结果覆盖 any_adapter_online
@@ -522,7 +560,7 @@ pub(crate) fn run_background_check_blocking(app_handle: &AppHandle, state: &AppS
     // 可达数十秒），期间断网；若插在判定之前，handle_status_change / 联动质量检测会
     // 拿修复前的探测结论继续判，修复完成后本轮结论与实际状态不符。放末尾既保留
     // 「修复前真实状态」的本轮结论，又让下一拍自动重新探测。
-    if a1_has_ip && !reachable {
+    if !status_only && a1_has_ip && !reachable {
         if let Some(ad) = a1 {
             if crate::network::ip_conflict::is_ip_conflicted(&ad.ip) {
                 let today = chrono::Local::now().date_naive().num_days_from_ce();
@@ -651,10 +689,69 @@ fn trigger_fast_quality_check(
 /// （latency.rs 的 spawn_latency_test_loop → quality_scheduler::run_quality_check），
 /// 避免双定时器叠加触发全量外网检测、60s 节流吞掉用户自定义间隔（2026-09-04 收敛）
 pub async fn run_background_check(app_handle: &AppHandle, cancel_token: std::sync::Arc<tokio_util::sync::CancellationToken>) -> CheckOutcome {
+    run_background_check_with(app_handle, cancel_token, CheckTrigger::Auto).await
+}
+
+/// 巡检触发来源：决定静默期门控与自动登录权限。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckTrigger {
+    /// 周期/事件触发的常规巡检：校园网检测静默期整体跳过（既有语义）
+    Auto,
+    /// 用户手动触发（界面「立即检测」）：静默期照常刷新状态，但不自动登录
+    Manual,
+    /// 静默期结束后的补检：只刷新校园网状态，不自动登录
+    SilentExit,
+}
+
+impl CheckTrigger {
+    /// 校园网检测静默期是否整体跳过本轮
+    pub(crate) fn skips_silent(self) -> bool {
+        self == Self::Auto
+    }
+
+    /// 本轮是否允许自动登录 / 断连重连 / 认证恢复换 MAC
+    pub(crate) fn allows_login(self, silent: bool) -> bool {
+        match self {
+            // Auto 走到这里时必非静默（静默期已整轮跳过）
+            Self::Auto => true,
+            // 静默期手动触发只刷新状态，不登录
+            Self::Manual => !silent,
+            Self::SilentExit => false,
+        }
+    }
+}
+
+/// 「静默期被跳过、结束后需补一拍只读检测」的待办标记。
+///
+/// 静默期内周期巡检整轮跳过，退避可能已拉长到 5 分钟；静默期一结束若不立即补拍，
+/// 用户要再等一个周期才看到校园网状态更新。补的这一拍只刷新状态、不自动登录，
+/// 避免静默期刚结束就抢先登录（登录时机仍由常规巡检与还原后补检决定）。
+static SILENT_EXIT_PENDING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// 静默期剩余毫秒（仅处于静默期时返回 Some），用于把下一拍巡检提前到静默期结束时刻。
+pub(crate) fn silent_remaining_ms(now_min: u16, start: u16, end: u16) -> Option<u64> {
+    if !crate::monitor::campus_check::is_campus_check_silent(now_min, start, end) {
+        return None;
+    }
+    let remaining_min = if now_min < start {
+        start - now_min
+    } else {
+        // end>start 且 now>=end：次日 start 才算离开静默
+        1440 - now_min + start
+    };
+    Some(remaining_min as u64 * 60_000)
+}
+
+pub async fn run_background_check_with(
+    app_handle: &AppHandle,
+    cancel_token: std::sync::Arc<tokio_util::sync::CancellationToken>,
+    trigger: CheckTrigger,
+) -> CheckOutcome {
     let app_h = app_handle.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let s = app_h.state::<AppState>();
-        run_background_check_blocking(&app_h, &s, &cancel_token)
+        run_background_check_blocking(&app_h, &s, &cancel_token, trigger)
     }).await.unwrap_or_else(|e| {
         crate::log_error!("background", "后台检测异常: {}", e);
         CheckOutcome::Skipped
@@ -674,7 +771,33 @@ pub(crate) fn should_start_campus_exit(fail_streak: u32, has_configured_ip: bool
 
 #[cfg(test)]
 mod tests {
-    use super::{should_reset_logged_online, should_start_campus_exit, CAMPUS_FAIL_EXIT_THRESHOLD};
+    use super::{
+        should_reset_logged_online, should_start_campus_exit, silent_remaining_ms, CheckTrigger,
+        CAMPUS_FAIL_EXIT_THRESHOLD,
+    };
+
+    /// 静默期剩余只用于把下一拍提前到检测时段起点，语义必须与 is_campus_check_silent 互补
+    #[test]
+    fn 静默剩余_与静默判定互补() {
+        // 07:40 起检、23:00 收工：03:00 静默，距 07:40 还有 280 分钟
+        assert_eq!(silent_remaining_ms(180, 460, 1380), Some(280 * 60_000));
+        // 23:30 静默，距次日 07:40 还有 490 分钟
+        assert_eq!(silent_remaining_ms(1410, 460, 1380), Some(490 * 60_000));
+        // 检测时段内不裁剪
+        assert_eq!(silent_remaining_ms(600, 460, 1380), None);
+        // start=0 为禁用门控：全程不静默
+        assert_eq!(silent_remaining_ms(0, 0, 0), None);
+    }
+
+    /// 手动触发必须绕过静默期门控，但静默期内不得自动登录
+    #[test]
+    fn 手动触发静默期只刷新状态() {
+        assert!(!CheckTrigger::Manual.skips_silent(), "手动不受静默期门控");
+        assert!(!CheckTrigger::Manual.allows_login(true), "静默期手动不得自动登录");
+        assert!(CheckTrigger::Manual.allows_login(false), "检测时段内手动按常规流程");
+        assert!(CheckTrigger::Auto.skips_silent(), "周期巡检静默期仍整轮跳过");
+        assert!(!CheckTrigger::SilentExit.allows_login(false), "静默结束补检只读状态");
+    }
 
     /// 单拍失败不退出：首拍必须被闸门拦住（2026-11-10 防误踢）
     #[test]
