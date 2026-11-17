@@ -1,3 +1,36 @@
+### 缺陷修复：弱信号规则白天被就寝窗口门控吞掉（2026-11-17）
+
+**为什么**：用户质疑「弱信号断开真的可用吗」。真机排查发现它**大部分时间根本不执行**——`run_wifi_curfew` 在白天有这行早退：
+
+```rust
+if !active && !was_active { return; }   // 白天且上一拍也不在窗口
+```
+
+弱信号检查写在 Kotlin `run()` 的窗口外分支里，本意是「白天也检查信号强度」，但白天每拍都被上面这行挡在门外。**全链路只有 WiFi 事件触发的那条旁路能跑到它**（`runCurfewFromEvent` 直接调 Kotlin，不经 Rust 门控），周期巡检一次都没执行过。也就是说：没有 WiFi 事件时，弱信号规则等于不存在。
+
+**改了什么**
+
+- `monitor.rs` 早退条件加例外：`wifi_curfew_weak_rssi < 0`（用户开了弱信号）时不再早退，交给 Kotlin 每拍判。窗口内 Kotlin 自己会跳过弱信号（不与守则抢动作），所以放开早退不会让就寝守则被二次干预。
+
+**双设备实测（关键：形成了完整对照）**
+
+新设备 25060RK16C / Android 17（有蜂窝数据，临时把阈值调到必然触发）：
+```
+WiFi 事件(rssi:-47)守则: {"action":"weak-off","rssi":-50,"trace":"cmd wifi set-wifi-enabled disabled => exit=0"}
+cmd wifi status → Wifi is disabled
+dumpsys connectivity → Active default network: 105   ← 已切到蜂窝
+```
+守卫通过 → 关 WiFi → 系统默认网络立刻切到蜂窝，**「从 WiFi 切到流量」这条链路完整成立**。
+
+旧设备 RMX3300 / Android 15（移动数据关闭，蜂窝只有 IMS 能力）：
+```
+守则: {"action":"weak-no-cellular","rssi":-35,"trace":"no_cellular_internet"}
+cmd wifi status → Wifi is enabled   ← 保持连接，未制造断网
+```
+
+两台设备刚好覆盖两个分支：有可用流量就切，没有就保持 WiFi。
+
+**已知行为（非本次引入）**：`WEAK_PROBE_MS` = 5 分钟，关掉 WiFi 后只能靠它开回来盲探一次。若信号仍弱会被再关，用户每 5 分钟经历一次短暂的 WiFi 恢复窗口——这是「关硬件后 RSSI 不可读」的物理约束，此前就存在。
 ### 行为调整：弱信号切流量前先确认流量真的可用（2026-11-17）
 
 **为什么**：用户要求「弱信号触发底层切换，从 WiFi 切到流量」。核实后发现原实现只做了「关 WiFi」这一半——`set-wifi-enabled disabled` 之后如果移动数据是关闭的（或只有 IMS 无 INTERNET），设备就是**彻底断网**，比待在弱 WiFi 上更糟。切换的前提从来没被检查过。

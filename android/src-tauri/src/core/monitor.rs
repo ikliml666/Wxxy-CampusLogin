@@ -605,8 +605,12 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
         settings.night_restore_minutes % 60,
         settings.enable_wifi_curfew
     );
-    // 白天且上一拍也不在窗口：没有待恢复的动作，直接返回
-    if !active && !was_active {
+    // 白天且上一拍也不在窗口：没有待恢复的动作，直接返回。
+    // 例外：开了弱信号规则时不能早退——弱信号与就寝窗口无关，是独立的持续规则，
+    // 交给 Kotlin 每拍判（Kotlin 在窗口内会自己跳过弱信号，不与守则抢动作）。
+    // 此前弱信号检查被这行早退吞掉，只有 WiFi 事件触发的旁路能跑到它。
+    let weak_enabled = settings.wifi_curfew_weak_rssi < 0;
+    if !active && !was_active && !weak_enabled {
         return;
     }
     let payload = serde_json::json!({
