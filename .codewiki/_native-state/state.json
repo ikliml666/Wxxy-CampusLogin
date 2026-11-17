@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "441e3f55ef5a0b55491da6f9b69b745843fe6941",
-    "headCommit": "a9d4098bc1658252d1a11388091ce7c6d60765af"
+    "headCommit": "fd5795520071e3941dcc0f86b899973801b3b7f0"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "441e3f55ef5a0b55491da6f9b69b745843fe6941",
-    "headCommit": "a9d4098bc1658252d1a11388091ce7c6d60765af",
+    "headCommit": "fd5795520071e3941dcc0f86b899973801b3b7f0",
     "committed": [
       "android/core-logic/src/platform_sig.rs",
       "android/core-logic/src/status.rs",
@@ -48,8 +48,11 @@
       "tauri-app/frontend/src/network/NetworkPanel.tsx",
       "tauri-app/frontend/src/settings/constants.ts",
       "tauri-app/frontend/src/settings/types.ts",
+      "tauri-app/src-tauri/src/commands/background.rs",
       "tauri-app/src-tauri/src/config/model.rs",
       "tauri-app/src-tauri/src/config/scheduled_tick.rs",
+      "tauri-app/src-tauri/src/monitor/background_check.rs",
+      "tauri-app/src-tauri/src/monitor/background_task.rs",
       "tauri-app/src-tauri/src/monitor/outbound_failover.rs",
       "tauri-app/src-tauri/src/monitor/outbound_night.rs",
       "tauri-app/src-tauri/src/monitor/outbound_switch.rs",
@@ -71,7 +74,7 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwkrph50-5-native（67 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwkvern3-0-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-17T14:27:06.267Z"
+  "updatedAt": "2026-11-17T15:52:37.037Z"
 }
