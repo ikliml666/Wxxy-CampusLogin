@@ -22,10 +22,9 @@
 //!   不重试"会让登录时段刚开的瞬时拒绝直接吞掉当日登录；注销仍是单次语义。
 
 use super::outbound_night::{
-    apply_outbound_restore, apply_outbound_switch_with_health, drive_pending_switch, needs_replay,
-    outbound_switch_active, reconcile_outbound_on_startup,
-    replay_outbound_switch, run_outbound_blocking,
-    OUTBOUND_SWITCH_FAIL_COUNT,
+    apply_outbound_restore, apply_outbound_switch_with_health, needs_replay,
+    outbound_switch_active, reconcile_outbound_on_startup, replay_outbound_switch,
+    run_outbound_blocking, OUTBOUND_SWITCH_FAIL_COUNT,
 };
 use super::outbound_failover::{evaluate_outbound_failover, outbound_failover_pending};
 use crate::campus::rules::{expected_operator_display, portal_origin};
@@ -181,17 +180,6 @@ pub async fn run_scheduled_action_loop(
                             Ok(())
                         })
                         .await;
-                }
-                // 待切换残留清理：旧版本登录闸写入的 waiting-login 行（2026-10-26 起
-                // 本版本不再产生挂起）。残留会让前端徽标常驻，故每拍清一次；清空后
-                // 该字段恒为空，本分支不再进入。切换态成立时同理已随切换成功清空
-                if !config_snapshot.outbound_pending_switch.is_empty() && !restore_active {
-                    let _ = run_outbound_blocking(
-                        app_h.clone(),
-                        config_snapshot.clone(),
-                        drive_pending_switch,
-                    )
-                    .await;
                 }
             }
         }

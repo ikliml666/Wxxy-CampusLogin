@@ -153,12 +153,11 @@ pub fn snapshot_json_multi(entries: &[(String, Vec<crate::platform::metric::Metr
     serde_json::to_string(&snapshot).unwrap_or_else(|_| "[]".to_string())
 }
 
-/// 本功能亲手禁用、尚未确认恢复的卡（切换快照 `[{guid, name}]`）。
+/// 原出口连接重置现场（`[{guid, name}]`）。
 ///
-/// 切换流程对原出口卡做「下线 → 保持 → 启用」，禁用前写入、启用成功即清空，
-/// 因此这份名单同时承担两个职责：还原与重放据此把卡启用回来，adapter_watch
-/// 的自动启用据此让路。名单只记亲手禁用的卡，绝不按「看到禁用状态」推断归属——
-/// USB 网卡状态判定不可靠（未连接会被误判为已禁用）。
+/// 首次写跃点前写入，原出口卡「下线 → 保持 → 启用」完成后清空；中途失败或进程被杀
+/// 时，重放据此续做连接重置，adapter_watch 的自动启用据此让路。绝不按「看到禁用状态」
+/// 推断归属——USB 网卡状态判定不可靠（未连接会被误判为已禁用）。
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DisabledRow {
     pub guid: String,

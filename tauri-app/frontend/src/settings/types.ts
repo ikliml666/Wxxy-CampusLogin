@@ -57,14 +57,12 @@ export interface Config {
   wifiCurfewProfileRestore: string
   outboundPriority: string[]
   outboundMetricRestore: string
-  /** 夜间切换时亲手禁用的校园网卡名单（DisabledRow JSON，后端内部状态，USB 网卡 2026-10 起纳入名单） */
+  /** 原出口连接重置现场（DisabledRow JSON，后端内部状态；非空表示下线/启用事务未完成） */
   outboundDisabledAdapters: string
   /** 夜间切换加的兜底默认路由（StandbyRoute JSON，runtime 路由重启即清，后端内部状态） */
   outboundStandbyRoute: string
-  /** 手动/故障切换的恢复周期保持标记（days since CE，后端内部状态；0=无保持；等于今天时冻结当日自动 Switch/Restore） */
+  /** 手动/故障切换的恢复保持标记（days since CE，后端内部状态；0=无保持；只冻结当日自动 Restore） */
   outboundManualHoldDay: number
-  /** 待切换状态（PendingSwitchRow JSON，后端内部状态；非空=目标网卡未登录校园网、切换挂起等监测确认） */
-  outboundPendingSwitch: string
   /** 切换后为原校园卡保留的 Portal 旁路路由（PortalRoute JSON，后端内部状态） */
   outboundPortalRoute: string
   nightOutboundRestore: string
