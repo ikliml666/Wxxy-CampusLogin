@@ -1,3 +1,23 @@
+### 缺陷修复：弱信号规则不再只依赖 shell 通道（RSSI 双通道来源）（2026-11-17）
+
+**为什么**：用户质疑「弱信号断开真的可用吗」。查实现发现真实缺陷——`currentRssi()` 只走 `cmd wifi status`（shell），而 shell 通道依赖 Shizuku/root。没有执行通道时 `currentRssi()` 返回 null，`checkWeakSignal` 直接 `return null` 无动作：**弱信号开关能打开，但规则静默失效**，UI 没有任何提示。
+
+**顺带核实「断开连接」是否可行**（用户指出断开连接 ≠ 关闭 WiFi）：真机实测不可行，见下条。
+
+**改了什么**
+
+- `WifiCurfewRunner.currentRssi()` 改为双通道：先读 `WifiManager.connectionInfo.rssi`（`ACCESS_WIFI_STATE` 是 install-time 普通权限，与 `CoreService.handleRssi` 读 `caps.transportInfo` 同源，**不需要 Shizuku/root**），读到 `-127`（INVALID_RSSI，未关联）再退回 shell 的 `cmd wifi status`。
+- `AndroidManifest.xml` 声明 `ACCESS_WIFI_STATE`。
+
+**验证**（真机 RMX3300 / Android 15，Shizuku 通道在位）
+
+- 装机后守则正常：`WiFi 事件(rssi:-35) 守则 → {"action":"idle"}`（-35 高于阈值 -80，不误触发）；遗留的 `KEY_WEAK` 标记按 5 分钟窗口正常复探 `weak-probe` 并恢复连接。
+- 双通道的「无 shell」分支未隔离实测（当前设备 Shizuku 授权在位，两条通道并存时优先走应用 API，日志无法区分来源）；实现上与已实测可用的 `handleRssi` 同源。
+
+**已知限制（实测确认，非实现缺陷）**
+
+- `WifiManager.disconnect()` 返回 false、`disableNetwork(5)` 返回 false——即使已 `pm grant` 定位权限；`cmd wifi disable-network` 对 shell uid 报 `SecurityException: Uid 2000 does not have access`。Android 15 把这两个「断开连接」API 对非系统应用变成 no-op，所以「弱信号时断开连接但保持 WiFi 开启」**在当前权限模型下不可实现**，只能用关硬件（`set-wifi-enabled disabled`）或切换到放行网络。
+- 关硬件后 RSSI 不可读，复探只能按 `WEAK_PROBE_MS`（5 分钟）盲等开回来再判——这是物理约束。
 ### 架构改进：巡检间隔自适应退避（事件驱动为主，周期为兜底）（2026-11-17）
 
 **为什么**：事件驱动（WiFi 变化立即检测）经真机实测已是毫秒级主路径——13:04:37.141 事件 lost → 13:04:37.178 巡检启动（37ms），validated → 8ms。既然事件可靠，固定 60 秒周期就成了重复劳动：已登录、网络稳定、什么都没变时，仍每 60 秒打一次 Portal 探测。从第一性原理看，周期巡检的唯一价值是「回调万一失效」时的兜底，兜底不需要和主路径一样密。

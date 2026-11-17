@@ -1,6 +1,7 @@
 package com.campuslogin.plugin.monitorservice
 
 import android.content.Context
+import android.net.wifi.WifiManager
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -40,6 +41,8 @@ class WifiCurfewRunner(private val context: Context) {
         private const val SWITCH_CONFIRM_STEP_MS = 800L
         private const val DEFAULT_RESTORE_START = 450
         private const val RESTORE_END = 1380
+        /** WifiManager 的 INVALID_RSSI 哨兵值（未关联/未知） */
+        private const val WIFI_RSSI_INVALID = -127
     }
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -207,9 +210,25 @@ class WifiCurfewRunner(private val context: Context) {
         return result("weak-off").put("channel", channel).put("rssi", rssi).put("trace", trace.detail).toString()
     }
 
-    /** 从 `cmd wifi status` 的 WifiInfo 行取 RSSI；未连接（WiFi 关着/没网络）返回 null */
-    private fun currentRssi(): Int? = shellExec("cmd wifi status")
-        ?.let { Regex("RSSI: (-?\\d+)").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+    /**
+     * 当前连接 RSSI；未连接（WiFi 关着/没网络）返回 null。
+     *
+     * 双通道：先走 `WifiManager.connectionInfo`（ACCESS_WIFI_STATE 是 install-time 普通权限，
+     * 与 handleRssi 读 caps.transportInfo 同源，**不需要 Shizuku/root**），拿不到
+     * （-127 = INVALID_RSSI，未关联）再退回 shell 的 `cmd wifi status` 读系统真值。
+     * 此前只走 shell，导致无执行通道时弱信号规则静默失效。
+     */
+    private fun currentRssi(): Int? {
+        val viaApi = try {
+            (context.getSystemService(Context.WIFI_SERVICE) as? WifiManager)
+                ?.connectionInfo?.rssi
+        } catch (e: Exception) {
+            null
+        }
+        if (viaApi != null && viaApi != WIFI_RSSI_INVALID) return viaApi
+        return shellExec("cmd wifi status")
+            ?.let { Regex("RSSI: (-?\\d+)").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+    }
 
     /**
      * 开关 WiFi：先 `cmd wifi set-wifi-enabled`（Android 11+ 的 shell 子命令），
