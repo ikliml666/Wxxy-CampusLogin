@@ -364,9 +364,9 @@ fn enable_campus_adapter(_name: &str, _allow_uac_prompt: bool) -> Result<(), Hel
 /// 提权降级策略照 adapter_watch 的自动启用：首试静默（CMSTPLUA 可用时零 UAC 打扰），
 /// 仅在**确因提权通道失败**后允许降级弹 UAC（静默通道被系统封堵时 UAC 是唯一恢复通道），
 /// 频率由退避阶梯限制；失败原因经 Err(原因) 上报调用方（手动入口透传前端 toast）。
-/// raise_origin：同时把原出口卡的跃点抬到 SWITCHED_ORIGIN_METRIC。与目标卡的写入
-/// 合成同一次 helper 调用——分两次的好处只是日志更细，代价是多一次提权往返
-/// （每次超时 10s），而切换对耗时有硬要求。
+/// suppress：同时把这些竞争卡（原出口 + 其他有 IP 的物理卡）的跃点抬到
+/// SWITCHED_ORIGIN_METRIC。与目标卡的写入合成同一次 helper 调用——分两次的好处
+/// 只是日志更细，代价是多一次提权往返（每次超时 10s），而切换对耗时有硬要求。
 fn write_outbound_metric(
     app_handle: &AppHandle,
     name: &str,
@@ -374,7 +374,7 @@ fn write_outbound_metric(
     families: &[u16],
     notify_success: bool,
     notify_suffix: &str,
-    raise_origin: Option<(&str, &[u16])>,
+    suppress: &[(String, Vec<u16>)],
 ) -> Result<(), String> {
     if families.is_empty() {
         // 卡在但跃点行缺失：写不进去。同样记退避，避免 30s 一拍刷日志；
@@ -392,16 +392,23 @@ fn write_outbound_metric(
         .iter()
         .map(|family| format!("{guid}:{family}:0:1"))
         .collect();
-    if let Some((origin_guid, origin_families)) = raise_origin {
-        // 抬高必须与压低同批下发：分开调用时中间态是「两张卡都低」，出口会跳到
-        // routeMetric 更小的那张，验证步骤就会偶发判失败
-        encoded.extend(
-            origin_families
-                .iter()
-                .map(|family| format!("{origin_guid}:{family}:0:{SWITCHED_ORIGIN_METRIC}")),
-        );
-    }
+    // 抬高必须与压低同批下发：分开调用时中间态是「所有卡都低」，出口会跳到
+    // routeMetric 更小的那张，验证步骤就会偶发判失败
+    encoded.extend(encode_suppress_rows(suppress));
     run_set_metric(app_handle, name, &encoded, notify_success, notify_suffix)
+}
+
+/// 竞争卡跃点编码：每张卡的每个协议栈都抬到 SWITCHED_ORIGIN_METRIC。
+/// 纯函数便于单测锁定「所有竞争卡一起抬高」，不依赖 helper 通道。
+fn encode_suppress_rows(suppress: &[(String, Vec<u16>)]) -> Vec<String> {
+    suppress
+        .iter()
+        .flat_map(|(guid, families)| {
+            families
+                .iter()
+                .map(move |family| format!("{guid}:{family}:0:{SWITCHED_ORIGIN_METRIC}"))
+        })
+        .collect()
 }
 
 /// 下发一次 set_metric 并处理成功/失败语义（日志、首次失败通知、退避计数）。
@@ -851,8 +858,32 @@ struct OutboundSwitchPlan {
     /// 目标卡（出站切换的落点）
     target_name: String,
     target_guid: String,
+    /// 目标卡 IPv4：切换后要用它绑源做出网复核（路由表对 ≠ 真能上网）
+    target_ip: String,
     /// 目标卡接口索引，用于切换后验证默认出口确实落在这张卡上
     target_if_index: u32,
+}
+
+/// 切换时需要压制（抬跃点）的竞争卡：非目标、已连接、有 IP 的物理卡。
+///
+/// 只抬原出口一张不够：同机其他物理卡（第二根网线、同网段热点）的 DHCP 默认路由
+/// routeMetric 可能更小，切完后新建连接会被它们的 routeMetric + interfaceMetric
+/// 抢走——路由表显示默认出口已在目标卡，实际流量仍从别的卡出去。红线是
+/// 「最终 metric = routeMetric + interfaceMetric」，我们只控后者，所以必须把所有
+/// 竞争者一起抬高，而不是赌目标卡的 sum 恰好最小。
+fn outbound_suppress_targets<'a>(
+    target_guid: &str,
+    adapters: &'a [crate::network::Adapter],
+) -> Vec<&'a crate::network::Adapter> {
+    adapters
+        .iter()
+        .filter(|a| {
+            a.guid != target_guid
+                && !a.guid.is_empty()
+                && !a.ip.is_empty()
+                && a.status == crate::network::discovery::AdapterStatus::Connected
+        })
+        .collect()
 }
 
 /// 读一张卡的 IPv4/IPv6 跃点行。读失败向上传播（不吞成空表：空表会被当成
@@ -952,6 +983,7 @@ fn build_outbound_plan(
         return Ok(OutboundSwitchPlan {
             target_name: adapter.name,
             target_guid: adapter.guid,
+            target_ip: adapter.ip,
             target_if_index: adapter.if_index,
         });
     }
@@ -1035,6 +1067,7 @@ fn build_outbound_plan(
     Ok(OutboundSwitchPlan {
         target_name: target.name,
         target_guid: target.guid,
+        target_ip: target.ip,
         target_if_index: target.if_index,
     })
 }
@@ -1123,9 +1156,38 @@ pub(super) fn apply_outbound_switch_with_health(
     // 兜底路由字段不再写入：2026-10-18 事故后该能力废弃（同网关+接口的默认路由无法与
     // 目标卡自己的 DHCP 默认路由共存，Windows 判重复 → route add 每夜恒失败重放），
     // 历史值保留给还原步骤①按四元组精确清理，清空会让历史残留无人认领。
+    // 其他竞争者（非目标、已连接、有 IP 的物理卡）也要抬跃点并快照原值：
+    // 只抬原出口一张时，第二根网线/同网段热点的 DHCP 默认路由仍可能抢走新建连接。
+    // 读取失败不退化成静默跳过——该卡无法压制就会成为漏网的抢路由者，按失败重试。
+    let suppress_cards: Vec<(String, Vec<MetricRow>)> = {
+        let adapters = crate::network::get_adapters_cached().unwrap_or_default();
+        let mut cards = Vec::new();
+        for adapter in outbound_suppress_targets(&plan.target_guid, &adapters) {
+            if origin_rows
+                .as_ref()
+                .is_some_and(|(_, guid, _)| guid == &adapter.guid)
+            {
+                continue; // 已由 origin_rows 收录
+            }
+            let rows = read_family_rows(&adapter.guid)?;
+            if rows.is_empty() {
+                crate::log_debug!(
+                    "outbound",
+                    "夜间出站切换: 竞争卡 {} 无跃点行，跳过压制（无默认路由可抢）",
+                    adapter.name
+                );
+                continue;
+            }
+            cards.push((adapter.guid.clone(), rows));
+        }
+        cards
+    };
     let mut restore_entries: Vec<(String, Vec<MetricRow>)> =
         vec![(plan.target_guid.clone(), target_rows.clone())];
     if let Some((_, guid, rows)) = &origin_rows {
+        restore_entries.push((guid.clone(), rows.clone()));
+    }
+    for (guid, rows) in &suppress_cards {
         restore_entries.push((guid.clone(), rows.clone()));
     }
     let snapshot_cards = restore_entries.len();
@@ -1153,9 +1215,13 @@ pub(super) fn apply_outbound_switch_with_health(
         .as_ref()
         .map(|(_, _, rows)| rows.iter().map(|r| r.family).collect())
         .unwrap_or_default();
-    let origin_write = origin_rows
-        .as_ref()
-        .map(|(_, guid, _)| (guid.as_str(), origin_families.as_slice()));
+    let mut suppress_write: Vec<(String, Vec<u16>)> = suppress_cards
+        .iter()
+        .map(|(guid, rows)| (guid.clone(), rows.iter().map(|r| r.family).collect()))
+        .collect();
+    if let Some((_, guid, _)) = &origin_rows {
+        suppress_write.push((guid.clone(), origin_families.clone()));
+    }
     // 名单在首次写跃点前落盘：此后任何失败都保留「连接重置尚未完成」的现场，
     // 重放不能只补跃点，必须先把这次下线事务做完。
     if let Some((name, guid, _)) = &origin_rows {
@@ -1172,7 +1238,7 @@ pub(super) fn apply_outbound_switch_with_health(
                 &families,
                 notify,
                 "",
-                origin_write,
+                &suppress_write,
             )
         },
         || {
@@ -1190,7 +1256,13 @@ pub(super) fn apply_outbound_switch_with_health(
         );
     }
     // ③ 跃点写入成功 ≠ 出口真的换了（TUN/代理可能持有 metric=0 的默认路由）
-    verify_switch_effect(&plan.target_name, plan.target_if_index)?;
+    verify_switch_effect(
+        app_handle,
+        config,
+        &plan.target_name,
+        &plan.target_ip,
+        plan.target_if_index,
+    )?;
     // ④ Portal 旁路：默认出口已在目标卡，但登录请求仍需到达校园 Portal——给原卡加一条
     //    /32 主机路由让这部分流量绕回原卡。它只影响「切换态内回原卡登录」，不决定
     //    出口是否已切换，故后台执行、失败只记日志。
@@ -1264,21 +1336,57 @@ fn validate_switch_probe(result: Result<bool, String>, target_name: &str) -> Res
     }
 }
 
-fn verify_switch_effect(target_name: &str, target_if_index: u32) -> Result<(), String> {
-    match validate_switch_probe(outbound_route_targets(target_if_index), target_name) {
-        Ok(()) => {
-            crate::log_info!(
-                "outbound",
-                "夜间出站切换: 路由验证通过，默认出口已指向 {target_name}"
-            );
-            Ok(())
-        }
-        Err(reason) => {
-            mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
-            crate::log_warn!("outbound", "夜间出站切换: 路由验证失败——{reason}");
-            Err(reason)
-        }
+fn verify_switch_effect(
+    app_handle: &AppHandle,
+    config: &crate::config::Config,
+    target_name: &str,
+    target_ip: &str,
+    target_if_index: u32,
+) -> Result<(), String> {
+    let route_result = validate_switch_probe(outbound_route_targets(target_if_index), target_name);
+    if let Err(reason) = route_result {
+        mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+        crate::log_warn!("outbound", "夜间出站切换: 路由验证失败——{reason}");
+        return Err(reason);
     }
+    // 路由表只说明「默认出口的接口索引是哪张卡」，不代表流量真能出去：其他物理卡
+    // 竞争默认路由、原卡残留会话、代理/TUN 抢包，都会让默认出口看起来正确而实际
+    // 走错链路（用户现场：切换完成后流量仍从别的卡出去被判踢线）。判据改成绑源到
+    // 目标卡的 HTTPS 探测，只有真实出网才算切换完成。
+    let mut hosts = config.internet_probe_hosts.clone();
+    if hosts.is_empty() {
+        hosts = crate::network::quality::DEFAULT_INTERNET_PROBE_HOSTS
+            .iter()
+            .map(|h| (*h).to_string())
+            .collect();
+    }
+    let timeout = Duration::from_millis(config.outbound_probe_timeout_ms as u64);
+    let quitting = app_handle.state::<AppState>().exit.is_quitting.clone();
+    let ok = crate::infra::async_util::block_on_sync(
+        crate::network::quality::check_internet_access_with_if(
+            target_ip,
+            Some(target_if_index),
+            true,
+            true,
+            quitting,
+            false,
+            timeout,
+            &hosts,
+        ),
+    );
+    if !ok {
+        let reason = format!(
+            "绑定 {target_name}({target_ip}) 的出网探测失败（路由已指向该卡但实际不通，可能被其他物理卡或代理抢走流量）"
+        );
+        mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
+        crate::log_warn!("outbound", "夜间出站切换: 出网验证失败——{reason}");
+        return Err(reason);
+    }
+    crate::log_info!(
+        "outbound",
+        "夜间出站切换: 路由与出网双重验证通过，{target_name} 可正常访问公网"
+    );
+    Ok(())
 }
 
 /// 原出口卡「下线再恢复」的保持时长。5 秒用于覆盖协议栈断链传播与应用常见的
@@ -1547,7 +1655,9 @@ pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::con
             } else if let Some(target) = target {
                 // 写入成功只代表 helper 返回成功；默认出口未落到目标卡或路由表读失败，
                 // 都必须保留失败计数，下一拍继续重放，不能进入整夜假稳态。
-                if verify_switch_effect(&target.name, target.if_index).is_err() {
+                if verify_switch_effect(app_handle, config, &target.name, &target.ip, target.if_index)
+                    .is_err()
+                {
                     any_fail = true;
                 }
             } else {
@@ -2218,7 +2328,7 @@ fn retarget_outbound_switch(app_handle: &AppHandle, adapter_name: &str) -> Resul
             }
         },
     )?;
-    verify_switch_effect(&adapter.name, adapter.if_index)?;
+    verify_switch_effect(app_handle, &config, &adapter.name, &adapter.ip, adapter.if_index)?;
     Ok(())
 }
 
@@ -2669,6 +2779,43 @@ mod tests {
             disabled_adapter("以太网", AdapterStatus::Connected),
         ];
         assert!(restore_enable_targets(&[], &snapshot, &adapters).is_empty());
+    }
+
+    #[test]
+    fn 竞争卡_只收非目标且已连接有ip的卡() {
+        use crate::network::discovery::AdapterStatus;
+        let mut target = adapter("WLAN", "192.168.6.113", true);
+        target.guid = "{target}".to_string();
+        let mut peer = adapter("以太网 2", "192.168.6.107", false);
+        peer.guid = "{peer}".to_string();
+        let mut down = adapter("以太网 4", "10.2.38.176", false);
+        down.guid = "{down}".to_string();
+        down.status = AdapterStatus::Disconnected;
+        let mut ipless = adapter("以太网 3", "", false);
+        ipless.guid = "{ipless}".to_string();
+        let adapters = vec![target, peer, down, ipless];
+        let picked: Vec<&str> = outbound_suppress_targets("{target}", &adapters)
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect();
+        assert_eq!(picked, vec!["以太网 2"], "只压制真正会竞争默认路由的对端卡");
+    }
+
+    #[test]
+    fn 压制编码_所有竞争卡都抬到同一跃点() {
+        let cards = vec![
+            ("{origin}".to_string(), vec![2u16, 23]),
+            ("{peer}".to_string(), vec![2u16]),
+        ];
+        let encoded = encode_suppress_rows(&cards);
+        assert_eq!(
+            encoded,
+            vec![
+                format!("{{origin}}:2:0:{SWITCHED_ORIGIN_METRIC}"),
+                format!("{{origin}}:23:0:{SWITCHED_ORIGIN_METRIC}"),
+                format!("{{peer}}:2:0:{SWITCHED_ORIGIN_METRIC}"),
+            ]
+        );
     }
 
     #[test]
