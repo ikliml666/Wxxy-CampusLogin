@@ -573,6 +573,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     handleSaveMetric,
     restoringOutbound,
     handleOutboundRestore,
+    nightSwitching,
+    handleNightSwitch,
   } = useOutboundManual(adapters.length)
 
   // 切换态判据：切换成功必先落跃点快照（outboundMetricRestore），还原收尾清空。
@@ -703,6 +705,33 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {/* 夜晚切换/还原一体：切换态点它还原（用户误操作后的回切入口），
+                    否则立即执行夜间整卡下线切换。行内「切换出站」只改跃点，不走这里 */}
+                {outboundSwitched ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1 border-amber-500/30 text-[11px] text-amber-600 hover:border-amber-500/50 hover:bg-amber-500/10 hover:text-amber-700"
+                    onClick={handleOutboundRestore}
+                    disabled={restoringOutbound}
+                    title={t('network.nightRestoreNowHint')}
+                  >
+                    {restoringOutbound ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+                    {t('network.nightRestoreNow')}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1 border-primary/30 text-[11px] text-primary hover:bg-primary/10 hover:text-primary"
+                    onClick={handleNightSwitch}
+                    disabled={nightSwitching}
+                    title={t('network.nightSwitchNowHint')}
+                  >
+                    {nightSwitching ? <Loader2 className="h-3 w-3 animate-spin" /> : <MoonStar className="h-3 w-3" />}
+                    {t('network.nightSwitchNow')}
+                  </Button>
+                )}
                 <MoonStar className="h-4 w-4 text-primary" />
                 <Switch
                   checked={config.enableNightOutboundSwitch}
