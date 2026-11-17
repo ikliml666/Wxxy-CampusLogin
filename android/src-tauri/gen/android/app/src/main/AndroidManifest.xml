@@ -22,6 +22,8 @@
     <!-- 读当前连接 RSSI（弱信号规则）：WifiManager.connectionInfo 只需 ACCESS_WIFI_STATE，
          是 install-time 自动授予的普通权限——让弱信号规则不再只依赖 shell 通道 -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- 弱信号切流量前确认蜂窝网络可用：移动数据关闭时关 WiFi 会让设备彻底断网 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Settings.Global 写通道(夜间出站切换 ensure avoid_bad_wifi / acceptWifiNetwork 兜底):
          signature|privileged 权限,普通安装流程不会授予,仅用户 adb `pm grant` 后生效;
          未授予时 checkSelfPermission 恒 DENIED,写路径自然回落到"无权限"分支,无副作用 -->

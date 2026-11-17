@@ -1,3 +1,20 @@
+### 行为调整：弱信号切流量前先确认流量真的可用（2026-11-17）
+
+**为什么**：用户要求「弱信号触发底层切换，从 WiFi 切到流量」。核实后发现原实现只做了「关 WiFi」这一半——`set-wifi-enabled disabled` 之后如果移动数据是关闭的（或只有 IMS 无 INTERNET），设备就是**彻底断网**，比待在弱 WiFi 上更糟。切换的前提从来没被检查过。
+
+**改了什么**
+
+- `WifiCurfewRunner` 新增 `hasCellularFallback()`：遍历 `ConnectivityManager.allNetworks`，只认 `TRANSPORT_CELLULAR` + `NET_CAPABILITY_INTERNET`。移动数据关闭时系统仍会列出蜂窝网络对象，但只有 `IMS`/`MMTEL` 能力、没有 `INTERNET`，据此区分「有网」与「只是有 SIM」。
+- `checkWeakSignal` 在关 WiFi 前加守卫：无可用蜂窝 → 返回 `weak-no-cellular`（trace=`no_cellular_internet`），**保持 WiFi 不动**，不制造断网。
+- `AndroidManifest.xml` 声明 `ACCESS_NETWORK_STATE`（读网络状态，普通权限）。
+
+**验证**（真机 RMX3300 / Android 15，临时把阈值调到必然触发以覆盖规则）
+
+- **移动数据关闭**（`settings get global mobile_data` = 0）：守则返回 `{"action":"weak-no-cellular","rssi":-35,"trace":"no_cellular_internet"}`，`cmd wifi status` 仍是 `Wifi is enabled` 且保持连接——守卫生效，未制造断网。
+- **移动数据开启**后（`mobile_data`=1）仍返回 `weak-no-cellular`：`dumpsys connectivity` 显示该机蜂窝网络只有 `Capabilities: IMS&…&MMTEL`、无 `INTERNET`，`mDataConnectionState=0`。说明守卫判断正确（这台设备的 SIM 当前无数据连接），而「有蜂窝则关 WiFi」分支在本机无法构造，未实测。
+- 守卫通过后的下游是原有 `set-wifi-enabled disabled` 路径，其可用性此前已实测（`exit=0` 并真正关闭）。
+
+**说明**：弱信号规则现在有两条明确的拒绝出口——`weak-no-cellular`（没流量可切，保持 WiFi）与 `weak-failed`（有流量但关 WiFi 失败）。UI 的守则事件会带上 `trace`，能区分「为什么没动作」。
 ### 缺陷修复：弱信号规则不再只依赖 shell 通道（RSSI 双通道来源）（2026-11-17）
 
 **为什么**：用户质疑「弱信号断开真的可用吗」。查实现发现真实缺陷——`currentRssi()` 只走 `cmd wifi status`（shell），而 shell 通道依赖 Shizuku/root。没有执行通道时 `currentRssi()` 返回 null，`checkWeakSignal` 直接 `return null` 无动作：**弱信号开关能打开，但规则静默失效**，UI 没有任何提示。

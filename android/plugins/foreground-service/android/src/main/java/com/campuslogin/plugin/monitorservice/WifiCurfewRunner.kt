@@ -1,6 +1,8 @@
 package com.campuslogin.plugin.monitorservice
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.util.Log
 import org.json.JSONArray
@@ -202,12 +204,41 @@ class WifiCurfewRunner(private val context: Context) {
         }
         val rssi = currentRssi() ?: return null
         if (rssi >= threshold) return null
+        // 「从 WiFi 切到流量」的**前提是流量可用**：移动数据关闭或飞行模式下关 WiFi
+        // 会让设备彻底断网——比待在弱 WiFi 上更糟。不可用时保持 WiFi 不动。
+        if (!hasCellularFallback()) {
+            return result("weak-no-cellular")
+                .put("channel", channel)
+                .put("rssi", rssi)
+                .put("trace", "no_cellular_internet")
+                .toString()
+        }
         val trace = setWifiEnabled(false)
         if (!trace.ok) {
             return result("weak-failed").put("channel", channel).put("rssi", rssi).put("trace", trace.detail).toString()
         }
         prefs.edit().putBoolean(KEY_WEAK, true).putLong(KEY_WEAK_AT, System.currentTimeMillis()).apply()
         return result("weak-off").put("channel", channel).put("rssi", rssi).put("trace", trace.detail).toString()
+    }
+
+    /**
+     * 是否存在可用的蜂窝数据网络（判定「切到流量」是否成立）。
+     *
+     * 只看 `TRANSPORT_CELLULAR` + `NET_CAPABILITY_INTERNET`：移动数据关闭时系统
+     * 仍可能列出蜂窝网络对象，但没有 INTERNET 能力，据此区分「有网」与「只是有 SIM」。
+     * 读网络状态只需 ACCESS_NETWORK_STATE（普通权限）。
+     */
+    private fun hasCellularFallback(): Boolean {
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false
+        return try {
+            cm.allNetworks.any { network ->
+                val caps = cm.getNetworkCapabilities(network) ?: return@any false
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            }
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /**
