@@ -1,3 +1,22 @@
+### 架构改进：后台核心回归主进程，撤销 :core 独立进程（2026-11-17）
+
+**为什么**：从第一性原理重审进程设计——Android 的前台服务与 UI 同进程即可在界面销毁后存活（force-stop 是整包杀，分进程并不能额外保活），`:core` 拆分没有换来保活；却撞上 Shizuku 的硬约束：binder 只在 provider 进程（主进程）可靠注入，非 provider 进程只能靠一次性 `BINDER_RECEIVED` 广播。真机实测主进程广播早于 `:core` 启动 0.9 秒，`:core` 永远错过，`ContentResolver.call("getBinder")` 也返回空 bundle——保活下来的核心成了没有特权、读不了 SSID、执行不了 WiFi 守则的空壳。此前围绕 binder 分发的一切补救都是在给一个错误的抽象打补丁。
+
+**改了什么**
+
+- `CoreService` 与 `BootReceiver` 移除 `android:process=":core"`，回归主进程（ShizukuProvider 所在进程）；Shizuku/root 双通道与 `CurfewShell` 常驻连接在主进程天然可用。
+- 同进程安全前提已核实：`nativeStart` 有 `CORE` 静态互斥、重复调用自动忽略（`core/runner.rs:43`），UI 拉起与服务恢复并发不会重复建运行时；`CoreClient` 的 bindService/Messenger 同进程走本地 Binder，无需改。
+- 同步清理代码与注释中「:core 进程」的表述；`CampusLoginApplication` 保留 `enableMultiProcessSupport`（主进程始终是最可靠宿主）。
+
+**验证**（真机 RMX3300 / Android 15，定位权限已撤销）
+
+- 进程数：`ps` 仅剩主进程与 Shizuku shell 进程，无 `:core`。
+- 无定位权限下核心日志 `ssid="kiku-5G"` / `ssid="Realme GT 8 Pro"`——Shizuku 通道后台可读，此前 binder 缺陷消失。
+- 熄屏下周期巡检稳定 60s（12:34:08 #5 → 12:35:08 #6）；WiFi lost → online=false、validated → 强制刷新正常。
+- 守则试运行 `channel:"shizuku"`、RSSI 事件 `channel:"shizuku"` 正常。
+- `cargo test -p campus-core-logic`：20 passed。
+
+**取舍**：放弃「UI 进程可被系统换出以省内存」这一未经验证且收益存疑的设计目标，换取后台能力（SSID、守则、shell 通道）的确定性。主进程持有 WebView 时内存略高，但后台巡检的可靠性是首要目标。
 ### 修复：当前 WiFi 名称（SSID）不再恒为空（2026-11-17）
 
 **为什么**：Android 12+ 的 `WifiManager.connectionInfo` 在缺少定位权限时一律返回 `<unknown ssid>`，而应用只申请了 `NEARBY_WIFI_DEVICES`（它只覆盖扫描与连接，不覆盖 SSID）。结果是监测页恒显示「未获取网络名」，校园网名称检查形同虚设——连着家用 WiFi 也被判为「已连接校园网」。真机（RMX3300 / Android 15）实测确认。

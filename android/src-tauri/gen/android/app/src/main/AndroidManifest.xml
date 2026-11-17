@@ -49,11 +49,13 @@
             </intent-filter>
         </activity>
 
-        <!-- 后台核心唯一宿主::core 独立进程,含 Rust 巡检/自动登录/通知/WiFi watcher。
-             UI/WebView 进程被系统回收不影响核心;START_STICKY 重建服务时核心自恢复 -->
+        <!-- 后台核心宿主：主进程前台服务，含 Rust 巡检/自动登录/通知/WiFi watcher。
+             与 UI 同进程：前台服务在界面销毁后仍存活（force-stop 为整包杀，分进程并不能
+             额外保活）；且 Shizuku 的 binder 只在主进程（provider 进程）可靠注入，拆到
+             独立进程会让核心永久拿不到 binder——SSID 读取与 WiFi 守则随之失效。
+             START_STICKY 重建服务时核心自恢复。 -->
         <service
             android:name="com.campuslogin.plugin.monitorservice.CoreService"
-            android:process=":core"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -64,7 +66,6 @@
         <!-- 开机自启:默认 disabled,由设置页 setBootAutostart 动态启停 -->
         <receiver
             android:name="com.campuslogin.plugin.monitorservice.BootReceiver"
-            android:process=":core"
             android:enabled="false"
             android:exported="false">
             <intent-filter>
@@ -72,9 +73,9 @@
             </intent-filter>
         </receiver>
 
-        <!-- Shizuku：进程内 binder 由 ShizukuProvider 注入（CampusLoginApplication 里
-             enableMultiProcessSupport，使 :core 进程也能用）。authorities 必须带
-             applicationId 占位符，否则同签名的多个变体互相覆盖。 -->
+        <!-- Shizuku：binder 由 ShizukuProvider 在主进程注入（CampusLoginApplication 里
+             enableMultiProcessSupport）。核心与守则都在主进程，天然可用。
+             authorities 必须带 applicationId 占位符，否则同签名的多个变体互相覆盖。 -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"

@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * UI 进程 → :core 进程的唯一通道。
+ * UI 侧 → 后台核心（CoreService）的唯一通道。
  *
  * 手动登录/注销、后台检测开关、立即检测都经这里转发,UI 进程不再自行运行核心;
  * core 事件经 [CoreService.ACTION_EVENT] 广播回传,再由 [CoreEvents] 交给 Rust
@@ -35,7 +35,7 @@ object CoreClient {
     @Volatile
     private var receiverRegistered = false
 
-    /** 拉起 :core 前台服务(START_STICKY,已运行则幂等) */
+    /** 拉起核心前台服务(START_STICKY,已运行则幂等) */
     fun ensureService(context: Context) {
         try {
             val intent = Intent(context, CoreService::class.java)

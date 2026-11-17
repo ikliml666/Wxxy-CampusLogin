@@ -83,7 +83,7 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
     }
 
     /**
-     * UI → :core 命令转发(action = start/stop/trigger/status/login/logout)。
+     * UI → 核心命令转发(action = start/stop/trigger/status/login/logout)。
      * Tauri 的 run_on_android_context 会把本方法调度到 Android 主线程，而
      * CoreClient 等待结果期间，bindService/onServiceConnected 又需要主线程处理。
      * 因此阻塞等待必须留在工作线程，主线程只负责接收异步完成后的 invoke 结果。
@@ -306,7 +306,7 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
 
     @Command
     fun startMonitor(invoke: Invoke) {
-        // 后台核心在 :core 进程:UI 只拉起服务并转发 start(幂等)
+        // 后台核心由 CoreService 承载:UI 只拉起服务并转发 start(幂等)
         val ctx = activity.applicationContext
         Thread({
             CoreClient.ensureService(ctx)
@@ -369,12 +369,12 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
         }
     }
 
-    // 探针窗口:core 进程内部经 JNI 直调 CoreService,此命令仅保留兼容。
+    // 探针窗口:核心内部经 JNI 直调 CoreService,此命令仅保留兼容。
     // 窗口内持有 WifiLock + 唤醒锁,窗口外全部释放——常驻 WifiLock 会让系统
     // 永不进入 WiFi 省电(CDD 要求),而一轮探针只数百毫秒。
     @Command
     fun beginProbeWindow(invoke: Invoke) {
-        // 探针窗口锁由 :core 进程经 JNI 直调 CoreService,此命令仅保留兼容
+        // 探针窗口锁由核心经 JNI 直调 CoreService,此命令仅保留兼容
         invoke.resolve()
     }
 
@@ -615,13 +615,13 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
 }
 
 /// 开机自启:仅当用户在设置里开启过(setBootAutostart 记忆于 SharedPreferences)才拉起 core 服务。
-/// 核心在 :core 进程,START_STICKY/开机拉起时无需 Activity 即可恢复巡检与 WiFi watcher。
+/// 核心由 CoreService 承载,START_STICKY/开机拉起时无需 Activity 即可恢复巡检与 WiFi watcher。
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         val prefs = context.getSharedPreferences("campus_settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("boot_autostart", false)) return
-        // 只拉起 :core 前台服务,不再拉起 MainActivity:核心不依赖 Activity,
+        // 只拉起核心前台服务,不再拉起 MainActivity:核心不依赖 Activity,
         // 开机后即恢复巡检与 WiFi watcher,前端留给系统按需回收
         try {
             val service = Intent(context, CoreService::class.java)

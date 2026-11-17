@@ -1,6 +1,6 @@
 //! UI 进程侧的事件桥:UI 的 Kotlin 收到 core 广播后调用这里,再 emit 给 WebView。
 //!
-//! 只有 UI 进程有 `AppHandle`;:core 进程里 `APP` 恒为 None,调用即静默丢弃。
+//! 只有 UI 侧有 `AppHandle`;核心独立运行（如开机拉起、未加载 WebView）时 `APP` 为 None,调用即静默丢弃。
 
 use std::sync::{Mutex, OnceLock};
 

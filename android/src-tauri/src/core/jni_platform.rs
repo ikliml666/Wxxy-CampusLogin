@@ -1,4 +1,4 @@
-//! :core 进程的平台实现:全部经 Kotlin `CoreService` 的实例方法往返。
+//! 核心的平台实现:全部经 Kotlin `CoreService` 的实例方法往返。
 //!
 //! 调用签名严格按 `campus_core_logic::platform_sig` 的映射:
 //! String→String 只给加解密用,`(String)V` 给通知,`()V` 给探针/监听,

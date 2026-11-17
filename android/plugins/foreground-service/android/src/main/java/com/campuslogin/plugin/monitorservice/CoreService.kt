@@ -37,7 +37,9 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * :core 进程的前台服务——后台核心的唯一宿主。
+ * 主进程的前台服务——后台核心的唯一宿主。
+ * 与 UI 同进程即可在界面销毁后存活；Shizuku 的 binder 只在主进程可靠注入，
+ * 拆到独立进程会让核心永久拿不到 binder（SSID 读取与 WiFi 守则随之失效）。
  *
  * 核心(Rust 巡检/自动登录/通知/WiFi watcher)由 `nativeStart` 在本进程拉起,
  * 只依赖持久化配置,不依赖 Activity:服务被 START_STICKY 重建时核心随之恢复。
@@ -81,7 +83,7 @@ class CoreService : Service() {
     private var probeWakeLock: PowerManager.WakeLock? = null
 
     /**
-     * 常驻网络回调：WiFi 变化 + RSSI 都在 :core 进程内消费，不依赖 UI/Activity。
+     * 常驻网络回调：WiFi 变化 + RSSI 都由本服务消费，不依赖 UI/Activity。
      * 事件用主线程 handler 投递，保证 watcher 启动、停止与回调串行。
      */
     private var networkWatcher: ConnectivityManager.NetworkCallback? = null
@@ -95,10 +97,10 @@ class CoreService : Service() {
 
     private val shizukuPermissionListener = rikka.shizuku.Shizuku.OnRequestPermissionResultListener { _, grantResult ->
         if (grantResult == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            Log.i(TAG, "Shizuku 已授权(:core 进程收到),立即执行一次守则")
+            Log.i(TAG, "Shizuku 已授权,立即执行一次守则")
             runCurfewFromEvent("shizuku-granted")
         } else {
-            Log.w(TAG, "Shizuku 授权被拒绝(:core 进程)")
+            Log.w(TAG, "Shizuku 授权被拒绝")
         }
     }
 
@@ -149,7 +151,7 @@ class CoreService : Service() {
 
     // ===== Rust 调用的平台方法(与 core::jni_platform 一一对应) =====
 
-    /** Rust :core 的可观测性出口（只传状态与原因，不传凭据） */
+    /** Rust 核心的可观测性出口（只传状态与原因，不传凭据） */
     fun trace(message: String) {
         Log.i("CampusCoreMonitor", message)
     }
@@ -225,7 +227,7 @@ class CoreService : Service() {
     }
 
     /**
-     * 绑定本(:core)进程网络到 WiFi。登录/探测/注销都在本进程发起,UI 进程的绑定
+     * 绑定本进程网络到 WiFi。登录/探测/注销都在本进程发起,UI 侧的绑定
      * 对本进程 socket 无效,所以绑定必须在这里执行。
      */
     fun bindToWifi(): String {
@@ -465,7 +467,7 @@ class CoreService : Service() {
                 .build()
             cm.registerNetworkCallback(request, callback)
             networkWatcher = callback
-            Log.i(TAG, "WiFi 回调已注册(:core 常驻)")
+            Log.i(TAG, "WiFi 回调已注册(服务常驻)")
         }
     }
 
@@ -746,7 +748,7 @@ class CoreService : Service() {
         return generator.generateKey()
     }
 
-    // 由 Rust 从 :core 进程调用
+    // 由 Rust 核心调用
     private external fun nativeStart(service: CoreService, dataDir: String)
     private external fun nativeCommand(action: String, args: String): String
     private external fun nativeWifiEvent(event: String)

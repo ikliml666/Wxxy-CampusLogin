@@ -1,6 +1,6 @@
 //! 后台监控循环:tick = 校园网判定 → Portal 探测 → 掉线自动重登(cooldown + 次数上限)
 //! → emit background-check-result / login-log。决策逻辑抽纯函数便于 TDD,
-//! 循环体跑在 :core 进程的 tokio runtime 上。
+//! 循环体跑在后台核心的 tokio runtime 上。
 
 use campus_login_lib::campus::rules::{expected_operator_display, portal_origin};
 use chrono::{Datelike, Timelike};

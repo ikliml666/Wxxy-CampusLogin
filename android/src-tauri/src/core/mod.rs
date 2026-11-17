@@ -1,4 +1,4 @@
-//! :core 进程的后台核心。
+//! 后台核心（主进程 CoreService 前台服务承载）。
 //!
 //! 核心(巡检/自动登录/夜间切换/通知/WiFi 事件)只在本模块运行,由 `:core` 进程
 //! 的 `CoreService` 经 JNI `nativeStart` 拉起;UI 进程不再启动它,只经 Binder

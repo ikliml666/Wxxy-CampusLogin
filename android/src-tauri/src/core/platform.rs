@@ -1,4 +1,4 @@
-//! 核心对平台能力的全部依赖(同步 JNI 调用)。:core 进程由 `jni_platform` 实现;
+//! 核心对平台能力的全部依赖(同步 JNI 调用)。后台核心由 `jni_platform` 实现;
 //! 这里不出现 tauri 类型,保证核心可以脱离 Activity 运行。
 
 use std::net::Ipv4Addr;
@@ -188,7 +188,7 @@ impl CoreCtx {
         current.map(|ip| ip.to_string())
     }
 
-    /// 绑定本进程(实际发起登录的 :core 进程)网络到 WiFi;JNI 阻塞调用走 spawn_blocking
+    /// 绑定本进程(实际发起登录的进程)网络到 WiFi;JNI 阻塞调用走 spawn_blocking
     pub async fn bind_to_wifi(&self) -> Result<serde_json::Value, String> {
         let p = self.platform.clone();
         tokio::task::spawn_blocking(move || p.bind_to_wifi())

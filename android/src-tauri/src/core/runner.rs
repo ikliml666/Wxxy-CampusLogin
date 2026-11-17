@@ -1,4 +1,4 @@
-//! :core 进程的核心生命周期:由 Kotlin `CoreService` 经 JNI 驱动。
+//! 后台核心的生命周期:由 Kotlin `CoreService`（主进程前台服务）经 JNI 驱动。
 //!
 //! 启动只依赖持久化配置(campus_core_logic::boot::boot_plan),不依赖 Activity ——
 //! START_STICKY 重建服务时进程里没有 Activity,核心仍能恢复巡检与 WiFi watcher。
@@ -34,7 +34,7 @@ fn should_keep_service(is_running: bool, login_in_progress: bool, boot_active: b
     is_running || login_in_progress || boot_active
 }
 
-/// :core 进程入口(Kotlin `CoreService.onCreate` → JNI)。
+/// 核心入口(Kotlin `CoreService.onCreate` → JNI)。
 pub fn start(data_dir: PathBuf, platform: Arc<dyn CorePlatform>) {
     let mut guard = match CORE.lock() {
         Ok(g) => g,
@@ -79,7 +79,7 @@ pub fn start(data_dir: PathBuf, platform: Arc<dyn CorePlatform>) {
     });
     *guard = Some(core.clone());
     drop(guard);
-    campus_login_lib::log_info!("monitor", ":core 进程核心已初始化");
+    campus_login_lib::log_info!("monitor", "后台核心已初始化");
     core.rt.spawn(async move {
         let _guard = BootGuard;
         boot(ctx).await;
@@ -302,7 +302,7 @@ pub fn shutdown() {
             drop(shared);
         }
     }
-    campus_login_lib::log_info!("monitor", ":core 进程核心已释放");
+    campus_login_lib::log_info!("monitor", "后台核心已释放");
 }
 
 #[cfg(test)]

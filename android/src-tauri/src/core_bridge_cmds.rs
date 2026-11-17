@@ -1,7 +1,7 @@
 //! UI 进程的 core 转发命令面。
 //!
-//! UI 不再运行后台核心:启动/停止/立即检测/登录/注销全部经 Binder 转发 :core,
-//! 状态读 `:core` 唯一写入的 `core_status.json`。命令名与返回形状与改造前保持一致,
+//! UI 不直接驱动巡检:启动/停止/立即检测/登录/注销全部转发 CoreService,
+//! 状态读核心唯一写入的 `core_status.json`。命令名与返回形状与改造前保持一致,
 //! 前端无需改动。
 
 use serde_json::Value;
@@ -60,7 +60,7 @@ pub async fn get_background_status(app: tauri::AppHandle) -> Result<Value, Strin
     read_background_status(&app)
 }
 
-/// 读 :core 写的状态文件,组装成前端既有形状(不再由 UI 进程内存态给出)
+/// 读核心写的状态文件,组装成前端既有形状(不再由 UI 内存态给出)
 pub fn read_background_status(app: &tauri::AppHandle) -> Result<Value, String> {
     let dir = app
         .path()
@@ -163,7 +163,7 @@ pub async fn set_notification_enabled(
     .await?;
     Ok(enabled)
 }
-/// UI 进程内的系统通知(更新提醒等,不依赖 :core 存活)
+/// UI 进程内的系统通知(更新提醒等,不依赖核心运行)
 pub fn notify_system_local(
     app: &tauri::AppHandle,
     enabled: bool,
@@ -190,7 +190,7 @@ pub fn notify_system_local(
     }
 }
 
-/// 账号切换/删除后的 avoid_bad_wifi 收尾统一在 :core 执行,避免两进程各自缓存
+/// 账号切换/删除后的 avoid_bad_wifi 收尾统一在核心执行,避免 UI 与核心各自缓存
 /// SharedPreferences 后整文件覆盖,丢掉夜切快照(幂等,无快照无动作)。
 pub async fn restore_avoid_bad_wifi_via_core(app: &tauri::AppHandle) {
     #[cfg(mobile)]

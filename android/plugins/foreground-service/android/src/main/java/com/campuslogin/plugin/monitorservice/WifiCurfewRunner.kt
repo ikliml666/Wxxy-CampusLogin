@@ -7,7 +7,7 @@ import org.json.JSONObject
 import java.util.Calendar
 
 /**
- * WiFi 就寝守则的安卓执行器（跑在 `:core` 进程）。
+ * WiFi 就寝守则的安卓执行器（主进程 CoreService）。
  *
  * **窗口内的目标状态是「待在放行网络上」，动作都不改变系统里保存的配置**：
  * 1. 已连放行网络 → 不动；连着其它网络或没连 → 按 networkId 调系统

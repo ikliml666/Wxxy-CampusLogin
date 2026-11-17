@@ -10,7 +10,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * 守则与 SSID 读取共用的 shell 通道（跑在 `:core` 进程）。
+ * 守则与 SSID 读取共用的 shell 通道（主进程）。
  *
  * 优先 Shizuku 的 UserService，其次 root（`su -c`）。只保留**一个常驻连接**：
  * bind 一次约 1 秒，而 unbind 之后 UserService 进程不会自己退出（真机上曾累积到
