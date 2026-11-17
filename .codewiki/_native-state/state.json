@@ -2,15 +2,21 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "fd5795520071e3941dcc0f86b899973801b3b7f0",
-    "headCommit": "debbc1014f5f94bc54dd45fd2c24f1f588ffe8a3"
+    "baseCommit": "debbc1014f5f94bc54dd45fd2c24f1f588ffe8a3",
+    "headCommit": "bf43872346f16fe630a39ad087c09db2461027bf"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "fd5795520071e3941dcc0f86b899973801b3b7f0",
-    "headCommit": "debbc1014f5f94bc54dd45fd2c24f1f588ffe8a3",
+    "baseCommit": "debbc1014f5f94bc54dd45fd2c24f1f588ffe8a3",
+    "headCommit": "bf43872346f16fe630a39ad087c09db2461027bf",
     "committed": [
       "changelogs/CHANGELOG_v2.4.4.md",
+      "tauri-app/frontend/src/hooks/tauriApi.ts",
+      "tauri-app/frontend/src/i18n/locales/en.json",
+      "tauri-app/frontend/src/i18n/locales/zh.json",
+      "tauri-app/frontend/src/network/NetworkPanel.tsx",
+      "tauri-app/frontend/src/network/useOutboundManual.ts",
+      "tauri-app/src-tauri/src/monitor/outbound_failover.rs",
       "tauri-app/src-tauri/src/monitor/outbound_night.rs",
       "tauri-app/src-tauri/src/monitor/scheduled.rs"
     ],
@@ -25,11 +31,12 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwkwhcii-3-native（66 个文件）"
+    "持久化基线 fd57955 与本次 cw 基线 debbc10 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwkxmdsr-1-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-17T16:22:40.279Z"
+  "updatedAt": "2026-11-17T16:54:31.913Z"
 }
