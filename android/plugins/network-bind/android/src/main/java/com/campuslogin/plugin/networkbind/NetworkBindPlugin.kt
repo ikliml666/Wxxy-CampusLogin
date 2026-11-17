@@ -653,13 +653,14 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
         activity.applicationContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 
     /**
-     * 能否读到 SSID：定位权限（Android 12+ 的硬前提）或 Android 13+ 的 NEARBY_WIFI_DEVICES。
-     * 任一在手就返回 true——厂商 ROM 行为不一，宁可让读取尝试一次，也不提前判死说"未授权"。
+     * 能否读到 SSID：只有定位权限算数。
+     *
+     * NEARBY_WIFI_DEVICES（Android 13+）看起来是「附近 WiFi」的正牌权限，但真机实测
+     * 仅持有它时 `connectionInfo.ssid` 仍返回 `<unknown ssid>`——SSID 属于位置信息，
+     * 系统要求定位权限才给。把它当充分条件会产生「授权=true 而 SSID 为空」的矛盾态。
      */
     private fun canReadSsid(): Boolean =
-        granted(Manifest.permission.ACCESS_FINE_LOCATION) ||
-            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                granted(Manifest.permission.NEARBY_WIFI_DEVICES))
+        granted(Manifest.permission.ACCESS_FINE_LOCATION)
 
     @PermissionCallback
     fun wifiSsidPermissionCallback(invoke: Invoke) {

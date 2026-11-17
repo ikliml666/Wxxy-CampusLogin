@@ -10,4 +10,12 @@ interface IRemoteShell {
     // 走已存凭据，不需要明文密码，也不会新建/覆盖配置。
     // 返回 "ok" / "fail" / "error:<原因>"，与 exec 的 exit= 格式区分开。
     String enableSavedNetwork(int netId);
+
+    // 断开当前 WiFi 连接但保留 WiFi 开关与系统里的网络配置（IWifiManager#disconnect）。
+    // 与 disableSavedNetwork 配合：后者禁止系统自动重连回同一 SSID，否则断开后几秒又连上。
+    // 返回 "ok" / "fail" / "error:<原因>"。
+    String disconnectWifi();
+
+    // 把某个已保存网络标记为不自动连接（IWifiManager#disableNetwork，配置不删）。
+    String disableSavedNetwork(int netId);
 }

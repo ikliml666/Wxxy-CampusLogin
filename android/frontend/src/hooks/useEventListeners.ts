@@ -108,7 +108,7 @@ export function useEventListeners() {
     if (unsub1) unlisteners.push(unsub1)
 
     // WebView 后台会暂停 JS 定时器、系统也可能冻结 UI 进程，后台事件不能作为
-    // 回前台状态的唯一来源。可见时立即向 :core 拉最新状态，之后每 5s 对账一次；
+    // 回前台状态的唯一来源。可见时立即向 :core 拉最新状态，之后每 15s 对账一次；
     // 这是 Binder/状态文件读取，不重复 Portal 探测，也不影响后台核心周期
     let refreshingStatus = false
     const refreshBackgroundStatus = async () => {
@@ -127,7 +127,9 @@ export function useEventListeners() {
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onVisible)
     window.addEventListener('pageshow', onVisible)
-    const statusTimer = window.setInterval(() => { void refreshBackgroundStatus() }, 5000)
+    // 15s 对账足够：状态变化本身走事件推送，这里只兜回调丢失；5s 会让 WebView
+    // 在前台时每秒两次跨进程读状态文件，与「省电」目标相悖
+    const statusTimer = window.setInterval(() => { void refreshBackgroundStatus() }, 15000)
     void refreshBackgroundStatus()
     unlisteners.push(() => {
       document.removeEventListener('visibilitychange', onVisible)
@@ -135,6 +137,19 @@ export function useEventListeners() {
       window.removeEventListener('pageshow', onVisible)
       window.clearInterval(statusTimer)
     })
+
+    // 守则结果只在 logcat 可见（核心日志在应用私有目录），UI 用它确认
+    // 后台 WiFi 事件确实驱动了守则动作；通道未就绪时是唯一的用户可见提示
+    const unsubCurfew = api.onCurfewEvent?.((data) => {
+      if (!mountedRef.current || !data) return
+      const action = String(data.action ?? "")
+      if (action === "weak-off") {
+        lt.getState().addLog(i18next.t("notify.weakSignalSwitched", { rssi: data.rssi ?? "" }), "info")
+      } else if (action === "weak-no-cellular") {
+        lt.getState().addLog(i18next.t("notify.weakSignalNoCellular"), "warning")
+      }
+    }) ?? (() => {})
+    if (unsubCurfew) unlisteners.push(unsubCurfew)
 
     const unsub2 = api.onAutoLoginResult?.((result) => {
       if (!mountedRef.current) return

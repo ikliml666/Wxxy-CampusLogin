@@ -128,6 +128,8 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  // 兜底手输：没有 Shizuku/root 时读不到系统已保存网络，又不能因此让用户完全无法配置
+  const [manual, setManual] = useState('')
   const rows = (saved ?? []).map((n) => ({ ssid: n.ssid, security: n.security, inSystem: true }))
   for (const it of items) {
     if (!rows.some((r) => r.ssid.toLowerCase() === it.toLowerCase())) {
@@ -267,6 +269,33 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
               })}
             </div>
           )}
+          <div className="flex shrink-0 items-center gap-2 border-t border-input/60 pt-2.5">
+            <input
+              value={manual}
+              onChange={(e) => setManual(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && manual.trim()) {
+                  e.preventDefault()
+                  toggle(manual.trim(), true)
+                  setManual('')
+                }
+              }}
+              placeholder={t('network.wifiCurfewManualPlaceholder')}
+              className="min-w-0 flex-1 rounded-lg border border-input/70 bg-muted/30 px-2.5 py-1.5 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <button
+              type="button"
+              disabled={!manual.trim()}
+              onClick={() => {
+                if (!manual.trim()) return
+                toggle(manual.trim(), true)
+                setManual('')
+              }}
+              className="shrink-0 rounded-lg border border-input px-2.5 py-1.5 text-[11px] text-primary transition-colors hover:bg-primary/10 disabled:opacity-40"
+            >
+              {t('network.wifiCurfewManualAdd')}
+            </button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

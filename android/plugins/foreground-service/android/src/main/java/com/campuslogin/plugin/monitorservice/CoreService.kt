@@ -409,6 +409,11 @@ class CoreService : Service() {
     @Volatile private var wifiCurfewConfig: String = ""
     private val curfewLock = Any()
     @Volatile private var lastCurfewChannel: String = ""
+    /** 守则事件去重：同一时刻只跑一次，避免高频 RSSI 回调把单线程队列堆满 */
+    private val curfewBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val curfewExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "campus-curfew-event").apply { isDaemon = true }
+    }
 
     fun setWifiCurfewConfig(json: String) {
         wifiCurfewConfig = json
@@ -507,8 +512,11 @@ class CoreService : Service() {
     }
 
     private fun runCurfewFromEvent(reason: String) {
-        // 守则执行内部会经 Shizuku/shell 同步等待，放到 IO 线程，不能占着回调线程
-        Thread({
+        // 高频 RSSI 回调会连续触发；守则读的是当前系统状态，串行排队只会重复执行
+        // 同一个判断。已在执行就跳过本次，下一个事件会带着更新后的状态再来
+        if (!curfewBusy.compareAndSet(false, true)) return
+        // 守则内部经 Shizuku/shell 同步等待，放到单线程执行器，不能占着回调线程
+        curfewExecutor.execute {
             try {
                 val outcome = runWifiCurfew()
                 // 通道不可用时（未授权/无 root）结果恒为 channel=none：只在首次与恢复时记，
@@ -519,12 +527,22 @@ class CoreService : Service() {
                 }
                 lastCurfewChannel = if (noneChannel) "none" else "ready"
                 // 结果写事件广播：核心日志在应用私有目录（release 包读不到），
-                // UI 的监测页与 logcat 都需要这条链路确认后台事件确实驱动了动作
-                emit("curfew_event", "{\"reason\":\"$reason\",\"result\":$outcome}")
+                // UI 的监测页与 logcat 都需要这条链路确认后台事件确实驱动了动作。
+                // 用 JSONObject 构造而非字符串拼接：outcome 里有 SSID 与系统异常消息，
+                // 手拼时其中的引号会把广播载荷变成非法 JSON
+                val payload = org.json.JSONObject()
+                    .put("reason", reason)
+                    .put(
+                        "result",
+                        runCatching { org.json.JSONTokener(outcome).nextValue() }.getOrElse { outcome }
+                    )
+                emit("curfew_event", payload.toString())
             } catch (e: Throwable) {
                 Log.w(TAG, "WiFi 事件($reason)守则失败: ${e.message}")
+            } finally {
+                curfewBusy.set(false)
             }
-        }, "campus-curfew-event").start()
+        }
     }
 
     fun runIdleStop() {

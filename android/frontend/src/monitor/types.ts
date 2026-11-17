@@ -71,3 +71,12 @@ export interface AutoLoginEventData {
   success: boolean
   message: string
 }
+
+/** WiFi 守则执行结果（curfew_event）：action 为 weak-off / weak-no-cellular 等 */
+export interface CurfewEventData {
+  reason?: string
+  action?: string
+  channel?: string
+  rssi?: number
+  trace?: string
+}

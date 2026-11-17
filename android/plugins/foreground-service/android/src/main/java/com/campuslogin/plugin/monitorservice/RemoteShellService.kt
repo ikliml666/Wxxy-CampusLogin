@@ -58,6 +58,80 @@ class RemoteShellService : IRemoteShell.Stub() {
      *
      * 返回 "ok" / "fail" / "error:<原因>"，与 exec 的 exit= 格式区分开。
      */
+    /**
+     * 断开当前 WiFi 连接，WiFi 开关保持开启、系统里的网络配置不删。
+     *
+     * 走 `IWifiManager#disconnect(packageName)`：Android 10 起应用侧 `WifiManager.disconnect()`
+     * 已对第三方失效，但服务端接口本身还在，shell/root 持有 NETWORK_SETTINGS 能过校验。
+     * 只断当前这条连接，系统仍可能按 autojoin 重连——要真正停留必须配合
+     * [disableSavedNetwork] 把该 SSID 标记为不自动连接。
+     */
+    override fun disconnectWifi(): String {
+        val service = wifiService() ?: return "error:no-wifi-service"
+        val pkg = if (android.os.Process.myUid() == 0) "android" else "com.android.shell"
+        return try {
+            // 新版本签名带 packageName 用于归因，旧版本无参
+            val modern = service.javaClass.methods.firstOrNull {
+                it.name == "disconnect" &&
+                    it.parameterTypes.contentEquals(arrayOf(String::class.java))
+            }
+            if (modern != null) {
+                modern.invoke(service, pkg)
+                Log.i(TAG, "disconnectWifi 结果=ok(带包名)")
+                "ok"
+            } else {
+                val legacy = service.javaClass.methods.firstOrNull {
+                    it.name == "disconnect" && it.parameterTypes.isEmpty()
+                } ?: return "error:no-disconnect"
+                legacy.invoke(service)
+                Log.i(TAG, "disconnectWifi 结果=ok")
+                "ok"
+            }
+        } catch (e: InvocationTargetException) {
+            val cause = e.targetException
+            Log.w(TAG, "disconnectWifi 调用异常", cause)
+            "error:" + cause.javaClass.simpleName + ":" + cause.message
+        } catch (e: Throwable) {
+            Log.w(TAG, "disconnectWifi 失败", e)
+            "error:" + e.javaClass.simpleName + ":" + e.message
+        }
+    }
+
+    /**
+     * 把已保存网络标记为「不自动连接」，配置本身保留（与 forget-network 相反，
+     * 恢复时只需 enableNetwork 就能重新连上，用户不用重输密码）。
+     */
+    override fun disableSavedNetwork(netId: Int): String {
+        val service = wifiService() ?: return "error:no-wifi-service"
+        val pkg = if (android.os.Process.myUid() == 0) "android" else "com.android.shell"
+        return try {
+            val modern = service.javaClass.methods.firstOrNull {
+                it.name == "disableNetwork" &&
+                    it.parameterTypes.contentEquals(
+                        arrayOf(Int::class.javaPrimitiveType, String::class.java)
+                    )
+            }
+            val ok = if (modern != null) {
+                modern.invoke(service, netId, pkg) as? Boolean ?: false
+            } else {
+                val legacy = service.javaClass.methods.firstOrNull {
+                    it.name == "disableNetwork" &&
+                        it.parameterTypes.contentEquals(arrayOf(Int::class.javaPrimitiveType))
+                } ?: return "error:no-disable-network"
+                legacy.invoke(service, netId) as? Boolean ?: false
+            }
+            Log.i(TAG, "disableSavedNetwork(" + netId + ") 结果=" + ok)
+            if (ok) "ok" else "fail"
+        } catch (e: InvocationTargetException) {
+            val cause = e.targetException
+            Log.w(TAG, "disableSavedNetwork(" + netId + ") 调用异常", cause)
+            "error:" + cause.javaClass.simpleName + ":" + cause.message
+        } catch (e: Throwable) {
+            Log.w(TAG, "disableSavedNetwork(" + netId + ") 失败", e)
+            "error:" + e.javaClass.simpleName + ":" + e.message
+        }
+    }
+
     override fun enableSavedNetwork(netId: Int): String {
         val service = wifiService()
         if (service == null) {

@@ -1,6 +1,8 @@
 {
   "notify": {
     "autoLoginSuccess": "自动登录成功",
+    "weakSignalSwitched": "信号过弱，已切换到移动数据",
+    "weakSignalNoCellular": "信号过弱但没有可用移动数据，已保持 WiFi",
     "autoLoginFailed": "自动登录失败",
     "autoLoginFailedLog": "自动登录失败: {{msg}}",
     "autoExitSoon": "即将自动退出",
@@ -358,6 +360,8 @@
     "wifiCurfewSavedLoading": "读取系统已保存网络…",
     "wifiCurfewSavedError": "读取失败：执行通道未就绪，请先授权 Shizuku 或 root",
     "wifiCurfewSavedRetry": "重新读取",
+    "wifiCurfewManualPlaceholder": "读取不到系统网络时可手动输入 SSID",
+    "wifiCurfewManualAdd": "添加",
     "wifiCurfewSavedEmpty": "系统里没有已保存的 WiFi",
     "wifiCurfewNotSaved": "未保存",
     "wifiCurfewOpen": "开放",

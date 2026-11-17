@@ -59,6 +59,30 @@ internal object CurfewShell {
         }
     }
 
+    /** 断开当前 WiFi 连接（WiFi 开关与已存配置都保留）；无通道返回 null */
+    fun disconnectWifi(context: Context): String? {
+        val remote = shellChannel(context) ?: return null
+        return try {
+            remote.disconnectWifi()
+        } catch (e: Throwable) {
+            Log.w(TAG, "disconnectWifi 调用失败", e)
+            dropChannel()
+            null
+        }
+    }
+
+    /** 把已保存网络标记为不自动连接（配置保留）；无通道返回 null */
+    fun disableSavedNetwork(context: Context, netId: Int): String? {
+        val remote = shellChannel(context) ?: return null
+        return try {
+            remote.disableSavedNetwork(netId)
+        } catch (e: Throwable) {
+            Log.w(TAG, "disableSavedNetwork(" + netId + ") 调用失败", e)
+            dropChannel()
+            null
+        }
+    }
+
     /**
      * 取常驻的 UserService 连接。binder 还活着就直接复用；只有进程被回收才重新 bind。
      * 绑不上（Shizuku 没就绪、超时）返回 null，调用方据此回落 root 或报错。
@@ -77,7 +101,7 @@ internal object CurfewShell {
                 .daemon(true)
                 .processNameSuffix("shell")
                 .debuggable(false)
-                .version(2)
+                .version(3)
             val latch = CountDownLatch(1)
             var bound: IRemoteShell? = null
             val conn = object : ServiceConnection {

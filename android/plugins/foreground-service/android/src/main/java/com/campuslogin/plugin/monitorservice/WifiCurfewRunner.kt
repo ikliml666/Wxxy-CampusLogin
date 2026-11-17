@@ -35,6 +35,10 @@ class WifiCurfewRunner(private val context: Context) {
         private const val KEY_DISABLED = "disabled_wifi"
         /** 弱信号规则关掉过 WiFi；与 KEY_DISABLED 分开记，两条规则各自还原各自的 */
         private const val KEY_WEAK = "weak_disabled"
+        /** 守则断开连接时被标记为「不自动连接」的 netId，出窗/恢复时重新启用 */
+        private const val KEY_BLOCKED_NET = "blocked_net_id"
+        /** 弱信号断开时被标记为「不自动连接」的 netId */
+        private const val KEY_WEAK_NET = "weak_net_id"
         private const val KEY_WEAK_AT = "weak_disabled_at"
         /** 弱信号关掉后隔这么久复探一次：WiFi 关着读不到 RSSI，只能开回来再判 */
         private const val WEAK_PROBE_MS = 5 * 60 * 1000L
@@ -165,8 +169,10 @@ class WifiCurfewRunner(private val context: Context) {
                 .put("tried", JSONArray(tried)).toString()
         }
 
-        // 3) 兜底：关掉 WiFi 走流量（只记「本程序关的」，出窗才打开）
-        val trace = setWifiEnabled(false)
+        // 3) 兜底：断开这条连接让流量接管（只记「本程序断的」，出窗才恢复）。
+        //    先试「标记不自动连接 + 断开」，失败才回落到关 WiFi——用户明确要求的是
+        //    「断开连接」而不是「关闭 WiFi」
+        val trace = blockWifi(KEY_BLOCKED_NET)
         if (trace.ok) {
             prefs.edit().putBoolean(KEY_DISABLED, true).apply()
             return result("wifi-off").put("channel", channel).put("currentSsid", current)
@@ -175,17 +181,28 @@ class WifiCurfewRunner(private val context: Context) {
         return result("failed").put("channel", channel).put("trace", trace.detail).toString()
     }
 
-    /** 出窗/关功能：把本程序关掉的 WiFi 打开（不碰用户自己关的状态） */
+    /**
+     * 出窗/关功能：恢复本程序断开的网络（不碰用户自己关的状态）。
+     * 先重新启用被标记的网络配置，再在「曾回落关过 WiFi」时才把硬件开回来。
+     */
     private fun restore(channel: String): String {
-        if (!prefs.getBoolean(KEY_DISABLED, false)) {
+        val hadDisabled = prefs.getBoolean(KEY_DISABLED, false)
+        val parts = StringBuilder()
+        val reEnabled = unblockWifi(KEY_BLOCKED_NET)
+        if (reEnabled != null) parts.append(reEnabled.detail)
+        if (hadDisabled) {
+            if (parts.isNotEmpty()) parts.append(" | ")
+            val trace = setWifiEnabled(true)
+            parts.append(trace.detail)
+            if (!trace.ok) {
+                return result("restore-failed").put("channel", channel).put("trace", parts.toString()).toString()
+            }
+        }
+        if (!hadDisabled && reEnabled == null) {
             return result("idle").put("channel", channel).toString()
         }
-        val trace = setWifiEnabled(true)
-        if (trace.ok) {
-            prefs.edit().putBoolean(KEY_DISABLED, false).apply()
-            return result("wifi-on").put("channel", channel).put("trace", trace.detail).toString()
-        }
-        return result("restore-failed").put("channel", channel).put("trace", trace.detail).toString()
+        prefs.edit().putBoolean(KEY_DISABLED, false).apply()
+        return result("wifi-on").put("channel", channel).put("trace", parts.toString()).toString()
     }
 
     /**
@@ -198,12 +215,23 @@ class WifiCurfewRunner(private val context: Context) {
         if (prefs.getBoolean(KEY_WEAK, false)) {
             val elapsed = System.currentTimeMillis() - prefs.getLong(KEY_WEAK_AT, 0L)
             if (elapsed < WEAK_PROBE_MS) return null
+            val reEnabled = unblockWifi(KEY_WEAK_NET)
             val trace = setWifiEnabled(true)
             prefs.edit().putBoolean(KEY_WEAK, false).apply()
-            return result("weak-probe").put("channel", channel).put("trace", trace.detail).toString()
+            val detail = (reEnabled?.detail?.plus(" | ") ?: "") + trace.detail
+            return result("weak-probe").put("channel", channel).put("trace", detail).toString()
         }
         val rssi = currentRssi() ?: return null
-        if (rssi >= threshold) return null
+        if (rssi >= threshold) {
+            // 信号已达标：把上一轮禁用的网络放回去。用户可能靠切到别的强信号网络
+            // 才恢复的，此时若只在这里 return，被禁用的那条配置就永远回不来
+            val reEnabled = unblockWifi(KEY_WEAK_NET)
+            return if (reEnabled != null) {
+                result("weak-probe").put("channel", channel).put("trace", reEnabled.detail).toString()
+            } else {
+                null
+            }
+        }
         // 「从 WiFi 切到流量」的**前提是流量可用**：移动数据关闭或飞行模式下关 WiFi
         // 会让设备彻底断网——比待在弱 WiFi 上更糟。不可用时保持 WiFi 不动。
         if (!hasCellularFallback()) {
@@ -213,7 +241,7 @@ class WifiCurfewRunner(private val context: Context) {
                 .put("trace", "no_cellular_internet")
                 .toString()
         }
-        val trace = setWifiEnabled(false)
+        val trace = blockWifi(KEY_WEAK_NET)
         if (!trace.ok) {
             return result("weak-failed").put("channel", channel).put("rssi", rssi).put("trace", trace.detail).toString()
         }
@@ -237,6 +265,9 @@ class WifiCurfewRunner(private val context: Context) {
                     caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             }
         } catch (e: Exception) {
+            // 读网络状态失败意味着「无法确认有流量」：退回不切流量是安全方向，
+            // 但必须留下原因，否则用户只看到"信号弱却没反应"无从判断
+            Log.w(TAG, "读取蜂窝可用性失败，按无流量处理: ${e.message}")
             false
         }
     }
@@ -278,6 +309,60 @@ class WifiCurfewRunner(private val context: Context) {
         val viaSvc = shellExec(if (enable) "svc wifi enable" else "svc wifi disable")
         parts.append("svc wifi ").append(if (enable) "enable" else "disable").append(" => ").append(brief(viaSvc))
         return ShellTrace(viaSvc != null && viaSvc.contains("exit=0"), parts.toString())
+    }
+
+    /**
+     * 当前连接在系统里的 networkId；读不到返回 -1。
+     * 只用 shell 通道读：`WifiManager.connectionInfo.networkId` 在 Android 12+ 对
+     * 无定位权限的应用同样脱敏成 -1，拿它做判断等于永远拿不到。
+     */
+    private fun currentNetId(): Int {
+        val out = shellExec("cmd wifi status") ?: return -1
+        // 字段名随版本变过：Android 14+ 是 "Net ID"，更早是 "Network Id"
+        val m = Regex("Net(?:work)? ID: (-?\\d+)", RegexOption.IGNORE_CASE).find(out)
+        return m?.groupValues?.get(1)?.toIntOrNull() ?: -1
+    }
+
+    /**
+     * 停止使用当前 WiFi（让流量接管），但**不关 WiFi 硬件、不删系统里保存的配置**。
+     *
+     * 顺序必须是先 disableNetwork 再 disconnect：反过来的话系统会在断开后立刻按
+     * autojoin 连回同一 SSID，等于没断开。恢复时 enableNetwork 就能重新连上，
+     * 用户不需要重输密码。没有执行通道时回落到关 WiFi——否则规则完全失效。
+     */
+    private fun blockWifi(netIdKey: String): ShellTrace {
+        val netId = currentNetId()
+        val parts = StringBuilder()
+        if (netId > 0) {
+            val disabled = CurfewShell.disableSavedNetwork(context, netId)
+            parts.append("disableNetwork(").append(netId).append(") => ").append(brief(disabled))
+            if (disabled != null && disabled.startsWith("ok")) {
+                prefs.edit().putInt(netIdKey, netId).apply()
+            }
+        } else {
+            parts.append("disableNetwork => 取不到 netId")
+        }
+        val cut = CurfewShell.disconnectWifi(context)
+        parts.append(" | disconnect => ").append(brief(cut))
+        if (cut != null && cut.startsWith("ok")) return ShellTrace(true, parts.toString())
+        parts.append(" | 回落关 WiFi: ")
+        val off = setWifiEnabled(false)
+        parts.append(off.detail)
+        return ShellTrace(off.ok, parts.toString())
+    }
+
+    /** 恢复被 [blockWifi] 标记的网络：重新启用配置，必要时把 WiFi 硬件开回来 */
+    private fun unblockWifi(netIdKey: String): ShellTrace? {
+        val netId = prefs.getInt(netIdKey, -1)
+        if (netId <= 0) return null
+        val enabled = CurfewShell.enableSavedNetwork(context, netId)
+        if (enabled != null && enabled.startsWith("ok")) {
+            prefs.edit().remove(netIdKey).apply()
+        }
+        return ShellTrace(
+            enabled != null && enabled.startsWith("ok"),
+            "enableSavedNetwork(" + netId + ") => " + brief(enabled)
+        )
     }
 
     /** 命令结果压成一行：去掉退出码行首换行，超长截断 */

@@ -1,3 +1,51 @@
+### 缺陷修复：代码评审两轴发现的全部问题（2026-11-17）
+
+**为什么**：`/code-review` 对 `main...HEAD`（18 提交、64 文件）跑了两轴评审，Standards 轴 2 硬违规 + 6 味道，Spec 轴 4 缺失 + 2 蔓延 + 4 实现问题。逐条核实后确认三条实现缺陷是本次会话引入的，其余为可用性与一致性问题。
+
+**行为缺陷（已确认，全部修复）**
+
+1. **活性窗口按错误基准推导** — `status.interval_ms` 写的是配置基数（60s），活性窗口 = 3×基数 = 180s；自适应退避后实际 tick 是 300s，于是每 5 分钟有约 2 分钟被判 `coreAlive=false`，UI 周期性显示「已停止」。改为新增 `effective_tick_ms`，tick 周期变化时写入，状态文件按实际周期推导窗口。
+2. **切网清冷却恒不生效** — `handle_wifi_change_check` 先写 `wifi_switch_ms`，`run_check_once` 之后才取 `tick_start_ms`，`wifi_switch_ms >= tick_start_ms` 恒假，「切到新网络清登录冷却」从未执行。改为切换当场清零 `last_login_attempt_ms`，删除那段恒假判断。
+3. **切网不清稳定计数** — 清了 `reconnect_count` 却漏了 `online_stable_ticks`，切网后退避仍维持 300s。改为同处一并清零。
+4. **弱信号信号恢复后不解除网络禁用** — 用户靠切到更强网络恢复信号时走 `rssi >= threshold` 分支直接 return，上一轮被 `disableNetwork` 的配置永远回不来。改为该分支也执行解除禁用。
+5. **退避上限在 base>300s 时反把周期缩短** — `(base*5).min(300_000)`，用户把基数配到 300s 以上会得到比配置更短的周期；改 `cap = base.max(300_000)`。
+6. **`canReadSsid` 把 NEARBY_WIFI_DEVICES 当充分条件** — 真机上仅持该权限时 `connectionInfo.ssid` 仍是 `<unknown ssid>`，产生「授权=true 而 SSID 为空」的矛盾态；改为只认 `ACCESS_FINE_LOCATION`。
+
+**行为调整：断开连接而非关闭 WiFi**
+
+用户明确要求的是「断开 wifi 连接不是关闭 wifi」。此前守则与弱信号两条路径都走 `cmd wifi set-wifi-enabled disabled` 关整卡。现已拿到 shell 通道，改走系统内部接口：
+
+```
+IWifiManager#disableSavedNetwork(netId)   先标记「不自动连接」（配置保留，不 forget）
+IWifiManager#disconnectWifi()            再断开当前连接（WiFi 开关保持开启）
+```
+
+顺序不能反——先 disconnect 的话系统会立刻按 autojoin 连回同一 SSID，等于没断开。恢复时 `enableNetwork(netId)` 就能连回去，用户不用重输密码。没有执行通道时仍回落到关 WiFi（否则规则完全失效）。AIDL 与 UserService 版本升到 3。
+
+**真机实测（25060RK16C / Android 17 / Shizuku 已授权）**
+
+```
+弱信号触发: {"action":"weak-off","rssi":-49,"trace":"disableNetwork(13) => ok | disconnect => ok"}
+cmd wifi status → Wifi is enabled               ← 硬件保持开启（此前是 disabled）
+之后系统 autojoin 到 "Realme GT 8 Pro"（RSSI -40）← 被禁用的 kiku-5G 没有被连回去
+```
+
+反射接口在 Android 17 上均返回 ok，两个原语都可用。
+
+**可用性与一批味道**
+
+- 守则名单弹窗保留手输入口（`NetworkPanel.tsx`）：此前没有 Shizuku/root 时名单恒为空、手输入口又被删掉，这类用户完全无法配置规则。
+- `curfew_event` 不再无人监听：前端接上并写操作日志，弱信号切流量/无流量保持 WiFi 都会提示用户。
+- `CoreService.runCurfewFromEvent` 从「每次回调 new Thread」改为单线程执行器 + 忙标志去重，高频 RSSI 回调不再堆积线程。
+- `curfew_event` 载荷改用 `JSONObject` 构造，不再手拼字符串（outcome 里带 SSID 与系统异常消息，引号会破坏 JSON）。
+- `hasCellularFallback` 的 catch 从静默 `false` 改为记录原因——「信号弱却没反应」需要可追溯。
+- 移除前端残留配置 `backgroundCheckIdleInterval`（后端字段早已无消费点）。
+- 激活态状态对账从 5s 降到 15s：状态变化本身走事件推送，5s 让 WebView 在前台每秒两次跨进程读文件，与省电目标相悖。
+
+**未做（连同原因）**
+
+- 桌面端仍手输 SSID：Windows 侧没有「系统已保存网络」的等价 API，需解析 `netsh wlan show profiles`，属平台专属能力（AGENTS.md#3 允许各端自理）。两端配置语义现在一致——都能手输，安卓额外提供系统网络列表。
+- 三处决策变更（撤销 `:core` 独立进程、取消灭屏/蜂窝降频、新增定位权限读 SSID）未写进 `.codewiki/decisions/`：该目录由 CodeWiki 编译流水线维护，手写会被下次编译覆盖，改由 `codewiki_generate` 更新。
 ### 缺陷修复：弱信号规则白天被就寝窗口门控吞掉（2026-11-17）
 
 **为什么**：用户质疑「弱信号断开真的可用吗」。真机排查发现它**大部分时间根本不执行**——`run_wifi_curfew` 在白天有这行早退：

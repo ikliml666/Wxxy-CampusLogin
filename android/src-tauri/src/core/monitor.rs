@@ -53,6 +53,10 @@ pub struct MonitorState {
     pub consecutive_failures: AtomicU32,
     /// 连续「已登录且探测成功」的拍数：驱动自适应退避，事件驱动不受影响
     pub online_stable_ticks: AtomicU32,
+    /// 当前实际生效的巡检周期（含自适应退避），写进状态文件供活性窗口判定。
+    /// 不能写 desired_interval_ms——那是用户配置的基数，退避后实际 tick 可能
+    /// 是它的数倍，活性窗口按基数算会把「正在正常巡检」误判成已停止。
+    pub effective_tick_ms: AtomicU64,
     /// 本次在线周期内自动重连次数(达 max_disconnect_reconnect 暂停,回到在线清零)
     pub reconnect_count: AtomicU32,
     pub last_login_attempt_ms: AtomicU64,
@@ -113,11 +117,13 @@ pub fn effective_interval_ms(base_ms: u64) -> u64 {
 /// 未登录/失败/刚切网时回到 base（通常 60s），保持密切关注。
 /// 只影响周期兜底，不影响 WiFi 事件立即检测与通知实时性。
 pub fn adaptive_interval_ms(base_ms: u64, online_stable_ticks: u32) -> u64 {
-    let base = base_ms.max(5000);
+    let base = effective_interval_ms(base_ms);
+    // 上限至少为 base：用户把基数配到 300s 以上时，退避不能反而缩短周期
+    let cap = base.max(300_000);
     if online_stable_ticks >= 5 {
-        (base * 5).min(300_000)
+        (base * 5).min(cap)
     } else if online_stable_ticks >= 3 {
-        (base * 2).min(300_000)
+        (base * 2).min(cap)
     } else {
         base
     }
@@ -176,8 +182,10 @@ pub fn status_value(ctx: &CoreCtx) -> serde_json::Value {
         s.watcher_failed = WATCHER_FAILED.load(Ordering::Relaxed);
         s.last_result = MONITOR.last_result.lock().ok().and_then(|g| g.clone());
         // last_tick_ms 只由 run_check_once 写：查询状态若刷新它，
-        // UI 每 5 秒对账会让死循环永远新鲜
-        s.interval_ms = MONITOR.desired_interval_ms.load(Ordering::Relaxed);
+        // UI 每 5 秒对账会让死循环永远新鲜。
+        // interval_ms 用实际生效周期：活性窗口按它推导，写配置基数会在退避后误判
+        let eff = MONITOR.effective_tick_ms.load(Ordering::Relaxed);
+        s.interval_ms = if eff > 0 { eff } else { MONITOR.desired_interval_ms.load(Ordering::Relaxed) };
     });
     v
 }
@@ -207,6 +215,7 @@ pub async fn start_background_check(ctx: CoreCtx) -> Result<serde_json::Value, S
     let curfew_config = wifi_curfew_config_json(&settings);
     let want = settings.background_check_interval.max(5000);
     MONITOR.desired_interval_ms.store(want, Ordering::Relaxed);
+    MONITOR.effective_tick_ms.store(want, Ordering::Relaxed);
     if MONITOR.running.load(Ordering::SeqCst) {
         #[cfg(mobile)]
         start_wifi_watcher(&ctx, &curfew_config);
@@ -328,6 +337,13 @@ async fn handle_wifi_change_check(ctx: &CoreCtx, event: String) {
     // 到 B 永远不再自动登录。was_online 必须保留——"掉线重连不受自动登录开关管"
     // 正是靠它区分，清掉会让关掉自动登录的用户在 WiFi 断连后不再自动重连。
     MONITOR.reconnect_count.store(0, Ordering::Relaxed);
+    // 新网络是新的登录机会：清掉旧网络的登录冷却，否则在 A 网刚失败过就切到 B
+    // 仍要等满 cooldown 才允许自动登录。此前靠 run_check_once 里
+    // "wifi_switch_ms >= tick_start_ms" 判断，但该时刻在 run_check_once 取
+    // tick_start 之前，比较恒假、从未生效；改为切换当场清零，不依赖时序。
+    MONITOR.last_login_attempt_ms.store(0, Ordering::Relaxed);
+    // 稳定计数同理：刚切网不算稳定，退避必须立刻回落到 base
+    MONITOR.online_stable_ticks.store(0, Ordering::Relaxed);
     MONITOR
         .wifi_switch_ms
         .store(crate::core::platform::now_ms(), Ordering::Relaxed);
@@ -496,7 +512,6 @@ async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
     let mut current = interval_ms.max(5000);
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(current));
     let mut tick_period = current;
-    let mut last_probe_ms: u64 = 0;
     // 启动对账(定时注销防冷启动误触发,与桌面 scheduled.rs 同语义):监控启动时若
     // 当日注销时刻已过,「过点补触发」会让首拍立即注销——用户刚打开监控就被踢下线,
     // 是意外而非预期。只消耗今日额度不执行动作;运行中的补触发不受影响。定时登录
@@ -556,17 +571,12 @@ async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
         let adaptive = adaptive_interval_ms(current, stable);
         if adaptive != tick_period {
             tick_period = adaptive;
+            MONITOR.effective_tick_ms.store(tick_period, Ordering::Relaxed);
             tick = tokio::time::interval(std::time::Duration::from_millis(tick_period));
             // 重建后首个 tick 立即返回，吃掉它以保持节奏
             tick.tick().await;
             ctx.trace(&format!("巡检周期调整为 {}ms (stable={})", tick_period, stable));
         }
-        let now = crate::core::platform::now_ms();
-        // 二次保险：周期重建与事件插队并存时，避免同一窗口内重复探测
-        if last_probe_ms != 0 && now.saturating_sub(last_probe_ms) < effective_interval_ms(current) {
-            continue;
-        }
-        last_probe_ms = now;
         run_check_once(&ctx).await;
     }
     // 只有代际匹配才清 running 标志:stop 已推进代际时标志清理由 stop 自身负责
@@ -1303,11 +1313,8 @@ pub async fn run_check_once(ctx: &CoreCtx) {
 
     // 3. 状态机:在线清零计数,记录 was_online
     if online {
-        // 新 WiFi 上探测到 online=true 可能来自另一会话；重连预算留给
-        // 下一次真实的离线事件，不再被上一张网络的计数卡住
-        if MONITOR.wifi_switch_ms.load(Ordering::Relaxed) >= tick_start_ms {
-            MONITOR.last_login_attempt_ms.store(0, Ordering::Relaxed);
-        }
+        // 新 WiFi 上的登录冷却与重连预算已在 handle_wifi_change_check 当场清零，
+        // 这里只做在线态的常规复位
         MONITOR.reconnect_count.store(0, Ordering::Relaxed);
         MONITOR.consecutive_failures.store(0, Ordering::Relaxed);
         // 注销后探测失败会继承 prev_online，不能把继承态当作真实登录成功清除保护期；

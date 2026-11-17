@@ -5,7 +5,7 @@ import { openUrl as openerOpenUrl } from '@tauri-apps/plugin-opener'
 import { shouldUseFaceFallback, useFaceDialogStore } from '@/face/faceVerifyStore'
 import type { PortalStatusResult, CommandResult, LoginResult } from '@/auth'
 import type { Adapter, AdapterDetail, DnsDohStatus, DhcpRenewResult, DhcpReleaseRenewResult, DnsSetupResult, EnableAdapterResult } from '@/network'
-import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData } from '@/monitor'
+import type { NetworkQuality, BackgroundStatus, BackgroundCheckEventData, AutoLoginEventData, CurfewEventData } from '@/monitor'
 import type { SwitchAccountResult, SaveAccountResult, DeleteAccountResult, AccountResult } from '@/account'
 import type { Config, InitData, AutoLaunchResult, AccountItem } from '@/settings'
 import type { UpdateAvailableData, UpdateInfo, DownloadProgress, MirrorSource, AdapterDisabledWarningData, AutoExitCountdownData, SaveConfigResult } from '@/shared'
@@ -84,6 +84,7 @@ interface TauriApi {
   minimizeWindow: () => Promise<void>
   closeWindow: () => Promise<void>
   onBackgroundCheckResult: (cb: (data: BackgroundCheckEventData) => void) => () => void
+  onCurfewEvent: (cb: (data: CurfewEventData) => void) => () => void
   onAutoLoginResult: (cb: (data: AutoLoginEventData) => void) => () => void
   onAdaptersChanged: (cb: (data: Adapter[]) => void) => () => void
   onAdapterDetailsChanged: (cb: (data: AdapterDetail[]) => void) => () => void
@@ -329,6 +330,7 @@ const tauriApi: TauriApi = {
   minimizeWindow: () => desktopOnly<void>('minimize_window'),
   closeWindow: () => desktopOnly<void>('close_window'),
   onBackgroundCheckResult: createEventListener<BackgroundCheckEventData>('background-check-result'),
+  onCurfewEvent: createEventListener<CurfewEventData>('curfew_event'),
   onAutoLoginResult: createEventListener<AutoLoginEventData>('auto-login-result'),
   onAdaptersChanged: noopListener as TauriApi['onAdaptersChanged'],
   onAdapterDetailsChanged: noopListener as TauriApi['onAdapterDetailsChanged'],

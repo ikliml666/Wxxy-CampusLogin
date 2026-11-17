@@ -1,6 +1,8 @@
 {
   "notify": {
     "autoLoginSuccess": "Auto login succeeded",
+    "weakSignalSwitched": "Weak signal: switched to mobile data",
+    "weakSignalNoCellular": "Weak signal but no usable mobile data; kept WiFi",
     "autoLoginFailed": "Auto login failed",
     "autoLoginFailedLog": "Auto login failed: {{msg}}",
     "autoExitSoon": "Auto exit imminent",
@@ -358,6 +360,8 @@
     "wifiCurfewSavedLoading": "Loading saved networks…",
     "wifiCurfewSavedError": "Could not read saved networks — grant Shizuku or root first",
     "wifiCurfewSavedRetry": "Retry",
+    "wifiCurfewManualPlaceholder": "Enter SSID manually if saved networks cannot be read",
+    "wifiCurfewManualAdd": "Add",
     "wifiCurfewSavedEmpty": "No saved WiFi networks on this device",
     "wifiCurfewNotSaved": "not saved",
     "wifiCurfewOpen": "open",
