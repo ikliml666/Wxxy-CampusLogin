@@ -37,7 +37,6 @@ export const DEFAULT_CONFIG: Config = {
   outboundDisabledAdapters: '',
   outboundStandbyRoute: '',
   outboundManualHoldDay: 0,
-  outboundPendingSwitch: '',
   outboundPortalRoute: '',
   nightOutboundRestore: '',
   enableMacRenewOnAuthError: true,

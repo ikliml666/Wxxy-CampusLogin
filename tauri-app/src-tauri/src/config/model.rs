@@ -125,9 +125,9 @@ pub struct Config {
     /// 导入配置时清空（本机系统状态不可迁移）。安卓端不消费此字段
     #[serde(rename = "outboundMetricRestore", default)]
     pub outbound_metric_restore: String,
-    /// 夜间切换禁用的校园网卡快照：`[{guid, name}]` JSON（只记本功能亲手禁用的卡，
-    /// 还原与 adapter_watch 闸门都以这份名单为准，不按当前状态推断——USB 网卡
-    /// 状态判定不可靠）。非空 = 存在待还原的禁用动作。导入配置时保留本机值。
+    /// 原出口连接重置现场：`[{guid, name}]` JSON。非空 = 「写跃点→下线→启用」
+    /// 尚未完整完成，重放须先续做这段事务；还原与 adapter_watch 闸门也以名单为准，
+    /// 不按当前状态推断（USB 网卡状态判定不可靠）。导入配置时保留本机值。
     /// 安卓端不消费此字段
     #[serde(rename = "outboundDisabledAdapters", default)]
     pub outbound_disabled_adapters: String,
@@ -142,20 +142,11 @@ pub struct Config {
     /// 安卓端不消费此字段
     #[serde(rename = "outboundPortalRoute", default)]
     pub outbound_portal_route: String,
-    /// 「立即切换」当日保持标记（num_days_from_ce；0=无）：手动立即切换先落盘
-    /// 当日值再执行动作，冻结当日的自动 Switch/Restore 判定（防 23:00 自动切换
-    /// 叠加成双重切换、防还原窗内自动还原撤销手动切换），次日 7:30 自动还原或
-    /// 手动还原成功后清零。与切换态快照同属本机系统状态，导入配置时保留本机值。
-    /// 安卓端不消费此字段
+    /// 手动/故障切换的恢复保持标记（num_days_from_ce；0=无）：只在实际进入切换态后
+    /// 写入，冻结当日的自动 Restore，绝不冻结计划 Switch。次日恢复或手动还原后清零。
+    /// 与切换态快照同属本机系统状态，导入配置时保留本机值。安卓端不消费此字段
     #[serde(rename = "outboundManualHoldDay", default)]
     pub outbound_manual_hold_day: i32,
-    /// 待切换状态残留：`{target, tag, day}` JSON。2026-10-26 前登录闸在「目标卡可达
-    /// Portal 但未登录」时挂起切换并写入此行；该闸方向错误已移除（夜间切换目的正是
-    /// 切离已断的校园网），本版本不再产生新值，仅由排程循环每拍清空历史残留——
-    /// 前端徽标依赖它，留着会一直显示过期状态。与切换态快照同属本机状态，导入配置时
-    /// 保留本机值。安卓端不消费此字段
-    #[serde(rename = "outboundPendingSwitch", default)]
-    pub outbound_pending_switch: String,
     /// 安卓切换态标记：值恒 "logged_out"（纯标记，不暂存账号名）。非空 = 安卓处于
     /// 出站切换态（已注销等待晨间重登）。切账号时清空。桌面端不消费此字段
     #[serde(rename = "nightOutboundRestore", default)]
@@ -400,7 +391,6 @@ impl Default for Config {
             outbound_standby_route: String::new(),
             outbound_portal_route: String::new(),
             outbound_manual_hold_day: 0,
-            outbound_pending_switch: String::new(),
             dns_optimize_adapters: Vec::new(),
             internet_probe_hosts: Vec::new(),
             device_aliases: std::collections::HashMap::new(),
@@ -478,7 +468,6 @@ impl Config {
         self.outbound_standby_route = current.outbound_standby_route.clone();
         self.outbound_portal_route = current.outbound_portal_route.clone();
         self.outbound_manual_hold_day = current.outbound_manual_hold_day;
-        self.outbound_pending_switch = current.outbound_pending_switch.clone();
         self.night_outbound_restore = current.night_outbound_restore.clone();
         self.wifi_curfew_profile_restore = current.wifi_curfew_profile_restore.clone();
     }
@@ -523,15 +512,12 @@ mod tests {
         let mut current = Config::default();
         current.night_operator_restore = "@cmcc".to_string();
         current.outbound_metric_restore = "metric".to_string();
-        current.outbound_pending_switch = "pending".to_string();
         let mut incoming = Config::default();
         incoming.night_operator_restore = String::new();
         incoming.outbound_metric_restore = String::new();
-        incoming.outbound_pending_switch = String::new();
         incoming.preserve_outbound_runtime_from(&current);
         assert_eq!(incoming.night_operator_restore, "@cmcc");
         assert_eq!(incoming.outbound_metric_restore, "metric");
-        assert_eq!(incoming.outbound_pending_switch, "pending");
     }
 
     #[test]

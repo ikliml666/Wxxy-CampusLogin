@@ -49,9 +49,9 @@ pub fn evaluate_scheduled_actions(
 /// ① 功能已关闭但切换态残留（用户中途关掉开关、或导入了带切换态的旧配置）时
 /// 按 Restore 处理立即还原，不留悬挂的跃点/蜂窝改动；清理分支优先且不受 hold
 /// 冻结（残留改动没有出口会永久压住巡检）；
-/// ② 「立即切换」当日保持（桌面独有输入，安卓无此概念恒传 0）：手动切换落盘的
-/// hold 标记冻结当日的自动 Switch/Restore 判定（否则 23:00 自动切换与手动切换
-/// 叠加、恢复窗内的自动还原会撤销手动切换），次日自动恢复原有生命周期。
+/// ② 手动/故障切换的恢复保持（桌面独有输入，安卓无此概念恒传 0）：hold 只冻结
+/// 当日的自动 Restore，避免白天故障切换被还原窗立即撤销；它绝不冻结 Switch，
+/// 23:00/23:30 的计划切换不被白天手动操作或历史残留标记吞掉。
 /// **仅测试期可用**：生产代码一律调 [`evaluate_outbound_action_with_restore`] 并
 /// 显式传入 `nightRestoreMinutes`——恢复时刻已可配置，走默认常量包装等于把用户
 /// 设置写死。留它只为让既有编排用例保持可读。
@@ -100,8 +100,12 @@ pub fn evaluate_outbound_action_with_restore(
         outbound_restore_active,
         restore_start,
     );
-    // hold=0 表示无保持（num_days_from_ce 恒 >0，测试传 0 即无保持）
-    if outbound_manual_hold_day != 0 && outbound_manual_hold_day == today_day {
+    // hold=0 表示无保持（num_days_from_ce 恒 >0，测试传 0 即无保持）。
+    // 只延后还原：Switch 是用户显式配置的计划动作，不能被恢复保持或旧残留吞掉。
+    if evaluated == NightOutboundAction::Restore
+        && outbound_manual_hold_day != 0
+        && outbound_manual_hold_day == today_day
+    {
         return NightOutboundAction::None;
     }
     evaluated
@@ -242,12 +246,12 @@ mod tests {
     }
 
     #[test]
-    fn 出站_hold_冻结当日自动动作() {
-        // hold=today（用户点过「立即切换」）：冻结 Switch——否则自动切换与手动
-        // 切换叠加，把已改动的跃点当原值重新快照
-        assert_eq!(evaluate_outbound_action(true, 0, 1381, false, TODAY, TODAY), NightOutboundAction::None);
-        // 凌晨补切同样被冻结
-        assert_eq!(evaluate_outbound_action(true, 0, 200, false, TODAY, TODAY), NightOutboundAction::None);
+    fn 出站_恢复保持不冻结计划切换() {
+        // 白天手动/故障切换留下的恢复保持，不得吞掉当晚计划切换；
+        // 旧配置里残留的同日 hold 也不能再让 23:00 静默跳过。
+        assert_eq!(evaluate_outbound_action(true, 0, 1381, false, TODAY, TODAY), NightOutboundAction::Switch);
+        // 凌晨补切同样不被恢复保持吞掉
+        assert_eq!(evaluate_outbound_action(true, 0, 200, false, TODAY, TODAY), NightOutboundAction::Switch);
         // 次日（hold≠today）：自动切换恢复
         assert_eq!(evaluate_outbound_action(true, 0, 1381, false, TODAY - 1, TODAY), NightOutboundAction::Switch);
     }
@@ -259,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn 出站_hold_冻结恢复窗还原() {
+    fn 出站_hold_只冻结恢复窗还原() {
         // 恢复窗内（用户手动切换当晚不被恢复窗自动还原撤销）
         assert_eq!(evaluate_outbound_action(true, 0, 450, true, TODAY, TODAY), NightOutboundAction::None);
         // hold=0（无保持）：窗口语义不变

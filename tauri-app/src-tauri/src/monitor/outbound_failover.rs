@@ -447,12 +447,17 @@ fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
 /// 登录恢复跨拍完成，scheduled 不会因认证请求阻塞数十秒。
 pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config) {
     let today = chrono::Local::now().date_naive().num_days_from_ce();
-    if !config.enable_night_outbound_switch || config.outbound_manual_hold_day == today {
+    let switch_active = super::outbound_night::outbound_switch_active(app_handle);
+    // 恢复保持只有伴随真实切换态才有意义；旧版本幂等点击可能只留下日期而没有
+    // 快照，这种残留不得再关闭当天的出口健康监测。
+    if !config.enable_night_outbound_switch
+        || (switch_active && config.outbound_manual_hold_day == today)
+    {
         reset_state();
         return;
     }
     // 已在切换态：只判定"原校园网出口是否已恢复、该切回"，不再触发新的故障切换。
-    if super::outbound_night::outbound_switch_active(app_handle) {
+    if switch_active {
         evaluate_switch_back(app_handle, config);
         return;
     }

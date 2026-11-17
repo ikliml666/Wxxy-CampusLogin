@@ -742,10 +742,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 className="w-24 h-7 text-sm font-mono"
               />
             </SettingRow>
-            {/* 功能描述移到标题行下方整行显示（沿 DNS 卡先例）。
-                2026-10-26 起不再有「待切换」挂起态（登录闸已随方向修正移除，
-                夜间切换只做外网可达诊断、不再等待登录），故此处曾有的挂起徽标
-                随之删除；历史版本残留的 outboundPendingSwitch 字段由后端每拍清理 */}
             <CardDescription className="mt-2">
               {t('network.nightOutboundSwitchDesc', { time: formatRestoreTime(config.nightRestoreMinutes) })}
             </CardDescription>
