@@ -51,6 +51,8 @@ pub struct MonitorState {
     pub running: AtomicBool,
     pub check_count: AtomicU64,
     pub consecutive_failures: AtomicU32,
+    /// 连续「已登录且探测成功」的拍数：驱动自适应退避，事件驱动不受影响
+    pub online_stable_ticks: AtomicU32,
     /// 本次在线周期内自动重连次数(达 max_disconnect_reconnect 暂停,回到在线清零)
     pub reconnect_count: AtomicU32,
     pub last_login_attempt_ms: AtomicU64,
@@ -103,6 +105,22 @@ fn wifi_event_is_burst_start(last_event_ms: u64, now_ms: u64, debounce_ms: u64) 
 /// WiFi 事件仍会即时补检，基础周期作为回调失效时的可靠兜底。
 pub fn effective_interval_ms(base_ms: u64) -> u64 {
     base_ms.max(5000)
+}
+
+/// 自适应巡检间隔：事件驱动（WiFi 变化立即检测、通知实时）是主路径，
+/// 周期巡检只是回调失效时的兜底。因此「已登录且连续稳定」时把兜底周期
+/// 逐步拉长（60s→120s→300s 封顶），减少无谓的 Portal 探测；
+/// 未登录/失败/刚切网时回到 base（通常 60s），保持密切关注。
+/// 只影响周期兜底，不影响 WiFi 事件立即检测与通知实时性。
+pub fn adaptive_interval_ms(base_ms: u64, online_stable_ticks: u32) -> u64 {
+    let base = base_ms.max(5000);
+    if online_stable_ticks >= 5 {
+        (base * 5).min(300_000)
+    } else if online_stable_ticks >= 3 {
+        (base * 2).min(300_000)
+    } else {
+        base
+    }
 }
 
 /// 本 tick 是否应尝试登录(纯函数,全量条件显式入参)
@@ -477,6 +495,7 @@ async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
     // 下限 5s:防误配超小间隔打爆探测
     let mut current = interval_ms.max(5000);
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(current));
+    let mut tick_period = current;
     let mut last_probe_ms: u64 = 0;
     // 启动对账(定时注销防冷启动误触发,与桌面 scheduled.rs 同语义):监控启动时若
     // 当日注销时刻已过,「过点补触发」会让首拍立即注销——用户刚打开监控就被踢下线,
@@ -522,20 +541,29 @@ async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
         // 间隔热更新:运行中改检测间隔(start_background_check 刷新 desired),
         // 重建计时器;tokio interval 重建后首个 tick 立即返回,吃掉保持节奏
         let want = MONITOR.desired_interval_ms.load(Ordering::Relaxed);
+        let stable = MONITOR.online_stable_ticks.load(Ordering::Relaxed);
         ctx.trace(&format!(
-            "巡检间隔配置 base={}ms desired={}ms",
-            current, want
+            "巡检间隔配置 base={}ms desired={}ms stable={}",
+            current, want, stable
         ));
         if want != 0 && want != current {
             current = want;
             tick = tokio::time::interval(std::time::Duration::from_millis(current));
             tick.tick().await;
         }
-        // 不再按灭屏/蜂窝跳拍：Portal 探测是几个短 HTTP 请求，
-        // 为省这点流量让监测停 5 分钟，换来的是回调稍有问题就永远看不到状态
-        let effective = effective_interval_ms(current);
+        // 自适应退避：已登录且连续稳定时把兜底周期真正拉长（重建计时器），
+        // 未登录/失败/刚切网回到 base。WiFi 事件驱动的立即检测不受此影响。
+        let adaptive = adaptive_interval_ms(current, stable);
+        if adaptive != tick_period {
+            tick_period = adaptive;
+            tick = tokio::time::interval(std::time::Duration::from_millis(tick_period));
+            // 重建后首个 tick 立即返回，吃掉它以保持节奏
+            tick.tick().await;
+            ctx.trace(&format!("巡检周期调整为 {}ms (stable={})", tick_period, stable));
+        }
         let now = crate::core::platform::now_ms();
-        if last_probe_ms != 0 && now.saturating_sub(last_probe_ms) < effective {
+        // 二次保险：周期重建与事件插队并存时，避免同一窗口内重复探测
+        if last_probe_ms != 0 && now.saturating_sub(last_probe_ms) < effective_interval_ms(current) {
             continue;
         }
         last_probe_ms = now;
@@ -1462,6 +1490,12 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     if let Ok(mut last) = MONITOR.last_result.lock() {
         *last = Some(payload.clone());
     }
+    // 稳定计数：已登录且本拍在线 → +1；否则清零（触发退避回 base）
+    if online {
+        MONITOR.online_stable_ticks.fetch_add(1, Ordering::Relaxed);
+    } else {
+        MONITOR.online_stable_ticks.store(0, Ordering::Relaxed);
+    }
     let _ = ctx.emit("background-check-result", payload);
 
     // 常驻通知同步实时状态:按完整文案去重(同状态码但失败原因变化也要更新,
@@ -1620,6 +1654,20 @@ mod tests {
         assert_eq!(effective_interval_ms(60_000), 60_000);
         assert_eq!(effective_interval_ms(120_000), 120_000);
         assert_eq!(effective_interval_ms(1_000), 5_000);
+    }
+
+    #[test]
+    fn 自适应退避按稳定拍数分档() {
+        // 未登录/失败/刚切网(stable<3)保持 base
+        assert_eq!(adaptive_interval_ms(60_000, 0), 60_000);
+        assert_eq!(adaptive_interval_ms(60_000, 2), 60_000);
+        // 连续稳定 3 拍 → 2 倍
+        assert_eq!(adaptive_interval_ms(60_000, 3), 120_000);
+        assert_eq!(adaptive_interval_ms(60_000, 4), 120_000);
+        // 连续稳定 ≥5 拍 → 5 倍，且封顶 300s
+        assert_eq!(adaptive_interval_ms(60_000, 5), 300_000);
+        assert_eq!(adaptive_interval_ms(60_000, 100), 300_000);
+        assert_eq!(adaptive_interval_ms(120_000, 5), 300_000);
     }
 
     // portal_origin / expected_operator_display 的用例已随实现迁至
