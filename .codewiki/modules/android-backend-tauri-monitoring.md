@@ -4,6 +4,23 @@ type: module
 source_files:
   - android/src-tauri/src/battery_cmds.rs
   - android/src-tauri/src/cpu_affinity.rs
+  - android/core-logic/Cargo.toml
+  - android/core-logic/src/boot.rs
+  - android/core-logic/src/config_tmp.rs
+  - android/core-logic/src/file_lock.rs
+  - android/core-logic/src/lib.rs
+  - android/core-logic/src/notify.rs
+  - android/core-logic/src/platform_sig.rs
+  - android/core-logic/src/status.rs
+  - android/src-tauri/src/core/jni_platform.rs
+  - android/src-tauri/src/core/login.rs
+  - android/src-tauri/src/core/mod.rs
+  - android/src-tauri/src/core/monitor.rs
+  - android/src-tauri/src/core/net_state.rs
+  - android/src-tauri/src/core/platform.rs
+  - android/src-tauri/src/core/runner.rs
+  - android/src-tauri/src/core/status_file.rs
+  - android/src-tauri/src/core/ui_bridge.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_backend_tauri/android_backend_tauri_monitoring.md
@@ -12,14 +29,14 @@ fsoft_page: android_backend_tauri/android_backend_tauri_monitoring.md
 
 ## 简介
 
-`android_backend_tauri_monitoring` 是校园网登录助手**安卓端后台巡检与保活**的核心模块。它把"周期性探测校园网状态 → 判定是否需要自动重登 → 执行定时/夜间编排动作 → 把结果推给 UI 与常驻通知"这条链路落在 `:core` 独立进程里,并对外提供一组 Tauri 命令供前端调用;同时补齐安卓平台特有的**电池优化白名单引导**、**厂商自启设置页跳转**与**大小核绑核省电**能力。
+`android_backend_tauri_monitoring` 是校园网登录助手**安卓端后台巡检与保活**的核心模块。它把"周期性探测校园网状态 → 判定是否需要自动重登 → 执行定时/夜间编排动作 → 把结果推给 UI 与常驻通知"这条链路落在主进程的 `CoreService` 前台服务里,并对外提供一组 Tauri 命令供前端调用;同时补齐安卓平台特有的**电池优化白名单引导**、**厂商自启设置页跳转**与**大小核绑核省电**能力。
 
-模块由三块组成(模块树中写作 `monitor_loop.rs` 的部分,在当前代码库中实际由 UI 进程的命令面与 `:core` 进程的循环实现共同承担):
+模块由三块组成(模块树中写作 `monitor_loop.rs` 的部分,在当前代码库中实际由命令面与后台核心的循环实现共同承担):
 
-| 代码单元 | 所在进程 | 职责 |
+| 代码单元 | 所在位置 | 职责 |
 | --- | --- | --- |
-| `android/src-tauri/src/core_bridge_cmds.rs` | UI 进程(`:main`) | 后台检测命令面:`start/stop/trigger/get_background_status`、开机自启与通知开关;经 `campus-monitor-service` 插件把命令转发到 `:core` |
-| `android/src-tauri/src/core/monitor.rs` | `:core` 进程 | 巡检循环本体:tick 编排、校园网/Portal 探测、掉线自动重登、夜间出站切换、运营商夜切、定时登录/注销、WiFi 就寝守则、夜切验证 |
+| `android/src-tauri/src/core_bridge_cmds.rs` | UI 侧命令面(主进程) | 后台检测命令面:`start/stop/trigger/get_background_status`、开机自启与通知开关;经 `campus-monitor-service` 插件把命令转发到后台核心 |
+| `android/src-tauri/src/core/monitor.rs` | 后台核心(主进程 `CoreService` 承载) | 巡检循环本体:tick 编排、自适应退避(在线稳定时拉长兜底周期)、校园网/Portal 探测、掉线自动重登、夜间出站切换、运营商夜切、定时登录/注销、WiFi 就寝守则、夜切验证 |
 | `android/src-tauri/src/battery_cmds.rs` | UI 进程 | 电池优化白名单查询/申请、厂商保活设置页与通知设置页跳转(平台专属,桌面无对应实现) |
 | `android/src-tauri/src/cpu_affinity.rs` | 任意线程 | 解析 `/sys/.../cpuinfo_max_freq` 识别小核簇,把探测线程绑定到小核以降低稳态功耗 |
 
@@ -29,11 +46,11 @@ fsoft_page: android_backend_tauri/android_backend_tauri_monitoring.md
 
 ## 架构总览
 
-安卓端采用**双进程架构**:UI 进程只负责 WebView 与命令转发,后台巡检与登录协议执行全部在 `:core` 前台服务进程内完成。两进程通过 **Binder(命令转发)**、**状态文件(状态读取)**、**广播(事件回传)** 三条通道协作,避免 UI 进程被系统回收后巡检中断。
+安卓端的后台核心**与 UI 同处主进程**,由 `CoreService` 前台服务承载:UI 只负责 WebView 与命令转发,后台巡检与登录协议执行全部在核心内完成。前台服务在界面销毁后依然存活,因此巡检不会随 UI 被系统回收而中断;两侧通过 **Binder(命令转发)**、**状态文件(状态读取)**、**广播(事件回传)** 三条通道协作。
 
 ```mermaid
 flowchart TD
-    subgraph UI["UI 进程 (:main)"]
+    subgraph UI["主进程 · UI 侧"]
         FE["React 前端 (WebView)"]
         CMD["core_bridge_cmds.rs<br/>start / stop / trigger / status"]
         BAT["battery_cmds.rs<br/>电池优化与设置页"]
@@ -43,7 +60,7 @@ flowchart TD
         CFG["config_state.rs<br/>配置读写 (Keystore 加密)"]
     end
 
-    subgraph CORE["核心进程 (:core)"]
+    subgraph CORE["主进程 · 后台核心"]
         SVC["CoreService (前台服务)"]
         JNI["JNI 桥 nativeStart / nativeCommand"]
         RUN["core::runner<br/>runtime + command 分发"]
@@ -85,15 +102,15 @@ flowchart LR
     G["配置通道<br/>共享配置锁 + Keystore 加密"] --> H["CoreCtx::settings / update_settings"]
 ```
 
-- **命令通道**:`core_bridge_cmds::call()` 在 `spawn_blocking` 中调用 `forward()`,由插件 `coreCommand` 在独立线程经 Binder 等待 `:core` 返回 JSON;`parse_result` 把 `{"error": ...}` 统一转成 `Err`。
-- **状态通道**:`:core` 每拍把 `CoreStatus` 原子写入 `core_status.json`(临时文件 + rename),UI 侧用 `campus_core_logic::status::core_is_alive` 判定存活,避免读到"进程已死但文件还在"的假运行态。
+- **命令通道**:`core_bridge_cmds::call()` 在 `spawn_blocking` 中调用 `forward()`,由插件 `coreCommand` 在独立线程经 Binder 等待后台核心返回 JSON;`parse_result` 把 `{"error": ...}` 统一转成 `Err`。
+- **状态通道**:核心每拍把 `CoreStatus` 原子写入 `core_status.json`(临时文件 + rename),UI 侧用 `campus_core_logic::status::core_is_alive` 判定存活,避免读到"循环已死但文件还在"的假运行态。
 - **事件通道**:`CoreCtx::emit` → `CorePlatform::emit` → 广播 → `ui_bridge::set_app_handle` 持有的 AppHandle → WebView 事件(`background-check-result`、`auto-login-result`、`login-log` 等)。
 
 ---
 
 ## 巡检循环:tick 编排
 
-`core::monitor::monitor_tick_loop` 是 `:core` 内唯一的周期驱动源。每拍按固定顺序执行,**定时类动作放在省电分档与静默期门控之前**,保证"到点必须执行"。
+`core::monitor::monitor_tick_loop` 是后台核心内唯一的周期驱动源。每拍按固定顺序执行,**定时类动作放在间隔下限判定与静默期门控之前**,保证"到点必须执行"。
 
 ```mermaid
 flowchart TD
@@ -102,7 +119,8 @@ flowchart TD
     G -->|是| S1["run_scheduled_actions<br/>夜间出站切换 / 运营商夜切 / 定时登录注销"]
     S1 --> S2["run_wifi_curfew<br/>WiFi 就寝守则单拍"]
     S2 --> S3["间隔热更新<br/>desired_interval_ms 变化则重建 timer"]
-    S3 --> S4["分档判定<br/>effective_interval_ms(base, idle, screen_on, wifi)"]
+    S3 --> S3B["自适应退避<br/>adaptive_interval_ms(current, stable)<br/>周期变化则重建 timer"]
+    S3B --> S4["二次保险<br/>effective_interval_ms(current) = max(current, 5000)"]
     S4 --> S5{"距上次探针 < 有效间隔?"}
     S5 -->|是| SKIP["跳过本拍探针(省电)"]
     S5 -->|否| S6["run_check_once<br/>探测 + 自动重登 + emit"]
@@ -112,14 +130,37 @@ flowchart TD
 
 启动对账(防冷启动误触发):循环首次进入时,若当日**定时注销**时刻已过,只消耗当日额度而不执行动作——避免用户刚打开监控就被踢下线;定时**登录**不做此对账(补登录即补上线,正是预期)。
 
-### 间隔分档
+### 启动门控与代际顺序
 
-`effective_interval_ms` 为纯函数,受 `android/src-tauri/src/core/monitor.rs` 单元测试锁定:
+`start_background_check`(核心侧 `action=start`)不再无条件启动循环,两条约束都以"不得伪造运行态"为原则:
 
-- `base = background_check_interval.max(5000)`(5s 下限,防误配打爆探测)
-- **亮屏且连 WiFi** → `base`(默认 60s)
-- **蜂窝网络或灭屏** → `max(idle_interval, base)`(默认 5min)
-- 唤醒周期恒为基础间隔,保证回到 WiFi/亮屏后最迟一拍恢复;拉长间隔不改变正确性,因为 WiFi 变化事件仍即时触发检测,且无明确离线证据时在线状态保持上一拍记忆。
+- **配置门控**:先读配置,`enable_background_check` 为假时直接返回 `{"isRunning": false}`,不推进代际、不发布 `running`、不注册 WiFi watcher。UI 只负责按配置恢复服务,外部(如桌面侧/用户)关闭监测时启动命令不能把用户开关重新打开。
+- **代际先于 running 发布**:`running` 必须在 `MONITOR_GENERATION` 推进**之后**才置位。否则 boot 与 UI 恢复命令并发时,第二条路径会看到 `running=true` 直接返回,却已把第一条循环的代际作废——最终只剩 WiFi 事件能巡检,周期循环永远没有第二拍(真机已复现)。循环退出同理:只有代际仍匹配时才清 `running`,由 `stop` 负责推进代际与清标志。
+- **顺序一致性**:代际推进/读取、`running` 读写统一用 `Ordering::SeqCst`,保证"代际已推进"与"`running` 已发布"对其它线程呈现同一顺序,避免 Relaxed 下新旧循环互相看不见对方的写入。启动成功会记一条 `巡检循环启动 generation=… interval=…ms` 的 trace,退出时记录 generation / currentGeneration / running 三元组,便于真机排障。
+- **间隔双写**:启动时算出的 `want = background_check_interval.max(5000)` 同时写入 `MONITOR.desired_interval_ms`(供循环热更新)与状态文件的 `interval_ms`(供活性窗口推导),`status_value` 每拍再从 `desired_interval_ms` 同步一次,保证 UI 与通知读到同一份间隔。
+
+### 间隔下限与自适应退避
+
+`effective_interval_ms` 为纯函数,受 `android/src-tauri/src/core/monitor.rs` 单元测试锁定:只做 `base_ms.max(5000)` 的 **5s 下限钳制**(防误配超小间隔打爆探测)。
+
+- 巡检间隔即用户配置的 `background_check_interval`(默认 60s),经 `start_background_check` 写入 `desired_interval_ms`,循环逐 tick 对比实现"改间隔立即生效"。
+- 循环**不再按灭屏/蜂窝分档跳拍**:Portal 探测只是几个短 HTTP 请求,为省这点流量让监测停数分钟,换来的是回调稍有问题就永远看不到状态。
+- 拉长间隔不改变正确性:WiFi 变化事件仍即时触发检测,且无明确离线证据时在线状态保持上一拍记忆。
+- 随之,**`CorePlatform::power_state()`(亮屏/连 WiFi 查询)已从平台契约中删除**——平台层不再需要回答电源与网络类型,`JniPlatform` 与 `CoreCtx` 上的同名转发方法一并移除。
+
+周期巡检只是**兜底路径**(WiFi 变化事件即时检测与通知实时更新才是主路径),因此在"已登录且连续稳定"时把兜底周期真正拉长,减少无谓的 Portal 探测:
+
+| `online_stable_ticks` | 兜底周期 |
+| --- | --- |
+| `< 3` | `base`(通常 60s) |
+| `>= 3` | `min(base * 2, 300_000)` |
+| `>= 5` | `min(base * 5, 300_000)`(300s 封顶) |
+
+- **稳定计数来源**:`run_check_once` 在每拍末尾维护 `MONITOR.online_stable_ticks`——本拍 `online` 为真则 +1,否则清零(未登录 / 探测失败 / 刚切网都回到 `base`,保持密切关注)。
+- **真正重建计时器**:`monitor_tick_loop` 每拍用 `adaptive_interval_ms(current, stable)` 算出目标周期,与本地 `tick_period` 不同才重建 `tokio::time::interval` 并吃掉重建后立即返回的首个 tick(保持节奏),同时记一条 `巡检周期调整为 …ms (stable=…)` 的 trace。
+- **与间隔热更新叠加**:用户改间隔仍走 `desired_interval_ms` → `current`,自适应在其结果之上计算,两者互不覆盖。
+- **不影响事件驱动**:WiFi 变化立即检测与通知实时性完全不受该退避影响。
+- **二次保险**:tick 周期重建与事件插队并存时,`run_check_once` 前仍以 `effective_interval_ms(current)` 做一次"距上次探针是否过近"的判定,避免同一窗口内重复探测。
 
 ---
 
@@ -154,7 +195,7 @@ flowchart TD
     M -->|"确定判定"| N["online = status.online"]
     M -->|"Unknown/Failed 且 on_campus"| O["沿用 prev_online 记忆"]
     M -->|"Unknown/Failed 且非校园网"| P["online = false"]
-    N --> Q["在线则清零 reconnect / failures"]
+    N --> Q["在线则清零 reconnect / failures<br/>(本拍内有 WiFi 切换则清 last_login_attempt_ms)"]
     O --> Q
     P --> Q
     Q --> R["was_online 交换<br/>在线->离线且在校园网则发掉线通知"]
@@ -164,8 +205,10 @@ flowchart TD
     T -->|任一成立| V
     T -->|都不成立| U["try_begin_login 取登录所有权<br/>run_login + 登录历史落账 + 结果事件"]
     U --> V
-    V --> W["写 last_result 并 emit background-check-result"]
-    W --> X["按完整文案去重刷新常驻通知 running_text"]
+    V --> W["写 last_result"]
+    W --> W1["更新 online_stable_ticks<br/>本拍 online 则 +1, 否则清零"]
+    W1 --> W2["emit background-check-result"]
+    W2 --> X["按完整文案去重刷新常驻通知 running_text"]
 ```
 
 ### 关键护栏
@@ -180,10 +223,12 @@ flowchart TD
 | 注销保护期 | 手动注销后一段时间内不自动重登,避免"注销即被登回" | `MONITOR.logout_protected_until_ms` |
 | 连续失败熔断 | 达 5 次停止本会话自动重登,手动登录成功清零,避免凭据错误时每拍刷日志耗流量 | `MONITOR.consecutive_failures` |
 | 重连次数上限 | `reconnect_count >= max_disconnect_reconnect` 只发通知不再执行,回到在线清零 | `MONITOR.reconnect_count` |
+| 网络代际重置 | 本拍探测开始后发生过 WiFi 切换(`wifi_switch_ms >= tick_start_ms`)时,在线判定同时清 `last_login_attempt_ms`,让新网络上的重连预算与冷却从头算 | `run_check_once` |
 | 登录所有权 | `core::login::try_begin_login()` 单飞:已有登录任务时**跳过**而不是等待后重登 | `core::login` |
 | 本拍已登录保护 | `last_login_success_ms >= tick_start_ms` 时不重复登录(同 IP 重复认证会挂满客户端超时) | `run_check_once` |
 | 登录成功冷却 | `LOGIN_SUCCESS_COOLDOWN_MS = 5000`,成功后 5s 内的重复请求直接返回"已登录" | `core::login::run_login` |
 | VPN 提示 | `with_vpn_hint` 在检测到 VPN TUN 存在时给通知体追加"请在 VPN 中排除本应用"提示 | `core::monitor` |
+| 探针节流二次保险 | 周期重建与 WiFi 事件插队并存时,距上次探针不足 `effective_interval_ms(current)` 即跳过本拍探测 | `monitor_tick_loop` |
 
 ### WiFi 事件即时触发
 
@@ -193,6 +238,10 @@ flowchart TD
 - 连上方向延迟 `WIFI_EVENT_DELAY_MS = 2500`(等 DHCP/路由就绪)
 - 断开方向延迟 `WIFI_LOST_EVENT_DELAY_MS = 0`(断开即事实,感知 ≤1-2s)
 - 延迟到点后校验 `wifi_event_ms` 是否仍是本次值,风暴内**最后一条事件生效**
+
+事件到点后进入 `handle_wifi_change_check`:先 `net_state::invalidate()` 作废探测缓存,再把 `reconnect_count` 清零、写入 `wifi_switch_ms`(当前网络代际起点),让重连预算按网络代际重置——否则在 A 网络用满次数后,到 B 校园网永远不再自动登录。
+
+**`was_online` 刻意保留**:WiFi 切换不再清空掉线记忆。"掉线重连不受自动登录开关管"正是靠 `was_online` 区分,清掉会让关掉自动登录的用户在 WiFi 断连后不再自动重连;是否真的要登录仍由本轮校园网/Portal 探测决定,绝不盲登非校园网。
 
 ---
 
@@ -249,38 +298,49 @@ flowchart TD
 
 ### WiFi 就寝守则(run_wifi_curfew)
 
-判定在共享纯函数 `config::wifi_curfew::in_curfew_window_now`,真正的 `cmd wifi` 动作在 Kotlin 侧(`WifiCurfewRunner`,经 Shizuku/root)。跨进程调用阻塞,走 `spawn_blocking`;`CURFEW_ACTIVE` 静态位保证**白天稳定态零 JNI 开销**(一次 Shizuku 绑定最长 8s 超时),只在"窗口内"或"刚出窗口"才跨进程。
+判定在共享纯函数 `config::wifi_curfew::in_curfew_window_now`,真正的 `cmd wifi` 动作在 Kotlin 侧(`WifiCurfewRunner`,经 Shizuku/root)。跨进程调用阻塞,走 `spawn_blocking`;`CURFEW_ACTIVE` 静态位记录上一拍是否在窗口内,配合早退判定让**白天稳定态零 JNI 开销**(一次 Shizuku 绑定最长 8s 超时),未开启弱信号规则时只在"窗口内"或"刚出窗口"才跨进程(例外见下)。
+
+早退有一个**例外**:`wifi_curfew_weak_rssi < 0`(弱信号规则已开启)时不早退,每拍都交给 Kotlin 判一次。弱信号与就寝窗口无关,是独立的持续规则,窗口内由 Kotlin 自己跳过弱信号(不与守则抢动作),因此不能因为"白天且上一拍也不在窗口"就整拍跳过——否则弱信号检查会被这行早退吞掉,只有 WiFi 事件触发的旁路才能跑到它。未开启弱信号规则时(`wifi_curfew_weak_rssi >= 0`)白天依旧零 JNI 开销。
+
+弱信号的 RSSI **判定**不依赖执行通道:Kotlin 侧 `WifiCurfewRunner.currentRssi()` 先读 `WifiManager.connectionInfo.rssi`(`ACCESS_WIFI_STATE` 普通权限),仅在取不到(`null` / `-127` = `INVALID_RSSI`)时才退回 `cmd wifi status` 解析;因此无 Shizuku/root 时弱信号规则照常工作,只有"关 WiFi"这个动作仍需通道。
+
+弱信号关 WiFi 前还会先确认**流量可用**:`WifiCurfewRunner.hasCellularFallback()` 用 `ConnectivityManager` 找同时具备 `TRANSPORT_CELLULAR` 与 `NET_CAPABILITY_INTERNET` 的网络(`ACCESS_NETWORK_STATE` 普通权限,与执行通道无关)。不可用时返回 `action="weak-no-cellular"`(`trace="no_cellular_internet"`)并保持 WiFi 不动——移动数据关闭或飞行模式下关 WiFi 会让设备彻底断网,比待在弱 WiFi 上更糟;因此弱信号规则不再产生"越执行越糟"的降级。
 
 ---
 
 ## 状态模型
 
-### MonitorState(:core 进程内,原子字段)
+### MonitorState(核心内,原子字段)
 
 | 字段 | 含义 |
 | --- | --- |
 | `running` | 巡检循环是否在跑 |
 | `check_count` | 已完成检测次数 |
 | `consecutive_failures` | 连续失败次数(熔断计数,5 次停) |
+| `online_stable_ticks` | 连续"已登录且探测成功"的拍数,驱动 `adaptive_interval_ms` 自适应退避;未登录/失败/刚切网清零 |
 | `reconnect_count` | 本次在线周期内自动重连次数 |
 | `last_login_attempt_ms` | 最近一次登录尝试时刻(cooldown 依据) |
 | `last_login_success_ms` | 最近一次登录成功时刻(本拍去重依据) |
 | `was_online` | 上一拍在线状态(掉线翻转判定) |
 | `last_result` | 最近一次 payload(`Mutex<Option<Value>>`) |
 | `desired_interval_ms` | 运行中目标检测间隔(支持热更新) |
-| `idle_interval_ms` | 闲时巡检间隔 |
+| `wifi_switch_ms` | 最近一次 WiFi 网络切换时刻(重连预算按网络代际重置) |
 | `logout_protected_until_ms` | 注销保护期截止 |
 | `wifi_event_ms` | 最近一次 WiFi 事件时刻(去抖) |
 | `scheduled_login_day` / `scheduled_logout_day` | 定时动作当日已触发标记(`num_days_from_ce`) |
 
 进程级另有:`MONITOR_GENERATION`(启动代际,防 stop→start 竞速下旧循环误清新循环标志)、`RESTORE_SILENT_PASS`、`OUTBOUND_RESTORE_FAIL_COUNT`、`OUTBOUND_SWITCH_FAIL_COUNT`、`CURFEW_ACTIVE`、`WATCHER_FAILED`。
 
-### CoreStatus(跨进程状态文件)
+### CoreStatus(状态文件契约)
 
 `core_status.json` 由 `core::status_file::write` 原子写(临时文件 + rename),UI 侧 `read` 容错(文件缺失/损坏一律返回 `default`)。存活判定:
 
-- `core_is_alive(status, now, MAX_STATUS_AGE_MS)`:`core_alive && last_tick_ms != 0 && now - last_tick_ms <= max_age`
-- `notification_stale(...)`:核心已死或通知文案超过时限未更新 → 常驻通知被视为过期
+- `core_is_alive(status, now)`:`core_alive && last_tick_ms != 0 && now - last_tick_ms <= alive_window_ms(interval_ms)`——活性窗口由状态文件里记录的当前巡检间隔推导(3 倍间隔,不低于固定下限),调用方不再各传一个 `max_age` 魔法数字
+- `notification_stale(status, now)`:核心已死或通知文案超过同一活性窗口未更新 → 常驻通知被视为过期
+
+`CoreStatus::interval_ms` 是**当前生效的巡检间隔**(ms):`start_background_check` 启动时写入 `want`,`status_value` 每拍从 `desired_interval_ms` 同步,UI 与通知因此共用同一份阈值,不必各写一份。窗口推导 `alive_window_ms(interval_ms) = interval_ms * 3`,且不低于固定下限——用户可把间隔配到 600s,固定窗口会把"两拍之间的正常等待"判成已停止(假活修成假死)。注意它记录的是用户配置的基础间隔(`desired_interval_ms`),`adaptive_interval_ms` 算出的自适应周期不回写状态文件。
+
+`last_tick_ms` 的语义是**最近一次真实巡检开始时间**,只有 `run_check_once` 会刷新它。`status_value`(即 `action=status` 的状态查询)**不刷新** `last_tick_ms`(只顺带同步 `interval_ms`)——否则 UI 每 5 秒一次的可见性对账会让已经死掉的巡检循环永远"新鲜",存活判定形同虚设;同理 `core::runner::heartbeat` 的服务心跳只刷新 `core_alive` 与计数,不碰 `last_tick_ms`。
 
 `read_background_status` 把状态文件与 `copy_last_result_fields` 合并成前端 `BackgroundStatus` 形状(`isRunning`、`checkCount`、`consecutiveFailures`、`reconnectCount`、`lastResult`、`watcherFailed`、`coreAlive`、`notificationStale` 及展平的最近结果字段)。
 
@@ -318,6 +378,7 @@ flowchart TD
 - `BootReceiver` 收到 `ACTION_BOOT_COMPLETED` 且 `campus_settings.boot_autostart == true` 时**只拉起 `CoreService`**,不拉起 `MainActivity`——核心不依赖 Activity,开机即恢复巡检与 WiFi watcher。
 - `set_boot_autostart` 通过 `PackageManager.setComponentEnabledSetting` 启用/禁用 `BootReceiver`(不需要 `DONT_KILL_APP` 之外的额外权限),同时写 `SharedPreferences` 快照与 Rust 侧配置 `enable_boot_autostart` 双写。
 - 服务存活判定 `should_keep_service(is_running, login_in_progress, boot_active)`:三者皆否才 `stop_service()`,避免"关闭后台检测后仍常驻通知"。
+- UI 侧补拉起:安装更新/强制停止后 `START_STICKY` 与开机广播都不保证及时恢复核心,因此 `lib.rs::ui_startup` 读到配置后**仅当 `enable_background_check` 为真**才经 `core_bridge_cmds::call(&app, "start", "{}")` 转发一次 `start`(失败只记 `monitor` 错误日志);关闭后台监测时打开 UI 不会凭空出现常驻通知。核心侧 `start` 会再查一次同一配置作为第二道闸,为假即返回 `{"isRunning": false}` 且不启动循环、不注册 WiFi watcher。
 
 ### 电池优化白名单(battery_cmds.rs)
 
@@ -389,7 +450,7 @@ flowchart TD
 
 | 命令 | 签名 | 行为 |
 | --- | --- | --- |
-| `start_background_check` | `() -> Value` | 转发 `action=start`;`:core` 侧刷新 `desired_interval_ms` / `idle_interval_ms`,幂等(已运行则只刷新间隔并重启 WiFi watcher) |
+| `start_background_check` | `() -> Value` | 转发 `action=start`;核心侧先查配置 `enable_background_check`,为假时直接返回 `{"isRunning": false}` 且不启动循环(外部关闭监测时不得把用户开关重新打开);为真时刷新 `desired_interval_ms`,已运行则只重启 WiFi watcher,否则推进代际 → 发布 `running` → spawn 巡检循环 |
 | `stop_background_check` | `() -> Value` | 转发 `action=stop`;推进代际 + 清 `running` + 停 WiFi watcher + 通知改为"监控已停止" |
 | `trigger_background_check` | `() -> ()` | 转发 `action=trigger`;先 `net_state::invalidate()` 使"立即检测"不吃缓存窗口,再跑一拍 |
 | `get_background_status` | `() -> Value` | 不转发,直接读 `core_status.json` 并合并存活/过期判定 |
@@ -402,14 +463,14 @@ flowchart TD
 
 见上文「电池优化白名单」表格。
 
-### `:core` 命令分发(`core::runner::command`)
+### 核心命令分发(`core::runner::command`)
 
 `nativeCommand` 收到的 action 与实现映射:
 
 | action | 实现 |
 | --- | --- |
 | `start` / `stop` / `trigger` | `monitor::start_background_check` / `stop_background_check` / `trigger_background_check` |
-| `status` | `monitor::status_value`(快照 + 刷新状态文件) |
+| `status` | `monitor::status_value`(快照 + 刷新状态文件并同步 `interval_ms`;**不刷新** `last_tick_ms`,查询不得伪装成一次巡检) |
 | `portalStatus` | `net_state::portal_status`(UI 的 `check_portal_status` 与巡检**共用同一次探测**) |
 | `restoreAvoidBadWifi` | `ctx.restore_avoid_bad_wifi()` |
 | `login` / `logout` | `core::login::run_login` / `run_logout` |
@@ -441,16 +502,16 @@ flowchart LR
 - **配置与状态持久化**:`CoreCtx::settings()` **每次读盘不做内存缓存**(配置由 UI 进程写,缓存会读到旧值);写走 `update_at_dir` 的 load→mutate→save 统一事务与跨进程锁。详见 [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md)。
 - **命令面整体**:登录、自助服务、VPN、更新、账号等命令见 [android_backend_tauri_commands](android-backend-tauri-commands.md)。
 - **插件**:前台服务与设置页跳转的 Kotlin 侧实现见 [android_plugins_foreground_service](android-plugins-foreground-service.md);Keystore 加密见 [android_plugins_keystore](android-plugins-keystore.md);WiFi 绑定见 [android_plugins_network_bind](android-plugins-network-bind.md)。
-- **前端**:状态栏/质量面板消费 `background-check-result` 与 `get_background_status`,见 [android_frontend_monitoring_network](android-frontend-monitoring-network.md);保活与自动化设置项(检测间隔、闲时间隔、检测时段、定时登录注销、夜间切换)见 [android_frontend_settings](android-frontend-settings.md)。
-- **构建**:`:core` 与 UI 同 crate,`android/src-tauri/Cargo.toml` 声明 `[profile.release] lto = "fat"`、`codegen-units = 1`、`strip = true`(本 crate 是安卓构建的 workspace 根,缺省时 `.so` 不 strip、无 LTO,体积可达配置后近两倍),且**不设 `panic = "abort"`**——async 任务 panic 时 unwind 捕获为任务失败,abort 会直接杀死整个进程让前台服务与保活陪葬。详见 [build_deployment_configuration_android_build](build-deployment-configuration-android-build.md)。
+- **前端**:状态栏/质量面板消费 `background-check-result` 与 `get_background_status`,见 [android_frontend_monitoring_network](android-frontend-monitoring-network.md);保活与自动化设置项(检测间隔、检测时段、定时登录注销、夜间切换)见 [android_frontend_settings](android-frontend-settings.md)。
+- **构建**:后台核心与 UI 同 crate,`android/src-tauri/Cargo.toml` 声明 `[profile.release] lto = "fat"`、`codegen-units = 1`、`strip = true`(本 crate 是安卓构建的 workspace 根,缺省时 `.so` 不 strip、无 LTO,体积可达配置后近两倍),且**不设 `panic = "abort"`**——async 任务 panic 时 unwind 捕获为任务失败,abort 会直接杀死整个进程让前台服务与保活陪葬。详见 [build_deployment_configuration_android_build](build-deployment-configuration-android-build.md)。
 
 ---
 
 ## 设计约束与注意事项
 
-1. **`:core` 进程不启动 tauri**:`core::platform::CorePlatform` 刻意不出现 tauri 类型,保证核心可脱离 Activity 运行;平台能力(通知、WifiLock、WiFi 绑定、就寝守则)全部经该 trait 注入,`:core` 由 `jni_platform::JniPlatform` 实现。
+1. **后台核心不启动 tauri**:`core::platform::CorePlatform` 刻意不出现 tauri 类型,保证核心可脱离 Activity 运行;平台能力(通知、WifiLock、WiFi 绑定、就寝守则)全部经该 trait 注入,由 `jni_platform::JniPlatform` 实现。
 2. **跨进程配置以磁盘为准**:任何"读配置 → 判定 → 写配置"的编排在写后必须 `latest_settings` **重读**,否则 stale 快照会把刚清掉的 `night_outbound_restore` 复活写回。
 3. **落盘成功才推进状态机**:夜间出站切换/还原的标记只在 `persist_settings` 返回 `Some` 后才认为切换态成立,落盘失败则下一拍重试整段(不产生"内存态已切、磁盘态未切"的分裂)。
 4. **连续失败上限是自愈出口**:出站还原连续失败 3 次即放弃自动还原并清标记,否则标记会永久压住巡检且每拍发起注定失败的登录。
 5. **通知文案去重按完整文案**:同状态码但失败原因变化也要更新,否则失败路径会把"在线"永久钉住;但文案相同即跳过(每拍重建是稳态功耗点)。
-6. **功耗优先的降级策略**:闲时跳拍、绑小核、就寝守则白天零 JNI、`CURFEW_ACTIVE` 门控——所有省电手段都以"不改变正确性"为前提,WiFi 事件即时触发与三态护栏保证不漏判。
+6. **功耗优先的降级策略**:绑小核、就寝守则白天零 JNI(`CURFEW_ACTIVE` 门控;开启弱信号规则后白天每拍照常跨进程判一次,这是弱信号独立于窗口的必然代价)、在线稳定时按 `adaptive_interval_ms` 拉长兜底巡检周期——所有省电手段都以"不改变正确性"为前提,WiFi 事件即时触发与三态护栏保证不漏判。

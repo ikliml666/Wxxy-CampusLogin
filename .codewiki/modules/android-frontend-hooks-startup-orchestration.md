@@ -96,7 +96,7 @@ function useAppInit() {
 
 | 子系统 | 职责 | 安卓端特殊性 |
 | --- | --- | --- |
-| `useEventListeners` | 订阅后端事件（后台检测、自动登录、网络质量、更新、配置变更等），路由到对应 store | 跳过适配器相关的 noop 订阅；额外挂 `visibilitychange`/`pagehide` 兜底冲刷配置 |
+| `useEventListeners` | 订阅后端事件（后台检测、自动登录、网络质量、更新、配置变更等），路由到对应 store | 跳过适配器相关的 noop 订阅；额外挂 `visibilitychange`/`pagehide` 兜底冲刷配置；页面可见时每 5s 主动对账后台状态 |
 | `useInitialDataLoad` | 调用 `get_init_data` 拉取配置、账号、后台检测状态，初始化主题与面板 | 删除了桌面遗留的 `getAdapters`/GPU/DNS DoH 补充请求（均为 `desktopOnly` 空转） |
 | `useHeartbeat` | 每 5s 调用 `renderHeartbeat`，让后端感知前端存活 | 切后台时暂停；渲染链失活（`isRenderLoopAlive`）时跳过 |
 | `useGlobalShortcut` | 注册 `Ctrl+Shift+C` 取消自动退出 | 忽略输入框可编辑元素，避免复制快捷键误触发 |
@@ -249,7 +249,8 @@ flowchart TD
     EH --> E7
     EH --> E8
 
-    E1 -->|"setBgStatus / setStatus（引用稳定优化）"| AS["useAuthStore"]
+    E1 -->|"applyBackgroundStatus：setBgStatus / setStatus"| AS["useAuthStore"]
+    EH -->|"可见时立即 + 每 5s 调用 getBackgroundStatus<br/>（同一 applyBackgroundStatus 归并）"| AS
     E2 -->|"addToast/addLog + checkOnline"| LTS["useLogToastStore"]
     E2 --> AS
     E3 --> LTS
@@ -266,8 +267,8 @@ flowchart TD
 订阅层的关键防御措施：
 
 - **`mountedRef` 门控**：StrictMode 下二次 setup 时恢复 `mountedRef = true`，防止 cleanup 置 false 后所有 handler 静默失效。
-- **1s 去抖**：`background-check-result` 通过 `lastBgCheckTimeRef` 做 1s 节流，避免高频更新击穿渲染。
-- **引用稳定**：后台检测结果中 `text`/`state` 未变化时跳过 `setStatus`，避免 StatusBar 整卡重渲染。
+- **状态归并统一入口**：`background-check-result` 事件与 `getBackgroundStatus` 主动拉取共用模块级 `applyBackgroundStatus(data)` 写 store，事件通道不再自带节流（原 `lastBgCheckTimeRef` 1s 去抖已移除）；`applyBackgroundStatus` 以 `{...prev, ...data}` 整体合并，`isRunning`/`checkCount`/`serverAvailable`/`online` 缺省时回退旧值，合并结果与旧值 `JSON.stringify` 相等时直接返回旧引用（5s 对账反复送同一份快照不触发按引用订阅的重渲染），且仅在 `online` 与 `message` 齐备时才经 `setStatusStable` 写 `status`（`text`/`state` 未变则不换对象）。
+- **可见性对账**：WebView 切后台会暂停 JS 定时器、系统也可能冻结 UI 进程，后台事件不足以作为回前台状态的唯一来源。页面可见时立即调用 `api.getBackgroundStatus()` 拉一次，之后每 5s 对账一次，并在 `visibilitychange`/`focus`/`pageshow` 时即时刷新；该读取只走 Binder/状态文件，不重复 Portal 探测、不影响后台核心周期。`refreshingStatus` 标志防止并发重入，`mountedRef` 与 `document.visibilityState === 'visible'` 双重门控跳过不可见期间的拉取，清理函数统一注销三个监听器与 5s 定时器。
 - **配置合并防回滚**：`config-changed` 使用 `mergeConfigFromBackend` 跳过本地未落盘的脏字段，避免后端旧快照覆盖本地刚设置的值（如 `enableLatencyTest`）与 MASK 覆盖密码。
 
 ## 进程退出与配置冲刷

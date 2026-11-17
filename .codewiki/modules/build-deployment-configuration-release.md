@@ -32,6 +32,9 @@ source_files:
   - tauri-app/src-tauri/src/main.rs
   - tauri-app/src-tauri/src/update/mod.rs
   - tauri-app/src-tauri/src/update/updater.rs
+  - tauri-app/src-tauri/src/account/identity.rs
+  - tauri-app/src-tauri/src/config/wifi_curfew.rs
+  - tauri-app/src-tauri/src/version.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: build_deployment_configuration/build_deployment_configuration_release.md

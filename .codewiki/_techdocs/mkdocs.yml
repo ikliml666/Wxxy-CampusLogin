@@ -1,10 +1,10 @@
 site_name: Wxxy-CampusLogin
-site_description: Wxxy-CampusLogin 是武汉学院校园网自动登录客户端，基于 Tauri 2.0 框架同时支持 桌面端（Windows/macOS/Linux）与 Android 移动端。项目通过内置的认证协议实现校园网 Portal 自动登录、断线重连、网速监控、账号管理与 VPN 集成，避免学生每次连接校园…
+site_description: Wxxy-CampusLogin 是面向无锡学院校园网（Dr.COM ePortal）的跨端登录助手。它将门户认证、掉线重连、多账号管理、网络诊断、夜间策略、自助服务与 WebVPN 访问整合为 Windows 桌面端与 Android 端两套应用，并通过共享 Rust 协议核心避免双端协议逻辑分叉。
 repo_url: https://github.com/ikliml666/Wxxy-CampusLogin
 edit_uri: ''
 docs_dir: docs
 nav:
-- Wxxy-CampusLogin 仓库概览: index.md
+- Wxxy-CampusLogin 仓库总览: index.md
 - 构建与部署配置（build_deployment_configuration）:
   - 构建与部署配置（build_deployment_configuration）: build_deployment_configuration.md
   - 发布版本管理与版本配置（Release / Version Configuration）: build_deployment_configuration/build_deployment_configuration_release.md
@@ -60,14 +60,14 @@ nav:
   - 使用设置 Hook（useSettings）: android_frontend_settings/android_frontend_settings_use_settings.md
 - Android 前端共享组件（android_frontend_shared_components）: android_frontend_shared_components.md
 - 安卓前端入口与浏览器 Mock 环境: android_frontend_entrypoint_mocks.md
-- Android 前台服务保活插件(foreground-service): android_plugins_foreground_service.md
+- 安卓前台服务保活插件（android_plugins_foreground_service）: android_plugins_foreground_service.md
 - Android Keystore 插件: android_plugins_keystore.md
 - Android network-bind 插件（android_plugins_network_bind）: android_plugins_network_bind.md
-- android_backend_tauri — 安卓端 Tauri 后端:
-  - android_backend_tauri — 安卓端 Tauri 后端: android_backend_tauri.md
-  - Android 后端 Tauri 命令面: android_backend_tauri/android_backend_tauri_commands.md
-  - Android 后端监控与定时编排（android_backend_tauri_monitoring）: android_backend_tauri/android_backend_tauri_monitoring.md
-  - 安卓端 Tauri 状态与持久化存储（android_backend_tauri_state_storage）: android_backend_tauri/android_backend_tauri_state_storage.md
+- android_backend_tauri 模块总览:
+  - android_backend_tauri 模块总览: android_backend_tauri.md
+  - android_backend_tauri_commands 模块: android_backend_tauri/android_backend_tauri_commands.md
+  - 安卓后台监控模块: android_backend_tauri/android_backend_tauri_monitoring.md
+  - android_backend_tauri_state_storage 状态与持久化层: android_backend_tauri/android_backend_tauri_state_storage.md
 plugins:
 - techdocs-core
 markdown_extensions:

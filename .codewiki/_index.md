@@ -152,7 +152,6 @@
 
 - [[modules/android-plugins-keystore|Android Keystore 插件]]
 - [[modules/android-plugins-network-bind|Android network-bind 插件（android_plugins_network_bind）]]
-- [[modules/android-plugins-foreground-service|Android 前台服务保活插件(foreground-service)]]
 - [[modules/android-frontend-face-verification|Android 前端 2D 人脸验证模块（android_frontend_face_verification）]]
 - [[modules/android-frontend-hooks-animation-runtime|Android 前端 Hook 层 · 动画运行时]]
 - [[modules/android-frontend-hooks-android-frontend-hooks-state-stores|Android 前端 Hooks 状态存储（State Stores）]]
@@ -172,6 +171,7 @@
 - [[modules/android-frontend-hooks|android_frontend_hooks（安卓前端 Hook 与状态管理层）]]
 - [[modules/android-frontend-settings-use-settings|使用设置 Hook（useSettings）]]
 - [[modules/build-deployment-configuration-release|发布版本管理与版本配置（Release / Version Configuration）]]
+- [[modules/android-plugins-foreground-service|安卓前台服务保活插件（android_plugins_foreground_service）]]
 - [[modules/android-frontend-hooks-state-stores|安卓前端 Hooks · 状态存储（Zustand Stores）]]
 - [[modules/android-frontend-entrypoint-mocks|安卓前端入口与浏览器 Mock 环境]]
 - [[modules/android-frontend-hooks-startup-orchestration|安卓前端启动编排]]

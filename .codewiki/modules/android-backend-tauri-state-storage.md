@@ -36,6 +36,10 @@ source_files:
   - tauri-app/src-tauri/src/platform/task_proxy.rs
   - tauri-app/src-tauri/src/platform/toast.rs
   - tauri-app/src-tauri/src/self_service/mod.rs
+  - tauri-app/src-tauri/src/platform/elevated_daemon.rs
+  - tauri-app/src-tauri/src/platform/if_stats.rs
+  - tauri-app/src-tauri/src/platform/memory_trim.rs
+  - tauri-app/src-tauri/src/platform/tcp_probe.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_backend_tauri/android_backend_tauri_state_storage.md
@@ -44,7 +48,7 @@ fsoft_page: android_backend_tauri/android_backend_tauri_state_storage.md
 
 ## 模块概述
 
-本模块是校园网登录助手**安卓端**（Tauri UI 进程 + `:core` 后台进程）的持久化状态层，负责把"运行态"与"磁盘态"可靠地对齐：
+本模块是校园网登录助手**安卓端**（Tauri UI 进程 + 主进程 `CoreService` 承载的后台核心）的持久化状态层，负责把"运行态"与"磁盘态"可靠地对齐：
 
 - **配置内存态与加密落盘**：`android_state::AndroidState` 持有解密后的明文配置缓存与 `wlan0` 源 IP 缓存；`config_state` 负责 `config.json` 的读取、Keystore AES-GCM 加密落盘、原子替换、schema 迁移、出站掩码与 `config-changed` 广播。
 - **账号档案**：`data_dir/accounts/<id>.json` 与主配置同格式（`EncodedSettings`），支持列举、切换、另存、新建、删除、改名，以及保存配置后的自动建号（R2）。
@@ -60,7 +64,7 @@ fsoft_page: android_backend_tauri/android_backend_tauri_state_storage.md
 | 账号档案 | `account_cmds.rs` | `commands/account.rs` |
 | 验证门 | `identity_gate.rs`（BiometricPrompt 结果） | `platform/identity.rs`（Windows Hello） |
 | 历史记录 | `login_history.rs` / `quality_history.rs` | `config/persist.rs` 中的追加函数 |
-| 无头/后台进程读取同一份配置 | `:core` 进程（`monitor_loop`） | `campus-login-core.exe` |
+| 无头/后台核心读取同一份配置 | 主进程 `CoreService` 内的核心（`core::monitor`） | `campus-login-core.exe` |
 
 构建期依赖关系见 `android/src-tauri/Cargo.toml`：`tauri-plugin-campus-keystore`（密码加密）、`tauri-plugin-campus-network-bind`、`campus-login`（与桌面共享协议核心）、`campus-core-logic`（跨进程锁与临时文件判定等纯逻辑）。
 
@@ -91,8 +95,8 @@ flowchart TD
         HIS["login_history / quality_history"]
     end
 
-    subgraph CORE[":core 后台进程"]
-        ML["monitor_loop / 巡检<br/>读写同一 config.json"]
+    subgraph CORE["后台核心（主进程 CoreService 承载）"]
+        ML["core::monitor 巡检<br/>读写同一 config.json"]
     end
 
     KS["tauri-plugin-campus-keystore<br/>AndroidKeyStore AES-GCM"]
@@ -111,7 +115,7 @@ flowchart TD
 
 要点：
 
-1. **单一磁盘契约**：UI 进程与 `:core` 进程共用 `config.json` 与 `config.json.lock`，写入必须同时持有进程内 `tokio::sync::Mutex`（`CONFIG_IO_LOCK`）与跨进程文件锁，避免 load→merge→save 互相覆盖。
+1. **单一磁盘契约**：UI 侧与后台核心共用 `config.json` 与 `config.json.lock`，写入必须同时持有进程内 `tokio::sync::Mutex`（`CONFIG_IO_LOCK`）与跨进程文件锁，避免 load→merge→save 互相覆盖。
 2. **明文只在内存**：磁盘上 `settings.password` 恒为空串，真实密码放在 `passwordCipher` 字段（Keystore 密文）。加密失败即保存失败，绝不降级为明文落盘。
 3. **出站必掩码**：任何回到前端的配置快照都经 `masked_for_display()`（`password` 与 `vpn_password_enc` 非空则替换为 `***`），并伴随 `config-changed` 事件同步前端 store。
 
@@ -142,7 +146,7 @@ pub struct AndroidState {
 
 - `cached_source_ip`：避免每次登录重新枚举网卡；检测阶段写入，登录/注销读取。
 - `config`：`current_settings()` 的缓存层，未命中时读盘并回填。
-- `WATCHER_FAILED: AtomicBool` 刻意**不是** `AndroidState` 字段，而是进程级静态：`status_value` 可能在 `tauri .manage` 之前被调用（单测/启动早期），此时 `State` 不可得；`AtomicBool` 免锁且始终可读。WiFi watcher 注册失败即置 `true`，经 `get_background_status("watcherFailed")` 暴露给前端（退化为纯周期检测）。
+- `WATCHER_FAILED: AtomicBool` 刻意**不是** `AndroidState` 字段，而是进程级静态：`status_value` 可能在 `tauri .manage` 之前被调用（单测/启动早期），此时 `State` 不可得；`AtomicBool` 免锁且始终可读。WiFi watcher 注册失败即置 `true`，经 `get_background_status("watcherFailed")` 暴露给前端（退化为纯周期检测）；监控运行期间每收到一次 WiFi 事件都会用最新配置重注册常驻回调，注册成功后自动复位为 `false`，因此退化只持续到下一次 WiFi 变化。
 
 ## 配置写事务
 
@@ -207,13 +211,15 @@ flowchart LR
 | --- | --- |
 | 0→1 | 后台检测间隔旧默认 15s → 60s |
 | →2/→3 | 自动化登录/检测、网络名称校验、质量跳过项默认开启；网络质量检测默认关闭 |
-| →4 | 新增 `background_check_idle_interval`（蜂窝/灭屏 5min 分档） |
+| →4 | 新增 `background_check_idle_interval`（蜂窝/灭屏 5min 分档；该字段现已废弃，见下） |
 | →5 | `campus_check_end_minutes` 旧默认 0 → 1380（23:00） |
 | →6 | 质量测试间隔旧默认 60s → 600s |
 | →7 | 夜间切换开关默认开；定时登录/注销禁用值 0 → 哨兵 1440 |
 | →8 | 校园网关与固定网关旧默认 10.2.127.254 → 10.1.1.1 |
 
 迁移只覆盖"等于旧默认值"的字段：迁移落盘后用户主动改回旧值不会再被刷掉（单测 `迁移_旧默认15s升60s且落盘后用户值不被覆盖`、`迁移_非旧默认值保持不动`、`迁移_v7旧网关默认刷10_1_1_1`）。另有一条独立幂等规则：载入时 `required_network_name == "i-wxxy"` 即扩为三 SSID 名单（与桌面 `validate` 同语义，避免升级后丢失 `iwxxy-2/3` 匹配）。
+
+**已废弃字段**：`background_check_idle_interval` 的灭屏/蜂窝降频分档已移除，巡检只按 `background_check_interval` 作为**基础间隔**（在线稳定时由 `core::monitor::adaptive_interval_ms` 在此基础上拉长兜底周期）；该字段只为兼容既有配置文件而保留，已无任何消费点（v3→v4 迁移仍会为 0 值补 300_000，但该值不再影响巡检节奏）。
 
 ## 出站掩码与凭据语义
 
@@ -366,7 +372,7 @@ flowchart TD
 ## 与其他模块的关系
 
 - 命令面（`get_config` / `save_config` / 账号命令 / 自助服务命令）由 [android_backend_tauri_commands](android-backend-tauri-commands.md) 登记，本模块提供其持久化底座。
-- `:core` 后台进程的巡检、夜间切换、定时动作读写同一份配置，见 [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md)。
+- 后台核心（主进程 `CoreService` 承载）的巡检、夜间切换、定时动作读写同一份配置，见 [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md)。
 - 配置在界面上的投影与防抖保存见 [android_frontend_hooks_state_stores](android-frontend-hooks-state-stores.md) 与 [android_frontend_settings](android-frontend-settings.md)。
 - 密码加密插件本身见 [android_plugins_keystore](android-plugins-keystore.md)；账号界面交互见 [android_frontend_account_management](android-frontend-account-management.md)。
 - 桌面端对应子系统：[desktop_backend_configuration](desktop-backend-configuration.md)、[desktop_backend_commands](desktop-backend-commands.md)、[desktop_backend_platform_specific](desktop-backend-platform-specific.md)、[desktop_backend_account_management](desktop-backend-account-management.md)。

@@ -151,6 +151,7 @@ flowchart LR
 ```
 
 - **`useEventListeners`**：应用根部一次性订阅全部后端事件（后台巡检结果、自动登录结果、登录日志、网络质量、更新可用/未校验、配置变更）；安卓端刻意不注册适配器相关的 noop 事件；处理窗口 `onCloseRequested` 与 `visibilitychange`/`pagehide` 时冲刷待存配置（最多等待 2s）；网络质量劣化（`bad`）边沿时弹出预警 toast。
+- **后台状态双通道（事件 + 对账）**：后台巡检结果经 `onBackgroundCheckResult` 事件与 `getBackgroundStatus` 主动拉取两条通道写入，两者共用模块级 `applyBackgroundStatus(data)` 归并（展开 `...data` 覆盖 `bgStatus`，`isRunning`/`checkCount`/`serverAvailable`/`online` 保留旧值回退，`online` 与 `message` 齐备时再写状态文案）。因为 5s 对账会反复送同一份快照，归并结果先与旧 `bgStatus` 做 `JSON.stringify` 比较，内容一致时直接返回旧引用，避免按引用订阅的组件跟着定时器重渲染；状态文案统一走 `setStatusStable`，`text`/`state` 未变时不换对象、状态栏整卡不重渲。此外，WebView 切后台会暂停 JS 定时器、系统也可能冻结 UI 进程，事件不足以作为回前台状态的唯一来源：可见时立即拉一次，之后每 5s 对账一次，并在 `visibilitychange`/`focus`/`pageshow` 时即时刷新；该拉取是 Binder/状态文件读取，不重复 Portal 探测、不影响后台核心周期，并用 `refreshingStatus` 标志防重入、`mountedRef` 与 `visibilityState === 'visible'` 双重门控。
 - **`useInitialDataLoad`**：启动时拉取 `get_init_data`，合并默认配置、同步密码已保存标记、初始化主题、恢复上次面板/页签、回填后台巡检状态（解决「后台检测先于 WebView 监听跑完首拍的竞态」）、触发首次 `checkOnline`；失败降级为默认配置并打日志。完成后置 `configLoaded=true`，供依赖配置的一次性流程（如自助服务自动验证）判断时机。
 - **`useHeartbeat`**：每 5s 调 `renderHeartbeat`，页面隐藏或渲染循环失活（`isRenderLoopAlive`）时跳过，让后端按心跳丢失重载 WebView。
 - **`useGlobalShortcut`**：`Ctrl+Shift+C` 取消自动退出；忽略输入框/文本域/contenteditable 目标，避免打字误触发。
@@ -160,7 +161,7 @@ flowchart LR
 | Store | 职责 | 关键机制 |
 |---|---|---|
 | `useConfigStore` | 配置对象、`configLoaded`、密码保存状态、账号列表、激活账号、语言 | `updateConfig` 本地即时更新 + 500ms 防抖落盘；`dirtyFields` 集合防 `config-changed` 后端旧快照回滚本地新改值；连续失败 3 次放弃脏标记防永久脱节；`flushPendingConfig`/`hasPendingConfig` 供关闭/切后台时冲刷 debounce 与 in-flight 保存 |
-| `useAuthStore` | 登录/注销流程、在线状态（`status`）、后台巡检状态（`bgStatus`） | `withTimeout` 60s 防按钮永久禁用；`checkOnline` 模块级锁串行化；校园网检测失败判离线分支；登录成功跳过立即复查（避免状态闪烁），失败才复查；登录后质量探测与 60s 内已有结果节流；`setStatusStable` 按引用比较避免无效重渲染 |
+| `useAuthStore` | 登录/注销流程、在线状态（`status`）、后台巡检状态（`bgStatus`） | `withTimeout` 60s 防按钮永久禁用；`checkOnline` 模块级锁串行化；校园网检测失败判离线分支；登录成功跳过立即复查（避免状态闪烁），失败才复查；登录后质量探测与 60s 内已有结果节流；`setStatusStable` 按引用比较避免无效重渲染，后台状态归并亦按 `JSON.stringify` 内容比较复用旧 `bgStatus` 引用 |
 | `useQualityStore` | 网络质量、DNS DoH 状态、更新可用/版本/更新弹窗 | `refreshQuality` 带锁 + 500ms 冷却；`setNetworkQuality` 记录 `lastQualityResultTime` 供登录后节流判断 |
 | `useLogToastStore` | 日志条目（上限 `MAX_LOG_ENTRIES`，重复内容累计 ×N）与 Toast（上限 4 条） | 同标题去重（防双通道重复刷屏）；非前台时普通 toast 入队跳过（带动作按钮的除外）；淘汰最旧 toast 时同步清理定时器 |
 | `useThemeStore` | 主题名、浅色模式、自定义主题色、玻璃档位 | `initTheme` 从 storage/配置初始化；store 订阅副作用直接切 `<html>` 的 class/data 属性与 CSS 变量（`--primary` 等），custom 主题走 `hexToHsl`；首帧前由 `main.tsx initTheme()` 先落一次避免闪烁 |
@@ -209,6 +210,6 @@ flowchart TB
 
 1. **统一拒绝而非逐处判平台**：桌面专属命令/事件在 `tauriApi` 层集中 `desktopOnly`/`noopListener`，共享组件（登录、账号、质量面板）无需为安卓分叉写条件分支。
 2. **配置保存的三道防线**：本地防抖（500ms）→ 脏字段防回滚 → 关窗/切后台/`pagehide` 冲刷 debounce + in-flight 保存；连续失败达阈值自动放弃脏标记，避免 UI 与后端永久脱节。
-3. **高频路径不包重试**：仅关键一次性操作（保存配置）享受退避重试；状态查询走后端循环事件兜底，前端轮询不放大流量。
-4. **渲染性能优先**：动画空闲暂停、gsap ticker 动态限帧、避免常驻 rAF（Chromium BeginFrame 派发）、Provider 单实例化监听器、status 按引用比较跳过无效渲染。
+3. **高频路径不包重试**：仅关键一次性操作（保存配置）享受退避重试；状态查询以后端循环事件为主，前端仅在页面可见时每 5s 对账一次 `getBackgroundStatus`（Binder/状态文件读取，不触发 Portal 探测），因此不放大网络流量。
+4. **渲染性能优先**：动画空闲暂停、gsap ticker 动态限帧、避免常驻 rAF（Chromium BeginFrame 派发）、Provider 单实例化监听器、`status`/`bgStatus` 按引用比较跳过无效渲染（5s 对账送来的相同快照不换引用）。
 5. **启动竞态修补**：后台巡检状态经 `get_init_data` 回填，避免「后端先于 WebView 监听跑完首拍」导致启动自动登录后状态点恒灰。

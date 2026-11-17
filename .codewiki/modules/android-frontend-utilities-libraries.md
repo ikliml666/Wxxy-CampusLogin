@@ -15,6 +15,7 @@ source_files:
   - android/frontend/src/lib/notificationPermission.ts
   - android/frontend/src/lib/renderLiveness.ts
   - android/frontend/src/lib/campus.ts
+  - android/frontend/src/lib/refreshRate.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_utilities_libraries.md

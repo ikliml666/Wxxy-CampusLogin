@@ -60,6 +60,9 @@ source_files:
   - tauri-app/src-tauri/src/network/subnet.rs
   - tauri-app/src-tauri/src/network/timing.rs
   - tauri-app/src-tauri/src/network/ip_conflict.rs
+  - tauri-app/src-tauri/src/monitor/auth_recovery.rs
+  - tauri-app/src-tauri/src/monitor/outbound_failover.rs
+  - tauri-app/src-tauri/src/monitor/wifi_curfew.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_auth.md

@@ -22,6 +22,7 @@ source_files:
   - android/frontend/src/components/ui/separator.tsx
   - android/frontend/src/components/ui/switch.tsx
   - android/frontend/src/components/ui/tooltip.tsx
+  - android/frontend/src/components/mobile/GlassTabChip.tsx
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_shared_ui_components.md

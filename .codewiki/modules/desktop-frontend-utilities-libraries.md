@@ -110,6 +110,9 @@ source_files:
   - tauri-app/frontend/vite.mock.config.ts
   - tauri-app/frontend/vitest.config.ts
   - tauri-app/frontend/src/lib/campus.ts
+  - tauri-app/frontend/src/network/AdapterSettingsDialog.tsx
+  - tauri-app/frontend/src/network/ProbeSettingsDialog.tsx
+  - tauri-app/frontend/src/network/useAdapterTraffic.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: desktop_frontend_utilities_libraries.md

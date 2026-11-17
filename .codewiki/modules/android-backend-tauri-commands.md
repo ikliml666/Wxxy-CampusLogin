@@ -12,6 +12,7 @@ source_files:
   - android/src-tauri/src/update_cmds.rs
   - android/src-tauri/src/face_model_cmds.rs
   - android/src-tauri/src/quality_cmds.rs
+  - android/src-tauri/src/core_bridge_cmds.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_backend_tauri/android_backend_tauri_commands.md
@@ -26,7 +27,7 @@ fsoft_page: android_backend_tauri/android_backend_tauri_commands.md
 | --- | --- | --- |
 | 跨平台协议核心 `campus_login_lib`（`campus-login` crate） | 登录/注销/Portal 探测、自助服务 HTTP、WebVPN、网络质量、日志、版本比较 | `auth::protocol`、`self_service`、`vpn`、`network::quality` |
 | 安卓原生插件 | `network-bind`（进程绑定 WiFi / 读 SSID / 私人 DNS）、`keystore`（AndroidKeyStore AES-GCM）、`monitor-service`（前台服务 / APK 安装 / core 转发） | `campus_network_bind()`、`campus_keystore()`、`campus_monitor_service()` |
-| 独立后台进程 `:core` | 巡检、自动登录、夜间切换、通知；UI 通过 Binder 转发（`core_bridge_cmds::call`） | `call(app, "portalStatus", ...)` |
+| 后台核心（主进程 `CoreService` 前台服务） | 巡检、自动登录、夜间切换、通知；UI 通过 Binder 转发（`core_bridge_cmds::call`） | `call(app, "portalStatus", ...)` |
 | 本地文件系统 | `app_data_dir()` 下的 `config.json`、`accounts/*.json`、`files/update/*.apk`、`files/face-models/*` | `config_state`、`update_cmds` |
 
 该模块**不含业务协议实现**：所有登录/注销/自助服务/WebVPN 协议都单点实现在 `campus-login` crate 中，安卓侧只做参数校验、平台能力适配、凭据掩码与命令形状对齐（与桌面 `commands/*.rs` 同构，命令名、参数、返回结构一致，前端近零适配）。
@@ -87,7 +88,7 @@ flowchart TB
         INFRA["infra::logger"]
     end
 
-    CORE[":core 进程<br/>巡检 / 自动登录 / 夜间切换"]
+    CORE["后台核心<br/>巡检 / 自动登录 / 夜间切换"]
 
     UI --> HANDLER
     HANDLER --> CMDS
@@ -115,13 +116,16 @@ flowchart TB
     CORE -.->|"事件经 Kotlin 回投"| UIPROC
 ```
 
-### 双进程模型
+### 后台核心与命令转发
 
-安卓端后台核心（巡检、自动登录、夜间出站切换、通知）**只运行在 `:core` 进程**，由 `core::runner` 在 `CoreService.onCreate` 经 JNI 拉起。UI 进程仅提供命令面，启动/停止/立即检测/登录/注销均通过 `core_bridge_cmds::call` 走 Binder 转发（`app.campus_monitor_service().core_command(action, args)`）。
+安卓端后台核心（巡检、自动登录、夜间出站切换、通知）由主进程的 `CoreService` 前台服务承载，`core::runner` 在 `CoreService.onCreate` 经 JNI 拉起。命令面只负责转发，启动/停止/立即检测/登录/注销均通过 `core_bridge_cmds::call` 走 Binder 转发（`app.campus_monitor_service().core_command(action, args)`）。
 
 - 转发是**同步阻塞**调用（登录/注销最长 60 s），因此 `call()` 内部包 `spawn_blocking`，绝不占用 tokio worker。
-- `:core` 写入唯一的 `core_status.json`；`get_background_status` 读该文件并组装前端既有形状（`isRunning`/`checkCount`/`lastResult`/`coreAlive`/`watcherFailed` 等）。
-- `:core` 的事件经 Kotlin `CoreEvents.nativeEmitToUi`（`core/ui_bridge.rs` 的 JNI 导出）回到 UI 进程再 `emit` 给 WebView——`:core` 进程内 `APP` 恒为 `None`，无 `AppHandle` 可直发。
+- 核心写入唯一的 `core_status.json`；`get_background_status` 读该文件并组装前端既有形状（`isRunning`/`checkCount`/`lastResult`/`coreAlive`/`watcherFailed` 等）。
+- 存活与通知过期判定收在 `campus_core_logic::status::core_is_alive(&status, now)` / `notification_stale(&status, now)`：活性窗口按状态文件里记录的巡检间隔 `interval_ms` 推导（`alive_window_ms`，3 倍间隔且不低于固定下限），UI 与通知不再各传一份阈值常量。
+- 核心事件经 Kotlin `CoreEvents.nativeEmitToUi`（`core/ui_bridge.rs` 的 JNI 导出）回到 UI 侧再 `emit` 给 WebView——核心侧没有 `AppHandle` 可直发。
+- UI 启动时还会**按配置补拉起**核心：`lib.rs::ui_startup` 读到配置后，仅当 `enable_background_check` 为真才经 `core_bridge_cmds::call(&app, "start", "{}")` 转发一次 `start`（安装更新/强制停止后 `START_STICKY` 与开机广播都不保证及时恢复核心）；失败只记 `monitor` 错误日志，关闭后台监测时打开 UI 不会凭空出现常驻通知。
+- 核心侧的 `start` 自身也会再查一次 `enable_background_check`：为假时直接返回 `{"isRunning": false}`，不启动巡检循环也不注册 WiFi watcher——UI 只负责按配置恢复服务，外部关闭监测时转发 `start` 不得把用户开关重新打开。
 
 > 与本模块并列的巡检/电池/CPU 亲和命令见 [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md)；状态文件、登录历史、质量历史等持久层见 [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md)。
 
@@ -153,7 +157,7 @@ flowchart LR
     SV -->|"probe_campus_with_ssid 判网络归属"| NP
     SV -->|"config_state::update 落盘凭据"| CA
     SU -->|"masked_for_display / list_account_items_sync"| CA
-    SU -->|"read_background_status 读 :core 状态"| NP
+    SU -->|"read_background_status 读核心状态"| NP
 ```
 
 ---
@@ -265,7 +269,7 @@ flowchart TB
 crate::core_bridge_cmds::call(&app, "portalStatus", "{\"force\":false}").await
 ```
 
-探测收归 `:core` 单点（`core::net_state`），UI 不再自建旁路连接打同一个网关。此前 UI 与巡检各探一次，一次网络抖动会被记成两条失败，界面还会在「在线/不可达」之间闪；源地址与绑定也统一由 `:core` 按当前接口实时取。入参 `adapter_ip` 被显式忽略（`let _ = (adapter_ip, &state);`），保持前端签名兼容。
+探测收归后台核心单点（`core::net_state`），UI 不再自建旁路连接打同一个网关。此前 UI 与巡检各探一次，一次网络抖动会被记成两条失败，界面还会在「在线/不可达」之间闪；源地址与绑定也统一由核心按当前接口实时取。入参 `adapter_ip` 被显式忽略（`let _ = (adapter_ip, &state);`），保持前端签名兼容。
 
 ### 网络质量：`quality_cmds`
 
@@ -337,7 +341,7 @@ sequenceDiagram
 | 夜间自动化 | `enableNightOperatorSwitch`、`nightOperatorRestore`、`enableNightOutboundSwitch`、`nightRestoreMinutes`、`nightOutboundRestore` |
 | WiFi 就寝守则 | `enableWifiCurfew`、`wifiCurfewExcluded`、`wifiCurfewAllowed`、`wifiCurfewWeakRssi`、`wifiCurfewChannel` |
 | 桌面镜像字段 | `outboundPriority`、`outboundMetricRestore`、`outboundDisabledAdapters`、`outboundStandbyRoute`、`outboundPortalRoute`、`dnsOptimizeAdapters`、`enableMacRenewOnAuthError` 等（安卓不消费，仅保持结构一致） |
-| 行为 | `autoLoginOnStart`、`enableBackgroundCheck`、`backgroundCheckInterval`、`backgroundCheckIdleInterval`、`autoLoginOnPreparation`、`maxDisconnectReconnect`、`autoLoginCooldownSecs` |
+| 行为 | `autoLoginOnStart`、`enableBackgroundCheck`、`backgroundCheckInterval`、`backgroundCheckIdleInterval`（**已废弃**：灭屏/蜂窝降频已移除，无消费点，仅为兼容旧配置文件保留）、`autoLoginOnPreparation`、`maxDisconnectReconnect`、`autoLoginCooldownSecs` |
 | 界面与通知 | `themeMode`、`enableNotification`、`customThemeColor`、`defaultPanel`、`enableBootAutostart` |
 | 定时 | `campusCheckStartMinutes`、`campusCheckEndMinutes`、`scheduledLoginMinutes`、`scheduledLogoutMinutes` |
 | 更新 | `updateSource`（`"mirror"` 默认 / `"github"`） |
@@ -398,7 +402,7 @@ flowchart LR
 | --- | --- |
 | v0→v1 | `backgroundCheckInterval` 旧默认 15 s → 60 s（稳态功耗） |
 | v1→v3 | 自动化登录/检测、网络验证、质量跳过项开关默认 `false` → `true`；`enableNetworkQuality` → `false`（省电） |
-| v3→v4 | 补 `backgroundCheckIdleInterval = 300_000`（蜂窝/灭屏 5 min 分档省电） |
+| v3→v4 | 补 `backgroundCheckIdleInterval = 300_000`（原为蜂窝/灭屏 5 min 分档省电；该字段现已废弃，无任何消费点，巡检恒定按 `backgroundCheckInterval` 执行） |
 | v4→v5 | `campusCheckEndMinutes` 旧默认 0 → 1380（23:00） |
 | v5→v6 | `latencyTestInterval` 旧默认 60 s → 600 s（后台留存优化） |
 | v6→v7 | 夜切开关默认 `false` → `true`；定时登录/注销禁用值 0 → 哨兵 1440（0 变为真实的 00:00） |
@@ -512,7 +516,7 @@ flowchart LR
     E --> F
 ```
 
-`restore_avoid_bad_wifi_via_core` 统一在 `:core` 执行，避免两进程各自缓存 `SharedPreferences` 后整文件覆盖、丢掉夜切快照（幂等，无快照无动作）。
+`restore_avoid_bad_wifi_via_core` 统一在核心执行，避免 UI 与核心各自缓存 `SharedPreferences` 后整文件覆盖、丢掉夜切快照（幂等，无快照无动作）。
 
 #### 另存账号的显示名不串号
 
@@ -808,7 +812,7 @@ flowchart TB
 
 - 启动延迟 5 s 查一次，之后按 `backoff_delay_secs(fail_count)` 等待。
 - `backoff_delay_secs`：0 → 24 h；1/2/3 → 5 min/15 min/1 h；>3 → 24 h（调用方据此重置计数，下一轮 24 h 周期重新按退避重试）。
-- 有新版本时 `emit("update-available", &info)`（前端 `useEventListeners` 早已监听）+ 系统通知（过 `enable_notification` 闸，经 `notify_system_local`，不依赖 `:core` 存活）。
+- 有新版本时 `emit("update-available", &info)`（前端 `useEventListeners` 早已监听）+ 系统通知（过 `enable_notification` 闸，经 `notify_system_local`，不依赖核心运行）。
 - `UPDATE_LOOP_RUNNING` 保证幂等启动；循环随进程存活，无需停止。
 - 由 `lib.rs::ui_startup` 在启动 800 ms 后拉起，同时执行 `cleanup_stale_apks`。
 

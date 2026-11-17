@@ -26,7 +26,6 @@ FwmarkServer 对进程内**所有新建 socket**（含 Rust native 代码创建�
 除核心绑定能力外，插件还围绕"校园网认证前的 captive portal 场景"提供了一组配套能力：
 
 - 让系统"接受"尚未通过互联网验证的 WiFi（免去用户在系统弹窗手动点"仍然连接"）；
-- 监听 WiFi 连接/断开与 `NET_CAPABILITY_VALIDATED` 翻转事件，供巡检循环驱动重新绑定；
 - 读取当前 WiFi SSID（免定位权限方案）；
 - 触发系统 NetworkMonitor 重新验证（为夜间出站切换到蜂窝做准备）；
 - 读写 `Settings.Global` 的 `network_avoid_bad_wifi` / `captive_portal_mode` 两键并支持快照还原。
@@ -40,7 +39,7 @@ FwmarkServer 对进程内**所有新建 socket**（含 Rust native 代码创建�
 flowchart TB
     subgraph Rust["安卓主程序 android/src-tauri"]
         PC["protocol_cmds.rs<br/>bind_to_wifi / ensure_wifi_bound"]
-        ML["monitor_loop.rs<br/>巡检每拍 + WiFi 事件去抖"]
+        ML["monitor_loop.rs<br/>巡检每拍绑定"]
         CD["campus_detect.rs<br/>check_campus_status"]
     end
 
@@ -70,7 +69,7 @@ flowchart TB
 | 层 | 组件 | 文件 | 职责 |
 | --- | --- | --- | --- |
 | Rust 桥接层 | `init()`、`CampusNetworkBind<R>`、`CampusNetworkBindExt` | `android/plugins/network-bind/src/lib.rs` | 注册插件、建立 Kotlin 句柄、为每个 Kotlin `@Command` 提供同步的 Rust 方法签名（返回 `serde_json::Value`） |
-| 系统实现层 | `NetworkBindPlugin` | `android/plugins/network-bind/android/src/main/java/com/campuslogin/plugin/networkbind/NetworkBindPlugin.kt` | 全部 `@Command` 实现：进程绑定、captive portal 接受、WiFi 监听、SSID 读取、Settings.Global 快照写回 |
+| 系统实现层 | `NetworkBindPlugin` | `android/plugins/network-bind/android/src/main/java/com/campuslogin/plugin/networkbind/NetworkBindPlugin.kt` | 全部 `@Command` 实现：进程绑定、captive portal 接受、SSID 读取、Settings.Global 快照写回 |
 
 ## 功能域划分
 
@@ -92,6 +91,13 @@ Kotlin 插件内的十余个 `@Command` 按职责可归为五个功能域：
 `already_bound` / `no_wifi_network`），`reason` 在成功时是所选网络的能力摘要
 （`net/nonet + val/unval + cp`），失败时是分阶段拼接的归因证据
 （如 `allNetworks[bind_false_vpn_active] requestNetwork[SecurityException:...]`），便于日志排障。
+两条路径都做同网络幂等：`requestNetwork` 回调里拿到网络后同样比对 `lastBoundNetwork`，命中即回
+`already_bound`，避免启动瞬间多条链路并发绑定时反复清连接池。
+
+回退路径的 `onAvailable` 同样要把结果落到 `bound`：`bindProcessToNetwork(network)` 抛异常或返回
+`false` 时不再默认成功，而是以
+`allNetworks[<直绑失败原因>] requestNetwork[onAvailable_bind_false]` 归因返回 `bound=false`；
+`onUnavailable`（含 `REQUEST_TIMEOUT_MS = 3000` 超时）则以 `... requestNetwork[onUnavailable]` 归因。
 
 `unbind` 对应 `bindProcessToNetwork(null)`，恢复系统默认路由并注销持有的网络回调。
 
@@ -124,21 +130,7 @@ Kotlin 插件内的十余个 `@Command` 按职责可归为五个功能域：
 - `restoreWrittenSettings`：手动出口，一次性还原本应用写入的全部 Global 键；
 - `getSecureSettingsStatus`：供前端引导块展示授权状态（`granted` / 当前值 / 是否有待还原快照）。
 
-### 4. WiFi 事件监听（startWifiWatcher / stopWifiWatcher）
-
-注册只监听 `TRANSPORT_WIFI` 的 `NetworkCallback`，经 Tauri 插件基类的 `registerListener` 把
-Kotlin 事件桥接为 Rust 侧 `"wifiChanged"` channel 事件。上报策略做了去抖设计：
-
-- `onAvailable` → `available`（WiFi 连上）；
-- `onLost` → `lost`（WiFi 断开）；
-- `onCapabilitiesChanged` 高频触发（信号强度、带宽都走它），**只在 `NET_CAPABILITY_VALIDATED`
-  翻转时**上报 `validated` / `unvalidated`——校园网认证完成瞬间正是这个翻转点，巡检循环据此
-  触发下一拍重新绑定与状态判定（主程序侧 `MonitorState.wifi_event_ms` 做事件去抖，见
-  [android_backend_tauri](android-backend-tauri.md)）。
-
-监听**不取 SSID**，避免引入定位权限。
-
-### 5. SSID 读取与权限引导（getWifiSsid / requestWifiSsidPermission）
+### 4. SSID 读取与权限引导（getWifiSsid / requestWifiSsidPermission）
 
 - API 33+（Android 13+）：依靠 `NEARBY_WIFI_DEVICES` 权限 + manifest 的 `neverForLocation` 标记，
   取 SSID **免定位权限、免定位服务开关**；该权限以 `@TauriPlugin(permissions = [Permission(strings =
@@ -150,7 +142,7 @@ Kotlin 事件桥接为 Rust 侧 `"wifiChanged"` channel 事件。上报策略做
 - `getWifiSsid` 是高频只读路径（前端 SSID Badge 每拍刷新），**绝不弹权限框**；授权弹窗只由
   `requestWifiSsidPermission` 在用户前台时显式调用（后台 Activity 的弹窗会被系统静默拒绝）。
 
-### 6. 网络可用性上报（reportWifiUnusable）
+### 5. 网络可用性上报（reportWifiUnusable）
 
 调公开 API `reportNetworkConnectivity(wifi, false)` 触发系统 NetworkMonitor 对该 WiFi 重新验证；
 验证失败后若 `network_avoid_bad_wifi` 开启，系统自动把默认网络切到蜂窝——这是夜间出站切换的
@@ -164,13 +156,15 @@ Kotlin 事件桥接为 Rust 侧 `"wifiChanged"` channel 事件。上报策略做
   `api.register_android_plugin("com.campuslogin.plugin.networkbind", "NetworkBindPlugin")`
   拿到 Kotlin 句柄，再 `app.manage(CampusNetworkBind(handle))` 存入 Tauri state；
 - `CampusNetworkBind<R>`：为每个 Kotlin `@Command` 提供同名的 Rust 方法（`bind_to_wifi`、
-  `accept_wifi_network`、`start_wifi_watcher`、`get_wifi_ssid`、`ensure_avoid_bad_wifi` 等），
+  `accept_wifi_network`、`get_wifi_ssid`、`ensure_avoid_bad_wifi`、`get_private_dns_status` 等），
   全部经 `run_mobile_plugin` 转发，返回 `serde_json::Value`；
 - `CampusNetworkBindExt<R>` 扩展 trait：给 `App` / `AppHandle` / `WebviewWindow` 提供
-  `.campus_network_bind()` 访问器，主程序各处 `app.campus_network_bind().bind_to_wifi()` 即可调用；
-- `start_wifi_watcher` 特殊：先走基类 `registerListener` 把 channel 绑到 `"wifiChanged"` 事件，
-  再调 Kotlin `startWifiWatcher`；`stop_wifi_watcher(channel_id)` 先 `removeListener`（失败不阻断）
-  再注销系统回调。
+  `.campus_network_bind()` 访问器，主程序各处 `app.campus_network_bind().bind_to_wifi()` 即可调用。
+
+> WiFi 变化事件（`available` / `lost` / `validated` 翻转）已不由本插件承担：插件不再注册
+> `NetworkCallback`，也不再提供 `start_wifi_watcher` / `stop_wifi_watcher` 转发方法，`"wifiChanged"`
+> channel 一并移除。常驻 WiFi 回调改由主进程 `CoreService` 注册并直接回调
+> `nativeWifiEvent`（见 [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md)）。
 
 > 所有 JNI 调用是阻塞式的，主程序侧约定走 `spawn_blocking`——这是 Kotlin 注释里反复强调的调用
 > 方契约。
@@ -181,23 +175,22 @@ Kotlin 事件桥接为 Rust 侧 `"wifiChanged"` channel 事件。上报策略做
 flowchart LR
     FE["前端 hooks / campus_detect<br/>SSID Badge、授权引导 UI"]
     CMDS["protocol_cmds / campus_detect<br/>Rust 命令层"]
-    ML["monitor_loop 巡检循环<br/>每拍绑定 + WiFi 事件驱动"]
+    ML["monitor_loop 巡检循环<br/>每拍绑定"]
     subgraph PLG["network-bind 插件"]
         NB["NetworkBindPlugin.kt"]
     end
-    FS["foreground-service 插件<br/>后台常驻宿主"]
+    FS["foreground-service 插件<br/>后台常驻宿主<br/>（自带 WiFi 回调 → nativeWifiEvent）"]
     FE -->|"invoke 命令"| CMDS
     CMDS -->|"campus_network_bind()"| NB
-    ML -->|"channel wifiChanged"| NB
-    NB -->|"事件推送"| ML
-    FS -.->|"进程与生命周期常驻"| ML
+    ML -->|"campus_network_bind()"| NB
+    FS -.->|"进程与生命周期常驻 + WiFi 事件源"| ML
 ```
 
 - **[android_backend_tauri](android-backend-tauri.md)**：主程序 `android/src-tauri` 在 `run()` 中
   `.plugin(tauri_plugin_campus_network_bind::init())` 注册本插件，并暴露 `bind_to_wifi`、
   `accept_wifi_network`、`get_avoid_bad_wifi_status`、`restore_written_settings` 等前端可 invoke
-  的命令；`do_login` 在登录前先调 `ensure_wifi_bound` 保证绑定生效。巡检循环 `MonitorState` 的
-  `wifi_event_ms` 字段即消费本插件的 WiFi 事件。
+  的命令；`do_login` 在登录前先调 `ensure_wifi_bound` 保证绑定生效。巡检循环的 WiFi 事件即时触发
+  不再由本插件供给，改由核心侧常驻回调驱动（见 [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md)）。
 - **[android_plugins_foreground_service](android-plugins-foreground-service.md)**：后台常驻前台服务
   是巡检循环的宿主，WiFi 绑定本身不依赖它，但"后台每拍重新绑定"的生命周期由其保障。
 - **[android_frontend_hooks](android-frontend-hooks.md)** / [android_frontend_monitoring_network](android-frontend-monitoring-network.md)：
@@ -207,8 +200,8 @@ flowchart LR
 
 1. **归因优先**：几乎每个失败分支都在 `reason` 里拼接"路径 + 异常类名 + 消息"——这是多次真机
    复盘（如 `bind_rejected_request_failed`、异常被 catch 吞掉类型）沉淀下来的排障可观测性约定。
-2. **幂等保护**：同网络重复绑定返回 `already_bound`（避免重复清 HTTP 连接池）、watcher 重复启动
-   直接 resolve、权限请求已授权无感返回。
+2. **幂等保护**：同网络重复绑定返回 `already_bound`（两条绑定路径都判，避免重复清 HTTP 连接池）、
+   权限请求已授权无感返回。
 3. **最小权限**：不引入定位权限，SSID 仅在 Android 13+ 以 `NEARBY_WIFI_DEVICES + neverForLocation`
    受限读取；系统设置写操作以快照-还原兜底，不破坏用户自定义值。
 4. **只影响新 socket**：绑定生效的衔接点（清 HTTP 连接池）由 Rust 侧调用方保证，插件自身只负责

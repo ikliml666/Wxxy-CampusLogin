@@ -3,16 +3,17 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "1635a01fe1dc97eef34d827830f6f4a0523b1692",
-    "headCommit": "99bd39f532cac78ee9bbcdcc52c2a0e542b1147e"
+    "headCommit": "dff9da4929111e9d4f40b4c5396c42f4546b2e60"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "1635a01fe1dc97eef34d827830f6f4a0523b1692",
-    "headCommit": "99bd39f532cac78ee9bbcdcc52c2a0e542b1147e",
+    "headCommit": "dff9da4929111e9d4f40b4c5396c42f4546b2e60",
     "committed": [
       ".gitignore",
       "AGENTS.md",
       "android/core-logic/src/platform_sig.rs",
+      "android/core-logic/src/status.rs",
       "android/frontend/package-lock.json",
       "android/frontend/package.json",
       "android/frontend/src/App.tsx",
@@ -26,12 +27,15 @@
       "android/frontend/src/components/tablet/TabletShell.tsx",
       "android/frontend/src/components/ui/select.tsx",
       "android/frontend/src/hooks/tauriApi.ts",
+      "android/frontend/src/hooks/useAuthStore.ts",
+      "android/frontend/src/hooks/useEventListeners.ts",
       "android/frontend/src/i18n/locales/en.json",
       "android/frontend/src/i18n/locales/zh.json",
       "android/frontend/src/index.css",
       "android/frontend/src/lib/glass-dock.tsx",
       "android/frontend/src/monitor/MonitorPanel.tsx",
       "android/frontend/src/monitor/QualityPanel.tsx",
+      "android/frontend/src/monitor/types.ts",
       "android/frontend/src/network/DnsAdapterCard.tsx",
       "android/frontend/src/network/NetworkPanel.tsx",
       "android/frontend/src/network/useDnsSetup.ts",
@@ -43,8 +47,10 @@
       "android/plugins/foreground-service/android/build.gradle.kts",
       "android/plugins/foreground-service/android/src/main/AndroidManifest.xml",
       "android/plugins/foreground-service/android/src/main/aidl/com/campuslogin/plugin/monitorservice/IRemoteShell.aidl",
+      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CoreClient.kt",
       "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CoreService.kt",
       "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CurfewChannel.kt",
+      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CurfewShell.kt",
       "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/MonitorServicePlugin.kt",
       "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/RemoteShellService.kt",
       "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/WifiCurfewRunner.kt",
@@ -64,6 +70,7 @@
       "android/src-tauri/src/core/net_state.rs",
       "android/src-tauri/src/core/platform.rs",
       "android/src-tauri/src/core/runner.rs",
+      "android/src-tauri/src/core/ui_bridge.rs",
       "android/src-tauri/src/core_bridge_cmds.rs",
       "android/src-tauri/src/identity_gate.rs",
       "android/src-tauri/src/lib.rs",
@@ -206,32 +213,12 @@
   "unconsumed": [],
   "engineVersion": "2.0.0",
   "scope": "auto",
-  "effectiveScope": "full",
-  "updateOutcome": "no_change",
+  "effectiveScope": "stale",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
-  "missingRepair": {
-    "baseCommit": "1635a01fe1dc97eef34d827830f6f4a0523b1692",
-    "modules": [
-      "android_backend_tauri",
-      "android_backend_tauri_commands",
-      "android_backend_tauri_monitoring",
-      "android_backend_tauri_state_storage"
-    ],
-    "overviewLinks": [
-      "android_backend_tauri.md"
-    ],
-    "attempts": 1,
-    "at": "2026-11-16T12:53:57.121Z"
-  },
+  "missingRepair": null,
   "notes": [
-    "丢弃 23 条已不存在且从未提交的旧账（android/core-logic/Cargo.lock、android/core-logic/Cargo.toml、android/core-logic/src/boot.rs 等）——只有 committed 才算消化的规则会让它们被永久携带，白跑整轮",
-    "持久化基线 992438e 与本次 cw 基线 1635a01 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "产物缺页 4 个模块（android_backend_tauri、android_backend_tauri_commands、android_backend_tauri_monitoring 等），转全量修复（复用已有页面）",
-    "overview 有 1 条指向已消失页面的链接（android_backend_tauri.md），删除后转全量重建",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwj9czmv-a-native（66 个文件）",
-    "android_backend_tauri.md：校对改写 3 处失效链接（剩余 0 处）",
-    "android_backend_tauri/android_backend_tauri_commands.md：校对改写 2 处失效链接（剩余 0 处）",
-    "语义校对改写了 2 篇（android_backend_tauri.md、android_backend_tauri/android_backend_tauri_commands.md），改后重新判门"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwkdzjrr-l-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-16T13:20:20.930Z"
+  "updatedAt": "2026-11-17T08:17:08.718Z"
 }

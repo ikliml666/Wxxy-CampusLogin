@@ -23,12 +23,13 @@ fsoft_page: android_frontend_monitoring_network.md
 
 ## 概述
 
-本模块是 Android 前端中负责**网络状态监控**与 **DNS 一键优化**的逻辑层，由两个自定义 Hook 组成：
+本模块是 Android 前端中负责**网络状态监控**与 **DNS 一键优化**的逻辑层，由两个自定义 Hook 与一份后台巡检状态类型契约组成：
 
 - `useMonitor`（`android/frontend/src/monitor/useMonitor.ts`）：管理后台检查（定时校园网/在线状态巡检）与延迟测试的启停，处理配置持久化、运行时权限请求与前后台状态同步。
 - `useDnsSetup`（`android/frontend/src/network/useDnsSetup.ts`）：封装 DNS / DoH 状态检测与一键优化动作，供网络面板渲染层直接调用。
+- `BackgroundStatus`（`android/frontend/src/monitor/types.ts`）：后端 `status_value` 展平后的巡检状态快照类型，含 `coreAlive` / `notificationStale` 等存活判定字段（见「核心职责」第 3 节）。
 
-两者均为「只持逻辑、不渲染 UI」的纯 Hook 层，上层组件（如 `SettingsPanel`、`NetworkPanel`）仅消费其返回值，保持组件薄、逻辑可测。
+两个 Hook 均为「只持逻辑、不渲染 UI」的纯 Hook 层，上层组件（如 `SettingsPanel`、`NetworkPanel`）仅消费其返回值，保持组件薄、逻辑可测；`BackgroundStatus` 则由上述 Hook 与事件监听共同写入 `useAuthStore.bgStatus`。
 
 ## 架构总览
 
@@ -128,6 +129,27 @@ RECOMMENDED_DNS = ALI_DNS ∪ TENCENT_DNS
 - 无「恢复自动获取」动作；
 - 无 DNS 优化适配器门槛检查（setup 直接执行）；
 - busy 锁仅 `dohEnabling` 一态。
+
+### 3. `BackgroundStatus` — 后台巡检状态契约
+
+`BackgroundStatus`（`android/frontend/src/monitor/types.ts`）是后端 `status_value` 展平后的只读快照类型，由 `useAuthStore.bgStatus` 承载，状态栏、顶栏与监控面板均按字段粒度订阅。除既有的 `isRunning` / `checkCount` / `serverAvailable` / `online` / `onlineOperator` / `currentSsid` / `onCampusNetwork` / `campusWifi` / `campusWired` 等字段外，本类型新增两个可选的**存活判定**字段：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `coreAlive` | `boolean?` | 核心进程 / 前台服务是否真的活着：由**真实巡检心跳**推算，与通知心跳无关 |
+| `notificationStale` | `boolean?` | 通知侧心跳是否已过期：通知与巡检两套心跳分开判定，避免「通知照常」被当成「巡检在跑」 |
+
+两者刻意不复用通知心跳：前台服务的常驻通知由系统侧持续刷新，通知活着并不代表 `:core` 巡检循环活着，混用会把「进程已死」误判成「一切正常」。
+
+写入路径在 `android/frontend/src/hooks/useEventListeners.ts::applyBackgroundStatus`：`background-check-result` 事件到达后先以 `{...prev, ...data}` 整体合并，再对 `isRunning` / `checkCount` / `serverAvailable` / `online` 逐字段做 `??` 回退到旧值（增量推送可能缺字段），新增的存活字段随展开运算符一并落入 `bgStatus`；合并结果与旧值 `JSON.stringify` 相同时直接返回旧引用（5s 对账反复送同一份快照，不换引用即不触发按引用订阅的重渲染）；仅当事件同时带 `online` 与 `message` 时，才经 `setStatusStable` 顺带把状态点文案同步进 `status`（`text` / `state` 未变则不换对象）。同一函数也服务于页面可见时的 `getBackgroundStatus` 对账通道（立即一次 + 每 5s 一次），因此事件丢失或 WebView 被冻结后回前台，快照同样能被补齐。
+
+```mermaid
+flowchart LR
+    E["background-check-result 事件<br/>BackgroundCheckEventData"] --> F["applyBackgroundStatus<br/>useEventListeners"]
+    P["getBackgroundStatus 可见时拉取<br/>立即一次 + 每 5s"] --> F
+    F -->|"字段级 ?? 回退后合并"| BS["useAuthStore.bgStatus<br/>coreAlive / notificationStale 等"]
+    F -->|"online + message"| ST["useAuthStore.status<br/>状态点文案"]
+```
 
 ## 关键数据流：后台检查启停时序
 

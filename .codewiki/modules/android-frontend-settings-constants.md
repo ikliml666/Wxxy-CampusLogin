@@ -154,7 +154,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | `enableBackgroundCheck` | `true` | — | — |
 | `backgroundCheckInterval` | `60000` | 60 s | 2026-09-09 起，稳态周期检测降功耗 |
-| `backgroundCheckIdleInterval` | `300000` | 5 min | 2026-09-13 起，闲时（蜂窝/灭屏）巡检分档 |
+| `backgroundCheckIdleInterval` | `300000` | 5 min | **已废弃**：灭屏/蜂窝降频已移除，后端不再消费该字段，巡检以 `backgroundCheckInterval` 为基准（在线稳定时由后端自适应拉长兜底周期，见 [android_backend_tauri_monitoring.md](android-backend-tauri-monitoring.md)） |
 | `enableLatencyTest` | `true` | — | — |
 | `latencyTestInterval` | `600000` | 600 s | 2026-09-20 起，后台留存优化 |
 | `enableNetworkQuality` | `true` | — | 总开关，关闭时质量面板与顶栏胶囊一并隐藏 |
@@ -344,7 +344,7 @@ DEFAULT_PANEL_OPTIONS = NAV_ITEMS.map(item => ({ value: item.id, labelKey: item.
 | 字段 | 前端 `DEFAULT_CONFIG` | 后端 `Settings::default` | 差异处置 |
 | --- | --- | --- | --- |
 | `backgroundCheckInterval` | `60000` | `60_000` | 一致 |
-| `backgroundCheckIdleInterval` | `300000` | `300_000` | 一致 |
+| `backgroundCheckIdleInterval` | `300000` | `300_000` | 一致（字段已废弃，仅兼容旧配置文件保留） |
 | `latencyTestInterval` | `600000` | `600_000` | 一致 |
 | `campusCheckStartMinutes` | `460` | `460` | 一致 |
 | `campusCheckEndMinutes` | `1380` | `1380` | 一致 |
