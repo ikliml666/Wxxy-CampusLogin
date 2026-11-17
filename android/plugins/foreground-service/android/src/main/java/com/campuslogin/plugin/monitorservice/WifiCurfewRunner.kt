@@ -1,16 +1,10 @@
 package com.campuslogin.plugin.monitorservice
 
-import android.content.ComponentName
 import android.content.Context
-import android.content.ServiceConnection
-import android.os.IBinder
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
-import rikka.shizuku.Shizuku
 import java.util.Calendar
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * WiFi 就寝守则的安卓执行器（跑在 `:core` 进程）。
@@ -41,13 +35,9 @@ class WifiCurfewRunner(private val context: Context) {
         private const val KEY_WEAK_AT = "weak_disabled_at"
         /** 弱信号关掉后隔这么久复探一次：WiFi 关着读不到 RSSI，只能开回来再判 */
         private const val WEAK_PROBE_MS = 5 * 60 * 1000L
-        private const val SHELL_WAIT_MS = 8000L
         /** 切换后等系统连上目标的最长时间与轮询间隔 */
         private const val SWITCH_CONFIRM_MS = 8000L
         private const val SWITCH_CONFIRM_STEP_MS = 800L
-        /** 常驻的 UserService 连接（runner 每次新建，所以缓存放伴生对象里） */
-        @Volatile private var channel: IRemoteShell? = null
-        private val CHANNEL_LOCK = Any()
         private const val DEFAULT_RESTORE_START = 450
         private const val RESTORE_END = 1380
     }
@@ -333,16 +323,8 @@ class WifiCurfewRunner(private val context: Context) {
      * 命令报错全糊成一团，只能靠猜。
      */
     fun probeChannel(): String {
-        val remote = shellChannel()
-        if (remote == null) {
-            return if (CurfewChannel.shizukuReady()) "bind-timeout" else "shizuku-not-ready"
-        }
-        return try {
-            remote.exec("id").trim().takeIf { it.isNotEmpty() } ?: "no-output"
-        } catch (e: Throwable) {
-            dropChannel()
-            "exec:" + e.javaClass.simpleName + ":" + e.message
-        }
+        if (!CurfewShell.ready(context)) return if (CurfewChannel.shizukuReady()) "bind-timeout" else "shizuku-not-ready"
+        return CurfewShell.exec(context, "id")?.trim()?.takeIf { it.isNotEmpty() } ?: "no-output"
     }
 
     /**
@@ -375,21 +357,8 @@ class WifiCurfewRunner(private val context: Context) {
 
     // ===== shell 通道 =====
     //
-    // Shizuku 的 UserService 是独立进程：bind 一次约 1 秒，而 unbind 之后进程不会自己退出
-    // （真机上累积到 65 个 root 进程）。所以这里只保留**一个常驻连接**——首次用到时 bind，
-    // 之后复用同一个 binder，只有进程死了（binder 失效）才重建。
-
     /** 优先 Shizuku（user service），其次 root（su）。都没有返回 null。 */
-    private fun shellExec(command: String): String? {
-        val remote = shellChannel() ?: return withRoot(command)
-        return try {
-            remote.exec(command)
-        } catch (e: Throwable) {
-            Log.w(TAG, "shell 命令执行失败: " + command, e)
-            dropChannel()
-            withRoot(command)
-        }
-    }
+    private fun shellExec(command: String): String? = CurfewShell.exec(context, command)
 
     /**
      * 按 networkId 让系统连上「已保存」的网络，返回 "ok" / "fail" / "error:..."。
@@ -397,75 +366,5 @@ class WifiCurfewRunner(private val context: Context) {
      * 与用户在 WiFi 列表里点选网络同一条系统路径：走已存凭据，不需要明文密码。
      * 没有 Shizuku 通道返回 null，由调用方如实回报失败原因。
      */
-    private fun enableSavedNetwork(netId: Int): String? {
-        val remote = shellChannel() ?: return null
-        return try {
-            remote.enableSavedNetwork(netId)
-        } catch (e: Throwable) {
-            Log.w(TAG, "enableSavedNetwork(" + netId + ") 调用失败", e)
-            dropChannel()
-            null
-        }
-    }
-
-    /**
-     * 取常驻的 UserService 连接。binder 还活着就直接复用；只有进程被回收才重新 bind。
-     * 绑不上（Shizuku 没就绪、超时）返回 null，调用方据此回落 root 或报错。
-     */
-    private fun shellChannel(): IRemoteShell? {
-        channel?.let { existing ->
-            if (runCatching { existing.asBinder().isBinderAlive }.getOrDefault(false)) return existing
-        }
-        if (!CurfewChannel.shizukuReady()) return null
-        synchronized(CHANNEL_LOCK) {
-            channel?.let { existing ->
-                if (runCatching { existing.asBinder().isBinderAlive }.getOrDefault(false)) return existing
-            }
-            val component = ComponentName(context.packageName, RemoteShellService::class.java.name)
-            val args = Shizuku.UserServiceArgs(component)
-                .daemon(true)
-                .processNameSuffix("shell")
-                .debuggable(false)
-                .version(2)
-            val latch = CountDownLatch(1)
-            var bound: IRemoteShell? = null
-            val conn = object : ServiceConnection {
-                override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                    bound = IRemoteShell.Stub.asInterface(binder)
-                    latch.countDown()
-                }
-
-                override fun onServiceDisconnected(name: ComponentName?) {
-                    dropChannel()
-                }
-            }
-            return try {
-                Shizuku.bindUserService(args, conn)
-                if (!latch.await(SHELL_WAIT_MS, TimeUnit.MILLISECONDS)) {
-                    Log.w(TAG, "UserService 绑定超时")
-                    return null
-                }
-                channel = bound
-                bound
-            } catch (e: Throwable) {
-                Log.w(TAG, "UserService 绑定失败", e)
-                null
-            }
-        }
-    }
-
-    /** binder 失效时丢掉旧连接，下次调用重新绑定 */
-    private fun dropChannel() {
-        channel = null
-    }
-
-    private fun withRoot(command: String): String? = try {
-        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
-        val out = process.inputStream.bufferedReader().readText()
-        val err = process.errorStream.bufferedReader().readText()
-        val code = process.waitFor()
-        if (out.isNotBlank() || err.isNotBlank()) "exit=$code\n$out$err" else null
-    } catch (e: Throwable) {
-        null
-    }
+    private fun enableSavedNetwork(netId: Int): String? = CurfewShell.enableSavedNetwork(context, netId)
 }

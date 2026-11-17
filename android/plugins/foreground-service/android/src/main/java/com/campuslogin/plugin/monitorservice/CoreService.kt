@@ -57,6 +57,9 @@ class CoreService : Service() {
         // 不再用通知新鲜度刷新 last_tick_ms（巡检活性只看真实巡检）
         const val NOTIFY_CHECK_INTERVAL_MS = 30 * 1000L
 
+        /** `cmd wifi status` 的 WifiInfo 行：`Wifi is connected to "SSID"` */
+        private val SSID_LINE = Regex("connected to \"([^\"]+)\"")
+
         /** RSSI 触发守则的最小跨档幅度（dBm）：回调高频，同档不重判 */
         private const val RSSI_BUCKET_DBM = 5
 
@@ -306,13 +309,23 @@ class CoreService : Service() {
         }
     }
 
+    /**
+     * 当前 WiFi 的 SSID，取不到返回空串。
+     *
+     * 两条通道依次尝试，**任一条能取到就用**：
+     * 1. Shizuku/root 下跑 `cmd wifi status`——系统真值，不受权限脱敏影响；
+     * 2. 定位权限在手时读 `WifiManager.connectionInfo`——Android 12+ 缺定位权限会返回
+     *    "<unknown ssid>"（NEARBY_WIFI_DEVICES 只覆盖扫描与连接，不覆盖 SSID）。
+     * 两条都不通时如实返回空串，由 UI 显示「未获取网络名」，而不是让网关判定冒充名称命中。
+     */
     fun wifiSsid(): String {
-        val granted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(android.Manifest.permission.NEARBY_WIFI_DEVICES) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (!granted) {
-            return ""
+        if (CurfewShell.ready(this)) {
+            CurfewShell.exec(this, "cmd wifi status")
+                ?.let { SSID_LINE.find(it)?.groupValues?.getOrNull(1)?.trim() }
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { return it }
         }
+        if (!hasSsidPermission()) return ""
         return try {
             @Suppress("DEPRECATION")
             val info = (getSystemService(Context.WIFI_SERVICE) as WifiManager).connectionInfo
@@ -321,6 +334,19 @@ class CoreService : Service() {
         } catch (e: Exception) {
             ""
         }
+    }
+
+    private fun hasFineLocation(): Boolean =
+        checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /** 读连接信息里的 SSID 需要定位权限；Android 13+ 的 NEARBY_WIFI_DEVICES 单独不够 */
+    private fun hasSsidPermission(): Boolean {
+        val fine = hasFineLocation()
+        if (fine) return true
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(android.Manifest.permission.NEARBY_WIFI_DEVICES) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
     }
 
     fun reportWifiUnusable(): String {

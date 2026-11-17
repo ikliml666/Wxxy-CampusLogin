@@ -58,7 +58,14 @@ class PrivateDnsArgs {
         Permission(
             strings = [Manifest.permission.NEARBY_WIFI_DEVICES],
             alias = "wifiSsid",
-        )
+        ),
+        Permission(
+            strings = [
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ],
+            alias = "wifiLocation",
+        ),
     ]
 )
 class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
@@ -559,11 +566,11 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
     /**
      * 取当前 WiFi SSID（只读，绝不弹权限框）：`{"granted": bool, "ssid": String}`。
      *
-     * API 33+：依赖 NEARBY_WIFI_DEVICES + manifest neverForLocation 标记，**免定位权限、
-     * 免定位服务开关**；未授权时不弹框直接返回 granted=false——弹框只走
-     * requestWifiSsidPermission，本命令会被 Rust 每拍探测调用，高频路径弹窗是骚扰。
-     * API 24~32：取 SSID 需 ACCESS_FINE_LOCATION + 系统定位服务开关（Android 8.1 起），
-     * 本应用不引入定位权限（2026-09-20 决策），恒 granted=false，前端显示「未获取」。
+     * 两条权限任一在手即视为可取：ACCESS_FINE_LOCATION（Android 12+ 读 SSID 的硬前提，
+     * 真机 RMX3300/Android 15 上只给 NEARBY_WIFI_DEVICES 时 connectionInfo 仍返回
+     * "<unknown ssid>"）或 Android 13+ 的 NEARBY_WIFI_DEVICES。
+     * 未授权时不弹框直接返回 granted=false——弹框只走 requestWifiSsidPermission，
+     * 本命令会被 Rust 每拍探测调用，高频路径弹窗是骚扰。
      *
      * 注意 NetworkCallback.onCapabilitiesChanged 里的 WifiInfo 在 Android 12+ 被系统
      * 抹掉位置信息（SSID 恒 <unknown ssid>），watcher 路径拿不到，必须走 WifiManager 主动查。
@@ -571,9 +578,7 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun getWifiSsid(invoke: Invoke) {
         val ret = JSObject()
-        val granted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            activity.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
-            PackageManager.PERMISSION_GRANTED
+        val granted = canReadSsid()
         ret.put("granted", granted)
         ret.put("ssid", if (granted) readSsid() else "")
         invoke.resolve(ret)
@@ -628,15 +633,33 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
      */
     @Command
     fun requestWifiSsidPermission(invoke: Invoke) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            activity.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
+        val missing = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !granted(Manifest.permission.NEARBY_WIFI_DEVICES)) {
+                add(WIFI_SSID_PERMISSION_ALIAS)
+            }
+            // Android 12+ 读 SSID 必须定位权限；厂商 ROM 上 NEARBY_WIFI_DEVICES 也不够
+            if (!granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                add(WIFI_LOCATION_PERMISSION_ALIAS)
+            }
+        }
+        if (missing.isEmpty()) {
             invoke.resolve()
             return
         }
-        requestPermissionForAlias(WIFI_SSID_PERMISSION_ALIAS, invoke, "wifiSsidPermissionCallback")
+        requestPermissionForAliases(missing.toTypedArray(), invoke, "wifiSsidPermissionCallback")
     }
+
+    private fun granted(permission: String): Boolean =
+        activity.applicationContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * 能否读到 SSID：定位权限（Android 12+ 的硬前提）或 Android 13+ 的 NEARBY_WIFI_DEVICES。
+     * 任一在手就返回 true——厂商 ROM 行为不一，宁可让读取尝试一次，也不提前判死说"未授权"。
+     */
+    private fun canReadSsid(): Boolean =
+        granted(Manifest.permission.ACCESS_FINE_LOCATION) ||
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                granted(Manifest.permission.NEARBY_WIFI_DEVICES))
 
     @PermissionCallback
     fun wifiSsidPermissionCallback(invoke: Invoke) {
@@ -667,5 +690,8 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
 
         /** NEARBY_WIFI_DEVICES 在 @TauriPlugin(permissions) 注解里的 alias（requestPermissionForAlias 用） */
         private const val WIFI_SSID_PERMISSION_ALIAS = "wifiSsid"
+
+        /** ACCESS_FINE_LOCATION + ACCESS_COARSE_LOCATION 的 alias：读 SSID 的定位权限 */
+        private const val WIFI_LOCATION_PERMISSION_ALIAS = "wifiLocation"
     }
 }

@@ -14,6 +14,11 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 2D 人脸验证(应用内自实现,WebView getUserMedia 前置摄像头) -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 当前 WiFi 名称（SSID）：Android 12+ 的 WifiManager.connectionInfo 在缺定位权限时
+         一律返回 "<unknown ssid>"，NEARBY_WIFI_DEVICES 只覆盖扫描与连接、不覆盖 SSID。
+         未授予时退回"未获取网络名"，不影响其它功能；有 Shizuku/root 时走 cmd wifi status 读系统真值 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Settings.Global 写通道(夜间出站切换 ensure avoid_bad_wifi / acceptWifiNetwork 兜底):
          signature|privileged 权限,普通安装流程不会授予,仅用户 adb `pm grant` 后生效;
          未授予时 checkSelfPermission 恒 DENIED,写路径自然回落到"无权限"分支,无副作用 -->

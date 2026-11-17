@@ -1,3 +1,20 @@
+### 修复：当前 WiFi 名称（SSID）不再恒为空（2026-11-17）
+
+**为什么**：Android 12+ 的 `WifiManager.connectionInfo` 在缺少定位权限时一律返回 `<unknown ssid>`，而应用只申请了 `NEARBY_WIFI_DEVICES`（它只覆盖扫描与连接，不覆盖 SSID）。结果是监测页恒显示「未获取网络名」，校园网名称检查形同虚设——连着家用 WiFi 也被判为「已连接校园网」。真机（RMX3300 / Android 15）实测确认。
+
+**改了什么**
+
+- **定位权限通道**：清单新增 `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`；`getWifiSsid` 的可用判定改为「定位权限或 NEARBY 任一在手」；`requestWifiSsidPermission` 一次请求缺失的那几项（`requestPermissionForAliases`），不再只申请 NEARBY。
+- **Shizuku / root 通道**：`CoreService.wifiSsid()` 先走 `cmd wifi status` 读系统真值，取不到再回落 `connectionInfo`；两条都不通时如实返回空串。shell 通道的执行逻辑抽成 `CurfewShell` 单例，守则执行器与 SSID 读取共用同一条常驻连接，不再各自 bind。
+- **守则侧同步**：`WifiCurfewRunner` 的 `shellExec` / `enableSavedNetwork` / `probeChannel` 改为委托 `CurfewShell`，删除类内重复的 binder 与 root 回落实现。
+
+**验证**
+
+- `pwsh android/build-apk.ps1` 出包成功、装机成功。
+- 真机授权定位权限后，核心日志从 `ssid=null` 变为 `ssid="kiku-5G"`；撤销权限后回到 `ssid=null`（降级符合预期）。
+- 守则通道未回归：UI「试运行」仍能读到「当前：kiku-5G」。
+
+**已知限制**：`:core` 独立进程拿不到 Shizuku 的 binder（主进程广播早于 `:core` 注册，实测差 0.9 秒；`ContentResolver.call("getBinder")` 真机返回空 bundle）。因此没有定位权限、也没有 root 时，后台巡检读 SSID 仍为空；UI 进程内的守则动作不受影响。
 ### 评审修复：活性窗口按间隔推导、放行切换补 WiFi 关闭路径（2026-11-17）
 
 **为什么**：双轴评审发现上一版把活性窗口写死成 3 分钟，而巡检间隔可配到 600s，长间隔用户的界面会每 5 秒对账把运行中的核心刷成「已停止」（假活修成假死）；WiFi 事件无条件清 `was_online` 抹掉了「掉线重连不受自动登录开关管」的语义；窗口内 WiFi 被守则关掉后，放行网络切换必然落空。
