@@ -22,8 +22,8 @@
 //!   不重试"会让登录时段刚开的瞬时拒绝直接吞掉当日登录；注销仍是单次语义。
 
 use super::outbound_night::{
-    apply_outbound_restore, apply_outbound_switch_with_health, needs_replay,
-    outbound_switch_active, reconcile_outbound_on_startup, replay_outbound_switch,
+    apply_outbound_restore, apply_outbound_switch_with_health, enforce_origin_offline,
+    needs_replay, outbound_switch_active, reconcile_outbound_on_startup, replay_outbound_switch,
     run_outbound_blocking, OUTBOUND_SWITCH_FAIL_COUNT,
 };
 use super::outbound_failover::{evaluate_outbound_failover, outbound_failover_pending};
@@ -163,6 +163,21 @@ pub async fn run_scheduled_action_loop(
                 }
             }
             NightOutboundAction::None => {
+                // 切换态守护（优先于补齐）：名单内原卡一旦重新在线（用户手动启用、
+                // 系统重载网卡），会立刻凭自动跃点把默认出口抢回去。补齐只在有失败
+                // 历史时跑，切换成功后的稳态拍不会触发它，所以这条守护必须独立判定。
+                if restore_active {
+                    run_outbound_blocking(
+                        app_h.clone(),
+                        config_snapshot.clone(),
+                        |h, c| {
+                            enforce_origin_offline(h, c);
+                            Ok(())
+                        },
+                    )
+                    .await
+                    .ok();
+                }
                 // 切换态下的"未生效补齐"：helper 部分失败时快照已保留（切换态成立），
                 // 按退避重试。终止条件看 needs_replay：切换成功后失败计数清零，
                 // 稳态（夜间约 900 拍）不再每拍提权重写跃点/刷日志——只有确实留有
