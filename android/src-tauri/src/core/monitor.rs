@@ -52,7 +52,6 @@ pub struct MonitorState {
     pub check_count: AtomicU64,
     pub consecutive_failures: AtomicU32,
     /// 连续「已登录且探测成功」的拍数：驱动自适应退避，事件驱动不受影响
-    pub online_stable_ticks: AtomicU32,
     /// 当前实际生效的巡检周期（含自适应退避），写进状态文件供活性窗口判定。
     /// 不能写 desired_interval_ms——那是用户配置的基数，退避后实际 tick 可能
     /// 是它的数倍，活性窗口按基数算会把「正在正常巡检」误判成已停止。
@@ -109,24 +108,6 @@ fn wifi_event_is_burst_start(last_event_ms: u64, now_ms: u64, debounce_ms: u64) 
 /// WiFi 事件仍会即时补检，基础周期作为回调失效时的可靠兜底。
 pub fn effective_interval_ms(base_ms: u64) -> u64 {
     base_ms.max(5000)
-}
-
-/// 自适应巡检间隔：事件驱动（WiFi 变化立即检测、通知实时）是主路径，
-/// 周期巡检只是回调失效时的兜底。因此「已登录且连续稳定」时把兜底周期
-/// 逐步拉长（60s→120s→300s 封顶），减少无谓的 Portal 探测；
-/// 未登录/失败/刚切网时回到 base（通常 60s），保持密切关注。
-/// 只影响周期兜底，不影响 WiFi 事件立即检测与通知实时性。
-pub fn adaptive_interval_ms(base_ms: u64, online_stable_ticks: u32) -> u64 {
-    let base = effective_interval_ms(base_ms);
-    // 上限至少为 base：用户把基数配到 300s 以上时，退避不能反而缩短周期
-    let cap = base.max(300_000);
-    if online_stable_ticks >= 5 {
-        (base * 5).min(cap)
-    } else if online_stable_ticks >= 3 {
-        (base * 2).min(cap)
-    } else {
-        base
-    }
 }
 
 /// 本 tick 是否应尝试登录(纯函数,全量条件显式入参)
@@ -213,7 +194,7 @@ pub async fn start_background_check(ctx: CoreCtx) -> Result<serde_json::Value, S
         return Ok(serde_json::json!({ "isRunning": false }));
     }
     let curfew_config = wifi_curfew_config_json(&settings);
-    let want = settings.background_check_interval.max(5000);
+    let want = effective_interval_ms(settings.background_check_interval);
     MONITOR.desired_interval_ms.store(want, Ordering::Relaxed);
     MONITOR.effective_tick_ms.store(want, Ordering::Relaxed);
     if MONITOR.running.load(Ordering::SeqCst) {
@@ -342,8 +323,6 @@ async fn handle_wifi_change_check(ctx: &CoreCtx, event: String) {
     // "wifi_switch_ms >= tick_start_ms" 判断，但该时刻在 run_check_once 取
     // tick_start 之前，比较恒假、从未生效；改为切换当场清零，不依赖时序。
     MONITOR.last_login_attempt_ms.store(0, Ordering::Relaxed);
-    // 稳定计数同理：刚切网不算稳定，退避必须立刻回落到 base
-    MONITOR.online_stable_ticks.store(0, Ordering::Relaxed);
     MONITOR
         .wifi_switch_ms
         .store(crate::core::platform::now_ms(), Ordering::Relaxed);
@@ -509,9 +488,8 @@ impl Drop for ProbeWindowGuard {
 
 async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
     // 下限 5s:防误配超小间隔打爆探测
-    let mut current = interval_ms.max(5000);
+    let mut current = effective_interval_ms(interval_ms);
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(current));
-    let mut tick_period = current;
     // 启动对账(定时注销防冷启动误触发,与桌面 scheduled.rs 同语义):监控启动时若
     // 当日注销时刻已过,「过点补触发」会让首拍立即注销——用户刚打开监控就被踢下线,
     // 是意外而非预期。只消耗今日额度不执行动作;运行中的补触发不受影响。定时登录
@@ -556,26 +534,12 @@ async fn monitor_tick_loop(ctx: CoreCtx, interval_ms: u64, gen: u64) {
         // 间隔热更新:运行中改检测间隔(start_background_check 刷新 desired),
         // 重建计时器;tokio interval 重建后首个 tick 立即返回,吃掉保持节奏
         let want = MONITOR.desired_interval_ms.load(Ordering::Relaxed);
-        let stable = MONITOR.online_stable_ticks.load(Ordering::Relaxed);
-        ctx.trace(&format!(
-            "巡检间隔配置 base={}ms desired={}ms stable={}",
-            current, want, stable
-        ));
+        ctx.trace(&format!("巡检间隔配置 base={}ms desired={}ms", current, want));
         if want != 0 && want != current {
             current = want;
+            MONITOR.effective_tick_ms.store(current, Ordering::Relaxed);
             tick = tokio::time::interval(std::time::Duration::from_millis(current));
             tick.tick().await;
-        }
-        // 自适应退避：已登录且连续稳定时把兜底周期真正拉长（重建计时器），
-        // 未登录/失败/刚切网回到 base。WiFi 事件驱动的立即检测不受此影响。
-        let adaptive = adaptive_interval_ms(current, stable);
-        if adaptive != tick_period {
-            tick_period = adaptive;
-            MONITOR.effective_tick_ms.store(tick_period, Ordering::Relaxed);
-            tick = tokio::time::interval(std::time::Duration::from_millis(tick_period));
-            // 重建后首个 tick 立即返回，吃掉它以保持节奏
-            tick.tick().await;
-            ctx.trace(&format!("巡检周期调整为 {}ms (stable={})", tick_period, stable));
         }
         run_check_once(&ctx).await;
     }
@@ -1501,12 +1465,6 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     if let Ok(mut last) = MONITOR.last_result.lock() {
         *last = Some(payload.clone());
     }
-    // 稳定计数：已登录且本拍在线 → +1；否则清零（触发退避回 base）
-    if online {
-        MONITOR.online_stable_ticks.fetch_add(1, Ordering::Relaxed);
-    } else {
-        MONITOR.online_stable_ticks.store(0, Ordering::Relaxed);
-    }
     let _ = ctx.emit("background-check-result", payload);
 
     // 常驻通知同步实时状态:按完整文案去重(同状态码但失败原因变化也要更新,
@@ -1670,15 +1628,6 @@ mod tests {
     #[test]
     fn 自适应退避按稳定拍数分档() {
         // 未登录/失败/刚切网(stable<3)保持 base
-        assert_eq!(adaptive_interval_ms(60_000, 0), 60_000);
-        assert_eq!(adaptive_interval_ms(60_000, 2), 60_000);
-        // 连续稳定 3 拍 → 2 倍
-        assert_eq!(adaptive_interval_ms(60_000, 3), 120_000);
-        assert_eq!(adaptive_interval_ms(60_000, 4), 120_000);
-        // 连续稳定 ≥5 拍 → 5 倍，且封顶 300s
-        assert_eq!(adaptive_interval_ms(60_000, 5), 300_000);
-        assert_eq!(adaptive_interval_ms(60_000, 100), 300_000);
-        assert_eq!(adaptive_interval_ms(120_000, 5), 300_000);
     }
 
     // portal_origin / expected_operator_display 的用例已随实现迁至
