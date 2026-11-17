@@ -203,8 +203,8 @@ flowchart TB
 | `accept_wifi_network` | 让系统"接受"当前无互联网 WiFi（captive portal 场景） | `{"accepted": bool, "path": str, "hiddenApi": bool, "reason": str}` |
 | `get_avoid_bad_wifi_status` | 查 `WRITE_SECURE_SETTINGS` 是否已授权、当前 `avoid_bad_wifi` 值、插件是否有待还原快照 | `{granted, avoidBadWifi, pendingRestoreAvoid, pendingRestoreCaptive}` |
 | `restore_written_settings` | 还原本应用写入的系统网络设置（按插件快照写回原值） | `{restored: {...}, reason?}` |
-| `get_private_dns_status` | 读系统私人 DNS（DoT）：`off`/`opportunistic`/`hostname` | `{granted, mode, specifier}` |
-| `set_private_dns` | 写系统私人 DNS，`hostname` 时 `host` 为 DoT 主机名 | `{ok, mode, specifier, reason?}` |
+| `get_private_dns_status` | 读系统私人 DNS（DoT）：`off`/`opportunistic`/`hostname`；`writable` 表示直写 / Shizuku / root 三条通道是否至少一条可用 | `{granted, writable, channel, mode, specifier}` |
+| `set_private_dns` | 写系统私人 DNS，`hostname` 时 `host` 为 DoT 主机名；无任何写通道时 `reason=missing_write_secure_settings`，有通道但写失败时 `reason=write_failed` | `{ok, channel, mode, specifier, reason?}` |
 | `get_curfew_channel` | WiFi 就寝守则执行通道就绪度 | `{shizuku: ready\|missing\|inactive\|denied, root: bool, probe?}` |
 | `request_curfew_permission` | 向 Shizuku 申请授权（等用户操作，走 `spawn_blocking`） | `{granted, reason?}` |
 | `list_saved_wifi_networks` | 系统已保存 WiFi 列表（守则名单数据源） | `{networks: [{ssid, security, netIds}], error?}` |
@@ -259,7 +259,7 @@ flowchart TB
 
 `check_campus_status` 执行前调用 `ensure_wifi_bound`，执行后把 `probe.source` 写入 `AndroidState::cached_source_ip`（`cache_source_ip`），供登录/注销的 `adapter_ip` 绑定使用。
 
-`request_wifi_ssid_permission` 触发 `NEARBY_WIFI_DEVICES` 运行时权限请求（幂等：已授权/API<33 无感返回），必须用户在前台——后台 Activity 的权限弹窗会被系统静默拒绝，因此由前端名称检查开关与监控启动链路显式调用。Kotlin 侧 `get_wifi_ssid` 只读不弹框，未授权/API<33/未连 WiFi 时返回 `None`。
+`request_wifi_ssid_permission` 触发 SSID 读取所需的运行时权限请求（Android 13+ 的 `NEARBY_WIFI_DEVICES` + 定位权限，幂等：已授权无感返回），必须用户在前台——后台 Activity 的权限弹窗会被系统静默拒绝，因此由前端名称检查开关与监控启动链路显式调用。注意**只有定位权限算数**：仅持有 `NEARBY_WIFI_DEVICES` 时 `connectionInfo.ssid` 仍返回 `<unknown ssid>`。Kotlin 侧 `get_wifi_ssid` 只读不弹框，定位权限未授予/未连 WiFi 时返回 `None`。
 
 ### Portal 状态探测：`check_portal_status`
 

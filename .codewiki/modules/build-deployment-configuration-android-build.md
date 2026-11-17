@@ -155,6 +155,7 @@ flowchart TB
 **`settings.gradle` 的防丢声明**（最重要的维护点）：注释记录了 2026-09-08 的真机事故——tauri CLI 重生成的 `tauri.settings.gradle` 漏掉了 path 依赖的手写插件，导致 `ClassNotFoundException: NetworkBindPlugin`，密码保存/验证门/前台服务/WiFi 绑定全挂。因此：
 
 - 手写插件的 `include` + `projectDir` 映射写在**不被 CLI 覆盖的 `settings.gradle`** 里，持久生效；
+- 三条 `include` 彼此不再独立：`network-bind` 的 `android/build.gradle.kts` 追加了 `implementation(project(":tauri-plugin-campus-monitor-service"))`（复用 `CurfewShell` 的 Shizuku/root shell 通道写 `Settings.Global`），因此 `:tauri-plugin-campus-monitor-service` 的 `include` 缺失会让 `network-bind` 模块直接编译失败；详见 [Android 插件工程配置](build-deployment-configuration-android-plugins.md)；
 - 官方插件 `tauri-plugin-biometric`（2.3.3）与 `tauri-plugin-opener`（2.5.5）直接指向本机 cargo registry 解压路径；
 - 升级插件或 Tauri 版本时必须同步校对这些路径。
 

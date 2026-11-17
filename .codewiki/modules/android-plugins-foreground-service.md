@@ -113,12 +113,12 @@ flowchart LR
 | `MonitorServicePlugin` | 主进程 | Tauri 插件入口，全部 `@Command` 实现；`load()` 时注册 core 事件接收器 |
 | `CoreClient` | 主进程 | 拉起核心前台服务、绑定服务、同步发送命令并等待回执、注册事件接收器 |
 | `CoreEvents` | 主进程 | `external fun nativeEmitToUi` —— 广播事件进入 Rust 的 JNI 入口 |
-| `CoreService` | 主进程 | 前台服务本体：常驻通知、`Messenger` 命令分发、WiFi 回调、`WifiLock`/`WakeLock`、Rust 平台方法集合、AES-GCM 加解密 |
+| `CoreService` | 主进程 | 前台服务本体：常驻通知、`Messenger` 命令分发、WiFi 回调、守则事件去重与单线程调度、`WifiLock`/`WakeLock`、Rust 平台方法集合、AES-GCM 加解密 |
 | `BootReceiver` | 主进程 | `BOOT_COMPLETED` 拉起 `CoreService`（默认组件 `disabled`） |
 | `CurfewChannel` | 主进程 | Shizuku/root 通道判定：四态 `ready`/`missing`/`inactive`/`denied`、`rootAvailable()` |
-| `CurfewShell` | 主进程 | 守则与 SSID 读取共用的 shell 通道：优先 Shizuku `UserService`，其次 root（`su -c`），只保留一个常驻连接 |
-| `WifiCurfewRunner` | 主进程 | 就寝守则单拍：窗口判定、放行/断开名单、弱信号（RSSI 走 API + shell 双通道，关 WiFi 前先校验蜂窝回退 `hasCellularFallback`，信号达标时还原被禁用的网络配置）、`cmd wifi` 动作、shell 通道复用 |
-| `RemoteShellService` | Shizuku 特权进程 | `IRemoteShell.Stub` 实现：`exec()` 跑 shell、`enableSavedNetwork()` 直调 `IWifiManager` |
+| `CurfewShell` | 主进程 | 守则与 SSID 读取共用的 shell 通道：优先 Shizuku `UserService`，其次 root（`su -c`），只保留一个常驻连接；并转发 `enableSavedNetwork` / `disableSavedNetwork` / `disconnectWifi` 三条 `IWifiManager` 动作（只走 Shizuku 通道，无通道返回 `null`）；另对 `network-bind` 暴露 `execWithCode(command)` 返回 `Pair<退出码, 原始输出>`（空输出同样算成功，供跨插件写 `Settings.Global`） |
+| `WifiCurfewRunner` | 主进程 | 就寝守则单拍：窗口判定、放行/断开名单、弱信号（RSSI 走 API + shell 双通道，断连前先校验蜂窝回退 `hasCellularFallback`，信号达标时还原被禁用的网络配置）、`blockWifi`/`unblockWifi`（断开连接优先、关 WiFi 兜底）与还原、`cmd wifi` 动作、shell 通道复用 |
+| `RemoteShellService` | Shizuku 特权进程 | `IRemoteShell.Stub` 实现：`exec()` 跑 shell、`enableSavedNetwork()` / `disableSavedNetwork()` / `disconnectWifi()` 直调 `IWifiManager` |
 | `StartArgs` / `CoreCommandArgs` / `TextArgs` / `RefreshRateArgs` / `BoolArgs` | 主进程 | `@InvokeArg` 参数结构（字段均可空，缺参判空后 reject，避免 `lateinit` 崩溃） |
 
 ---
@@ -249,7 +249,7 @@ flowchart TB
         REPLY["HandlerThread core-reply<br/>等待 MSG_RESULT"]
         IOTH["HandlerThread campus-core-io<br/>nativeCommand / 长任务"]
         LOOPER["主线程 Handler<br/>notifyTick / WiFi 回调注册"]
-        EVENTTH["临时线程 campus-curfew-event<br/>守则执行"]
+        EVENTTH["单线程执行器 campus-curfew-event<br/>守则执行（curfewBusy 去重）"]
     end
     IPC --> MAINTH
     MAINTH --> REPLY
@@ -284,14 +284,14 @@ Rust 先 `set_wifi_curfew_config(json)` 暂存，再调无参 `run_wifi_curfew()
 ```mermaid
 flowchart TD
     A["run(json, force)"] --> B{"enabled 且 在窗口内?"}
-    B -->|否| C["restore(channel)<br/>只打开本程序关过的 WiFi"]
+    B -->|否| C["restore(channel)<br/>unblockWifi + 必要时打开本程序关过的 WiFi"]
     C --> D{"weakRssi 小于 0?"}
     D -->|是| E["checkWeakSignal"]
     E --> E1{"RSSI 低于阈值?"}
     E1 -->|否| E4["unblockWifi(KEY_WEAK_NET)<br/>有还原则 weak-probe，否则 null"]
     E1 -->|是| E5{"hasCellularFallback?"}
     E5 -->|否| E2["weak-no-cellular<br/>保持 WiFi 不动"]
-    E5 -->|是| E3["setWifiEnabled(false)<br/>记 KEY_WEAK → weak-off"]
+    E5 -->|是| E3["blockWifi(KEY_WEAK_NET)<br/>disableNetwork + disconnect<br/>记 KEY_WEAK → weak-off"]
     D -->|否| F["返回 restore 结果"]
     B -->|是| G{"当前 SSID 在放行名单?"}
     G -->|是| H["keep"]
@@ -302,28 +302,37 @@ flowchart TD
     K -->|否| M{"当前 SSID 命中断开名单?"}
     I -->|否| M
     M -->|否| N["keep + tried 原因"]
-    M -->|是| O["setWifiEnabled(false)<br/>记 KEY_DISABLED"]
+    M -->|是| O["blockWifi(KEY_BLOCKED_NET)<br/>记 KEY_DISABLED"]
     O --> P["wifi-off / failed"]
 ```
 
 判定顺序上的两个刻意选择：
 
 1. **放行优先**：只要连着放行网络就不动，无论是否命中断开名单。
-2. **兜底才关 WiFi**：放行目标全部连不上时，只有当前网络确实在断开名单里才关；未连接或连着名单外网络保持原样，并把失败原因（`tried`）如实带回。
+2. **兜底才断网**：放行目标全部连不上时，只有当前网络确实在断开名单里才断；未连接或连着名单外网络保持原样，并把失败原因（`tried`）如实带回。
 
-### 6.3 关 WiFi 的两级降级
+### 6.3 断网：断开连接优先、关 WiFi 兜底
 
-`setWifiEnabled(enable)` 先试 `cmd wifi set-wifi-enabled enabled|disabled`（Android 11+ 的 shell 子命令），`exit=0` 即成功；否则退到 `svc wifi enable|disable`。两条都失败时把各自原始输出（压缩成一行、截断 120 字符）放进 `trace` 返回，用户能看到"卡在哪一步、报了什么"。
+窗口内没有可用放行目标、且当前网络命中断开名单时，`blockWifi(netIdKey)` 是唯一的断网入口，顺序固定为：
+
+1. `currentNetId()` 读当前连接的 networkId；
+2. 有 netId 则 `CurfewShell.disableSavedNetwork(context, netId)` 把该配置标记为「不自动连接」，成功时把 netId 记进 `KEY_BLOCKED_NET` / `KEY_WEAK_NET`（两条规则各记各的）；
+3. `CurfewShell.disconnectWifi(context)` 断开当前连接——**顺序不能反**：先断后禁的话，系统会在断开后立刻按 autojoin 连回同一 SSID，等于没断开；
+4. 只有 `disconnect` 没成功（无执行通道、接口调用失败）才回落 `setWifiEnabled(false)` 关掉 WiFi 硬件，否则规则完全失效。
+
+整个过程**不关 WiFi 硬件、不删系统里保存的配置**——恢复时 `enableNetwork` 就能重新连上，用户不需要重输密码（这也是刻意不用 `forget-network` 的原因）。`restore(channel)` 与 `unblockWifi(netIdKey)` 负责反向：先重新启用被标记的网络配置，只有在「曾回落关过 WiFi」（`KEY_DISABLED` 为真）时才把硬件开回来；两者都无事可做时返回 `action="idle"`。
+
+`setWifiEnabled(enable)` 本身是两级降级：先试 `cmd wifi set-wifi-enabled enabled|disabled`（Android 11+ 的 shell 子命令），`exit=0` 即成功；否则退到 `svc wifi enable|disable`。两条都失败时把各自原始输出（压缩成一行、截断 120 字符）放进 `trace` 返回，用户能看到"卡在哪一步、报了什么"。
 
 ### 6.4 弱信号规则
 
-弱信号只在**窗口外**生效（窗口内守则已决定断连，不该被信号强度二次干预）。关掉之后读不到 RSSI，因此按 `WEAK_PROBE_MS`（5 分钟）开回来复探一次：下一拍若仍弱会再关，恢复则保持开启。等待窗口内返回 `null`（无动作），避免每拍刷一条日志。`KEY_WEAK` 与 `KEY_DISABLED` 分开记，两条规则各自还原各自的状态——避免"程序关的"与"用户关的"混淆。
+弱信号只在**窗口外**生效（窗口内守则已决定断连，不该被信号强度二次干预）。断连之后读不到 RSSI，因此按 `WEAK_PROBE_MS`（5 分钟）开回来复探一次：复探前先 `unblockWifi(KEY_WEAK_NET)` 把上一轮标记为「不自动连接」的配置放回去，再 `setWifiEnabled(true)`，两条动作的 `trace` 用 ` | ` 拼接后一起返回；下一拍若仍弱会再断，恢复则保持开启。等待窗口内返回 `null`（无动作），避免每拍刷一条日志。`KEY_WEAK` 与 `KEY_DISABLED` 分开记，两条规则各自还原各自的状态——避免"程序关的"与"用户关的"混淆。
 
 复探路径之外还有一条**达标即还原**的分支：RSSI 直接判定已高于阈值时（用户可能靠手动切到别的强信号网络才恢复，WiFi 也可能已被重新打开），先 `unblockWifi(KEY_WEAK_NET)` 把上一轮标记为「不自动连接」的那条配置重新启用；确有还原动作时返回 `action="weak-probe"`（带 `channel` 与 `trace`），否则才返回 `null`。否则被禁用的网络配置在「不是自己复探恢复」的路径上永远回不来。
 
-关 WiFi 前必须先确认**流量可用**：`hasCellularFallback()` 用 `ConnectivityManager` 遍历 `allNetworks`，只认同时具备 `TRANSPORT_CELLULAR` 与 `NET_CAPABILITY_INTERNET` 的网络——移动数据关闭时系统仍可能列出蜂窝网络对象但没有 `INTERNET` 能力，据此区分"有网"与"只是有 SIM"。不可用时返回 `action="weak-no-cellular"`（带 `channel`/`rssi`，`trace="no_cellular_internet"`）并**保持 WiFi 不动**，因为移动数据关闭或飞行模式下关 WiFi 会让设备彻底断网，比待在弱 WiFi 上更糟。读网络状态只需 `ACCESS_NETWORK_STATE`（install-time 普通权限），与执行通道无关；查询本身抛异常时按"无回退"处理。
+关 WiFi 前必须先确认**流量可用**：`hasCellularFallback()` 用 `ConnectivityManager` 遍历 `allNetworks`，只认同时具备 `TRANSPORT_CELLULAR` 与 `NET_CAPABILITY_INTERNET` 的网络——移动数据关闭时系统仍可能列出蜂窝网络对象但没有 `INTERNET` 能力，据此区分"有网"与"只是有 SIM"。不可用时返回 `action="weak-no-cellular"`（带 `channel`/`rssi`，`trace="no_cellular_internet"`）并**保持 WiFi 不动**，因为移动数据关闭或飞行模式下关 WiFi 会让设备彻底断网，比待在弱 WiFi 上更糟。读网络状态只需 `ACCESS_NETWORK_STATE`（install-time 普通权限），与执行通道无关；查询本身抛异常时按"无回退"处理，但会打一条 `Log.w`（读取失败即无法确认有流量，退回不切流量是安全方向，留下原因才能让"信号弱却没反应"可诊断）。
 
-阈值判定读 RSSI 走**双通道**（见 6.8）：先取 `WifiManager.connectionInfo.rssi`，拿不到再退回 shell，因此没有 Shizuku/root 通道时弱信号规则依然生效，只是「关 WiFi」这一步仍需执行通道。
+阈值判定读 RSSI 走**双通道**（见 6.8）：先取 `WifiManager.connectionInfo.rssi`，拿不到再退回 shell，因此没有 Shizuku/root 通道时弱信号规则依然生效，只是「断开连接 / 关 WiFi」这一步仍需执行通道。
 
 ### 6.5 执行通道：Shizuku / root
 
@@ -352,7 +361,11 @@ flowchart LR
 
 `rootAvailable()` 用 `su -c id` 的退出码判定，**不解析输出**，避开各 ROM 的 su 提示差异。
 
+注意通道能力不对称：`exec()`（`cmd wifi ...`）在 Shizuku 与 root 两条通道上都可用，而 6.7 的三个 `IWifiManager` 直调动作**只走 Shizuku UserService**——`su -c` 是另起进程，拿不到本进程的 binder 代理。因此只有 root 没有 Shizuku 时，断连/禁自动连接会返回 `null`，`blockWifi` 随之回落到关 WiFi。
+
 核心与守则都在主进程，Shizuku 的 binder 由 `ShizukuProvider` 直接注入本进程，因此这套判定无需任何跨进程补注入即可工作（见 9.2）。
+
+通道对外还有一个**以退出码为准**的入口 `CurfewShell.execWithCode(context, command)`，返回 `(退出码, 原始输出)`，没有可用通道时返回 `null`。它与 `exec()` 的关键差别是**空输出也算成功**：`settings put global <key> <value>` 成功时不打印任何东西，拿"有没有输出"当成败判据会把成功写成失败。通道顺序同样是先 Shizuku（从 `exec` 输出的 `exit=` 行解析退出码）后 root（`su -c` 直取 `waitFor()` 的退出码），因此 `network-bind` 插件写 `Settings.Global` 时不必自己再起一份通道，与守则共用同一个 `UserService` 连接。
 
 ### 6.6 UserService 常驻复用
 
@@ -360,16 +373,26 @@ Shizuku 的 `UserService` 是独立进程，bind 一次约 1 秒，而 **unbind 
 
 - `CurfewShell` 里缓存**唯一一个** `IRemoteShell` 连接（`@Volatile channel` + `CHANNEL_LOCK`），binder 还活着就直接复用，只有 `isBinderAlive` 为假才重建；
 - `RemoteShellService.onTransact` 拦截 `TRANSACTION_DESTROY = 16777115`（Shizuku 向 UserService 发的值，与 AIDL 声明的 16777114 不同是官方约定），收到即 `exitProcess(0)`；
-- 绑定参数 `daemon(true).processNameSuffix("shell").version(2)`；绑定超时 `SHELL_WAIT_MS = 8000`。
+- 绑定参数 `daemon(true).processNameSuffix("shell").version(3)`；绑定超时 `SHELL_WAIT_MS = 8000`。`version` 每次给 `IRemoteShell` 增删方法都要递增（当前 `3` 对应新增的 `disconnectWifi` / `disableSavedNetwork`），否则 Shizuku 会复用旧版 UserService 进程，新方法调用直接 `NoSuchMethodError`。
 
-### 6.7 `enableSavedNetwork`：不需要明文密码的切网
+### 6.7 `IWifiManager` 三个直调动作：切网 / 断连 / 禁自动连接
 
-`cmd wifi connect-network` 对 wpa2/wpa3/wep **强制要求显式密码**，而系统存的是加密凭据、拿不到明文——这是旧实现切不动加密网络的根因。`RemoteShellService.enableSavedNetwork(netId)` 改走 `IWifiManager#enableNetwork(netId, disableOthers=true, packageName)`，与用户在 WiFi 列表里点选网络完全同一条系统路径：
+`cmd wifi connect-network` 对 wpa2/wpa3/wep **强制要求显式密码**，而系统存的是加密凭据、拿不到明文——这是旧实现切不动加密网络的根因。`RemoteShellService` 因此提供三个直调 `IWifiManager` 的动作，三者都只经 Shizuku 通道（`CurfewShell` 转发，无通道返回 `null`），AIDL 契约见 `IRemoteShell`：
 
-- 服务端签名随版本漂移，按**参数类型精确匹配**（`(int, boolean, String)` 新版 / `(int, boolean)` 旧版），只数参数个数会撞 `IllegalArgumentException`；
+| 动作 | 服务端调用 | 语义 |
+| --- | --- | --- |
+| `enableSavedNetwork(netId)` | `enableNetwork(netId, disableOthers=true, packageName)` | 让系统连上「已保存」的网络，与用户在 WiFi 列表里点选它同一条路径；恢复时用它重新连上 |
+| `disableSavedNetwork(netId)` | `disableNetwork(netId, packageName)` | 把该配置标记为「不自动连接」，**配置本身保留**（与 `forget-network` 相反，恢复时不必重输密码） |
+| `disconnectWifi()` | `disconnect(packageName)` | 断开当前连接，WiFi 开关保持开启、已存配置不删；Android 10 起应用侧 `WifiManager.disconnect()` 对第三方失效，但服务端接口本身还在，shell/root 持有 `NETWORK_SETTINGS` 能过校验 |
+
+三个动作的共同要点：
+
+- 服务端签名随版本漂移，按**参数类型精确匹配**（如 `(int, boolean, String)` 新版 / `(int, boolean)` 旧版，`disconnect(String)` 新版 / `disconnect()` 旧版），只数参数个数会撞 `IllegalArgumentException`；都找不到对应签名时返回 `error:no-...`；
 - `packageName` 用 `android`（uid 0）或 `com.android.shell`（uid 2000）；
 - 返回 `"ok"` / `"fail"` / `"error:<原因>"`，与 `exec` 的 `exit=` 格式区分；
 - `IWifiManager` 代理通过 `ServiceManager.getService("wifi")` + `IWifiManager$Stub.asInterface` 反射取得，事务码交给框架，不复制 AIDL。
+
+单靠 `disconnectWifi` 不够：只断当前连接的话系统仍会按 autojoin 重连回同一 SSID，所以断连必须配合 `disableSavedNetwork`（见 6.3 的顺序要求）。
 
 没有 Shizuku 时回落 `cmd wifi connect-network "<ssid>" open|owe`（仅免密网络），加密网络则如实回报"需要 Shizuku 通道"，不假装切过。
 
@@ -382,7 +405,7 @@ RSSI 不受这层脱敏影响，`currentRssi()` 因此是**双通道**：
 1. 先读 `WifiManager.connectionInfo.rssi`——`ACCESS_WIFI_STATE` 是 install-time 普通权限，与 `handleRssi` 读 `caps.transportInfo` 同源，**不需要 Shizuku/root**；
 2. 取不到（`null`，或 `-127` = `INVALID_RSSI` 表示未关联）再退回 shell 的 `cmd wifi status`（正则 `RSSI: -?\d+`）读系统真值。
 
-此前只走 shell，导致没有执行通道时弱信号规则静默失效；现在弱信号的**判定**始终可用，只有关 WiFi 这个**动作**依赖执行通道。
+此前只走 shell，导致没有执行通道时弱信号规则静默失效；现在弱信号的**判定**始终可用，只有断开连接 / 关 WiFi 这个**动作**依赖执行通道。
 
 `CoreService.wifiSsid()` 在跑 shell 前先判定通道就绪：`CurfewShell.ready(this)`（即 `shizukuReady() || rootAvailable()`）。核心跑在主进程，Shizuku 的 binder 由 `ShizukuProvider` 注入本进程，`pingBinder()` 天然可用；通道不就绪时 `wifiSsid()` 直接回落定位权限读取，不影响其它功能。
 
@@ -396,8 +419,10 @@ RSSI 不受这层脱敏影响，`currentRssi()` 因此是**双通道**：
 
 - `onAvailable` / `onLost` / `onCapabilitiesChanged`（仅在 `NET_CAPABILITY_VALIDATED` 翻转时）触发 `nativeWifiEvent(...)` 与一次守则执行；
 - RSSI 只在**跨档**时触发（`RSSI_BUCKET_DBM = 5`，`-70` 与 `-72` 视为同档），避免 `onCapabilitiesChanged` 的高频回调刷 Shizuku；`-127`（`INVALID_RSSI`）直接忽略；
-- 守则动作会同步等 Shizuku/shell，因此放独立线程 `campus-curfew-event` 执行，不占回调线程；
-- `runWifiCurfew()` 用 `curfewLock` 串行化——回调线程与巡检线程都会进来，两次 run 交错会出现"刚切过去又被另一拍关掉"；
+- 守则动作会同步等 Shizuku/shell，因此放到**单线程执行器** `campus-curfew-event`（守护线程）执行，不占回调线程；
+- `runCurfewFromEvent` 用 `curfewBusy`（`AtomicBoolean.compareAndSet`）去重：高频 RSSI 回调连续触发时，已在执行就**直接跳过本次**，下一个事件会带着更新后的系统状态再来——守则读的是当前系统状态，串行排队只会把同一个判断重复执行一遍，还把单线程队列堆满；
+- `runWifiCurfew()` 另用 `curfewLock` 串行化——巡检线程也会进来，两次 run 交错会出现"刚切过去又被另一拍关掉"；
+- 守则结果用 `JSONObject` 构造 `{"reason":..., "result":...}` 再 `emit("curfew_event", ...)`：`outcome` 里有 SSID 与系统异常消息，手拼字符串时其中的引号会把广播载荷变成非法 JSON；`result` 先按 JSON 解析（`JSONTokener`），解析失败才原样作为字符串放入；
 - 注册/注销统一切到主线程 handler，与 stop 串行；重复 `startWifiWatcher` 只更新配置（字段本身 `@Volatile`），不重建回调，配置热更新无需重启监控。
 
 ---
@@ -455,6 +480,8 @@ Rust 侧 `update_cmds::install_update` 先 `canonicalize` 并校验落在 `updat
 
 模块必须在 `android/src-tauri/gen/android/settings.gradle` 里显式 `include`（`projectDir` 指向 `../../../plugins/foreground-service/android`），因为 tauri CLI 每次构建会重生成 `tauri.settings.gradle` 且其生成逻辑会漏掉 path 依赖的手写插件（曾导致真机 `ClassNotFoundException: NetworkBindPlugin`）。详见 [build_deployment_configuration/build_deployment_configuration_android_plugins.md](build-deployment-configuration-android-plugins.md)。
 
+本模块的 Gradle library 还被**另一个插件**依赖：`android/plugins/network-bind/android/build.gradle.kts` 中 `implementation(project(":tauri-plugin-campus-monitor-service"))`，用于复用 `CurfewShell` 的 Shizuku/root shell 通道写 `Settings.Global`，与守则共用同一个 `UserService` 连接、不重复 bind。因此 `CurfewShell` 的公开入口同时是 `network-bind` 的编译期契约——重命名或改动其签名会让 `network-bind` 编译失败，需两端同步。也正因为要跨 Gradle 模块访问，`CurfewShell` 声明为 `object`（公开）而非 `internal object`；Kotlin 的 `internal` 只在同一模块内可见，若退回 `internal`，`network-bind` 会直接编译不过。
+
 ### 9.2 Manifest 声明
 
 插件自身 `AndroidManifest.xml` 声明 `POST_NOTIFICATIONS`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_SPECIAL_USE`、`RECEIVE_BOOT_COMPLETED`、`WAKE_LOCK` 与 `RemoteShellService`（**未在此声明时 `bindUserService` 直接失败，表现为"已授权但命令一条也执行不了"**）。
@@ -479,7 +506,7 @@ Rust 侧 `update_cmds::install_update` 先 `canonicalize` 并校验落在 `updat
 | 宿主 | [android_backend_tauri/android_backend_tauri_monitoring.md](android-backend-tauri-monitoring.md) | 核心的 Rust 实现（`CoreService` 经 JNI 拉起），巡检/守则/通知文案的真实实现 |
 | 命令面 | [android_backend_tauri/android_backend_tauri_commands.md](android-backend-tauri-commands.md) | 前端可见的 Tauri 命令（`start_background_check`、`get_curfew_channel` 等） |
 | 同级插件 | [android_plugins_keystore.md](android-plugins-keystore.md) | UI 进程的 KeyStore 加解密（本模块 `CoreService` 另有一份供核心使用） |
-| 同级插件 | [android_plugins_network_bind.md](android-plugins-network-bind.md) | `bindProcessToNetwork` 与 `acceptWifiNetwork` 的 UI 侧通道 |
+| 同级插件 | [android_plugins_network_bind.md](android-plugins-network-bind.md) | `bindProcessToNetwork` 与 `acceptWifiNetwork` 的 UI 侧通道；其 `Settings.Global` 写通道经本模块 `CurfewShell.execWithCode` 复用同一个 Shizuku/root shell 连接 |
 | 前端消费 | [android_frontend_settings.md](android-frontend-settings.md) | `KeepAliveSettingsCard` 调用电池优化/通知设置命令；守则名单与通道状态展示 |
 | 前端消费 | [android_frontend_hooks.md](android-frontend-hooks.md) | `tauriApi` 中的 `BatteryOptimizationInfo`、`CurfewChannelStatus` 等类型 |
 | 构建 | [build_deployment_configuration/build_deployment_configuration_android_plugins.md](build-deployment-configuration-android-plugins.md) | `build.rs`、Gradle 模块与 `settings.gradle` 接线 |
@@ -500,6 +527,11 @@ Rust 侧 `update_cmds::install_update` 先 `canonicalize` 并校验落在 `updat
 | 电池优化页跳不过去 | Android 11+ 包可见性使 `resolveActivity` 返回 `null` | 不预探测，直接 `startActivity` + 捕获异常，三级降级链 |
 | "下载成功但装不上" | `file://` 不可用 / 提前删除 APK | `FileProvider` `content://` + 安装后保留文件，启动期清理 24h 残留 |
 | 守则日志每拍刷一条 | 弱信号复探在等待窗口内返回结果 | 窗口内返回 `null`（无动作），仅跨档触发 |
+| 断开后几秒又自动连回同一 SSID | 只调 `disconnect` 不够，系统按 autojoin 重连 | 先 `disableSavedNetwork(netId)` 标记不自动连接、再 `disconnectWifi()`，顺序不可反（见 6.3） |
+| 断连后恢复时要求用户重新输密码 | 用 `forget-network` 会删掉系统里的网络配置 | 只标记「不自动连接」，配置保留；恢复时 `enableSavedNetwork(netId)` 直接连回（见 6.7） |
+| 只有 root 没有 Shizuku 时断连退化为关 WiFi | `IWifiManager` 直调动作只经 Shizuku UserService，`su -c` 拿不到 binder 代理 | 如实回报 `disableNetwork`/`disconnect` 的 `null` 与回落原因，`trace` 里可见卡在哪一步（见 6.5、6.3） |
+| 写 `Settings.Global` 成功却被判失败 | `settings put` 成功时不打印任何输出，用"有没有输出"当成败判据会误判 | 跨插件写设置一律走 `CurfewShell.execWithCode`，按退出码判定（空输出也算成功，见 6.5） |
+| 守则事件堆积 / `curfew_event` 广播解析失败 | 高频 RSSI 回调逐条起线程；结果用字符串拼接，SSID 或异常消息里的引号破坏 JSON | `curfewBusy` 去重 + 单线程执行器；结果改用 `JSONObject` 构造（见 6.9） |
 | 无执行通道时弱信号规则静默失效 | 旧实现只从 `cmd wifi status` 取 RSSI，没通道就取不到 | `currentRssi()` 先走 `WifiManager.connectionInfo.rssi`（普通权限），`-127`/`null` 时才回落 shell（见 6.8） |
 | 弱信号关 WiFi 后设备彻底断网 | 移动数据关闭或飞行模式下，关 WiFi 就没有任何出口 | 关前 `hasCellularFallback()` 校验 `TRANSPORT_CELLULAR` + `NET_CAPABILITY_INTERNET`，不可用则返回 `weak-no-cellular` 并保持 WiFi（见 6.4） |
 | 弱信号断开过的那条网络配置一直回不来 | 用户手动切到别的强信号网络后 RSSI 已达标，旧实现只 `return null`，从未 `unblockWifi` | 达标分支先 `unblockWifi(KEY_WEAK_NET)` 还原被标记的网络，确有还原时返回 `weak-probe`（见 6.4） |

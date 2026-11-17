@@ -163,7 +163,7 @@ flowchart LR
 | 子模块 | 职责要点 |
 | --- | --- |
 | [android_backend_tauri_commands](android-backend-tauri-commands.md) | 命令面全集：网络探测与通道（`protocol_cmds` / `campus_detect` / `quality_cmds`）、配置与多账号（`config_state` / `account_cmds`）、自助服务与 WebVPN（`self_service_cmds` / `vpn_cmds`）、系统聚合与更新（`system_cmds` / `update_cmds` / `face_model_cmds`）；`ensure_wifi_bound` 等全链路前置不变式。 |
-| [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md) | 主进程前台服务里的巡检循环（`core::monitor`）、命令转发与状态读取（`core_bridge_cmds`）、电池优化与厂商设置页（`battery_cmds`）、小核绑核（`cpu_affinity`）；三态裁决、静默期闸、注销保护期、失败熔断等护栏，以及在线稳定时按 `adaptive_interval_ms` 拉长兜底巡检周期的自适应退避。 |
+| [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md) | 主进程前台服务里的巡检循环（`core::monitor`）、命令转发与状态读取（`core_bridge_cmds`）、电池优化与厂商设置页（`battery_cmds`）、小核绑核（`cpu_affinity`）；三态裁决、静默期闸、注销保护期、失败熔断等护栏，巡检间隔由 `effective_interval_ms` 做 5s 下限钳制并以 `effective_tick_ms` 写入状态文件供活性窗口判定（原 `adaptive_interval_ms` 自适应退避已删除，周期恒等于配置间隔）。 |
 | [android_backend_tauri_state_storage](android-backend-tauri-state-storage.md) | `AndroidState` 内存态、`CryptoBridge` 加解密、`config.json` 原子写与 schema 迁移（当前 v8）、`accounts/*.json` 与自动建号、登录/质量历史、`identity_gate` 验证门，以及桌面端同契约参照实现。 |
 
 ## 关键设计约束

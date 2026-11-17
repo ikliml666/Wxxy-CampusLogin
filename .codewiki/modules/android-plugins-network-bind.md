@@ -28,7 +28,8 @@ FwmarkServer 对进程内**所有新建 socket**（含 Rust native 代码创建�
 - 让系统"接受"尚未通过互联网验证的 WiFi（免去用户在系统弹窗手动点"仍然连接"）；
 - 读取当前 WiFi SSID（以定位权限为前提，Android 13+ 的 `NEARBY_WIFI_DEVICES` 单独持有不够）；
 - 触发系统 NetworkMonitor 重新验证（为夜间出站切换到蜂窝做准备）；
-- 读写 `Settings.Global` 的 `network_avoid_bad_wifi` / `captive_portal_mode` 两键并支持快照还原。
+- 读写 `Settings.Global` 的 `network_avoid_bad_wifi` / `captive_portal_mode` 两键并支持快照还原，
+  写入按 **直写 → Shizuku → root** 三级通道回退（无 `WRITE_SECURE_SETTINGS` 时不再一律失败）。
 
 ## 架构概览
 
@@ -51,8 +52,12 @@ flowchart TB
     subgraph System["Android 系统"]
         CM["ConnectivityManager<br/>bindProcessToNetwork"]
         GW["WifiManager<br/>getConnectionInfo"]
-        SG["Settings.Global<br/>captive_portal_mode /<br/>network_avoid_bad_wifi"]
+        SG["Settings.Global<br/>captive_portal_mode /<br/>network_avoid_bad_wifi /<br/>private_dns_mode"]
         NM["NetworkMonitor<br/>reportNetworkConnectivity"]
+    end
+
+    subgraph Shell["monitor-service 插件（复用其通道）"]
+        SH["CurfewChannel.shizukuReady / rootAvailable<br/>CurfewShell.execWithCode<br/>settings put global"]
     end
 
     PC --> LIB --> KT
@@ -62,6 +67,8 @@ flowchart TB
     KT --> GW
     KT --> SG
     KT --> NM
+    KT -->|"无 WRITE_SECURE_SETTINGS 时<br/>Shizuku / root 回退"| SH
+    SH --> SG
 ```
 
 组件构成：
@@ -69,7 +76,7 @@ flowchart TB
 | 层 | 组件 | 文件 | 职责 |
 | --- | --- | --- | --- |
 | Rust 桥接层 | `init()`、`CampusNetworkBind<R>`、`CampusNetworkBindExt` | `android/plugins/network-bind/src/lib.rs` | 注册插件、建立 Kotlin 句柄、为每个 Kotlin `@Command` 提供同步的 Rust 方法签名（返回 `serde_json::Value`） |
-| 系统实现层 | `NetworkBindPlugin` | `android/plugins/network-bind/android/src/main/java/com/campuslogin/plugin/networkbind/NetworkBindPlugin.kt` | 全部 `@Command` 实现：进程绑定、captive portal 接受、SSID 读取、Settings.Global 快照写回 |
+| 系统实现层 | `NetworkBindPlugin` | `android/plugins/network-bind/android/src/main/java/com/campuslogin/plugin/networkbind/NetworkBindPlugin.kt` | 全部 `@Command` 实现：进程绑定、captive portal 接受、SSID 读取、Settings.Global 快照写回与三级写通道（`writeGlobal` / `canWriteGlobal` / `writeChannel`） |
 
 ## 功能域划分
 
@@ -115,20 +122,47 @@ Kotlin 插件内的十余个 `@Command` 按职责可归为五个功能域：
    系统弹窗"仍然连接 + 不再询问"的内部实现；普通应用通常被 hidden API 名单拦下
    （`NoSuchMethodException`），实现会先做一次"只解析不调用"的可达性探测并随结果返回；
 3. `settings_global`：回退写 `Settings.Global`（`captive_portal_mode=0` + `network_avoid_bad_wifi=0`），
-   需 `WRITE_SECURE_SETTINGS`（signature|privileged 权限，普通签名应用拿不到，只能经
-   adb `pm grant` 或 root / Shizuku 场景生效）。
+   写权限由三级通道提供（`WRITE_SECURE_SETTINGS` 直写 → Shizuku → root，见下一节），
+   无任何通道时 `reason` 为 `write_failed:<直写通道>/<avoid 通道>`。
 
 ### 3. Settings.Global 写通道与快照还原（ensureAvoidBadWifi / restoreAvoidBadWifi / restoreWrittenSettings / getSecureSettingsStatus）
 
+**三级写通道**：`WRITE_SECURE_SETTINGS` 是 signature|privileged|development 权限，普通应用只能靠
+adb `pm grant` 一次性授予；但 Shizuku（shell uid 2000）与 root 同样能执行 `settings put global`，
+因此插件把所有 Global 写入统一收口到 `writeGlobal(key, value)`，返回实际使用的通道名
+（`settings` / `shizuku` / `root` / `none`）：
+
+- **`settings`**：有 `WRITE_SECURE_SETTINGS` 时先用 `Settings.Global.putString` 直写（最快）；
+- **`shizuku` / `root`**：直写不可用（无权限，或抛异常 / 被 ROM 白名单拒绝）时改走
+  `CurfewShell.execWithCode(context, "settings put global <key> <value>")`——复用 monitor-service
+  插件的 `CurfewShell`（同一个 UserService 连接，避免重复 bind），`exit=0` 视为成功，
+  随后按 `CurfewChannel.shizukuReady()` 判定这条命令是经 Shizuku 还是 root 执行；
+- **`none`**：shell 通道也不可用或执行失败。
+
+配套的判定辅助：`canWriteGlobal()`（直写权限、Shizuku、root 任一可用即为可写）、
+`writeChannel()`（返回当前"能用哪条"通道名，用于前端展示）、`rootReady()`（探测 `su` 可用性，
+结果缓存进 `rootReadyCache`，进程生命周期内不重复起 `su` 进程）。
+
 为了不把系统设置"写坏"，所有写操作遵循 **快照-还原** 模式：写入前把键当前值（含用户自定义值）
 存入应用私有 `SharedPreferences`（`network_settings_guard`，`prev_` 前缀键），已有快照不覆盖；
-`restore*` 命令按快照写回并清快照，写失败保留快照以便下次重试。
+`restore*` 命令按快照写回并清快照，写失败保留快照以便下次重试——写回同样走 `writeGlobal`，
+因此 Shizuku / root 通道下还原语义与直写路径完全一致。
 
 - `ensureAvoidBadWifi`：程序化确保 `network_avoid_bad_wifi=1`（夜间"切蜂窝出站"的系统前提——
-  验证失败后系统才会把默认网络切到蜂窝）；
+  验证失败后系统才会把默认网络切到蜂窝）；无任何通道时 `reason=no_permission`，
+  写入失败时 `reason=write_failed`，成功时额外返回 `channel`；
 - `restoreAvoidBadWifi`：晨间收尾按快照还原；
 - `restoreWrittenSettings`：手动出口，一次性还原本应用写入的全部 Global 键；
-- `getSecureSettingsStatus`：供前端引导块展示授权状态（`granted` / 当前值 / 是否有待还原快照）。
+- `getSecureSettingsStatus`：供前端引导块展示授权状态——`granted`（是否已 grant
+  `WRITE_SECURE_SETTINGS`）、`writable`（能否改：`canWriteGlobal()`）、`channel`（实际可用通道）、
+  当前值、是否有待还原快照。**`writable` 才是「能不能改」的判据**：没 grant 但有 Shizuku/root 时
+  照样可写。
+
+同一套通道也服务于私人 DNS 写入：`setPrivateDns` 经 `writeGlobal` 写 `private_dns_mode` /
+`private_dns_specifier`，返回 `{ok, channel, mode, specifier, reason?}`——三条通道都不可用时
+`reason=missing_write_secure_settings`，有通道但写失败时 `reason=write_failed`；`getPrivateDnsStatus`
+读不需要任何权限，返回 `{granted, writable, channel, mode, specifier}`，其中 `writable=false`
+表示直写、Shizuku、root 三条通道都不可用。
 
 ### 4. SSID 读取与权限引导（getWifiSsid / requestWifiSsidPermission）
 
@@ -183,10 +217,11 @@ flowchart LR
     subgraph PLG["network-bind 插件"]
         NB["NetworkBindPlugin.kt"]
     end
-    FS["foreground-service 插件<br/>后台常驻宿主<br/>（自带 WiFi 回调 → nativeWifiEvent）"]
+    FS["foreground-service 插件<br/>后台常驻宿主<br/>（自带 WiFi 回调 → nativeWifiEvent）<br/>CurfewChannel / CurfewShell 写通道"]
     FE -->|"invoke 命令"| CMDS
     CMDS -->|"campus_network_bind()"| NB
     ML -->|"campus_network_bind()"| NB
+    NB -->|"Settings.Global shell 回退"| FS
     FS -.->|"进程与生命周期常驻 + WiFi 事件源"| ML
 ```
 
@@ -196,7 +231,9 @@ flowchart LR
   的命令；`do_login` 在登录前先调 `ensure_wifi_bound` 保证绑定生效。巡检循环的 WiFi 事件即时触发
   不再由本插件供给，改由核心侧常驻回调驱动（见 [android_backend_tauri_monitoring](android-backend-tauri-monitoring.md)）。
 - **[android_plugins_foreground_service](android-plugins-foreground-service.md)**：后台常驻前台服务
-  是巡检循环的宿主，WiFi 绑定本身不依赖它，但"后台每拍重新绑定"的生命周期由其保障。
+  是巡检循环的宿主，WiFi 绑定本身不依赖它，但"后台每拍重新绑定"的生命周期由其保障；此外本插件的
+  Global 写通道直接复用该插件的 `CurfewChannel`（`shizukuReady` / `rootAvailable`）与
+  `CurfewShell.execWithCode`，共用同一个 Shizuku UserService 连接而不重复 bind。
 - **[android_frontend_hooks](android-frontend-hooks.md)** / [android_frontend_monitoring_network](android-frontend-monitoring-network.md)：
   前端经标准 Tauri API invoke 插件暴露的命令，展示 SSID、请求权限、展示 SECURE_SETTINGS 授权引导。
 

@@ -58,7 +58,7 @@ flowchart TB
 
     subgraph Gradle工具链["Android Gradle 构建侧（AGP 8.11.0 / Kotlin 1.9.25）"]
         direction TB
-        NB_GRADLE["plugins/network-bind/android<br/>build.gradle.kts<br/>com.android.library"]
+        NB_GRADLE["plugins/network-bind/android<br/>build.gradle.kts<br/>com.android.library<br/>+ project(:tauri-plugin-campus-monitor-service)"]
         KS_GRADLE["plugins/keystore/android<br/>build.gradle.kts"]
         FGS_GRADLE["plugins/foreground-service/android<br/>build.gradle.kts<br/>+ androidx.core:core-ktx:1.13.1"]
     end
@@ -69,6 +69,7 @@ flowchart TB
     KS_CARGO --> KS_BUILD
     FGS_CARGO --> FGS_BUILD
 
+    NB_GRADLE -->|"复用 CurfewShell shell 通道"| FGS_GRADLE
     NB_GRADLE --> APP
     KS_GRADLE --> APP
     FGS_GRADLE --> APP
@@ -76,7 +77,7 @@ flowchart TB
     NB_BUILD -. "生成命令注册桩" .-> NB_RS
 ```
 
-**图示要点**：三个插件各自包含一对构建配置——Rust 侧 `build.rs` 负责把命令列表交给 `tauri_plugin::Builder` 生成跨语言绑定；Android 侧 `android/build.gradle.kts` 以 `com.android.library` 形态编译 Kotlin 代码。最终由应用模块 `gen/android/app` 通过 `implementation(project(...))` 把三个 library 模块链接进 APK。
+**图示要点**：三个插件各自包含一对构建配置——Rust 侧 `build.rs` 负责把命令列表交给 `tauri_plugin::Builder` 生成跨语言绑定；Android 侧 `android/build.gradle.kts` 以 `com.android.library` 形态编译 Kotlin 代码。最终由应用模块 `gen/android/app` 通过 `implementation(project(...))` 把三个 library 模块链接进 APK。注意 Gradle 侧还存在一条**插件之间的模块依赖**：`network-bind` 依赖 `foreground-service`（`tauri-plugin-campus-monitor-service`）以复用其 `CurfewShell` shell 通道，Rust/Cargo 侧没有对应依赖。
 
 ---
 
@@ -147,6 +148,7 @@ dependencies {
 
 - 三个插件统一使用 `compileSdk = 36`、`minSdk = 24`、Java/Kotlin 17。注意：**插件 library 的 minSdk（24）低于应用模块的 minSdk（29）**——library 模块允许声明更低的下限，最终以 `app` 模块（minSdk 29）为准。
 - `implementation(project(":tauri-android"))` 是 Tauri 官方提供的 Android 桥接库，所有插件 Kotlin 代码（如 `Plugin` 基类、`AppHandle` 类型）均依赖它。
+- 骨架只列公共项：`foreground-service` 另有 core-ktx 与 Shizuku 依赖，`network-bind` 另有指向 `:tauri-plugin-campus-monitor-service` 的模块依赖（见下节「差异化配置」）。
 
 ### 差异化配置
 
@@ -154,7 +156,27 @@ dependencies {
 |---|---|---|---|
 | `Cargo.toml` description | "把 CampusLogin 安卓进程网络绑定到 WLAN（bindProcessToNetwork)" | "AndroidKeyStore AES-GCM 加解密原语（密码落盘加密，替代桌面 DPAPI)" | "前台服务保活（通知+WifiLock+WakeLock)+开机自启，业务逻辑全在 Rust 循环" |
 | 命令数 | 7 | 2 | 6 |
-| `dependencies` 额外项 | 无 | 无 | `androidx.core:core-ktx:1.13.1`（为 `FileProvider` 提供 `content://` URI，用于 `installApk` 命令安装 APK） |
+| `dependencies` 额外项 | `implementation(project(":tauri-plugin-campus-monitor-service"))`（复用 monitor-service 的 `CurfewShell` Shizuku/root shell 通道写 `Settings.Global`，与守则共用同一个 `UserService` 连接、不重复 bind） | 无 | `androidx.core:core-ktx:1.13.1`（为 `FileProvider` 提供 `content://` URI，用于 `installApk` 命令安装 APK） |
+
+#### 插件间 Gradle 依赖：`network-bind` → `monitor-service`
+
+`android/plugins/network-bind/android/build.gradle.kts` 的 `dependencies` 在 `project(":tauri-android")` 之后新增了一条模块依赖：
+
+```kotlin
+dependencies {
+    implementation(project(":tauri-android"))
+    // Settings.Global 写入的 shell 通道：复用 monitor-service 的 CurfewShell（Shizuku/root），
+    // 与守则共用同一个 UserService 连接，不重复 bind
+    implementation(project(":tauri-plugin-campus-monitor-service"))
+}
+```
+
+维护要点：
+
+- 这是三个插件之间**唯一的 Gradle 模块依赖**，方向为 `network-bind` → `foreground-service`（Gradle 工程名 `:tauri-plugin-campus-monitor-service`，对应 `plugins/foreground-service/android`）。它让 `network-bind` 能直接复用 `CurfewShell` 的 Shizuku `UserService` / `su -c` 通道去写 `Settings.Global`（调用 `CurfewShell.execWithCode`，按退出码判定成败，`settings put` 无输出也算成功），与 WiFi 就寝守则共用同一个常驻连接，避免各自 `bindUserService` 造成重复绑定。也正因跨 Gradle 模块可见，`CurfewShell` 必须声明为公开的 `object`（不能是 `internal object`），`network-bind` 才编译得过。
+- **Rust/Cargo 侧没有对应依赖**：`android/plugins/network-bind/Cargo.toml` 的 `[dependencies]` 仍只有 `serde` / `serde_json` / `tauri`，跨插件复用只发生在 Kotlin 层。
+- 该依赖要求 `gen/android/settings.gradle` 里 `:tauri-plugin-campus-monitor-service` 的 `include` 必须存在，否则 `network-bind` 模块在配置阶段就会因 `project(":...")` 找不到工程而失败（属于显式报错，不是静默缺类）；这与下节「双保险」的兜底声明相互配合。
+- 因此 `foreground-service` 的 Android library 不可单独剥离：它既被 `app` 直接依赖，又被 `network-bind` 依赖。
 
 ---
 
@@ -197,6 +219,7 @@ apply from: 'tauri.settings.gradle'
 
 - `include` + `projectDir = new File(...)` 把三个手写 library 模块挂进 Gradle 构建图；相对路径 `../../../plugins/...` 从 `gen/android/` 出发回到仓库根的 `android/plugins/`。
 - 同文件还持久声明了两个**官方插件**（`tauri-plugin-biometric`、`tauri-plugin-opener`），其 `projectDir` 指向本机 cargo registry 缓存（`C:/Users/ik/.cargo/registry/...`）——升级 tauri 版本时需同步校对这些版本号路径。
+- 三个手写插件的 `include` 现在**不再是彼此独立**：`network-bind` 的 `build.gradle.kts` 依赖 `:tauri-plugin-campus-monitor-service`（见上节），因此这三条 include 必须同时存在，缺任何一条都会在配置阶段直接失败。
 
 ### 应用模块依赖（`gen/android/app/build.gradle.kts`）
 
@@ -254,7 +277,7 @@ sequenceDiagram
     Gradle->>Gradle: settings.gradle 装配 5 个 project 模块
     Gradle->>RustPlugin: rust{} 扩展任务(cargoBuild)
     RustPlugin->>NDK: 拉取 .so 进 jniLibs
-    Gradle->>Gradle: 编译 3 个 plugin library (Kotlin)
+    Gradle->>Gradle: 编译 3 个 plugin library (Kotlin)<br/>network-bind 依赖 monitor-service 的 CurfewShell，先编后者
     Gradle->>Gradle: 编译 app + 合并依赖 + R8 minify
     Gradle-->>Dev: Wxxy-CampusLogin_<版本>.apk<br/>(debug.keystore 签名)
 ```

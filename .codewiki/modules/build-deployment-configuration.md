@@ -162,6 +162,7 @@ flowchart TD
 
 ### 4. 安卓手写插件工程（[build_deployment_configuration_android_plugins.md](build-deployment-configuration-android-plugins.md)）
 - 三个插件（`foreground-service` / `keystore` / `network-bind`）的统一脚手架模式：`Cargo.toml`（`links` + `tauri-plugin` build 依赖）、`build.rs`（`COMMANDS` 常量 + `tauri_plugin::Builder`）、`android/build.gradle.kts`（AGP library、compileSdk 36、minSdk 24、依赖 `project(":tauri-android")`）。
+- 插件之间唯一的 Gradle 模块依赖：`network-bind` 的 `android/build.gradle.kts` 追加 `implementation(project(":tauri-plugin-campus-monitor-service"))`，复用 monitor-service 的 `CurfewShell`（Shizuku/root）shell 通道写 `Settings.Global`，与守则共用同一个 `UserService` 连接；Cargo 侧无对应依赖。
 - 各插件暴露的命令清单与 `settings.gradle` include 的对应关系。
 
 ---

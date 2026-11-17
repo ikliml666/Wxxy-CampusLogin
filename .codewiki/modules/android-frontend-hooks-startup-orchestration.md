@@ -96,7 +96,7 @@ function useAppInit() {
 
 | 子系统 | 职责 | 安卓端特殊性 |
 | --- | --- | --- |
-| `useEventListeners` | 订阅后端事件（后台检测、自动登录、网络质量、更新、配置变更等），路由到对应 store | 跳过适配器相关的 noop 订阅；额外挂 `visibilitychange`/`pagehide` 兜底冲刷配置；页面可见时每 15s 主动对账后台状态 |
+| `useEventListeners` | 订阅后端事件（后台检测、自动登录、网络质量、更新、配置变更、WiFi 就寝守则执行结果等），路由到对应 store | 跳过适配器相关的 noop 订阅；额外挂 `visibilitychange`/`pagehide` 兜底冲刷配置；页面可见时每 15s 主动对账后台状态 |
 | `useInitialDataLoad` | 调用 `get_init_data` 拉取配置、账号、后台检测状态，初始化主题与面板 | 删除了桌面遗留的 `getAdapters`/GPU/DNS DoH 补充请求（均为 `desktopOnly` 空转） |
 | `useHeartbeat` | 每 5s 调用 `renderHeartbeat`，让后端感知前端存活 | 切后台时暂停；渲染链失活（`isRenderLoopAlive`）时跳过 |
 | `useGlobalShortcut` | 注册 `Ctrl+Shift+C` 取消自动退出 | 忽略输入框可编辑元素，避免复制快捷键误触发 |
@@ -237,6 +237,7 @@ flowchart TD
         E6["network-quality-result"]
         E7["update-available / update-unverified"]
         E8["config-changed"]
+        E9["curfew_event<br/>WiFi 就寝守则执行结果"]
     end
 
     EH["useEventListeners"]
@@ -248,6 +249,7 @@ flowchart TD
     EH --> E6
     EH --> E7
     EH --> E8
+    EH --> E9
 
     E1 -->|"applyBackgroundStatus：setBgStatus / setStatus"| AS["useAuthStore"]
     EH -->|"可见时立即 + 每 15s 调用 getBackgroundStatus<br/>（同一 applyBackgroundStatus 归并）"| AS
@@ -262,6 +264,7 @@ flowchart TD
     E7 --> LTS
     E8 -->|"mergeConfigFromBackend（跳过脏字段）"| CS["useConfigStore"]
     E8 -->|"setActiveAccount + listAccounts 刷新"| CS
+    E9 -->|"weak-off / weak-no-cellular 记日志"| LTS
 ```
 
 订阅层的关键防御措施：
@@ -270,6 +273,7 @@ flowchart TD
 - **状态归并统一入口**：`background-check-result` 事件与 `getBackgroundStatus` 主动拉取共用模块级 `applyBackgroundStatus(data)` 写 store，事件通道不再自带节流（原 `lastBgCheckTimeRef` 1s 去抖已移除）；`applyBackgroundStatus` 以 `{...prev, ...data}` 整体合并，`isRunning`/`checkCount`/`serverAvailable`/`online` 缺省时回退旧值，合并结果与旧值 `JSON.stringify` 相等时直接返回旧引用（15s 对账反复送同一份快照不触发按引用订阅的重渲染），且仅在 `online` 与 `message` 齐备时才经 `setStatusStable` 写 `status`（`text`/`state` 未变则不换对象）。
 - **可见性对账**：WebView 切后台会暂停 JS 定时器、系统也可能冻结 UI 进程，后台事件不足以作为回前台状态的唯一来源。页面可见时立即调用 `api.getBackgroundStatus()` 拉一次，之后每 15s 对账一次，并在 `visibilitychange`/`focus`/`pageshow` 时即时刷新；该读取只走 Binder/状态文件，不重复 Portal 探测、不影响后台核心周期。取 15s 而非 5s 是因为状态变化本身由事件推送，定时拉取只为兜住回调丢失，5s 会让 WebView 在前台时每秒两次跨进程读状态文件，与省电目标相悖。`refreshingStatus` 标志防止并发重入，`mountedRef` 与 `document.visibilityState === 'visible'` 双重门控跳过不可见期间的拉取，清理函数统一注销三个监听器与 15s 定时器。
 - **配置合并防回滚**：`config-changed` 使用 `mergeConfigFromBackend` 跳过本地未落盘的脏字段，避免后端旧快照覆盖本地刚设置的值（如 `enableLatencyTest`）与 MASK 覆盖密码。
+- **守则执行结果回显**：`onCurfewEvent` 订阅 `curfew_event`（payload 为 `CurfewEventData`，字段 `reason`/`action`/`channel`/`rssi`/`trace` 全可选），只把 `weak-off`（记 `notify.weakSignalSwitched` 并带 `rssi`，`info`）与 `weak-no-cellular`（记 `notify.weakSignalNoCellular`，`warning`）两类弱信号动作写进 `useLogToastStore`，其余动作静默。因为核心日志落在应用私有目录、只能靠 logcat 查看，这条事件是 UI 侧确认「后台 WiFi 事件确实驱动了守则动作」的唯一通道，也是执行通道（Shizuku / root）未就绪时唯一的用户可见提示；订阅同样以 `api.onCurfewEvent?.(...) ?? (() => {})` 做可选链兜底，兼容 Mock 环境。
 
 ## 进程退出与配置冲刷
 

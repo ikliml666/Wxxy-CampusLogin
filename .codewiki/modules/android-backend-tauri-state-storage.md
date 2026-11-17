@@ -219,7 +219,7 @@ flowchart LR
 
 迁移只覆盖"等于旧默认值"的字段：迁移落盘后用户主动改回旧值不会再被刷掉（单测 `迁移_旧默认15s升60s且落盘后用户值不被覆盖`、`迁移_非旧默认值保持不动`、`迁移_v7旧网关默认刷10_1_1_1`）。另有一条独立幂等规则：载入时 `required_network_name == "i-wxxy"` 即扩为三 SSID 名单（与桌面 `validate` 同语义，避免升级后丢失 `iwxxy-2/3` 匹配）。
 
-**已废弃字段**：`background_check_idle_interval` 的灭屏/蜂窝降频分档已移除，巡检只按 `background_check_interval` 作为**基础间隔**（在线稳定时由 `core::monitor::adaptive_interval_ms` 在此基础上拉长兜底周期）；该字段只为兼容既有配置文件而保留，已无任何消费点（v3→v4 迁移仍会为 0 值补 300_000，但该值不再影响巡检节奏）。
+**已废弃字段**：`background_check_idle_interval` 的灭屏/蜂窝降频分档已移除，巡检只按 `background_check_interval` 作为间隔（经 `core::monitor::effective_interval_ms` 做 5s 下限钳制，在线稳定时的自适应退避亦已移除）；该字段只为兼容既有配置文件而保留，已无任何消费点（v3→v4 迁移仍会为 0 值补 300_000，但该值不再影响巡检节奏）。
 
 ## 出站掩码与凭据语义
 

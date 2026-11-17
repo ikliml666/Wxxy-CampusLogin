@@ -133,7 +133,7 @@ flowchart TB
 
 模块对外的唯一 IPC 出口，定义 `TauriApi` 接口并给出安卓实现：
 
-- **`invoke` 直连命令**：登录/注销（`do_login`/`do_logout`）、Portal 与校园网状态查询（`check_portal_status`/`check_campus_status`）、自助服务（`bind_operator`/`query_self_dashboard` 等）、VPN 凭据、账号档案、后台巡检、日志、更新、系统电池优化/通知设置等。
+- **`invoke` 直连命令**：登录/注销（`do_login`/`do_logout`）、Portal 与校园网状态查询（`check_portal_status`/`check_campus_status`）、自助服务（`bind_operator`/`query_self_dashboard` 等）、VPN 凭据、账号档案、后台巡检、WiFi 就寝守则（`get_curfew_channel`/`list_saved_wifi_networks`/`test_wifi_curfew`/`test_wifi_switch`）、日志、更新、系统电池优化/通知设置等。
 - **桌面专属拒绝**：`desktopOnly(name)` 对适配器列表、DHCP 续租、DNS DoH 改写、窗口最小化/关闭/显示、导出配置/诊断、渲染心跳等安卓无对应实现的命令统一返回 `Promise.reject`，注释中逐条说明拒绝原因（依赖 DPAPI 密文、适配器/GPU 采集、本地文件系统等）。
 - **桌面专属事件空订阅**：`noopListener()` 返回立即执行的空清理函数，使 `onAdaptersChanged`、`onAutoExitCountdown`、`onCampusExitCountdown` 等事件注册处在安卓端零改动、永不触发。
 - **`createEventListener<T>(eventName)`**：统一的事件订阅工厂，处理异步 `listen` 完成前后的取消竞态（先置 `cancelled` 标志，Promise resolve 后再注销），dev 模式打印注册失败日志。
@@ -150,9 +150,10 @@ flowchart LR
     A --> E["useGlobalShortcut<br/>Ctrl+Shift+C 取消自动退出"]
 ```
 
-- **`useEventListeners`**：应用根部一次性订阅全部后端事件（后台巡检结果、自动登录结果、登录日志、网络质量、更新可用/未校验、配置变更）；安卓端刻意不注册适配器相关的 noop 事件；处理窗口 `onCloseRequested` 与 `visibilitychange`/`pagehide` 时冲刷待存配置（最多等待 2s）；网络质量劣化（`bad`）边沿时弹出预警 toast。
+- **`useEventListeners`**：应用根部一次性订阅全部后端事件（后台巡检结果、自动登录结果、登录日志、网络质量、更新可用/未校验、配置变更、WiFi 就寝守则执行结果）；安卓端刻意不注册适配器相关的 noop 事件；处理窗口 `onCloseRequested` 与 `visibilitychange`/`pagehide` 时冲刷待存配置（最多等待 2s）；网络质量劣化（`bad`）边沿时弹出预警 toast。
 - **后台状态双通道（事件 + 对账）**：后台巡检结果经 `onBackgroundCheckResult` 事件与 `getBackgroundStatus` 主动拉取两条通道写入，两者共用模块级 `applyBackgroundStatus(data)` 归并（展开 `...data` 覆盖 `bgStatus`，`isRunning`/`checkCount`/`serverAvailable`/`online` 保留旧值回退，`online` 与 `message` 齐备时再写状态文案）。因为 15s 对账会反复送同一份快照，归并结果先与旧 `bgStatus` 做 `JSON.stringify` 比较，内容一致时直接返回旧引用，避免按引用订阅的组件跟着定时器重渲染；状态文案统一走 `setStatusStable`，`text`/`state` 未变时不换对象、状态栏整卡不重渲。此外，WebView 切后台会暂停 JS 定时器、系统也可能冻结 UI 进程，事件不足以作为回前台状态的唯一来源：可见时立即拉一次，之后每 15s 对账一次，并在 `visibilitychange`/`focus`/`pageshow` 时即时刷新；该拉取是 Binder/状态文件读取，不重复 Portal 探测、不影响后台核心周期，并用 `refreshingStatus` 标志防重入、`mountedRef` 与 `visibilityState === 'visible'` 双重门控。对账间隔取 15s 而非 5s：状态变化本身由事件推送，定时拉取只为兜住回调丢失，5s 会让 WebView 在前台时反复跨进程读状态文件，与省电目标相悖。
 - **`useInitialDataLoad`**：启动时拉取 `get_init_data`，合并默认配置、同步密码已保存标记、初始化主题、恢复上次面板/页签、回填后台巡检状态（解决「后台检测先于 WebView 监听跑完首拍的竞态」）、触发首次 `checkOnline`；失败降级为默认配置并打日志。完成后置 `configLoaded=true`，供依赖配置的一次性流程（如自助服务自动验证）判断时机。
+- **WiFi 就寝守则执行结果订阅（`onCurfewEvent`）**：`api.onCurfewEvent` 订阅后端 `curfew_event`（payload 类型 `CurfewEventData`：`reason`/`action`/`channel`/`rssi`/`trace` 均可选），仅把两类弱信号动作写进日志面板——`action === "weak-off"` 记 `notify.weakSignalSwitched`（带 `rssi`）为 `info`，`action === "weak-no-cellular"` 记 `notify.weakSignalNoCellular` 为 `warning`，其余动作不产生 UI 输出。其价值在于：守则结果原本只在 logcat 可见（核心日志落在应用私有目录），UI 借此确认后台 WiFi 事件确实驱动了守则动作，且执行通道未就绪时这是唯一的用户可见提示。订阅同样用可选链兜底（`api.onCurfewEvent?.(...) ?? (() => {})`），兼容 mock 环境下未实现该事件。
 - **`useHeartbeat`**：每 5s 调 `renderHeartbeat`，页面隐藏或渲染循环失活（`isRenderLoopAlive`）时跳过，让后端按心跳丢失重载 WebView。
 - **`useGlobalShortcut`**：`Ctrl+Shift+C` 取消自动退出；忽略输入框/文本域/contenteditable 目标，避免打字误触发。
 
@@ -203,7 +204,7 @@ flowchart TB
 
 - **被 UI 层消费**：所有面板通过 `useAuthStore`、`useConfigStore`、`useQualityStore`、`useLogToastStore` 读写状态；`App.tsx` 根部直接调用 `useAppInit`、`useAdaptiveFramePace`、`AnimationActiveProvider`、`useFormFactor`。
 - **跨模块依赖**：生物识别验证出口回调 [android_frontend_face_verification](android-frontend-face-verification.md) 的 `shouldUseFaceFallback` / `useFaceDialogStore`；网络质量合并、颜色换算、错误消息抽取来自 [android_frontend_utilities_libraries](android-frontend-utilities-libraries.md)。
-- **对接后端**：命令与事件名一一对应 android_backend_tauri（`get_config`/`save_config`/`check_portal_status`/`background-check-result`/`network-quality-result`/`config-changed` 等）。
+- **对接后端**：命令与事件名一一对应 android_backend_tauri（`get_config`/`save_config`/`check_portal_status`/`background-check-result`/`network-quality-result`/`config-changed`/`curfew_event` 等）。
 - **与桌面版的关系**：桌面平行模块见 [desktop_frontend_hooks](desktop-frontend-hooks.md)；安卓端在此基础上裁剪了适配器/DHCP/DNS/窗口链路，并新增电池优化、WiFi SSID 权限、`get_avoid_bad_wifi_status`/`restore_written_settings`（Settings.Global 写通道）等安卓专属命令。
 
 ## 关键设计要点
