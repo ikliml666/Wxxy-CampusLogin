@@ -26,7 +26,7 @@ FwmarkServer 对进程内**所有新建 socket**（含 Rust native 代码创建�
 除核心绑定能力外，插件还围绕"校园网认证前的 captive portal 场景"提供了一组配套能力：
 
 - 让系统"接受"尚未通过互联网验证的 WiFi（免去用户在系统弹窗手动点"仍然连接"）；
-- 读取当前 WiFi SSID（免定位权限方案）；
+- 读取当前 WiFi SSID（以定位权限为前提，Android 13+ 的 `NEARBY_WIFI_DEVICES` 单独持有不够）；
 - 触发系统 NetworkMonitor 重新验证（为夜间出站切换到蜂窝做准备）；
 - 读写 `Settings.Global` 的 `network_avoid_bad_wifi` / `captive_portal_mode` 两键并支持快照还原。
 
@@ -132,15 +132,19 @@ Kotlin 插件内的十余个 `@Command` 按职责可归为五个功能域：
 
 ### 4. SSID 读取与权限引导（getWifiSsid / requestWifiSsidPermission）
 
-- API 33+（Android 13+）：依靠 `NEARBY_WIFI_DEVICES` 权限 + manifest 的 `neverForLocation` 标记，
-  取 SSID **免定位权限、免定位服务开关**；该权限以 `@TauriPlugin(permissions = [Permission(strings =
-  [Manifest.permission.NEARBY_WIFI_DEVICES], alias = "wifiSsid")])` 声明，前端经 alias 发起请求。
-- API 24~32：取 SSID 需 `ACCESS_FINE_LOCATION` + 定位服务开关，本应用不引入定位权限，恒
-  `granted=false`，前端显示"未获取"。
+- **能否读到 SSID 只看定位权限**：`canReadSsid()` 现在仅判定 `ACCESS_FINE_LOCATION` 是否在手。
+  Android 13+ 的 `NEARBY_WIFI_DEVICES` 看起来是「附近 WiFi」的正牌权限，但真机实测仅持有它时
+  `connectionInfo.ssid` 仍返回 `<unknown ssid>`——SSID 属于位置信息，系统要求定位权限才给。
+  把它当充分条件会产生「授权=true 而 SSID 为空」的矛盾态，因此已从判定里移除。
+- 权限声明：`@TauriPlugin(permissions = [...])` 声明两组 alias——`wifiSsid`（`NEARBY_WIFI_DEVICES`，
+  Android 13+ 用）与 `wifiLocation`（`ACCESS_FINE_LOCATION` + `ACCESS_COARSE_LOCATION`，读 SSID 的实际前提）。
+- `requestWifiSsidPermission` 幂等地收集缺失项并发起请求：API 33+ 且未授权时加入 `wifiSsid`，
+  `ACCESS_FINE_LOCATION` 未授权时加入 `wifiLocation`；全部在手时直接 resolve 不弹框。
 - 实现上只能走已废弃的 `WifiManager.getConnectionInfo`——NetworkCallback 的
   `transportInfo` 在 Android 12+ 被系统抹掉 SSID，这是普通应用仅剩的可行路径。
-- `getWifiSsid` 是高频只读路径（前端 SSID Badge 每拍刷新），**绝不弹权限框**；授权弹窗只由
-  `requestWifiSsidPermission` 在用户前台时显式调用（后台 Activity 的弹窗会被系统静默拒绝）。
+- `getWifiSsid` 是高频只读路径（前端 SSID Badge 每拍刷新），**绝不弹权限框**；未授权时直接返回
+  `granted=false`、`ssid=""`。授权弹窗只由 `requestWifiSsidPermission` 在用户前台时显式调用
+  （后台 Activity 的弹窗会被系统静默拒绝）。
 
 ### 5. 网络可用性上报（reportWifiUnusable）
 
@@ -202,7 +206,8 @@ flowchart LR
    复盘（如 `bind_rejected_request_failed`、异常被 catch 吞掉类型）沉淀下来的排障可观测性约定。
 2. **幂等保护**：同网络重复绑定返回 `already_bound`（两条绑定路径都判，避免重复清 HTTP 连接池）、
    权限请求已授权无感返回。
-3. **最小权限**：不引入定位权限，SSID 仅在 Android 13+ 以 `NEARBY_WIFI_DEVICES + neverForLocation`
-   受限读取；系统设置写操作以快照-还原兜底，不破坏用户自定义值。
+3. **最小权限**：SSID 只在定位权限在手时读取（`ACCESS_FINE_LOCATION` 是系统给 SSID 的唯一前提，
+   `NEARBY_WIFI_DEVICES` 单独持有仍拿不到），未授权即返回 `granted=false` 不弹框；系统设置写操作
+   以快照-还原兜底，不破坏用户自定义值。
 4. **只影响新 socket**：绑定生效的衔接点（清 HTTP 连接池）由 Rust 侧调用方保证，插件自身只负责
    `bindProcessToNetwork` 的选择与回退逻辑。

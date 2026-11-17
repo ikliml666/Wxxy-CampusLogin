@@ -248,15 +248,15 @@ sequenceDiagram
 flowchart LR
     SRC1["useInitialDataLoad<br/>get_init_data 的 backgroundStatus"] --> BS["bgStatus"]
     SRC2["useEventListeners<br/>background-check-result 事件<br/>（applyBackgroundStatus 归并）"] --> BS
-    SRC2b["useEventListeners<br/>getBackgroundStatus 可见性对账<br/>（立即一次 + 每 5s）"] --> BS
+    SRC2b["useEventListeners<br/>getBackgroundStatus 可见性对账<br/>（立即一次 + 每 15s）"] --> BS
     SRC3["checkOnline<br/>buildCampusBgStatusPatch 局部补丁"] --> BS
     SRC4["useMonitor<br/>setBgStatus(isRunning)"] --> BS
     BS --> SUB["StatusBar / App 顶栏 / MonitorPanel<br/>粒度订阅 status 与 bgStatus 字段"]
 ```
 
-事件通道与可见性对账通道共用同一个 `applyBackgroundStatus` 归并函数（展开 `...data` 覆盖，`isRunning`/`checkCount`/`serverAvailable`/`online` 缺省时回退旧值，`online` 与 `message` 齐备时再经 `setStatusStable` 写 `status`），因此两条路径写入结果一致；后台事件通道自带的 1s 去抖已移除。归并结果与旧 `bgStatus` 做 `JSON.stringify` 比较，内容一致时直接返回旧引用——5s 对账会反复送同一份快照，不这样做会让按引用订阅的组件跟着定时器重渲染。
+事件通道与可见性对账通道共用同一个 `applyBackgroundStatus` 归并函数（展开 `...data` 覆盖，`isRunning`/`checkCount`/`serverAvailable`/`online` 缺省时回退旧值，`online` 与 `message` 齐备时再经 `setStatusStable` 写 `status`），因此两条路径写入结果一致；后台事件通道自带的 1s 去抖已移除。归并结果与旧 `bgStatus` 做 `JSON.stringify` 比较，内容一致时直接返回旧引用——15s 对账会反复送同一份快照，不这样做会让按引用订阅的组件跟着定时器重渲染。
 
-> 对账通道之所以能如实反映"巡检循环是否还活着"，是因为后端 `status` 查询**不刷新** `last_tick_ms`（只有真实巡检才刷新）：若状态查询把自己伪装成一次巡检，UI 每 5s 的对账会让已经死掉的循环永远显示新鲜。详见 [安卓后台监控](android-backend-tauri-monitoring.md)。
+> 对账通道之所以能如实反映"巡检循环是否还活着"，是因为后端 `status` 查询**不刷新** `last_tick_ms`（只有真实巡检才刷新）：若状态查询把自己伪装成一次巡检，UI 每 15s 的对账会让已经死掉的循环永远显示新鲜。详见 [安卓后台监控](android-backend-tauri-monitoring.md)。
 
 启动期第一路（`get_init_data`）不可或缺：后台检测循环可能先于 WebView 事件监听建立跑完首拍，`emit` 出去的事件因无人监听而丢失，不补齐则「启动自动登录成功后状态点一直是灰的」。详见 [启动编排子模块](android-frontend-hooks-startup-orchestration.md)。
 

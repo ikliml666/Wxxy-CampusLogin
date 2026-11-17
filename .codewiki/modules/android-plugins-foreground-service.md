@@ -117,7 +117,7 @@ flowchart LR
 | `BootReceiver` | 主进程 | `BOOT_COMPLETED` 拉起 `CoreService`（默认组件 `disabled`） |
 | `CurfewChannel` | 主进程 | Shizuku/root 通道判定：四态 `ready`/`missing`/`inactive`/`denied`、`rootAvailable()` |
 | `CurfewShell` | 主进程 | 守则与 SSID 读取共用的 shell 通道：优先 Shizuku `UserService`，其次 root（`su -c`），只保留一个常驻连接 |
-| `WifiCurfewRunner` | 主进程 | 就寝守则单拍：窗口判定、放行/断开名单、弱信号（RSSI 走 API + shell 双通道，关 WiFi 前先校验蜂窝回退 `hasCellularFallback`）、`cmd wifi` 动作、shell 通道复用 |
+| `WifiCurfewRunner` | 主进程 | 就寝守则单拍：窗口判定、放行/断开名单、弱信号（RSSI 走 API + shell 双通道，关 WiFi 前先校验蜂窝回退 `hasCellularFallback`，信号达标时还原被禁用的网络配置）、`cmd wifi` 动作、shell 通道复用 |
 | `RemoteShellService` | Shizuku 特权进程 | `IRemoteShell.Stub` 实现：`exec()` 跑 shell、`enableSavedNetwork()` 直调 `IWifiManager` |
 | `StartArgs` / `CoreCommandArgs` / `TextArgs` / `RefreshRateArgs` / `BoolArgs` | 主进程 | `@InvokeArg` 参数结构（字段均可空，缺参判空后 reject，避免 `lateinit` 崩溃） |
 
@@ -288,7 +288,7 @@ flowchart TD
     C --> D{"weakRssi 小于 0?"}
     D -->|是| E["checkWeakSignal"]
     E --> E1{"RSSI 低于阈值?"}
-    E1 -->|否| E4["返回 null（无动作）"]
+    E1 -->|否| E4["unblockWifi(KEY_WEAK_NET)<br/>有还原则 weak-probe，否则 null"]
     E1 -->|是| E5{"hasCellularFallback?"}
     E5 -->|否| E2["weak-no-cellular<br/>保持 WiFi 不动"]
     E5 -->|是| E3["setWifiEnabled(false)<br/>记 KEY_WEAK → weak-off"]
@@ -318,6 +318,8 @@ flowchart TD
 ### 6.4 弱信号规则
 
 弱信号只在**窗口外**生效（窗口内守则已决定断连，不该被信号强度二次干预）。关掉之后读不到 RSSI，因此按 `WEAK_PROBE_MS`（5 分钟）开回来复探一次：下一拍若仍弱会再关，恢复则保持开启。等待窗口内返回 `null`（无动作），避免每拍刷一条日志。`KEY_WEAK` 与 `KEY_DISABLED` 分开记，两条规则各自还原各自的状态——避免"程序关的"与"用户关的"混淆。
+
+复探路径之外还有一条**达标即还原**的分支：RSSI 直接判定已高于阈值时（用户可能靠手动切到别的强信号网络才恢复，WiFi 也可能已被重新打开），先 `unblockWifi(KEY_WEAK_NET)` 把上一轮标记为「不自动连接」的那条配置重新启用；确有还原动作时返回 `action="weak-probe"`（带 `channel` 与 `trace`），否则才返回 `null`。否则被禁用的网络配置在「不是自己复探恢复」的路径上永远回不来。
 
 关 WiFi 前必须先确认**流量可用**：`hasCellularFallback()` 用 `ConnectivityManager` 遍历 `allNetworks`，只认同时具备 `TRANSPORT_CELLULAR` 与 `NET_CAPABILITY_INTERNET` 的网络——移动数据关闭时系统仍可能列出蜂窝网络对象但没有 `INTERNET` 能力，据此区分"有网"与"只是有 SIM"。不可用时返回 `action="weak-no-cellular"`（带 `channel`/`rssi`，`trace="no_cellular_internet"`）并**保持 WiFi 不动**，因为移动数据关闭或飞行模式下关 WiFi 会让设备彻底断网，比待在弱 WiFi 上更糟。读网络状态只需 `ACCESS_NETWORK_STATE`（install-time 普通权限），与执行通道无关；查询本身抛异常时按"无回退"处理。
 
@@ -385,6 +387,8 @@ RSSI 不受这层脱敏影响，`currentRssi()` 因此是**双通道**：
 `CoreService.wifiSsid()` 在跑 shell 前先判定通道就绪：`CurfewShell.ready(this)`（即 `shizukuReady() || rootAvailable()`）。核心跑在主进程，Shizuku 的 binder 由 `ShizukuProvider` 注入本进程，`pingBinder()` 天然可用；通道不就绪时 `wifiSsid()` 直接回落定位权限读取，不影响其它功能。
 
 `parseNetworks` 解析 `cmd wifi list-networks` 的固定列宽输出（`%-12d %-32s %-4s`），并把**同一 SSID 的全部 networkId**收集进 `SavedNetwork.netIds`——Android 15 会把一个网络按安全模式拆成多条（wpa2-psk / wpa3-sae^、open / owe^），只取首行会在首个配置不可用时直接失败。
+
+`currentNetId()` 同样只走 shell 读 `cmd wifi status`（`WifiManager.connectionInfo.networkId` 在 Android 12+ 对无定位权限的应用脱敏成 `-1`），但解析用大小写不敏感的正则 `Net(?:work)? ID: (-?\d+)`：该字段名随版本变过，Android 14+ 输出 `Net ID`，更早的版本是 `Network Id`，只匹配旧写法会让新系统上永远取不到 netId，`blockWifi` 随之退化为"取不到 netId"并直接回落关 WiFi。
 
 ### 6.9 事件驱动：常驻 WiFi 回调
 
@@ -498,4 +502,6 @@ Rust 侧 `update_cmds::install_update` 先 `canonicalize` 并校验落在 `updat
 | 守则日志每拍刷一条 | 弱信号复探在等待窗口内返回结果 | 窗口内返回 `null`（无动作），仅跨档触发 |
 | 无执行通道时弱信号规则静默失效 | 旧实现只从 `cmd wifi status` 取 RSSI，没通道就取不到 | `currentRssi()` 先走 `WifiManager.connectionInfo.rssi`（普通权限），`-127`/`null` 时才回落 shell（见 6.8） |
 | 弱信号关 WiFi 后设备彻底断网 | 移动数据关闭或飞行模式下，关 WiFi 就没有任何出口 | 关前 `hasCellularFallback()` 校验 `TRANSPORT_CELLULAR` + `NET_CAPABILITY_INTERNET`，不可用则返回 `weak-no-cellular` 并保持 WiFi（见 6.4） |
+| 弱信号断开过的那条网络配置一直回不来 | 用户手动切到别的强信号网络后 RSSI 已达标，旧实现只 `return null`，从未 `unblockWifi` | 达标分支先 `unblockWifi(KEY_WEAK_NET)` 还原被标记的网络，确有还原时返回 `weak-probe`（见 6.4） |
+| Android 14+ 上守则取不到 netId，断开退化为关 WiFi | `cmd wifi status` 字段名从 `Network Id` 改为 `Net ID`，旧正则匹配不到 | 正则改为大小写不敏感的 `Net(?:work)? ID: (-?\d+)`，新旧字段名都认（见 6.8） |
 | 核心拿不到 Shizuku binder，守则 `cmd wifi` 与 SSID 读取静默失效 | 若把 `CoreService` 拆到独立进程：Shizuku binder 广播只发一次且只到主进程，独立进程注册接收器时广播已过 | 保持 `CoreService` 与 UI 同进程（Manifest 不写 `android:process`），binder 由 `ShizukuProvider` 直接注入本进程（见 9.2） |

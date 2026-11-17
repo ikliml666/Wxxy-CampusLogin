@@ -306,6 +306,8 @@ flowchart TD
 
 弱信号关 WiFi 前还会先确认**流量可用**:`WifiCurfewRunner.hasCellularFallback()` 用 `ConnectivityManager` 找同时具备 `TRANSPORT_CELLULAR` 与 `NET_CAPABILITY_INTERNET` 的网络(`ACCESS_NETWORK_STATE` 普通权限,与执行通道无关)。不可用时返回 `action="weak-no-cellular"`(`trace="no_cellular_internet"`)并保持 WiFi 不动——移动数据关闭或飞行模式下关 WiFi 会让设备彻底断网,比待在弱 WiFi 上更糟;因此弱信号规则不再产生"越执行越糟"的降级。
 
+弱信号断开时被标记为「不自动连接」的那条网络配置,在 RSSI 直接达标的分支也会被还原:Kotlin 侧先 `unblockWifi(KEY_WEAK_NET)` 重新启用它,确有还原动作才返回 `action="weak-probe"`,否则才返回"无动作"。用户若靠手动切到别的强信号网络才恢复,不这样做那条配置就永远回不来。同一执行器读 `cmd wifi status` 的 netId 用大小写不敏感正则 `Net(?:work)? ID:`,兼容 Android 14+ 的 `Net ID` 与更早的 `Network Id` 两种字段名。
+
 ---
 
 ## 状态模型
