@@ -25,6 +25,8 @@ export function useOutboundManual(adaptersCount: number) {
   const [switchingToAdapter, setSwitchingToAdapter] = useState<string | null>(null)
   /** 是否正在执行「还原出口」 */
   const [restoringOutbound, setRestoringOutbound] = useState(false)
+  /** 是否正在执行「夜晚切换」 */
+  const [nightSwitching, setNightSwitching] = useState(false)
   /** 正在提交跃点修改的网卡名 */
   const [savingMetricAdapter, setSavingMetricAdapter] = useState<string | null>(null)
 
@@ -113,6 +115,32 @@ export function useOutboundManual(adaptersCount: number) {
     }
   }, [ipc, t, refreshCurrentOutbound, refreshAdapterMetrics])
 
+  // 「夜晚切换」（卡片顶部）：立即执行夜间模式——禁用目标卡以外的所有网卡并保持到还原。
+  // 与行内「切换出站」分工：行内只改跃点（白天临时改出口），这颗是夜间整卡下线语义，
+  // 也是用户误操作后的回切入口（切错了就再点一次顶部按钮，配合还原）。
+  const handleNightSwitch = useCallback(async () => {
+    setNightSwitching(true)
+    try {
+      const result = await ipc.outboundSwitchNow?.()
+      if (!mountedRef.current) return
+      if (result?.success) {
+        useLogToastStore.getState().addToast(t('network.nightSwitchSuccess'), 'success', result.message)
+      } else {
+        useLogToastStore.getState().addToast(t('network.nightSwitchFailed'), 'error', result?.message)
+      }
+    } catch (e: unknown) {
+      if (!mountedRef.current) return
+      useLogToastStore.getState().addToast(t('network.nightSwitchFailed'), 'error', extractErrorMessage(e))
+    } finally {
+      if (mountedRef.current) {
+        setNightSwitching(false)
+        void refreshAdapterData({ force: true })
+        void refreshCurrentOutbound()
+        void refreshAdapterMetrics()
+      }
+    }
+  }, [ipc, t, refreshCurrentOutbound, refreshAdapterMetrics])
+
   // 「还原出口」：把跃点写回切换前快照（后端 manual_outbound_restore）。
   // 切换态已清时后端会改为按当前顺序重建出站，按钮只在切换态出现，正常不会走到。
   const handleOutboundRestore = useCallback(async () => {
@@ -144,9 +172,11 @@ export function useOutboundManual(adaptersCount: number) {
     switchingToAdapter,
     savingMetricAdapter,
     restoringOutbound,
+    nightSwitching,
     refreshCurrentOutbound,
     handleOutboundSwitchTo,
     handleSaveMetric,
     handleOutboundRestore,
+    handleNightSwitch,
   }
 }

@@ -1110,6 +1110,7 @@ pub(super) fn apply_outbound_switch_with_health(
     internet_health: Option<std::collections::HashMap<String, bool>>,
     forced_target: Option<&str>,
     notify_no_candidate: bool,
+    take_offline: bool,
 ) -> Result<(), String> {
     let started = std::time::Instant::now();
     warm_elevated_channel();
@@ -1229,13 +1230,25 @@ pub(super) fn apply_outbound_switch_with_health(
     let origin_suppress: Option<(String, Vec<u16>)> = origin_rows
         .as_ref()
         .map(|(_, guid, _)| (guid.clone(), origin_families.clone()));
-    // 名单在首次写跃点前落盘：此后任何失败都保留「连接重置尚未完成」的现场，
-    // 重放不能只补跃点，必须先把这次下线事务做完。
-    if let Some((name, guid, _)) = &origin_rows {
-        mark_origin_bounce_pending(app_handle, name, guid)?;
-    }
+    // 夜间模式要下线的卡：原出口 + 其余竞争者里当前在线的（已禁用的无需重复禁）。
+    // 名单在首次写跃点前落盘：此后任何失败都保留「还没下线完」的现场，重放据此续做。
+    let offline_targets: Vec<(String, String)> = if take_offline {
+        let adapters = crate::network::get_adapters_cached().unwrap_or_default();
+        let targets = night_offline_targets(
+            &plan.target_guid,
+            origin_rows.as_ref().map(|(name, guid, _)| (name.as_str(), guid.as_str())),
+            &suppress_cards,
+            &adapters,
+        );
+        if !targets.is_empty() {
+            mark_adapters_offline(app_handle, &targets)?;
+        }
+        targets
+    } else {
+        Vec::new()
+    };
     run_switch_sequence(
-        origin_rows.is_some(),
+        !offline_targets.is_empty(),
         true,
         |include_origin, notify| {
             let mut suppress = suppress_write.clone();
@@ -1255,11 +1268,10 @@ pub(super) fn apply_outbound_switch_with_health(
             )
         },
         || {
-            if let Some((name, guid, _)) = &origin_rows {
-                hold_origin_offline(app_handle, name, guid)
-            } else {
-                Ok(())
+            for (name, guid) in &offline_targets {
+                hold_origin_offline(app_handle, name, guid)?;
             }
+            Ok(())
         },
     )?;
     if let Some((origin_name, _, _)) = &origin_rows {
@@ -1404,25 +1416,49 @@ fn verify_switch_effect(
 
 
 
-/// 临时下线再恢复原出口卡：切换流程里唯一能断掉既有连接的动作。
+/// 夜间切换要下线的卡：原出口优先，其余竞争卡里当前在线的一并下线（目标卡永不入选）。
+/// 已处于禁用态的卡不在名单里——没有默认路由可抢，也不需要还原时再启用。
+fn night_offline_targets(
+    target_guid: &str,
+    origin: Option<(&str, &str)>,
+    suppress: &[(String, Vec<MetricRow>)],
+    adapters: &[crate::network::Adapter],
+) -> Vec<(String, String)> {
+    let mut targets: Vec<(String, String)> = Vec::new();
+    if let Some((name, guid)) = origin {
+        if guid != target_guid {
+            targets.push((name.to_string(), guid.to_string()));
+        }
+    }
+    for (guid, _) in suppress {
+        if guid == target_guid || targets.iter().any(|(_, g)| g == guid) {
+            continue;
+        }
+        let Some(adapter) = adapters.iter().find(|a| &a.guid == guid) else {
+            continue;
+        };
+        if adapter.status == crate::network::discovery::AdapterStatus::Connected {
+            targets.push((adapter.name.clone(), guid.clone()));
+        }
+    }
+    targets
+}
+
+/// 夜间切换会把目标卡以外的网卡整张下线：改跃点只影响**新建**连接的选路，
+/// 已建立 TCP 连接的 TCB、UDP socket 隐式绑定的源地址都不跟随默认路由
+/// （Vista 起 strong host model），且用户态没有任何 API 能删除他人 socket。
+/// 接口 down 是让这些绑定全部失效的唯一手段，应用重连时必然落到唯一在线的目标卡。
 ///
-/// 改跃点只影响**新建**连接的选路：已建立 TCP 连接的 TCB、以及 UDP socket 隐式
-/// 绑定的源地址都不会跟随默认路由（Vista 起 strong host model），而 UDP 没有 TCB、
-/// 用户态也没有任何 API 能删除他人 socket。接口 down 一次是让这些绑定全部失效的
-/// 唯一手段，应用重连时按已抬高的跃点落到目标卡。
-///
-/// 顺序约束：首次跃点写入已经完成才允许进入本函数；接口 down 时写不了原卡跃点，
-/// 恢复后的复写只负责覆盖重建重置。名单在首次写入前落盘，失败重放据此重做连接重置。
-fn mark_origin_bounce_pending(
-    app_handle: &AppHandle,
-    name: &str,
-    guid: &str,
-) -> Result<(), String> {
-    let json = serde_json::to_string(&[DisabledRow {
-        guid: guid.to_string(),
-        name: name.to_string(),
-    }])
-    .unwrap_or_default();
+/// 名单在首次写跃点前落盘：此后任何失败都保留「还没下线完」的现场，重放据此续做。
+fn mark_adapters_offline(app_handle: &AppHandle, rows: &[(String, String)]) -> Result<(), String> {
+    let list: Vec<DisabledRow> = rows
+        .iter()
+        .map(|(name, guid)| DisabledRow {
+            guid: guid.clone(),
+            name: name.clone(),
+        })
+        .collect();
+    let json = serde_json::to_string(&list).unwrap_or_default();
     let state = app_handle.state::<AppState>();
     if state.config.load().outbound_disabled_adapters == json {
         return Ok(());
@@ -1481,8 +1517,7 @@ pub(super) fn enforce_origin_offline(app_handle: &AppHandle, config: &crate::con
     }
 }
 
-fn hold_origin_offline(app_handle: &AppHandle, name: &str, guid: &str) -> Result<(), String> {
-    mark_origin_bounce_pending(app_handle, name, guid)?;
+fn hold_origin_offline(_app_handle: &AppHandle, name: &str, _guid: &str) -> Result<(), String> {
     if let Err(failure) =
         run_helper_op("disable_adapter", &[name.to_string()], outbound_allow_uac())
     {
@@ -1493,7 +1528,7 @@ fn hold_origin_offline(app_handle: &AppHandle, name: &str, guid: &str) -> Result
     }
     crate::log_info!(
         "outbound",
-        "出站切换: 已禁用原出口网卡 {name}，保持到还原（屏蔽其默认路由竞争）"
+        "出站切换: 已禁用网卡 {name}，保持到还原（屏蔽其默认路由竞争）"
     );
     Ok(())
 }
@@ -2347,9 +2382,6 @@ fn finish_manual_outbound_action(
 /// 已处于切换态时按优先级选卡后改切（沿用既有快照），不要求先还原。
 pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), String> {
     let config = app_handle.state::<AppState>().config.load_full();
-    if !config.enable_night_outbound_switch {
-        return Err("夜间出站切换未开启".to_string());
-    }
     let today = chrono::Local::now().date_naive().num_days_from_ce();
     // 用户显式重试：清退避闸，不做自动路径的阶梯等待
     clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
@@ -2365,7 +2397,7 @@ pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), Strin
             }
         })
     } else {
-        apply_outbound_switch_with_health(app_handle, &config, None, None, false)
+        apply_outbound_switch_with_health(app_handle, &config, None, None, false, true)
     };
     if result.is_ok() && !was_active && outbound_switch_active(app_handle) {
         set_outbound_manual_hold(app_handle, today);
@@ -2398,7 +2430,7 @@ pub(crate) fn manual_outbound_switch_to(
     } else if outbound_switch_active(app_handle) {
         retarget_outbound_switch(app_handle, adapter_name)
     } else {
-        apply_outbound_switch_with_health(app_handle, &config, None, Some(adapter_name), false)
+        apply_outbound_switch_with_health(app_handle, &config, None, Some(adapter_name), false, false)
     };
     if result.is_ok() && !was_active && outbound_switch_active(app_handle) {
         set_outbound_manual_hold(app_handle, today);
@@ -2805,6 +2837,33 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn 夜间下线目标_含原出口与在线竞争卡_不含目标与离线卡() {
+        let mut offline = adapter("以太网 3", "10.2.38.9", false);
+        offline.status = crate::network::discovery::AdapterStatus::Disconnected;
+        let adapters = vec![
+            adapter("WLAN", "192.168.6.113", true),
+            adapter("以太网", "10.2.38.176", false),
+            adapter("以太网 2", "192.168.6.107", false),
+            offline,
+        ];
+        let suppress = vec![
+            ("{以太网 2}".to_string(), Vec::new()),
+            ("{以太网 3}".to_string(), Vec::new()),
+            ("{WLAN}".to_string(), Vec::new()),
+        ];
+        let targets =
+            night_offline_targets("{WLAN}", Some(("以太网", "{以太网}")), &suppress, &adapters);
+        assert_eq!(
+            targets,
+            vec![
+                ("以太网".to_string(), "{以太网}".to_string()),
+                ("以太网 2".to_string(), "{以太网 2}".to_string()),
+            ],
+            "原出口优先、其余在线竞争卡跟进；目标卡与离线卡不入名单"
+        );
+    }
 
     #[test]
     fn 切换事务_先写跃点再下线_复写不含已禁用原卡() {

@@ -592,7 +592,7 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
     }
 
     let switch_result =
-        super::outbound_night::apply_outbound_switch_with_health(app_handle, config, Some(health), None, true);
+        super::outbound_night::apply_outbound_switch_with_health(app_handle, config, Some(health), None, true, false);
     if super::outbound_night::outbound_switch_active(app_handle) {
         persist_failover_hold(app_handle, config);
     }

@@ -100,7 +100,9 @@ interface TauriApi {
   dhcpRenewAll: () => Promise<DhcpRenewResult>
   dhcpReleaseRenew: () => Promise<DhcpReleaseRenewResult>
   dhcpReleaseRenewAdapter: (adapterName: string) => Promise<DhcpReleaseRenewResult>
-  /** 「立即切换出站」到指定网卡（条目按钮：跳过优先级选卡） */
+  /** 「夜晚切换」：立即执行夜间模式——禁用目标卡以外的所有网卡并保持到还原 */
+  outboundSwitchNow: () => Promise<CommandResult>
+  /** 「立即切换出站」到指定网卡（条目按钮：只改跃点，不动网卡状态） */
   outboundSwitchTo: (adapterName: string) => Promise<CommandResult>
   /** 「还原出口」：把跃点写回切换前快照（切换态下当前出口行的按钮） */
   outboundRestoreNow: () => Promise<CommandResult>
@@ -232,6 +234,7 @@ const tauriApi: TauriApi = {
   dhcpRenewAll: () => invoke<DhcpRenewResult>('dhcp_renew_all'),
   dhcpReleaseRenew: () => invoke<DhcpReleaseRenewResult>('dhcp_release_renew'),
   dhcpReleaseRenewAdapter: (adapterName) => invoke<DhcpReleaseRenewResult>('dhcp_release_renew_adapter', { adapterName }),
+  outboundSwitchNow: () => invoke<CommandResult>('outbound_switch_now'),
   outboundSwitchTo: (adapterName) => invoke<CommandResult>('outbound_switch_to', { adapterName }),
   outboundRestoreNow: () => invoke<CommandResult>('outbound_restore_now'),
   getAdapterMetrics: () => invoke<AdapterMetric[]>('get_adapter_metrics'),
