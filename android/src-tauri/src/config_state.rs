@@ -104,6 +104,8 @@ pub struct Settings {
     /// 2026-09-13 起:亮屏 + WiFi 走 background_check_interval(60s),其余场景拉长到本值——
     /// 省电(非 WiFi 环境探针必失败、灭屏时用户不在看状态),且不改变在线状态
     /// (无明确离线证据时保持上一拍记忆)。
+    /// 已废弃：灭屏/蜂窝降频已移除，巡检恒定按 background_check_interval 执行。
+    /// 保留字段只为兼容既有配置文件，不再有任何消费点。
     pub background_check_idle_interval: u64,
     pub auto_login_on_preparation: bool,
     pub max_disconnect_reconnect: u32,

@@ -79,7 +79,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMsg: string): Pr
 
 // status 内容比较更新：text/state 未变化时不换新对象，保持引用稳定
 // （StatusBar 等组件按引用订阅 status，无条件 set 会触发无效重渲染）
-function setStatusStable(next: { text: string; state: StatusState }): void {
+export function setStatusStable(next: { text: string; state: StatusState }): void {
   const cur = useAuthStore.getState().status
   if (cur.text === next.text && cur.state === next.state) return
   useAuthStore.getState().setStatus(next)

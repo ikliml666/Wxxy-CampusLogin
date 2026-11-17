@@ -69,11 +69,7 @@ pub fn read_background_status(app: &tauri::AppHandle) -> Result<Value, String> {
     let status = crate::core::status_file::read(&dir);
     let last = status.last_result.clone();
     let now = crate::core::platform::now_ms();
-    let core_alive = campus_core_logic::status::core_is_alive(
-        &status,
-        now,
-        campus_core_logic::status::MAX_STATUS_AGE_MS,
-    );
+    let core_alive = campus_core_logic::status::core_is_alive(&status, now);
     let mut v = serde_json::json!({
         "isRunning": status.is_running && core_alive,
         "checkCount": status.check_count,
@@ -82,11 +78,7 @@ pub fn read_background_status(app: &tauri::AppHandle) -> Result<Value, String> {
         "lastResult": last.as_ref(),
         "watcherFailed": status.watcher_failed,
         "coreAlive": core_alive,
-        "notificationStale": campus_core_logic::status::notification_stale(
-            &status,
-            now,
-            campus_core_logic::status::MAX_STATUS_AGE_MS,
-        ),
+        "notificationStale": campus_core_logic::status::notification_stale(&status, now),
     });
     campus_core_logic::status::copy_last_result_fields(&mut v, last.as_ref());
     Ok(v)

@@ -1,3 +1,22 @@
+### 评审修复：活性窗口按间隔推导、放行切换补 WiFi 关闭路径（2026-11-17）
+
+**为什么**：双轴评审发现上一版把活性窗口写死成 3 分钟，而巡检间隔可配到 600s，长间隔用户的界面会每 5 秒对账把运行中的核心刷成「已停止」（假活修成假死）；WiFi 事件无条件清 `was_online` 抹掉了「掉线重连不受自动登录开关管」的语义；窗口内 WiFi 被守则关掉后，放行网络切换必然落空。
+
+**改了什么**
+
+- **活性窗口随间隔推导**：新增 `alive_window_ms(interval_ms)`（间隔 ×3，下限 3 分钟），`CoreStatus` 记录当前 `interval_ms`，`core_is_alive`/`notification_stale` 不再吃外部魔法数字；Kotlin 通知陈旧判定同源使用 `intervalMs`。
+- **保留掉线重连语义**：`handle_wifi_change_check` 不再清 `was_online`，只重置重连预算；WiFi 断连后关掉「可登录时自动登录」的用户仍会自动重连。
+- **放行切换补关闭路径**：窗口内若有放行目标且 WiFi 是本程序关的（`KEY_DISABLED`），先开回来再切——WiFi 关闭时系统不会自动连接，此前这条路径必定落空。
+- **清理无消费点代码**：删除 `CorePlatform::power_state` / `JniPlatform` 实现 / 插件 `getPowerState` 命令与签名表；`wifi_generation_ms` 更名为 `wifi_switch_ms`（存的是时间戳）；`background_check_idle_interval` 标注废弃，保留字段仅为兼容既有配置。
+- **状态更新保持引用稳定**：`applyBackgroundStatus` 复用 `setStatusStable`，状态内容未变时保持原对象，5 秒对账不再引起定时重渲染。
+
+**验证**
+
+- `cargo test --manifest-path android/core-logic/Cargo.toml`：20 passed（新增「长间隔巡检不会被活性窗口误判为停止」「窗口下限不小于三分钟」）。
+- 安卓前端 `npx tsc --noEmit --incremental`、`npx vite build`：通过。
+- `pwsh android/build-apk.ps1`：出包成功、装机成功。
+- 真机 09:42 起（检测时段内）：巡检 #1/#2/#3 连续 60s 周期，`登录判定 online=true wasOnline=true campus=true should=false`，状态机正常推进。
+
 ### 后台持续监测：修复启动恢复、循环退出与状态假活（2026-11-17）
 
 **为什么**：实测发现后台只有 WiFi 事件偶尔触发，周期监测没有第二拍，UI 回前台也不刷新。除此前已修正的灭屏/蜂窝 5 分钟跳拍外，还存在三个会让修复失效的真实缺陷：安装更新或强制停止后打开 UI 不恢复 `:core`；boot 与 UI 恢复并发时先发布 `running=true` 再推进代际，导致周期循环首拍被当作旧循环退出；服务心跳和 `status` 查询刷新 `last_tick_ms`，把死循环伪装成运行中。

@@ -5,9 +5,16 @@
 
 use serde::{Deserialize, Serialize};
 
-/// 巡检/通知允许的最大静默时长。默认 60s 周期留约 3 拍余量，
-/// 不再按已删除的 5min 灭屏降频设计等待 15min 才暴露故障。
-pub const MAX_STATUS_AGE_MS: u64 = 3 * 60 * 1000;
+/// 活性窗口下限：巡检间隔很短时也不小于 3 拍，
+/// 防止一拍内的调度抖动被误判成核心已死。
+pub const MIN_ALIVE_WINDOW_MS: u64 = 3 * 60 * 1000;
+
+/// 活性窗口：必须由巡检间隔推导，不能写死。
+/// 用户可把间隔配到 600s，固定窗口会把"两拍之间的正常等待"判成已停止，
+/// 于是 UI 每 5 秒对账把运行中的核心刷成已停止（假活修成假死）。
+pub fn alive_window_ms(interval_ms: u64) -> u64 {
+    interval_ms.saturating_mul(3).max(MIN_ALIVE_WINDOW_MS)
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -27,6 +34,8 @@ pub struct CoreStatus {
     /// 最近一次真实巡检开始时间(epoch ms)。服务心跳不得刷新它，
     /// 否则通知定时器会掩盖已经停止的 tokio 巡检循环
     pub last_tick_ms: u64,
+    /// 当前生效的巡检间隔(ms)。活性窗口按它推导，UI 与通知不得各写一份阈值
+    pub interval_ms: u64,
     /// 最近一次写入常驻通知的文案
     pub notification_text: String,
     /// 最近一次写入常驻通知的时间(epoch ms)
@@ -52,19 +61,20 @@ pub fn copy_last_result_fields(target: &mut serde_json::Value, last: Option<&ser
     }
 }
 
-/// 核心是否存活:进程被杀不会走 onDestroy,必须用心跳年龄识别遗留的 coreAlive=true
-pub fn core_is_alive(status: &CoreStatus, now_ms: u64, max_age_ms: u64) -> bool {
+/// 核心是否存活:进程被杀不会走 onDestroy,必须用心跳年龄识别遗留的 coreAlive=true。
+/// 窗口由状态里记录的巡检间隔推导，调用方不再各传一个魔法数字。
+pub fn core_is_alive(status: &CoreStatus, now_ms: u64) -> bool {
     status.core_alive
         && status.last_tick_ms != 0
-        && now_ms.saturating_sub(status.last_tick_ms) <= max_age_ms
+        && now_ms.saturating_sub(status.last_tick_ms) <= alive_window_ms(status.interval_ms)
 }
 
-/// 通知是否陈旧:核心已死、从未心跳、或通知超过 `max_age_ms` 未更新。
-pub fn notification_stale(status: &CoreStatus, now_ms: u64, max_age_ms: u64) -> bool {
-    if !core_is_alive(status, now_ms, max_age_ms) {
+/// 通知是否陈旧:核心已死、从未心跳、或通知超过窗口未更新。
+pub fn notification_stale(status: &CoreStatus, now_ms: u64) -> bool {
+    if !core_is_alive(status, now_ms) {
         return true;
     }
-    now_ms.saturating_sub(status.notification_updated_ms) > max_age_ms
+    now_ms.saturating_sub(status.notification_updated_ms) > alive_window_ms(status.interval_ms)
 }
 
 #[cfg(test)]
@@ -77,6 +87,7 @@ mod tests {
             core_alive: true,
             check_count: 1,
             last_tick_ms: now,
+            interval_ms: 60_000,
             notification_text: "监控运行中 · 在线".to_string(),
             notification_updated_ms: notification_ms,
             ..Default::default()
@@ -87,37 +98,48 @@ mod tests {
     fn 核心未启动时通知视为陈旧() {
         // 服务被 START_STICKY 复活但核心没起来:通知写着"运行中"却是死的
         let status = CoreStatus::default();
-        assert!(notification_stale(&status, 1_000, MAX_STATUS_AGE_MS));
+        assert!(notification_stale(&status, 1_000));
     }
 
     #[test]
     fn 心跳与通知都在窗口内时不陈旧() {
         let now = 10_000_000;
-        assert!(!notification_stale(&alive(now, now - 60_000), now, MAX_STATUS_AGE_MS));
+        assert!(!notification_stale(&alive(now, now - 60_000), now));
     }
 
     #[test]
     fn 心跳过期时核心与通知都视为死亡() {
         let now = 10_000_000;
         let mut status = alive(now, now);
-        assert!(core_is_alive(&status, now, MAX_STATUS_AGE_MS));
-        status.last_tick_ms = now - MAX_STATUS_AGE_MS - 1;
-        assert!(!core_is_alive(&status, now, MAX_STATUS_AGE_MS));
-        assert!(notification_stale(&status, now, MAX_STATUS_AGE_MS));
+        assert!(core_is_alive(&status, now));
+        status.last_tick_ms = now - alive_window_ms(status.interval_ms) - 1;
+        assert!(!core_is_alive(&status, now));
+        assert!(notification_stale(&status, now));
     }
 
     #[test]
-    fn 通知超过上限未更新即陈旧() {
+    fn 通知超过窗口未更新即陈旧() {
         let now = 10_000_000;
-        let status = alive(now, now - MAX_STATUS_AGE_MS - 1);
-        assert!(notification_stale(&status, now, MAX_STATUS_AGE_MS));
+        let status = alive(now, now - alive_window_ms(60_000) - 1);
+        assert!(notification_stale(&status, now));
     }
 
     #[test]
-    fn 心跳过期判定不使用旧版十五分钟窗口() {
-        assert_eq!(MAX_STATUS_AGE_MS, 180_000);
+    fn 长间隔巡检不会被活性窗口误判为停止() {
+        // 用户把间隔配到 600s:固定 3min 窗口会在两拍之间判死，
+        // 这里锁定窗口必须随间隔放大
         let now = 10_000_000;
-        assert!(!core_is_alive(&alive(now - 181_000, now), now, MAX_STATUS_AGE_MS));
+        let mut status = alive(now, now);
+        status.interval_ms = 600_000;
+        status.last_tick_ms = now - 400_000;
+        assert!(core_is_alive(&status, now));
+    }
+
+    #[test]
+    fn 窗口下限不小于三分钟() {
+        assert_eq!(alive_window_ms(5_000), MIN_ALIVE_WINDOW_MS);
+        assert_eq!(alive_window_ms(60_000), 180_000);
+        assert_eq!(alive_window_ms(600_000), 1_800_000);
     }
 
     #[test]

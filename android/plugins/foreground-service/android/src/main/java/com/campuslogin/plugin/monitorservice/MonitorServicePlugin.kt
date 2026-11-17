@@ -384,32 +384,6 @@ class MonitorServicePlugin(private val activity: android.app.Activity) : Plugin(
     }
 
     /**
-     * 电源状态:屏幕是否交互中 + 当前活动网络是否 WiFi。
-     * 供 Rust 巡检分档——WiFi 且亮屏走基础间隔(60s),蜂窝或灭屏走闲时间隔(默认 5min)。
-     * 不注册 SCREEN_ON/OFF 广播:巡检唤醒周期恒为最短档,亮屏后最迟一拍恢复,
-     * 免去跨层事件通道的复杂度。
-     */
-    @Command
-    fun getPowerState(invoke: Invoke) {
-        val pm = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
-        val ret = JSObject()
-        ret.put("screenOn", pm.isInteractive)
-        ret.put("wifiConnected", isWifiConnected())
-        invoke.resolve(ret)
-    }
-
-    /** 当前活动网络是否为 WiFi(实时查询,不依赖 activenetwork 之外的缓存) */
-    private fun isWifiConnected(): Boolean {
-        return try {
-            val cm = activity.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val active = cm.activeNetwork ?: return false
-            cm.getNetworkCapabilities(active)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    /**
      * 厂商自启/省电白名单设置页候选组件。
      * 每品牌给多个候选:ROM 版本间类名漂移常见(尤其 OPPO/vivo/小米),
      * 逐个 try/catch 起,失败即试下一个,全失败走通用降级链。

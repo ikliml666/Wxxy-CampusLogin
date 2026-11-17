@@ -60,8 +60,11 @@ class CoreService : Service() {
         /** RSSI 触发守则的最小跨档幅度（dBm）：回调高频，同档不重判 */
         private const val RSSI_BUCKET_DBM = 5
 
-        /** 通知陈旧阈值:与 campus_core_logic::status::MAX_STATUS_AGE_MS 一致 */
-        private const val STATUS_STALE_MS = 15 * 60 * 1000L
+        /**
+         * 通知陈旧阈值下限:与 campus_core_logic::status::MIN_ALIVE_WINDOW_MS 一致。
+         * 实际窗口随 core_status.json 里的 intervalMs 放大，长间隔巡检不能被这里判死
+         */
+        private const val STATUS_STALE_FALLBACK_MS = 3 * 60 * 1000L
     }
 
     private val handlerThread = HandlerThread("campus-core-io").apply { start() }
@@ -203,11 +206,6 @@ class CoreService : Service() {
 
     fun endProbeWindow() {
         releaseProbeLocks()
-    }
-
-    fun powerState(): String {
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        return "{\"screenOn\":${pm.isInteractive},\"wifiConnected\":${isWifiConnected()}}"
     }
 
     /**
@@ -593,9 +591,12 @@ class CoreService : Service() {
     private fun refreshNotificationIfNeeded() {
         val status = readCoreStatus()
         val now = System.currentTimeMillis()
+        // 窗口与 Rust 同源：间隔 ×3（不小于 3 分钟），避免用户把间隔配长后通知被判死
+        val intervalMs = status?.optLong("intervalMs", 0L) ?: 0L
+        val windowMs = maxOf(intervalMs * 3, STATUS_STALE_FALLBACK_MS)
         val stale = status == null ||
             !status.optBoolean("coreAlive", false) ||
-            now - status.optLong("notificationUpdatedMs", 0L) > STATUS_STALE_MS
+            now - status.optLong("notificationUpdatedMs", 0L) > windowMs
         if (!stale) return
         if (status != null) {
             val text = status.optString("notificationText", "")

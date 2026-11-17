@@ -59,7 +59,7 @@ pub struct MonitorState {
     pub last_login_success_ms: AtomicU64,
     /// 最近一次 WiFi 网络切换时间：用于重连预算按网络代际重置，避免在 A 网络
     /// 用满次数后到 B 校园网永远不自动登录
-    pub wifi_generation_ms: AtomicU64,
+    pub wifi_switch_ms: AtomicU64,
     pub was_online: AtomicBool,
     pub last_result: Mutex<Option<serde_json::Value>>,
     /// 运行中循环的目标检测间隔(ms):start_background_check 每次调用刷新,
@@ -151,15 +151,15 @@ pub fn status_snapshot() -> serde_json::Value {
 pub fn status_value(ctx: &CoreCtx) -> serde_json::Value {
     let v = status_snapshot();
     ctx.mark_status(|s| {
-        let previous_tick = s.last_tick_ms;
         s.is_running = MONITOR.running.load(Ordering::Relaxed);
         s.check_count = MONITOR.check_count.load(Ordering::Relaxed);
         s.consecutive_failures = MONITOR.consecutive_failures.load(Ordering::Relaxed);
         s.reconnect_count = MONITOR.reconnect_count.load(Ordering::Relaxed);
         s.watcher_failed = WATCHER_FAILED.load(Ordering::Relaxed);
         s.last_result = MONITOR.last_result.lock().ok().and_then(|g| g.clone());
-        // 查询状态不能伪装成一次巡检，否则 UI 每 5 秒对账会让死循环永远新鲜
-        s.last_tick_ms = previous_tick;
+        // last_tick_ms 只由 run_check_once 写：查询状态若刷新它，
+        // UI 每 5 秒对账会让死循环永远新鲜
+        s.interval_ms = MONITOR.desired_interval_ms.load(Ordering::Relaxed);
     });
     v
 }
@@ -207,6 +207,7 @@ pub async fn start_background_check(ctx: CoreCtx) -> Result<serde_json::Value, S
     ctx.mark_status(|s| {
         s.is_running = true;
         s.core_alive = true;
+        s.interval_ms = want;
     });
     Ok(serde_json::json!({ "isRunning": true }))
 }
@@ -305,12 +306,12 @@ pub(crate) async fn handle_wifi_event(ctx: CoreCtx, event: String) {
 /// lost 零延迟刷新离线状态；available/validated 的 2.5s 等待保留，用于 DHCP 与路由收敛。
 async fn handle_wifi_change_check(ctx: &CoreCtx, event: String) {
     crate::core::net_state::invalidate().await;
-    // WiFi 切换是新的网络会话：清掉上一张网络的掉线记忆与重连预算。
-    // 是否真的要登录仍由本轮校园网/Portal 探测决定，绝不盲登非校园网
-    MONITOR.was_online.store(false, Ordering::Relaxed);
+    // WiFi 切换是新的网络会话：重连预算按网络代际重置，否则在 A 网络用满次数后
+    // 到 B 永远不再自动登录。was_online 必须保留——"掉线重连不受自动登录开关管"
+    // 正是靠它区分，清掉会让关掉自动登录的用户在 WiFi 断连后不再自动重连。
     MONITOR.reconnect_count.store(0, Ordering::Relaxed);
     MONITOR
-        .wifi_generation_ms
+        .wifi_switch_ms
         .store(crate::core::platform::now_ms(), Ordering::Relaxed);
     campus_login_lib::log_info!(
         "monitor",
@@ -1272,7 +1273,7 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     if online {
         // 新 WiFi 上探测到 online=true 可能来自另一会话；重连预算留给
         // 下一次真实的离线事件，不再被上一张网络的计数卡住
-        if MONITOR.wifi_generation_ms.load(Ordering::Relaxed) >= tick_start_ms {
+        if MONITOR.wifi_switch_ms.load(Ordering::Relaxed) >= tick_start_ms {
             MONITOR.last_login_attempt_ms.store(0, Ordering::Relaxed);
         }
         MONITOR.reconnect_count.store(0, Ordering::Relaxed);

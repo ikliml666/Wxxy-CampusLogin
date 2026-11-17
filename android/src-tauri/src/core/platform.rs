@@ -20,7 +20,6 @@ pub trait CorePlatform: Send + Sync {
     fn update_notification(&self, text: &str);
     fn begin_probe_window(&self);
     fn end_probe_window(&self);
-    fn power_state(&self) -> (bool, bool);
     /// VPN 是否处于激活状态（安卓 ConnectivityManager + TRANSPORT_VPN）。
     fn is_vpn_active(&self) -> bool;
     /// 注册 :core 常驻 WiFi 回调；[config_json] 与守则配置同构，
@@ -172,10 +171,6 @@ impl CoreCtx {
 
     pub fn end_probe_window(&self) {
         self.platform.end_probe_window();
-    }
-
-    pub fn power_state(&self) -> (bool, bool) {
-        self.platform.power_state()
     }
 
     pub fn cache_source_ip(&self, source: Option<Ipv4Addr>) {

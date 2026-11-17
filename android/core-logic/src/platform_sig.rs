@@ -42,7 +42,6 @@ pub const METHOD_SIGNATURES: &[(&str, JavaSignature)] = &[
     ("updateNotification", JavaSignature::StrToVoid),
     ("beginProbeWindow", JavaSignature::ZeroToVoid),
     ("endProbeWindow", JavaSignature::ZeroToVoid),
-    ("powerState", JavaSignature::ZeroToStr),
     ("bindToWifi", JavaSignature::ZeroToStr),
     ("acceptWifiNetwork", JavaSignature::ZeroToStr),
     ("wifiSsid", JavaSignature::ZeroToStr),
@@ -111,7 +110,6 @@ mod tests {
             Some(JavaSignature::ZeroToVoid)
         );
         assert_eq!(signature_of("runIdleStop"), Some(JavaSignature::ZeroToVoid));
-        assert_eq!(signature_of("powerState"), Some(JavaSignature::ZeroToStr));
         assert_eq!(signature_of("bindToWifi"), Some(JavaSignature::ZeroToStr));
     }
 

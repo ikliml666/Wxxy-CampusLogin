@@ -3,7 +3,7 @@ import i18next from 'i18next'
 import type { LogType } from '@/shared'
 import type { BackgroundStatus, NetworkQuality } from '@/monitor'
 import { useConfigStore, flushPendingConfig, hasPendingConfig } from './useConfigStore'
-import { useAuthStore } from './useAuthStore'
+import { useAuthStore, setStatusStable } from './useAuthStore'
 import { useQualityStore } from './useQualityStore'
 import { useLogToastStore } from './useLogToastStore'
 import { tauriApiWithRetry as api } from './tauriApi'
@@ -13,16 +13,22 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 
 function applyBackgroundStatus(data: BackgroundStatus) {
   if (!data) return
-  useAuthStore.getState().setBgStatus((prev: BackgroundStatus) => ({
-    ...prev,
-    ...data,
-    isRunning: data.isRunning ?? prev.isRunning,
-    checkCount: data.checkCount ?? prev.checkCount,
-    serverAvailable: data.serverAvailable ?? prev.serverAvailable,
-    online: data.online ?? prev.online,
-  }))
+  useAuthStore.getState().setBgStatus((prev: BackgroundStatus) => {
+    const next: BackgroundStatus = {
+      ...prev,
+      ...data,
+      isRunning: data.isRunning ?? prev.isRunning,
+      checkCount: data.checkCount ?? prev.checkCount,
+      serverAvailable: data.serverAvailable ?? prev.serverAvailable,
+      online: data.online ?? prev.online,
+    }
+    // 5 秒对账会反复送同一份状态：内容没变就保持引用，
+    // 否则按引用订阅的组件会跟着定时器重渲染
+    return JSON.stringify(prev) === JSON.stringify(next) ? prev : next
+  })
   if (data.online !== undefined && data.message) {
-    useAuthStore.getState().setStatus({
+    // setStatusStable 在 text/state 未变时不换对象，避免状态栏整卡重渲
+    setStatusStable({
       text: data.message,
       state: data.online ? 'online' : 'offline',
     })

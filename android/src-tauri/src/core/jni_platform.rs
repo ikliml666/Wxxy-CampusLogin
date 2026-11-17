@@ -150,16 +150,6 @@ impl CorePlatform for JniPlatform {
         }
     }
 
-    fn power_state(&self) -> (bool, bool) {
-        match self.call_json("powerState") {
-            Ok(v) => (
-                v["screenOn"].as_bool().unwrap_or(true),
-                v["wifiConnected"].as_bool().unwrap_or(true),
-            ),
-            Err(_) => (true, true),
-        }
-    }
-
     fn is_vpn_active(&self) -> bool {
         match self.call_zero_str("isVpnActive") {
             Ok(s) => s == "true",

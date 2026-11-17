@@ -86,6 +86,16 @@ class WifiCurfewRunner(private val context: Context) {
             return restored
         }
 
+        // 上一拍可能已把 WiFi 关掉（窗口内没有放行目标时走的关键断网）。WiFi 关闭时
+        // 系统不会自动连任何网络，此时直接 enableNetwork 必然落空，放行目标就永远切不过去。
+        // 窗口内有放行目标就先开回来，并且只还原"本程序关的"状态。
+        if (allowed.isNotEmpty() && prefs.getBoolean(KEY_DISABLED, false)) {
+            if (!dryRun) {
+                val trace = setWifiEnabled(true)
+                if (trace.ok) prefs.edit().putBoolean(KEY_DISABLED, false).apply()
+            }
+        }
+
         val current = currentSsid()
         // 已连放行网络：不动（放行优先于断开名单）
         if (current.isNotEmpty() && allowed.any { it.equals(current, ignoreCase = true) }) {
