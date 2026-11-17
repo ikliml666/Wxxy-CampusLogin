@@ -4,13 +4,13 @@ import { Switch } from '@/components/ui/switch'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { AlertTriangle, CheckCircle2, Globe, Copy, Check, BedDouble, Loader2, Wifi, Lock, X, ChevronRight } from 'lucide-react'
+import { Globe, Check, BedDouble, Loader2, Wifi, Lock, X, ChevronRight } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { tauriApiWithRetry, type CurfewChannelStatus, type PrivateDnsStatus, type SavedWifiNetwork } from '@/hooks/tauriApi'
+import { tauriApiWithRetry, type AvoidBadWifiStatus, type CurfewChannelStatus, type PrivateDnsStatus, type SavedWifiNetwork } from '@/hooks/tauriApi'
+import { AccessCard } from './AccessCard'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useShallow } from 'zustand/react/shallow'
@@ -23,13 +23,6 @@ interface NetworkPanelProps {
 const WEAK_RSSI_OPTIONS = [-70, -75, -80, -85]
 /** 打开弱信号开关时的默认阈值：-80 dBm 是「连得上但已经很难用」的常见分界 */
 const WEAK_RSSI_DEFAULT = -80
-/** 执行通道：auto 自动回落，adb / root 由用户显式指定 */
-const CURFEW_CHANNELS = [
-  { key: 'auto', labelKey: 'network.wifiCurfewChannelAuto' },
-  { key: 'adb', labelKey: 'network.wifiCurfewChannelAdb' },
-  { key: 'root', labelKey: 'network.wifiCurfewChannelRoot' },
-] as const
-
 /** 恢复时刻默认值 07:30：与后端 `config::night_switch::DEFAULT_RESTORE_START_MINUTES`
  *  同值；配置为 0/越界时后端同样回落此值，故显示层也按它展示（复刻树不可共享常量，
  *  故与桌面端各自具名，取值必须一致） */
@@ -340,6 +333,21 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
     void refreshDot()
   }, [refreshDot])
 
+  // ===== 系统设置写入权限（WRITE_SECURE_SETTINGS）=====
+  // 私人 DNS 与夜间出站切换共用这条权限；状态统一在顶部权限卡展示，功能卡不再各自引导
+  const [avoidStatus, setAvoidStatus] = useState<AvoidBadWifiStatus | null>(null)
+  const refreshAvoidStatus = useCallback(async () => {
+    try {
+      const status = await ipc.getAvoidBadWifiStatus()
+      if (mountedRef.current) setAvoidStatus(status)
+    } catch {
+      if (mountedRef.current) setAvoidStatus(null)
+    }
+  }, [ipc])
+  useEffect(() => {
+    void refreshAvoidStatus()
+  }, [refreshAvoidStatus])
+
   // ===== 执行通道（Shizuku / root）=====
   // 守则的全部动作都靠它，通道不通时守则会静默地什么都不做——必须让用户看见当前状态
   const [curfewChannel, setCurfewChannel] = useState<CurfewChannelStatus | null>(null)
@@ -355,6 +363,16 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
   useEffect(() => {
     void refreshCurfewChannel()
   }, [refreshCurfewChannel])
+
+  // 权限卡的一次性刷新：三条状态各自失败互不影响（旧包可能缺某条命令）
+  const refreshAccess = useCallback(() => {
+    void refreshDot()
+    void refreshCurfewChannel()
+    void refreshAvoidStatus()
+  }, [refreshDot, refreshCurfewChannel, refreshAvoidStatus])
+
+  // 写权限以 avoid_bad_wifi 状态为准（与私人 DNS 同一条权限），读不到时退回 DNS 状态里的 granted
+  const secureSettingsGranted = avoidStatus?.granted ?? dotStatus?.granted ?? null
 
   // ===== 系统已保存的 WiFi（断开/放行名单的数据源）=====
   // 读取与执行同走 Shizuku/root 通道；通道未就绪时报错并给重试，不显示误导性的空名单
@@ -382,27 +400,11 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
     void refreshSavedNetworks()
   }, [refreshSavedNetworks])
 
-  // 按用户选的执行方式评估可用性：显式选了 adb / root 就不再回落
   // 0 / 越界都按默认 07:30 显示，与后端 restore_start_minutes 的归一化同口径
   const restoreMinutes =
     config.nightRestoreMinutes >= RESTORE_TIME_MIN_MINUTES && config.nightRestoreMinutes < 1380
       ? config.nightRestoreMinutes
       : RESTORE_TIME_DEFAULT_MINUTES
-
-  // 光有权限不够：Shizuku 的 user service 绑定可能失败，届时命令一条也落地不了
-  // 自检返回的是 `exit=0\nuid=...`（RemoteShellService 把退出码一并回传）
-  const curfewProbeOk = Boolean(curfewChannel?.probe?.startsWith('exit=0'))
-  const curfewReady =
-    curfewProbeOk &&
-    (config.wifiCurfewChannel === 'adb'
-      ? curfewChannel?.shizuku === 'ready'
-      : config.wifiCurfewChannel === 'root'
-        ? curfewChannel?.root === true
-        : curfewChannel?.shizuku === 'ready' || curfewChannel?.root === true)
-  const curfewReadyLabel =
-    config.wifiCurfewChannel !== 'root' && curfewChannel?.shizuku === 'ready'
-      ? 'network.wifiCurfewChannelReadyShizuku'
-      : 'network.wifiCurfewChannelReadyRoot'
 
   // 申请 Shizuku 授权：调用会一直挂到用户在授权框上操作完，期间按钮转圈
   const [curfewRequesting, setCurfewRequesting] = useState(false)
@@ -523,6 +525,19 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
   return (
     <div className="space-y-4">
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+        <AccessCard
+          channel={curfewChannel}
+          secureSettingsGranted={secureSettingsGranted}
+          channelRequesting={curfewRequesting}
+          adbCopied={adbCopied}
+          channelMode={config.wifiCurfewChannel ?? 'auto'}
+          onChannelModeChange={mode => onUpdateConfig({ wifiCurfewChannel: mode })}
+          onRequestShizuku={handleRequestCurfewAccess}
+          onCopyAdbCommand={handleCopyGrantCommand}
+          onRefresh={refreshAccess}
+        />
+      </div>
+      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">
@@ -644,46 +659,7 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label className="text-xs font-medium">{t('network.wifiCurfewChannel')}</Label>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {CURFEW_CHANNELS.map(({ key, labelKey }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => onUpdateConfig({ wifiCurfewChannel: key })}
-                    className={cn(
-                      'px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors',
-                      config.wifiCurfewChannel === key
-                        ? 'bg-primary/15 text-primary shadow-[inset_0_0_0_1px_rgba(99,102,241,0.35)]'
-                        : 'bg-white/60 hover:bg-white/80 text-foreground dark:bg-white/10 dark:hover:bg-white/15'
-                    )}
-                  >
-                    {t(labelKey)}
-                  </button>
-                ))}
-              </div>
-              <div className={cn('flex items-center gap-1.5 text-[12px]', curfewReady ? 'text-emerald-600' : 'text-amber-600')}>
-                {curfewReady ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <AlertTriangle className="h-3.5 w-3.5 shrink-0" />}
-                <span>{curfewReady ? t(curfewReadyLabel) : t('network.wifiCurfewNoPermission')}</span>
-                {!curfewReady && config.wifiCurfewChannel !== 'root' && (
-                  <button
-                    type="button"
-                    onClick={handleRequestCurfewAccess}
-                    disabled={curfewRequesting}
-                    className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium text-primary bg-primary/10 hover:bg-primary/15 transition-colors disabled:opacity-60"
-                  >
-                    {curfewRequesting && <Loader2 className="h-3 w-3 animate-spin" />}
-                    {t('network.wifiCurfewRequestAccess')}
-                  </button>
-                )}
-              </div>
-              {!curfewReady && curfewChannel?.probe && (
-                <p className="text-[10px] font-mono text-muted-foreground/70 break-all">
-                  通道自检: {curfewChannel.probe}
-                </p>
-              )}
-              <div className="pt-1 space-y-1.5">
+            <div className="pt-1 space-y-1.5">
                 <p className="text-[11px] text-muted-foreground">{t('network.wifiCurfewTestHint')}</p>
                 <div className="flex flex-wrap gap-1.5">
                   <button
@@ -720,12 +696,11 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                     {t('network.wifiCurfewTestWifiOn')}
                   </button>
                 </div>
-              </div>
             </div>
           </CardContent>
         </AnimatedCard>
       </div>
-      <div className="card-enter" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+      <div className="card-enter" style={{ '--stagger-i': 3 } as React.CSSProperties}>
         <AnimatedCard noEnterAnimation>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -805,25 +780,7 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                 </div>
               </div>
               {dotStatus && !dotStatus.granted && (
-                <div className="space-y-2 rounded-lg bg-amber-500/5 border border-amber-500/10 p-2">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
-                    <span className="text-xs text-amber-600">{t('network.privateDnsNeedGrant')}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <code className="text-[11px] font-mono text-foreground/80 break-all min-w-0">
-                      {t('network.avoidBadWifiGrantCommand')}
-                    </code>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-[11px] gap-1 shrink-0"
-                      onClick={handleCopyGrantCommand}
-                    >
-                      {adbCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                    </Button>
-                  </div>
-                </div>
+                <p className="text-[11px] text-amber-600">{t('network.privateDnsNeedGrantShort')}</p>
               )}
             </div>
           </CardContent>

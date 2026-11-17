@@ -140,7 +140,13 @@
         ]
       }
     },
-    get_curfew_channel: function () { return { shizuku: 'ready', root: false, probe: 'exit=0\nuid=0(root)' } },
+    // ?shizuku=denied / missing 模拟通道未就绪，验证权限卡的就地申请与激活说明
+    get_curfew_channel: function () {
+      var q = window.location.search
+      if (q.indexOf('shizuku=denied') >= 0) return { shizuku: 'denied', root: false, probe: 'unavailable' }
+      if (q.indexOf('shizuku=missing') >= 0) return { shizuku: 'missing', root: false }
+      return { shizuku: 'ready', root: false, probe: 'exit=0\nuid=0(root)' }
+    },
     request_curfew_permission: function () { return { granted: true } },
     // 试运行文案链路：allowed 非空 → would-connect（目标为首个放行网络），否则保持当前网络
     test_wifi_curfew: function (args) {
@@ -163,7 +169,15 @@
       return { action: cfg.dryRun ? 'would-wifi-off' : 'wifi-off', channel: 'shizuku', currentSsid: 'kiku-5G', tried: tried }
     },
     test_wifi_switch: function (args) { return { ok: true, detail: 'mock switch ' + (args && args.enable) } },
-    get_private_dns_status: function () { return { granted: true, mode: 'opportunistic', specifier: '' } },
+    // ?secure=off 模拟缺 WRITE_SECURE_SETTINGS：权限卡应显示「未授权 + adb 命令」
+    get_private_dns_status: function () {
+      var granted = window.location.search.indexOf('secure=off') < 0
+      return { granted: granted, mode: 'opportunistic', specifier: '' }
+    },
+    get_avoid_bad_wifi_status: function () {
+      var granted = window.location.search.indexOf('secure=off') < 0
+      return { granted: granted, avoidBadWifi: 1, pendingRestoreAvoid: false, pendingRestoreCaptive: false }
+    },
     save_config: function (args) {
       if (args && args.config) {
         var incoming = args.config

@@ -1941,3 +1941,26 @@ cmd wifi status → Wifi is enabled   ← 保持连接，未制造断网
 - 悬浮栏（`.glass-nav`）：面板切换时它不重挂载、不重新 attach，实测切页全程底栏区域灰度 93.5 → 92.7，无黑帧；启动期从 attach 到首次可见隔着约 700ms 初始化，贴图已就绪，也不复现。故本次只改页签，不动悬浮栏。
 - 真机（RMX3300 / Android 15 / 1440×3216）装 release 包复测：更多页页签顶部圆弧与暗线完整（修复前顶部被裁成直边）；底栏切「总览」再切「更多」连拍，页签区域无黑帧。
 - 桌面端无此页签（桌面设置页没有「更多」聚合页），属安卓专属组件，未做双端同步。
+
+### 行为调整：网络页权限统一收进顶部权限卡（2026-11-17，安卓）
+
+**为什么**：同一个 `WRITE_SECURE_SETTINGS` 在私人 DNS 卡里有一套 adb 引导，夜间出站切换又各写一套文案；Shizuku/root 的申请按钮则埋在就寝守则卡深处，用户在别处遇到「没权限」时不知道去哪授权。用户要求权限卡片单独置顶、统一所有 adb / root 权限的使用方式。
+
+**改了什么**：
+
+- 新增 `android/frontend/src/network/AccessCard.tsx`：网络页第一张卡即「权限」，两行对应两条互不相同的权限——
+  - 系统设置写入（`WRITE_SECURE_SETTINGS`）：影响私人 DNS、夜间自动切换；未授权时就地展示 `pm grant` 命令 + 一键复制。
+  - 执行通道（Shizuku / root）：影响就寝守则、已保存 WiFi 名单读取；通道选择（自动 / Shizuku / root）从守则卡移到这里，Shizuku 未授权时就地申请，未安装/未激活给激活说明，通道自检输出保留。
+- `NetworkPanel.tsx`：删除守则卡内的通道选择、状态行、申请按钮与 probe 行；删除私人 DNS 卡内的 adb 命令引导块，未授权时只留一行「见顶部权限卡」。新增 `getAvoidBadWifiStatus` 状态源，与私人 DNS 的 `granted` 合并成统一的可写状态；权限卡右上角一键刷新三条命令。
+- i18n 增补 `network.access*` 与 `privateDnsNeedGrantShort`（中英各一份）。
+
+**验证**：
+
+- `npx tsc --noEmit --incremental` EXIT=0；`npx vite build` 成功（chunk 体积警告为既有）。
+- vite mock + headless Chrome（500×900，`?panel=network&nomotion=1`）三态实测：
+  - 已授权：两行均绿（「已授权」/「Shizuku 已授权」），通道选择药丸留在卡内；
+  - `?secure=off`：系统设置写入行转琥珀「未授权」，就地展开 `pm grant` 命令与「复制命令」，命令块 `break-all` 换行不撑破卡片；
+  - `?secure=off&shizuku=denied`：执行通道行显示「Shizuku 未授权本应用」+ 右侧「申请权限」，通道自检 `unavailable` 仍可见。
+- mock 增补 `get_avoid_bad_wifi_status` 与 `?secure=off` / `?shizuku=denied|missing` 开关（`android/frontend/tauri-mock.js`）——新增的状态源在浏览器里原本恒 reject，无法验证未授权分支。
+- 真机（25060RK16C / Android 17）装 release 包复测：权限卡位于网络页首屏；「系统设置写入」显示「未授权」+ 完整 `pm grant` 命令（两行）与复制按钮，「执行通道」显示「Shizuku 已授权」——与设备实际状态（Shizuku 已授权、`WRITE_SECURE_SETTINGS` 未授予）一致。
+
