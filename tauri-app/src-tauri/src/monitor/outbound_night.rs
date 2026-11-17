@@ -922,19 +922,25 @@ fn encode_metric_rows(guid: &str, families: &[u16], metric: u32) -> Vec<String> 
 /// 首次切换与改切共用的事务顺序：有原出口卡时，先在两张卡都上线时写好新跃点，
 /// 再下线原卡，最后复写以覆盖接口重建可能重置的值。这样原卡重新上线、应用开始
 /// 重连时，默认路由已经指向目标卡；不存在「先上线抢回出口、再改跃点」的窗口。
-fn run_metric_bounce_sequence(
+/// 首次切换与改切共用的事务顺序：先写新跃点（此时原卡仍在线，两卡都能写），
+/// 再把原卡下线并保持禁用，最后复写——复写**不包含已禁用的原卡**，否则对不存在
+/// 的接口写跃点会整笔失败，让切换陷入无意义的重试。
+///
+/// 顺序的硬约束：跃点必须在原卡下线前写好，原卡重新上线（还原）时默认路由已正确；
+/// 而原卡在整个切换态期间保持禁用，才不会靠自动跃点或 DHCP 重算把默认出口抢回去。
+fn run_switch_sequence(
     has_origin: bool,
     notify_success: bool,
-    mut write_metrics: impl FnMut(bool) -> Result<(), String>,
-    mut bounce_origin: impl FnMut() -> Result<(), String>,
+    mut write_metrics: impl FnMut(bool, bool) -> Result<(), String>,
+    mut take_origin_offline: impl FnMut() -> Result<(), String>,
 ) -> Result<(), String> {
     if has_origin {
-        write_metrics(false)?;
-        bounce_origin()?;
+        write_metrics(true, false)?;
+        take_origin_offline()?;
     }
-    write_metrics(notify_success)?;
-    // 只有整段写入/连接重置完成才清退避；首次预写成功不能覆盖此前的失败现场。
-    // 随后的路由验证若失败会重新记一次，保证不会进入假稳态。
+    write_metrics(false, notify_success)?;
+    // 只有整段写入/下线完成才清退避；首次预写成功不能覆盖此前的失败现场。
+    // 随后的路由与出网验证若失败会重新记一次，保证不会进入假稳态。
     clear_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
     Ok(())
 }
@@ -1215,22 +1221,29 @@ pub(super) fn apply_outbound_switch_with_health(
         .as_ref()
         .map(|(_, _, rows)| rows.iter().map(|r| r.family).collect())
         .unwrap_or_default();
-    let mut suppress_write: Vec<(String, Vec<u16>)> = suppress_cards
+    // 竞争卡（不含原卡）：原卡在事务里会被禁用，复写时不能再对它写跃点
+    let suppress_write: Vec<(String, Vec<u16>)> = suppress_cards
         .iter()
         .map(|(guid, rows)| (guid.clone(), rows.iter().map(|r| r.family).collect()))
         .collect();
-    if let Some((_, guid, _)) = &origin_rows {
-        suppress_write.push((guid.clone(), origin_families.clone()));
-    }
+    let origin_suppress: Option<(String, Vec<u16>)> = origin_rows
+        .as_ref()
+        .map(|(_, guid, _)| (guid.clone(), origin_families.clone()));
     // 名单在首次写跃点前落盘：此后任何失败都保留「连接重置尚未完成」的现场，
     // 重放不能只补跃点，必须先把这次下线事务做完。
     if let Some((name, guid, _)) = &origin_rows {
         mark_origin_bounce_pending(app_handle, name, guid)?;
     }
-    run_metric_bounce_sequence(
+    run_switch_sequence(
         origin_rows.is_some(),
         true,
-        |notify| {
+        |include_origin, notify| {
+            let mut suppress = suppress_write.clone();
+            if include_origin {
+                if let Some((guid, fams)) = &origin_suppress {
+                    suppress.push((guid.clone(), fams.clone()));
+                }
+            }
             write_outbound_metric(
                 app_handle,
                 &plan.target_name,
@@ -1238,12 +1251,12 @@ pub(super) fn apply_outbound_switch_with_health(
                 &families,
                 notify,
                 "",
-                &suppress_write,
+                &suppress,
             )
         },
         || {
             if let Some((name, guid, _)) = &origin_rows {
-                bounce_origin_adapter(app_handle, name, guid)
+                hold_origin_offline(app_handle, name, guid)
             } else {
                 Ok(())
             }
@@ -1389,9 +1402,7 @@ fn verify_switch_effect(
     Ok(())
 }
 
-/// 原出口卡「下线再恢复」的保持时长。5 秒用于覆盖协议栈断链传播与应用常见的
-/// 首轮重连退避；它不承担选路正确性——原卡重新上线前，目标/原卡跃点已经写好。
-const ORIGIN_DISABLE_HOLD_MS: u64 = 5000;
+
 
 /// 临时下线再恢复原出口卡：切换流程里唯一能断掉既有连接的动作。
 ///
@@ -1427,53 +1438,64 @@ fn mark_origin_bounce_pending(
     })
 }
 
-fn bounce_origin_adapter(app_handle: &AppHandle, name: &str, guid: &str) -> Result<(), String> {
+/// 切换态守护：名单内的原出口卡必须保持离线。用户手动启用、系统重载网卡都会让它
+/// 重新参与默认路由竞争（现场表现就是「切换完成后路由又回到原卡」），发现即重新禁用。
+/// 与重放分离：重放要求失败历史，本守护只看「切换态是否成立」，切换成功后同样生效。
+pub(super) fn enforce_origin_offline(app_handle: &AppHandle, config: &crate::config::Config) {
+    // 恢复窗内不守护：还原正在启用原卡并按快照写回跃点，此刻再禁用会造成
+    // 「启用→禁用」无限拉锯（还原失败时快照保留，守护每拍都会把它按回去）。
+    let now_minutes = chrono::Local::now();
+    let now_minutes = (now_minutes.hour() * 60 + now_minutes.minute()) as u32;
+    if in_outbound_restore_window(config, now_minutes) {
+        return;
+    }
+    let Ok(list) = parse_disabled_adapters(&config.outbound_disabled_adapters) else {
+        return;
+    };
+    if list.is_empty() {
+        return;
+    }
+    let adapters = crate::network::get_adapters_cached().unwrap_or_default();
+    for row in list {
+        let online = adapters.iter().any(|a| {
+            a.name == row.name && a.status == crate::network::discovery::AdapterStatus::Connected
+        });
+        if !online {
+            continue;
+        }
+        let Some(_busy) = OutboundActionGuard::try_acquire() else {
+            return;
+        };
+        match hold_origin_offline(app_handle, &row.name, &row.guid) {
+            Ok(()) => crate::log_info!(
+                "outbound",
+                "出站切换态守护: 原出口网卡 {} 恢复在线，已重新禁用",
+                row.name
+            ),
+            Err(reason) => crate::log_warn!(
+                "outbound",
+                "出站切换态守护: 重新禁用原出口网卡 {} 失败: {reason}",
+                row.name
+            ),
+        }
+    }
+}
+
+fn hold_origin_offline(app_handle: &AppHandle, name: &str, guid: &str) -> Result<(), String> {
     mark_origin_bounce_pending(app_handle, name, guid)?;
     if let Err(failure) =
         run_helper_op("disable_adapter", &[name.to_string()], outbound_allow_uac())
     {
         note_channel_failure(&failure);
-        // 禁用失败 = 既有连接没断：保留切换快照与下线现场，退避后重放整笔事务。
+        // 禁用失败 = 既有连接没断、原卡仍在选路：保留现场，退避后重放整笔事务。
         mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);
-        return Err(format!(
-            "临时禁用原出口网卡 {name} 失败: {}",
-            failure.reason
-        ));
+        return Err(format!("禁用原出口网卡 {name} 失败: {}", failure.reason));
     }
     crate::log_info!(
         "outbound",
-        "出站切换: 已临时禁用原出口网卡 {name}，等待既有连接失效"
+        "出站切换: 已禁用原出口网卡 {name}，保持到还原（屏蔽其默认路由竞争）"
     );
-    std::thread::sleep(Duration::from_millis(ORIGIN_DISABLE_HOLD_MS));
-    match enable_campus_adapter(name, outbound_allow_uac()) {
-        Ok(()) => {
-            crate::log_info!("outbound", "出站切换: 已恢复启用原出口网卡 {name}");
-            // 卡已恢复：名单不该再声称它被禁用（此后名单只表示「仍处于禁用态」）
-            persist_config_update(app_handle, |fresh| {
-                fresh.outbound_disabled_adapters = String::new();
-            });
-            Ok(())
-        }
-        Err(failure) => {
-            note_channel_failure(&failure);
-            // 启用失败不阻断切换：出口已落在目标卡，卡停在禁用态是可恢复的副作用，
-            // 名单保留给还原与重放继续尝试启用
-            notify_outbound_issue_once_per_day(
-                app_handle,
-                &OUTBOUND_ORIGIN_DISABLE_WARN_DAY,
-                "原出口网卡未能恢复启用",
-                &format!(
-                    "网卡 {name} 已临时禁用但启用失败，出站已切到目标卡；还原时会再次尝试启用"
-                ),
-            );
-            crate::log_warn!(
-                "outbound",
-                "出站切换: 恢复启用原出口网卡 {name} 失败，保留名单等还原: {}",
-                failure.reason
-            );
-            Ok(())
-        }
-    }
+    Ok(())
 }
 
 /// 补齐/重放切换动作：按快照把"切换没写完"的部分补齐，两个分支各自独立、
@@ -1508,88 +1530,40 @@ pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::con
     };
     let mut any_fail = false;
     let adapters = crate::network::get_adapters_cached().unwrap_or_default();
-    // —— 分支①：连接重置补做（必须排在跃点补写之前）。名单仍在且原卡在线，说明
-    //    上次连禁用都没完成，必须重做整段下线；原卡不在线才只补启用。
-    // 切换流程会「禁用 → 保持 → 启用」原出口卡，进程若在中间被杀，卡会停在禁用态。
-    // 名单里记的正是本功能亲手禁用、尚未确认恢复的卡（启用成功即清空）。
-    // 不走适配器列表闸门：设备级禁用后接口可能从枚举中消失，而 enable_adapter
-    // 的 problem 22 分流能按名字把 PnP 设备直接启用回来。
+    // —— 分支①：切换态期间原出口卡必须保持离线（排在跃点补写之前）。
+    //    它一旦在线就会凭自动跃点 / DHCP 重算抢回默认出口，这是用户现场
+    //    「切换完成后路由又回到原卡」的直接原因；发现在线就重新禁用。
+    //    禁用失败保留名单继续重试；名单在还原成功收尾时才整体清空。
     match parse_disabled_adapters(&config.outbound_disabled_adapters) {
         Ok(list) if !list.is_empty() => {
-            let total = list.len();
-            // 枚举包含禁用卡，不能把“出现在列表里”当作在线；仅 Connected 才需要
-            // 重做下线，Disabled 直接走启用，避免已禁用设备被再次打断。
-            let should_bounce = total == 1
-                && list.first().is_some_and(|row| {
-                    adapters.iter().any(|a| {
-                        a.name == row.name
-                            && a.status == crate::network::discovery::AdapterStatus::Connected
-                    })
-                });
-            let mut remaining: Vec<DisabledRow> = Vec::new();
             for row in list {
-                if should_bounce {
-                    match bounce_origin_adapter(app_handle, &row.name, &row.guid) {
-                        Ok(()) => {
-                            // 启用失败时 bounce 保留名单；不能用 Ok 反推现场已清空。
-                            if app_handle
-                                .state::<AppState>()
-                                .config
-                                .load()
-                                .outbound_disabled_adapters
-                                .is_empty()
-                            {
-                                crate::log_info!(
-                                    "outbound",
-                                    "夜间出站切换: 已重放原出口网卡下线与恢复 {}",
-                                    row.name
-                                );
-                            } else {
-                                any_fail = true;
-                                crate::log_warn!(
-                                    "outbound",
-                                    "重放原出口连接重置后 {} 仍未恢复启用，保留现场",
-                                    row.name
-                                );
-                                remaining.push(row);
-                            }
-                        }
-                        Err(reason) => {
-                            any_fail = true;
-                            remaining.push(row);
-                            crate::log_warn!("outbound", "重放原出口连接重置失败: {reason}");
-                        }
-                    }
-                } else {
-                    match enable_campus_adapter(&row.name, outbound_allow_uac()) {
-                        Ok(()) => crate::log_info!(
+                let online = adapters.iter().any(|a| {
+                    a.name == row.name && a.status == crate::network::discovery::AdapterStatus::Connected
+                });
+                if !online {
+                    continue;
+                }
+                match hold_origin_offline(app_handle, &row.name, &row.guid) {
+                    Ok(()) => crate::log_info!(
+                        "outbound",
+                        "夜间出站切换: 原出口网卡 {} 重新在线，已再次禁用（保持到还原）",
+                        row.name
+                    ),
+                    Err(reason) => {
+                        any_fail = true;
+                        crate::log_warn!(
                             "outbound",
-                            "夜间出站切换: 已恢复启用原出口网卡 {}",
+                            "夜间出站切换: 重新禁用原出口网卡 {} 失败: {reason}",
                             row.name
-                        ),
-                        Err(failure) => {
-                            note_channel_failure(&failure);
-                            any_fail = true;
-                            remaining.push(row);
-                        }
+                        );
                     }
                 }
-            }
-            if remaining.len() != total {
-                let json = if remaining.is_empty() {
-                    String::new()
-                } else {
-                    serde_json::to_string(&remaining).unwrap_or_default()
-                };
-                persist_config_update(app_handle, move |fresh| {
-                    fresh.outbound_disabled_adapters = json;
-                });
             }
         }
         Ok(_) => {}
         Err(e) => crate::log_warn!(
             "outbound",
-            "夜间出站切换: 禁用名单解析失败，跳过启用补做: {e}"
+            "夜间出站切换: 禁用名单解析失败，跳过原卡离线守护: {e}"
         ),
     }
     // —— 分支②：跃点补写 ——
@@ -1614,7 +1588,17 @@ pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::con
                 .push(row.family);
         }
         let mut encoded: Vec<String> = Vec::new();
+        // 切换态期间被禁用的原卡写不进跃点（接口不存在），它们由还原阶段启用后
+        // 按快照写回；这里跳过，否则每拍都会因为对禁用卡写入而失败。
+        let offline_guids: std::collections::HashSet<String> = parse_disabled_adapters(
+            &config.outbound_disabled_adapters,
+        )
+        .map(|rows| rows.into_iter().map(|row| row.guid).collect())
+        .unwrap_or_default();
         for (guid, families) in &by_guid {
+            if offline_guids.contains(guid) {
+                continue;
+            }
             let live = match crate::platform::metric::read_interface_metrics(guid) {
                 Ok(rows) => rows,
                 Err(e) => {
@@ -2304,25 +2288,29 @@ fn retarget_outbound_switch(app_handle: &AppHandle, adapter_name: &str) -> Resul
     // 新目标压到 1、当前出口抬到 100；原值留在快照里供最终还原统一写回。
     // 与首次切换共用顺序：先写新跃点，再下线旧出口，恢复后复写，杜绝上线抢回窗口。
     let families: Vec<u16> = target_rows.iter().map(|r| r.family).collect();
-    let mut encoded = encode_metric_rows(&adapter.guid, &families, 1);
-    if let Some((_, guid, rows)) = &origin_rows {
-        let origin_families: Vec<u16> = rows.iter().map(|r| r.family).collect();
-        encoded.extend(encode_metric_rows(
+    let target_only = encode_metric_rows(&adapter.guid, &families, 1);
+    let origin_metric = origin_rows.as_ref().map(|(_, guid, rows)| {
+        encode_metric_rows(
             guid,
-            &origin_families,
+            &rows.iter().map(|r| r.family).collect::<Vec<u16>>(),
             SWITCHED_ORIGIN_METRIC,
-        ));
-    }
-    if let Some((name, guid, _)) = &origin_rows {
-        mark_origin_bounce_pending(app_handle, name, guid)?;
-    }
-    run_metric_bounce_sequence(
+        )
+    });
+    run_switch_sequence(
         origin_rows.is_some(),
         false,
-        |_| run_set_metric(app_handle, &adapter.name, &encoded, false, ""),
+        |include_origin, _| {
+            let mut encoded = target_only.clone();
+            if include_origin {
+                if let Some(rows) = &origin_metric {
+                    encoded.extend(rows.clone());
+                }
+            }
+            run_set_metric(app_handle, &adapter.name, &encoded, false, "")
+        },
         || {
             if let Some((name, guid, _)) = &origin_rows {
-                bounce_origin_adapter(app_handle, name, guid)
+                hold_origin_offline(app_handle, name, guid)
             } else {
                 Ok(())
             }
@@ -2687,7 +2675,6 @@ mod tests {
     }
 
     /// 禁用网卡走 PnP 设备级禁用并轮询复核（USB 卡窗口 15s）：超时必须比通用写入宽，
-    /// 否则「卡已禁用但结果没回来」会判成失败，让切换在卡已下线的情况下反复重试。
     #[test]
     fn 禁用网卡_helper超时宽于普通写入() {
         assert!(helper_timeout_secs("disable_adapter") >= 30);
@@ -2818,49 +2805,50 @@ mod tests {
         );
     }
 
-    #[test]
-    fn 原出口下线保持覆盖连接断链与重连退避() {
-        assert!(
-            ORIGIN_DISABLE_HOLD_MS >= 5_000,
-            "1 秒不足以覆盖应用的断链感知和首轮重连退避"
-        );
-    }
 
     #[test]
-    fn 切换事务_先写跃点再下线_恢复后复核() {
+    fn 切换事务_先写跃点再下线_复写不含已禁用原卡() {
         let events = std::cell::RefCell::new(Vec::new());
-        run_metric_bounce_sequence(
+        run_switch_sequence(
             true,
             true,
-            |notify| {
-                events
-                    .borrow_mut()
-                    .push(if notify { "rewrite" } else { "write" });
+            |include_origin, notify| {
+                events.borrow_mut().push(if notify {
+                    "rewrite-without-origin"
+                } else if include_origin {
+                    "write-with-origin"
+                } else {
+                    "write"
+                });
                 Ok(())
             },
             || {
-                events.borrow_mut().push("bounce");
+                events.borrow_mut().push("offline");
                 Ok(())
             },
         )
         .unwrap();
-        assert_eq!(events.into_inner(), vec!["write", "bounce", "rewrite"]);
+        assert_eq!(
+            events.into_inner(),
+            vec!["write-with-origin", "offline", "rewrite-without-origin"],
+            "原卡下线后不能再对它的接口写跃点"
+        );
     }
 
     #[test]
     fn 切换事务_首次跃点失败不得下线原卡() {
-        let bounced = std::cell::Cell::new(false);
-        let result = run_metric_bounce_sequence(
+        let offline = std::cell::Cell::new(false);
+        let result = run_switch_sequence(
             true,
             false,
-            |_| Err("write failed".to_string()),
+            |_, _| Err("write failed".to_string()),
             || {
-                bounced.set(true);
+                offline.set(true);
                 Ok(())
             },
         );
         assert!(result.is_err());
-        assert!(!bounced.get());
+        assert!(!offline.get());
     }
 
     #[test]
