@@ -419,6 +419,8 @@
     "accessChannel": "执行通道",
     "accessChannelScope": "就寝守则、已保存 WiFi 名单",
     "accessGranted": "已授权",
+    "accessViaShizuku": "经 Shizuku 可用",
+    "accessViaRoot": "经 root 可用",
     "accessNotGranted": "未授权",
     "accessCopyGrant": "复制命令",
     "accessCopied": "已复制",

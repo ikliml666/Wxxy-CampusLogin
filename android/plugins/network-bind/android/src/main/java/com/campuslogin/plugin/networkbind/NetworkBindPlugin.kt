@@ -20,6 +20,8 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import com.campuslogin.plugin.monitorservice.CurfewChannel
+import com.campuslogin.plugin.monitorservice.CurfewShell
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -297,18 +299,15 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
      * 同键已有快照时不覆盖（保留最早的还原目标，避免嵌套写入互相冲掉）。
      */
     private fun applyNetworkSettingsCompat(context: Context): String? {
-        val cr = context.contentResolver
-        return try {
-            snapshotGlobalKey(context, KEY_CAPTIVE_PORTAL_MODE)
-            Settings.Global.putInt(cr, "captive_portal_mode", 0)
-            snapshotGlobalKey(context, KEY_AVOID_BAD_WIFI)
-            // 不"躲开"无网 WiFi，避免系统把默认路由切回蜂窝
-            Settings.Global.putInt(cr, "network_avoid_bad_wifi", 0)
+        snapshotGlobalKey(context, KEY_CAPTIVE_PORTAL_MODE)
+        snapshotGlobalKey(context, KEY_AVOID_BAD_WIFI)
+        // 不"躲开"无网 WiFi，避免系统把默认路由切回蜂窝
+        val captive = writeGlobal(KEY_CAPTIVE_PORTAL_MODE, "0")
+        val avoid = writeGlobal(KEY_AVOID_BAD_WIFI, "0")
+        return if (captive == "none" || avoid == "none") {
+            "write_failed:$captive/$avoid"
+        } else {
             null
-        } catch (e: Throwable) {
-            // 普通签名必然是 SecurityException（缺 WRITE_SECURE_SETTINGS）；
-            // 某些 ROM 还会把键列入不可写白名单
-            e.javaClass.simpleName + ":" + (e.message ?: "")
         }
     }
 
@@ -350,6 +349,52 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
         activity.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) ==
             PackageManager.PERMISSION_GRANTED
 
+    // ===== Settings.Global 写入通道：直写 → Shizuku shell → root =====
+    //
+    // WRITE_SECURE_SETTINGS 是 signature|privileged|development 权限，普通应用只能靠
+    // adb pm grant 一次性授予。但 Shizuku（shell uid 2000）与 root 同样能执行
+    // `settings put global`——已装 Shizuku 并授权的用户不该再被要求连电脑。
+    // 通道复用 monitor-service 插件的 CurfewShell（同一个 UserService 连接，避免重复 bind），
+    // 写前仍走 snapshotGlobalKey 记原值，还原语义与直写路径完全一致。
+
+    /** su 可用；结果缓存，root 状态在进程生命周期内不反复探测（每次探测要起一个 su 进程） */
+    private var rootReadyCache: Boolean? = null
+    private fun rootReady(): Boolean =
+        rootReadyCache ?: CurfewChannel.rootAvailable().also { rootReadyCache = it }
+
+    /** 是否具备写 Global 的能力（直写权限、Shizuku、root 任一可用） */
+    private fun canWriteGlobal(): Boolean =
+        hasWriteSecureSettings() || CurfewChannel.shizukuReady() || rootReady()
+
+    /** 当前可用的写入通道名：settings / shizuku / root / none */
+    private fun writeChannel(): String = when {
+        hasWriteSecureSettings() -> "settings"
+        CurfewChannel.shizukuReady() -> "shizuku"
+        rootReady() -> "root"
+        else -> "none"
+    }
+
+    /**
+     * 写一个 Settings.Global 键，返回实际使用的通道：settings / shizuku / root / none。
+     * 直写优先（有权限时最快）；SecurityException 或 ROM 白名单拒绝时再走 shell。
+     */
+    private fun writeGlobal(key: String, value: String): String {
+        if (hasWriteSecureSettings()) {
+            try {
+                Settings.Global.putString(activity.applicationContext.contentResolver, key, value)
+                return "settings"
+            } catch (e: Throwable) {
+                // 落到 shell 通道
+            }
+        }
+        val result = CurfewShell.execWithCode(
+            activity.applicationContext,
+            "settings put global $key $value",
+        ) ?: return "none"
+        if (result.first != 0) return "none"
+        return if (CurfewChannel.shizukuReady()) "shizuku" else "root"
+    }
+
     /** 快照是否存在（任一键待还原） */
     private fun hasPendingRestore(): Boolean =
         guardPrefs.contains(PREF_PREFIX + KEY_AVOID_BAD_WIFI) ||
@@ -362,14 +407,9 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
     private fun restoreGlobalKey(context: Context, key: String): String? {
         if (!guardPrefs.contains(PREF_PREFIX + key)) return null
         val prev = guardPrefs.getInt(PREF_PREFIX + key, 1)
-        val cr = context.contentResolver
-        return try {
-            Settings.Global.putInt(cr, key, prev)
-            guardPrefs.edit().remove(PREF_PREFIX + key).apply()
-            null
-        } catch (e: Throwable) {
-            e.javaClass.simpleName + ":" + (e.message ?: "")
-        }
+        if (writeGlobal(key, prev.toString()) == "none") return "write_failed"
+        guardPrefs.edit().remove(PREF_PREFIX + key).apply()
+        return null
     }
 
     /**
@@ -380,7 +420,7 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun ensureAvoidBadWifi(invoke: Invoke) {
         val ret = JSObject()
-        if (!hasWriteSecureSettings()) {
+        if (!canWriteGlobal()) {
             ret.put("ensured", false)
             ret.put("reason", "no_permission")
             invoke.resolve(ret)
@@ -401,18 +441,18 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve(ret)
             return
         }
-        try {
-            snapshotGlobalKey(context, KEY_AVOID_BAD_WIFI)
-            Settings.Global.putInt(context.contentResolver, KEY_AVOID_BAD_WIFI, 1)
-        } catch (e: Throwable) {
+        snapshotGlobalKey(context, KEY_AVOID_BAD_WIFI)
+        val channel = writeGlobal(KEY_AVOID_BAD_WIFI, "1")
+        if (channel == "none") {
             ret.put("ensured", false)
-            ret.put("reason", "write[${e.javaClass.simpleName}:${e.message ?: ""}]")
+            ret.put("reason", "write_failed")
             invoke.resolve(ret)
             return
         }
         ret.put("ensured", true)
         ret.put("changed", true)
         ret.put("previous", current)
+        ret.put("channel", channel)
         invoke.resolve(ret)
     }
 
@@ -469,6 +509,8 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
     fun getSecureSettingsStatus(invoke: Invoke) {
         val ret = JSObject()
         ret.put("granted", hasWriteSecureSettings())
+        ret.put("writable", canWriteGlobal())
+        ret.put("channel", writeChannel())
         ret.put(
             "avoidBadWifi",
             try {
@@ -493,6 +535,9 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
         val cr = activity.applicationContext.contentResolver
         val ret = JSObject()
         ret.put("granted", hasWriteSecureSettings())
+        // writable 才是「能不能改」的判据：没 grant 但有 Shizuku/root 时照样可写
+        ret.put("writable", canWriteGlobal())
+        ret.put("channel", writeChannel())
         ret.put("mode", Settings.Global.getString(cr, KEY_PRIVATE_DNS_MODE) ?: "opportunistic")
         ret.put("specifier", Settings.Global.getString(cr, KEY_PRIVATE_DNS_SPECIFIER) ?: "")
         invoke.resolve(ret)
@@ -512,35 +557,37 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
         val host = (parsed.host ?: "").trim()
         val cr = activity.applicationContext.contentResolver
         val ret = JSObject()
-        try {
-            when (mode) {
-                "off" -> Settings.Global.putString(cr, KEY_PRIVATE_DNS_MODE, "off")
-                "auto" -> Settings.Global.putString(cr, KEY_PRIVATE_DNS_MODE, "opportunistic")
-                "hostname" -> {
-                    if (host.isEmpty()) {
-                        ret.put("ok", false)
-                        ret.put("reason", "empty_host")
-                        invoke.resolve(ret)
-                        return
-                    }
-                    Settings.Global.putString(cr, KEY_PRIVATE_DNS_SPECIFIER, host)
-                    Settings.Global.putString(cr, KEY_PRIVATE_DNS_MODE, "hostname")
-                }
-                else -> {
+        val channel = when (mode) {
+            "off" -> writeGlobal(KEY_PRIVATE_DNS_MODE, "off")
+            "auto" -> writeGlobal(KEY_PRIVATE_DNS_MODE, "opportunistic")
+            "hostname" -> {
+                if (host.isEmpty()) {
                     ret.put("ok", false)
-                    ret.put("reason", "unknown_mode")
+                    ret.put("reason", "empty_host")
                     invoke.resolve(ret)
                     return
                 }
+                // 顺序有意为之：**先写 specifier 再写 mode**——系统在 mode=hostname 且
+                // specifier 为空时会忽略该配置，先切模式等于写了个无效状态
+                val specifierChannel = writeGlobal(KEY_PRIVATE_DNS_SPECIFIER, host)
+                if (specifierChannel == "none") specifierChannel else writeGlobal(KEY_PRIVATE_DNS_MODE, "hostname")
             }
-        } catch (e: SecurityException) {
+            else -> {
+                ret.put("ok", false)
+                ret.put("reason", "unknown_mode")
+                invoke.resolve(ret)
+                return
+            }
+        }
+        if (channel == "none") {
             ret.put("ok", false)
-            ret.put("reason", "missing_write_secure_settings")
+            ret.put("reason", if (canWriteGlobal()) "write_failed" else "missing_write_secure_settings")
             invoke.resolve(ret)
             return
         }
         // 读回实际落库值：个别 ROM 会拒绝写入 @hide key 而不抛异常，读回才能确认生效
         ret.put("ok", true)
+        ret.put("channel", channel)
         ret.put("mode", Settings.Global.getString(cr, KEY_PRIVATE_DNS_MODE) ?: "")
         ret.put("specifier", Settings.Global.getString(cr, KEY_PRIVATE_DNS_SPECIFIER) ?: "")
         invoke.resolve(ret)

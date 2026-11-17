@@ -183,6 +183,10 @@ export interface SavedWifiNetworksResult {
 export interface AvoidBadWifiStatus {
   /** WRITE_SECURE_SETTINGS 是否已授予（用户 adb pm grant 后为 true） */
   granted: boolean
+  /** 能否写入：直写权限或 Shizuku/root 通道任一可用 */
+  writable?: boolean
+  /** 实际可用的写入通道 */
+  channel?: WriteChannel
   /** 当前 network_avoid_bad_wifi 值（-1 = 读不到） */
   avoidBadWifi: number
   /** 插件快照：avoid_bad_wifi 待还原（夜间出站切换写入的原值） */
@@ -212,9 +216,16 @@ export interface CurfewPermissionResult {
   reason?: string
 }
 
+/** Settings.Global 的写入通道：直写权限 / Shizuku / root / 都不可用 */
+export type WriteChannel = 'settings' | 'shizuku' | 'root' | 'none'
+
 export interface PrivateDnsStatus {
   /** WRITE_SECURE_SETTINGS 是否已授予（用户 adb pm grant 后为 true） */
   granted: boolean
+  /** 能否写入：直写权限或 Shizuku/root 通道任一可用 */
+  writable?: boolean
+  /** 实际可用的写入通道 */
+  channel?: WriteChannel
   /** 系统内部值：off / opportunistic（界面上的「自动」）/ hostname（指定主机） */
   mode: string
   /** mode=hostname 时的 DoT 主机名，其余情况为空串 */
@@ -223,10 +234,12 @@ export interface PrivateDnsStatus {
 
 export interface SetPrivateDnsResult {
   ok: boolean
+  /** 实际使用的写入通道 */
+  channel?: WriteChannel
   /** 写入后读回的实际值 */
   mode?: string
   specifier?: string
-  /** 失败原因：missing_write_secure_settings / empty_host / unknown_mode */
+  /** 失败原因：missing_write_secure_settings / write_failed / empty_host / unknown_mode */
   reason?: string
 }
 

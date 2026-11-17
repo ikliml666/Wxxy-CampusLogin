@@ -22,4 +22,7 @@ android {
 
 dependencies {
     implementation(project(":tauri-android"))
+    // Settings.Global 写入的 shell 通道：复用 monitor-service 的 CurfewShell（Shizuku/root），
+    // 与守则共用同一个 UserService 连接，不重复 bind
+    implementation(project(":tauri-plugin-campus-monitor-service"))
 }

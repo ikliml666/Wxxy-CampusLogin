@@ -1964,3 +1964,22 @@ cmd wifi status → Wifi is enabled   ← 保持连接，未制造断网
 - mock 增补 `get_avoid_bad_wifi_status` 与 `?secure=off` / `?shizuku=denied|missing` 开关（`android/frontend/tauri-mock.js`）——新增的状态源在浏览器里原本恒 reject，无法验证未授权分支。
 - 真机（25060RK16C / Android 17）装 release 包复测：权限卡位于网络页首屏；「系统设置写入」显示「未授权」+ 完整 `pm grant` 命令（两行）与复制按钮，「执行通道」显示「Shizuku 已授权」——与设备实际状态（Shizuku 已授权、`WRITE_SECURE_SETTINGS` 未授予）一致。
 
+### 行为调整：Settings.Global 写入改走 Shizuku/root，免 adb 授权（2026-11-17，安卓）
+
+**为什么**：私人 DNS 与夜间自动切换写的是 `Settings.Global`，需要 `WRITE_SECURE_SETTINGS`——普通应用只能靠 `adb pm grant` 一次性授予。但设备上 Shizuku 早已授权（`shizuku_server` 以 root 身份运行），它本来就能执行 `settings put global`，用户却还被要求连电脑手动授权。用户直接质疑「有 Shizuku 权限不能自动执行吗」。
+
+**改了什么**：
+
+- `NetworkBindPlugin.kt`：新增统一写入通道 `writeGlobal(key, value)`——有 `WRITE_SECURE_SETTINGS` 时直写（最快），否则以 shell 身份执行 `settings put global <key> <value>`（Shizuku 优先、回落 root），返回实际通道 `settings|shizuku|root|none`。`applyNetworkSettingsCompat`、`restoreGlobalKey`、`ensureAvoidBadWifi`、`setPrivateDns` 全部改走它，快照还原语义不变。
+- 通道复用 monitor-service 插件的 `CurfewShell`（新增 `execWithCode`：空输出也按退出码判定，`settings put` 成功时不打印任何东西）；`CurfewShell` 从 `internal` 提升为 public，`network-bind` 通过 gradle project 依赖共享同一个 UserService 连接，不再各自 bind。
+- 状态查询 `getPrivateDnsStatus` / `getSecureSettingsStatus` 增加 `writable`（任一通道可用）与 `channel`；`setPrivateDns` 返回 `channel`，失败原因区分 `missing_write_secure_settings`（无任何通道）与 `write_failed`（有通道但写失败）。
+- 前端：权限卡「系统设置写入」按 `writable` 判定，状态标签三态——已授权 / 经 Shizuku 可用 / 经 root 可用；只有全通道不可用时才显示 adb 命令；私人 DNS 卡的「需要权限」提示同步改为按 `writable` 判定。mock 增加 `?secure=shizuku` 分支与 `set_private_dns` 实现。
+**验证**：
+
+- 插件编译：`./gradlew :tauri-plugin-campus-network-bind:compileDebugKotlin` → BUILD SUCCESSFUL。
+- 真机（25060RK16C / Android 17，Shizuku 已授权、未 grant `WRITE_SECURE_SETTINGS`）：权限卡「系统设置写入」显示「经 Shizuku 可用」，「执行通道」显示「Shizuku 已授权」——`writable` 判定与设备实际一致。
+- 通道等价验证：以 shell 身份（`adb shell`，与 Shizuku UserService 同为特权 uid）执行 `settings put global private_dns_specifier dns.alidns.com` + `private_dns_mode hostname`，读回 `hostname` / `dns.alidns.com`；随后还原为 `off` 与原 specifier。证明该通道确实具备写 `Settings.Global` 的能力。
+- **未验证**：真机界面上点「阿里 DNS」按钮的端到端写入未复现——`adb shell input tap` 注入的点击在该 WebView 的滚动内容区不触发按钮（底部导航与「选择网络」可触发，tap / touchscreen tap / 长按式 swipe 多次均无效），自动化无法完成点击。功能路径为「按钮 onClick → `setPrivateDns` → `writeGlobal` → `CurfewShell.execWithCode`」，前端链路未改动，需在真机上手动点一次确认。
+
+
+

@@ -1,4 +1,4 @@
-import type { CurfewChannelStatus } from '@/hooks/tauriApi'
+import type { CurfewChannelStatus, WriteChannel } from '@/hooks/tauriApi'
 import { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { AnimatedCard } from '@/components/ui/animated-card'
 import { Badge } from '@/components/ui/badge'
@@ -30,8 +30,10 @@ const CHANNEL_OPTIONS: { key: ChannelMode; labelKey: string }[] = [
 export interface AccessCardProps {
   /** Shizuku / root 通道状态；null = 还没读到 */
   channel: CurfewChannelStatus | null
-  /** WRITE_SECURE_SETTINGS 是否已授予；null = 未知 */
-  secureSettingsGranted: boolean | null
+  /** 系统设置能否写入（直写权限或 Shizuku/root 任一可用）；null = 未知 */
+  secureSettingsWritable: boolean | null
+  /** 系统设置实际使用的写入通道 */
+  secureSettingsChannel: WriteChannel | null
   channelRequesting: boolean
   adbCopied: boolean
   channelMode: ChannelMode
@@ -107,7 +109,8 @@ function AccessRow({
  */
 export const AccessCard = memo(function AccessCard({
   channel,
-  secureSettingsGranted,
+  secureSettingsWritable,
+  secureSettingsChannel,
   channelRequesting,
   adbCopied,
   channelMode,
@@ -123,7 +126,15 @@ export const AccessCard = memo(function AccessCard({
   const rootReady = channel?.root === true
   const channelReady =
     channelMode === 'adb' ? shizukuReady : channelMode === 'root' ? rootReady : shizukuReady || rootReady
-  const secureReady = secureSettingsGranted === true
+  const secureReady = secureSettingsWritable === true
+  // 没 grant 但走 Shizuku/root 也照实说：用户不需要再连电脑
+  const secureLabel = secureReady
+    ? secureSettingsChannel === 'shizuku'
+      ? t('network.accessViaShizuku')
+      : secureSettingsChannel === 'root'
+        ? t('network.accessViaRoot')
+        : t('network.accessGranted')
+    : t('network.accessNotGranted')
 
   const channelLabel = channelReady
     ? channelMode === 'root' || !shizukuReady
@@ -172,7 +183,7 @@ export const AccessCard = memo(function AccessCard({
           title={t('network.accessSecureSettings')}
           scope={t('network.accessSecureSettingsScope')}
           ready={secureReady}
-          statusLabel={secureReady ? t('network.accessGranted') : t('network.accessNotGranted')}
+          statusLabel={secureLabel}
         >
           {!secureReady && (
             <>

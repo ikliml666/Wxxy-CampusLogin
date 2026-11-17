@@ -371,8 +371,9 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
     void refreshAvoidStatus()
   }, [refreshDot, refreshCurfewChannel, refreshAvoidStatus])
 
-  // 写权限以 avoid_bad_wifi 状态为准（与私人 DNS 同一条权限），读不到时退回 DNS 状态里的 granted
-  const secureSettingsGranted = avoidStatus?.granted ?? dotStatus?.granted ?? null
+  // 能否改系统设置：直写权限或 Shizuku/root 通道（两者同源，任一读到即可）
+  const secureSettingsWritable = avoidStatus?.writable ?? dotStatus?.writable ?? null
+  const secureSettingsChannel = avoidStatus?.channel ?? dotStatus?.channel ?? null
 
   // ===== 系统已保存的 WiFi（断开/放行名单的数据源）=====
   // 读取与执行同走 Shizuku/root 通道；通道未就绪时报错并给重试，不显示误导性的空名单
@@ -527,7 +528,8 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
       <div className="card-enter" style={{ '--stagger-i': 1 } as React.CSSProperties}>
         <AccessCard
           channel={curfewChannel}
-          secureSettingsGranted={secureSettingsGranted}
+          secureSettingsWritable={secureSettingsWritable}
+          secureSettingsChannel={secureSettingsChannel}
           channelRequesting={curfewRequesting}
           adbCopied={adbCopied}
           channelMode={config.wifiCurfewChannel ?? 'auto'}
@@ -779,7 +781,7 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                   ))}
                 </div>
               </div>
-              {dotStatus && !dotStatus.granted && (
+              {dotStatus && dotStatus.writable !== true && (
                 <p className="text-[11px] text-amber-600">{t('network.privateDnsNeedGrantShort')}</p>
               )}
             </div>

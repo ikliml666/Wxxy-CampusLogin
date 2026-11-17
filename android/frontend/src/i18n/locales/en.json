@@ -419,6 +419,8 @@
     "accessChannel": "Execution channel",
     "accessChannelScope": "Bedtime curfew, saved Wi-Fi list",
     "accessGranted": "Granted",
+    "accessViaShizuku": "Available via Shizuku",
+    "accessViaRoot": "Available via root",
     "accessNotGranted": "Not granted",
     "accessCopyGrant": "Copy command",
     "accessCopied": "Copied",

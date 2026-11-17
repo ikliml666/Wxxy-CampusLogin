@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
  * 抽成单例的原因：守则执行器与 SSID 读取都要跑 `cmd wifi` 命令，各自持一份连接会
  * 在同一进程里同时对同一个 UserService bind 两次。
  */
-internal object CurfewShell {
+object CurfewShell {
     private const val TAG = "CurfewShell"
     private const val SHELL_WAIT_MS = 8000L
 
@@ -57,6 +57,29 @@ internal object CurfewShell {
             dropChannel()
             null
         }
+    }
+
+    /**
+     * 执行并返回 (退出码, 原始输出)；没有可用通道返回 null。
+     *
+     * 与 [exec] 的区别：**空输出也算成功**——`settings put` 成功时不打印任何东西，
+     * 不能拿「有没有输出」当成败判据。跨插件使用（network-bind 写 Settings.Global）。
+     */
+    fun execWithCode(context: Context, command: String): Pair<Int, String>? {
+        shellChannel(context)?.let { remote ->
+            val out = try {
+                remote.exec(command)
+            } catch (e: Throwable) {
+                Log.w(TAG, "shell 命令执行失败: " + command, e)
+                dropChannel()
+                null
+            }
+            if (out != null) {
+                val code = out.substringAfter("exit=", "").lineSequence().first().trim().toIntOrNull()
+                if (code != null) return code to out
+            }
+        }
+        return withRootCapture(context, command)
     }
 
     /** 断开当前 WiFi 连接（WiFi 开关与已存配置都保留）；无通道返回 null */
@@ -140,6 +163,16 @@ internal object CurfewShell {
         val err = process.errorStream.bufferedReader().readText()
         val code = process.waitFor()
         if (out.isNotBlank() || err.isNotBlank()) "exit=$code\n$out$err" else null
+    } catch (e: Throwable) {
+        null
+    }
+
+    /** root 回退：空输出同样按退出码判定（execWithCode 专用） */
+    private fun withRootCapture(context: Context, command: String): Pair<Int, String>? = try {
+        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+        val out = process.inputStream.bufferedReader().readText()
+        val err = process.errorStream.bufferedReader().readText()
+        process.waitFor() to (out + err)
     } catch (e: Throwable) {
         null
     }

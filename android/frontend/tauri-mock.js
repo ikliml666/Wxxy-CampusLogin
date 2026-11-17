@@ -169,14 +169,36 @@
       return { action: cfg.dryRun ? 'would-wifi-off' : 'wifi-off', channel: 'shizuku', currentSsid: 'kiku-5G', tried: tried }
     },
     test_wifi_switch: function (args) { return { ok: true, detail: 'mock switch ' + (args && args.enable) } },
-    // ?secure=off 模拟缺 WRITE_SECURE_SETTINGS：权限卡应显示「未授权 + adb 命令」
+    // ?secure=off 模拟全通道不可用（未授权 + adb 命令）；
+    // ?secure=shizuku 模拟没 grant 但 Shizuku 可写（权限卡应显示「经 Shizuku 可用」）
     get_private_dns_status: function () {
-      var granted = window.location.search.indexOf('secure=off') < 0
-      return { granted: granted, mode: 'opportunistic', specifier: '' }
+      var q = window.location.search
+      var granted = q.indexOf('secure=off') < 0 && q.indexOf('secure=shizuku') < 0
+      var channel = granted ? 'settings' : q.indexOf('secure=shizuku') >= 0 ? 'shizuku' : 'none'
+      return { granted: granted, writable: channel !== 'none', channel: channel, mode: 'opportunistic', specifier: '' }
+    },
+    set_private_dns: function (args) {
+      var mode = (args && args.mode) || 'auto'
+      var host = (args && args.host) || ''
+      return {
+        ok: true,
+        channel: window.location.search.indexOf('secure=shizuku') >= 0 ? 'shizuku' : 'settings',
+        mode: mode === 'auto' ? 'opportunistic' : mode,
+        specifier: host,
+      }
     },
     get_avoid_bad_wifi_status: function () {
-      var granted = window.location.search.indexOf('secure=off') < 0
-      return { granted: granted, avoidBadWifi: 1, pendingRestoreAvoid: false, pendingRestoreCaptive: false }
+      var q = window.location.search
+      var granted = q.indexOf('secure=off') < 0 && q.indexOf('secure=shizuku') < 0
+      var channel = granted ? 'settings' : q.indexOf('secure=shizuku') >= 0 ? 'shizuku' : 'none'
+      return {
+        granted: granted,
+        writable: channel !== 'none',
+        channel: channel,
+        avoidBadWifi: 1,
+        pendingRestoreAvoid: false,
+        pendingRestoreCaptive: false,
+      }
     },
     save_config: function (args) {
       if (args && args.config) {

@@ -79,14 +79,15 @@ impl<R: Runtime> CampusNetworkBind<R> {
         self.0.run_mobile_plugin("getSecureSettingsStatus", ())
     }
 
-    /// 读取系统私人 DNS（DoT）设置：`{granted, mode, specifier}`。
-    /// 读不需权限；granted=false 表示写通道不可用（缺 WRITE_SECURE_SETTINGS）。
+    /// 读取系统私人 DNS（DoT）设置：`{granted, writable, channel, mode, specifier}`。
+    /// 读不需权限；writable=false 表示直写、Shizuku、root 三条通道都不可用。
     pub fn get_private_dns_status(&self) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin("getPrivateDnsStatus", ())
     }
 
     /// 写入系统私人 DNS。mode = "off" | "auto" | "hostname"，hostname 时 host 为 DoT 主机名。
-    /// 返回 `{ok, mode, specifier, reason?}`；缺权限时 reason=missing_write_secure_settings。
+    /// 返回 `{ok, channel, mode, specifier, reason?}`；无任何写入通道时
+    /// reason=missing_write_secure_settings，有通道但写失败时 reason=write_failed。
     pub fn set_private_dns(&self, mode: &str, host: &str) -> Result<serde_json::Value> {
         self.0.run_mobile_plugin(
             "setPrivateDns",
