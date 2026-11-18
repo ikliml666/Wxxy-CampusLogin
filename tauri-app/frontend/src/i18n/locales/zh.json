@@ -282,8 +282,6 @@
   },
   "network": {
     "networkAdapters": "网络适配器",
-    "detectedCount": "检测到 {{count}} 个网络适配器",
-    "detectedCountWithDisabled": "检测到 {{count}} 个网络适配器，{{disabled}} 个未连接/已禁用",
     "noAdapters": "未检测到网络适配器",
     "noAdaptersTip": "请检查网络连接状态",
     "noIp": "未获取IP",
@@ -368,7 +366,6 @@
     "dnsResetFailed": "恢复自动获取失败",
     "dhcpRenewFailed": "DHCP 续租失败",
     "nightOutboundSwitch": "夜间出站切换",
-    "nightOutboundSwitchDesc": "周日至周四 23:00、周五六 23:30 自动切到非校园网网卡；当前出口连续两轮不可达也会立即切换。夜间切换会禁用目标卡以外的全部网卡并保持到还原（既有连接因此全部重连到新出口），次日 {{time}} 启用并按切换前的快照还原跃点。卡片顶部的按钮可随时手动切换/还原，误操作也能一键回切",
     "nightSwitchNow": "夜晚切换",
     "nightSwitchNowHint": "立即执行夜间切换：禁用目标卡以外的全部网卡并保持到还原",
     "nightSwitchSuccess": "已切换到夜间出站",
@@ -388,7 +385,6 @@
     "internetOffline": "外网不通",
 
     "internetCheckedAt": "该卡最近一次公网检测：{{time}}",
-    "outboundTargetHint": "点行内月亮图标指定夜间出站目标（默认 WLAN）；列表按跃点从低到高排列，每页最多 3 张卡",
     "wifiCurfew": "WiFi 连接管控",
     "wifiCurfewDesc": "周日至周四 23:00、周五六 23:30 起断开下列 WiFi 并停止自动重连，次日 {{time}} 恢复。只有名单里的 WiFi 会受影响，系统里其它网络配置不改",
     "wifiCurfewExcluded": "就寝时段断开的 WiFi",
@@ -407,7 +403,6 @@
     "wifiCurfewRestoreHint": "恢复时刻与夜间出站切换共用，改上方「还原时刻」即可",
     "wifiCurfewWildcardHint": "填 * 表示除「仍可连接的 WiFi」外全部断开",
     "nightRestoreTime": "还原时刻",
-    "nightRestoreTimeDesc": "次日恢复校园网出站并重新登录的时刻（默认 07:30）",
     "outboundBadge": "夜间出站目标",
     "outboundAdminHint": "切换动作将通过计划任务静默完成，需要管理员权限",
     "currentOutboundBadge": "当前出站",
