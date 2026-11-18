@@ -29,6 +29,13 @@ pub fn in_curfew_window_now(restore_start: u32) -> bool {
     in_curfew_window(weekday, now_minutes, restore_start)
 }
 
+/// 该 SSID 是否在放行名单里（就寝时段保留它、并作为断开后的切换目标）。
+pub fn ssid_allowed(allowed: &[String], ssid: &str) -> bool {
+    allowed
+        .iter()
+        .any(|a| a != "*" && a.eq_ignore_ascii_case(ssid))
+}
+
 /// 当前 SSID 是否被就寝守则阻断。
 ///
 /// 规则：命中排除列表且不在允许列表 → 阻断。排除列表含 `"*"` 时表示
@@ -38,7 +45,7 @@ pub fn ssid_blocked(excluded: &[String], allowed: &[String], ssid: &str) -> bool
     if ssid.is_empty() {
         return false;
     }
-    if allowed.iter().any(|a| a.eq_ignore_ascii_case(ssid)) {
+    if ssid_allowed(allowed, ssid) {
         return false;
     }
     excluded
@@ -52,6 +59,14 @@ mod tests {
 
     fn v(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn allowed_matches_case_insensitively_and_ignores_wildcard() {
+        assert!(ssid_allowed(&v(&["Dorm-5G"]), "dorm-5g"));
+        // `*` 只对排除列表有意义，出现在放行列表里不应该把所有网络都放行
+        assert!(!ssid_allowed(&v(&["*"]), "campus"));
+        assert!(!ssid_allowed(&[], "campus"));
     }
 
     #[test]

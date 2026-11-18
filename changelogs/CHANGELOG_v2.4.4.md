@@ -1,3 +1,23 @@
+### 行为调整：就寝守则断开后自动连到放行名单（2026-11-18，桌面）
+
+**为什么**：此前窗口内只做「断开」——校园网一断，机器整晚没有无线可用，而用户明明是有一台放行名单里的宿舍路由器可用的。安卓端（`WifiCurfewRunner.kt`）一直是「断开 → 连放行名单」，桌面缺这一步，双端语义不一致。
+
+**改了什么**
+
+- `config/wifi_curfew.rs` 抽出 `ssid_allowed(allowed, ssid)`（`*` 不参与匹配），`ssid_blocked` 改为复用它。
+- `monitor/wifi_curfew.rs` 单拍流程改为：当前 SSID 已在放行名单 → 什么都不做；否则断开 → 从放行名单里挑**系统已保存**的候选发起 `netsh wlan connect`。
+  - 候选筛选 `connect_candidates(saved, allowed)`：保持名单顺序、跳过没保存过的（连不上）与 `*`。
+  - **每拍轮转一个候选**（`CONNECT_CURSOR`，窗口结束时归零）：`netsh wlan connect` 只表示请求已提交，若第一个候选信号弱连不上，不轮转就会永远死磕它、名单里第二个永远轮不到。
+  - 读不到当前 SSID（Win11 关位置服务）时本拍不切换——不知道要切谁，乱切可能把正在用的放行网络踢掉。
+  - 名单非空但一个候选都没有时只断不切，并记警告说明原因（名单里的网络得先在系统里连过一次才有 profile）。
+- 前端文案改为「断开后会自动连到这里，按列表顺序尝试」，卡片描述同步；桌面与安卓语义已一致。
+
+**验证**
+
+- `cargo test`：lib **681 passed; 0 failed; 4 ignored**（新增 `candidates_keep_order_and_drop_unknown`、`allowed_matches_case_insensitively_and_ignores_wildcard`）。
+- `npx tsc --noEmit --incremental` 通过；`npx vitest run` **127 passed**；`npx vite build` 成功。
+- 未验证：真实窗口内「断开→连上宿舍路由器→次日还原」的完整链路（需要等到 23:00，或在真机上手动执行一次守则）。
+
 ### 行为调整：WiFi 就寝守则名单改为从系统已保存的 WiFi 勾选（2026-11-18，桌面）
 
 **为什么**：名单此前靠手输 SSID，用户写「i-wxxy」而系统里是「i-wxxy 」或少个空格，`ssid_blocked` 按字符串比较就永远不命中——守则形同虚设，而且从界面上看不出来错在哪。系统里每个连过的网络都有 WLAN profile，名字是唯一权威来源，直接读它并勾选就不会有拼写差异。

@@ -135,6 +135,36 @@ fn set_connection_mode(ssid: &str, mode: &str) -> Result<(), String> {
     }
 }
 
+/// 连到指定 profile（name 即 SSID；profile 必须已保存）。
+fn connect_profile(ssid: &str) -> Result<(), String> {
+    let output = crate::network::discovery::new_command("netsh")
+        .args(["wlan", "connect", &format!("name={ssid}")])
+        .output()
+        .map_err(|e| format!("调用 netsh 失败: {e}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(netsh_detail(&output))
+    }
+}
+
+/// 断开后切到放行名单时的候选轮转下标。
+///
+/// `netsh wlan connect` 只是"请求已提交"，真正连上要几秒——若每拍都死磕
+/// 同一个连不上的网络（信号弱/密码错），名单里的第二个就永远轮不到。
+/// 每拍前进一格，窗口结束时归零。
+static CONNECT_CURSOR: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+
+/// 放行名单里那些「系统已保存、可以直接连」的候选，保持名单顺序。
+fn connect_candidates(saved: &[String], allowed: &[String]) -> Vec<String> {
+    allowed
+        .iter()
+        .filter(|a| a.as_str() != "*")
+        .filter(|a| saved.iter().any(|s| s.eq_ignore_ascii_case(a)))
+        .cloned()
+        .collect()
+}
+
 fn disconnect_current() -> Result<(), String> {
     let output = crate::network::discovery::new_command("netsh")
         .args(["wlan", "disconnect"])
@@ -160,6 +190,10 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
     let mut snapshot = parse_snapshot(&config.wifi_curfew_profile_restore);
 
     if !active {
+        // 出窗：轮转下标归零，下一晚从名单第一个重新试
+        if let Ok(mut cursor) = CONNECT_CURSOR.lock() {
+            *cursor = 0;
+        }
         if snapshot.is_empty() {
             return;
         }
@@ -177,15 +211,15 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
         }
     };
     let mut changed = false;
-    for ssid in profiles {
+    for ssid in &profiles {
         if !crate::config::wifi_curfew::ssid_blocked(
             &config.wifi_curfew_excluded,
             &config.wifi_curfew_allowed,
-            &ssid,
+            ssid,
         ) {
             continue;
         }
-        if snapshot.iter().any(|entry| entry.ssid == ssid) {
+        if snapshot.iter().any(|entry| &entry.ssid == ssid) {
             continue;
         }
         match read_connection_mode(&ssid) {
@@ -214,22 +248,54 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
         persist_snapshot(app_handle, &snapshot);
     }
 
-    // 断开当前连接：只在当前 SSID 命中阻断时动手，避免误断允许列表里的网络
-    match crate::network::subnet::get_wireless_ssid() {
-        Ok(Some(ssid))
-            if crate::config::wifi_curfew::ssid_blocked(
-                &config.wifi_curfew_excluded,
-                &config.wifi_curfew_allowed,
-                &ssid,
-            ) =>
-        {
-            match disconnect_current() {
-                Ok(()) => crate::log_info!("wifi_curfew", "就寝守则: 已断开 {ssid}"),
-                Err(e) => crate::log_warn!("wifi_curfew", "断开 {ssid} 失败: {e}"),
-            }
+    // 断开并切到放行名单：断开被阻断的当前连接，再主动连一个放行的网络。
+    // 只断开不连接的话，机器整晚没有无线可用（校园网一断，放行名单里那台
+    // 宿舍路由器本来是用户在用的，得替他连回去）。
+    let current = match crate::network::subnet::get_wireless_ssid() {
+        Ok(v) => v,
+        Err(e) => {
+            // 读不到就不知道要切谁，本拍不动——乱切可能把正在用的放行网络踢掉
+            crate::log_warn!("wifi_curfew", "查询当前 WiFi 失败，本拍不切换: {e}");
+            return;
         }
-        Ok(_) => {}
-        Err(e) => crate::log_warn!("wifi_curfew", "查询当前 WiFi 失败: {e}"),
+    };
+    let already_allowed = current
+        .as_deref()
+        .is_some_and(|s| crate::config::wifi_curfew::ssid_allowed(&config.wifi_curfew_allowed, s));
+
+    if let Some(ssid) = current.as_deref().filter(|_| !already_allowed) {
+        match disconnect_current() {
+            Ok(()) => crate::log_info!("wifi_curfew", "就寝守则: 已断开 {ssid}"),
+            Err(e) => crate::log_warn!("wifi_curfew", "断开 {ssid} 失败: {e}"),
+        }
+    }
+
+    if already_allowed {
+        return;
+    }
+    let candidates = connect_candidates(&profiles, &config.wifi_curfew_allowed);
+    if candidates.is_empty() {
+        // 没有可连的放行网络：只断不切。名单里的网络必须先在系统里连过一次
+        // （有 profile），否则 netsh 连不上，这一点靠日志说清
+        if !config.wifi_curfew_allowed.is_empty() {
+            crate::log_warn!(
+                "wifi_curfew",
+                "放行名单里的网络在本机都没有保存过，无法自动连接: {:?}",
+                config.wifi_curfew_allowed
+            );
+        }
+        return;
+    }
+    let index = {
+        let mut cursor = CONNECT_CURSOR.lock().unwrap_or_else(|e| e.into_inner());
+        let index = *cursor % candidates.len();
+        *cursor = cursor.wrapping_add(1);
+        index
+    };
+    let target = &candidates[index];
+    match connect_profile(target) {
+        Ok(()) => crate::log_info!("wifi_curfew", "就寝守则: 已请求连接放行网络 {target}"),
+        Err(e) => crate::log_warn!("wifi_curfew", "连接放行网络 {target} 失败: {e}"),
     }
 }
 
@@ -272,6 +338,20 @@ fn persist_snapshot(app_handle: &AppHandle, entries: &[ProfileSnapshot]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn candidates_keep_order_and_drop_unknown() {
+        let saved = vec!["Dorm-5G".to_string(), "campus".to_string()];
+        let allowed = vec![
+            "not-saved".to_string(),
+            "dorm-5g".to_string(),
+            "*".to_string(),
+            "campus".to_string(),
+        ];
+        // 没保存过的连不上、`*` 不是网络名：都跳过，顺序按放行名单
+        assert_eq!(connect_candidates(&saved, &allowed), vec!["dorm-5g".to_string(), "campus".to_string()]);
+        assert!(connect_candidates(&saved, &[]).is_empty());
+    }
 
     #[test]
     fn snapshot_roundtrip() {
