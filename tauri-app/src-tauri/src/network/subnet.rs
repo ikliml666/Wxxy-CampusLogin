@@ -65,12 +65,16 @@ fn get_wireless_ssid_uncached() -> Result<Option<String>, String> {
     // Win11 位置服务关闭时 netsh wlan 报位置权限错误（实测退出码 1 且带
     // 中文提示），必须在退出码检查之前识别，否则被"退出码非 0"分支吞掉
     if stdout.contains("位置权限") || stdout.to_lowercase().contains("location permission") {
-        // 免定位兜底：WLAN-AutoConfig 事件日志不经过位置权限检查（2026-11-18
-        // 本机实测：netsh 被拒的同一台机器上事件日志照常给出真实 SSID）
+        // 免定位兜底，按优先级：NLA COM（实时连接状态）→ WLAN 事件日志（最近事件推断）。
+        // 2026-11-18 本机实测：netsh 被拒的同一台机器上两者均给出真实 SSID；
+        // NLA 反映实时状态无事件日志的陈旧读数缺陷，故优先。
+        if let Ok(v) = ssid_from_nla() {
+            return Ok(v);
+        }
         return match ssid_from_wlan_eventlog() {
             Ok(v) => Ok(v),
             Err(reason) => {
-                warn_ssid_query_failed(&format!("系统位置服务未开启，事件日志兜底不可用（{reason}）"));
+                warn_ssid_query_failed(&format!("系统位置服务未开启，NLA 与事件日志兜底均不可用（{reason}）"));
                 Ok(None)
             }
         };
@@ -100,7 +104,98 @@ fn get_wireless_ssid_uncached() -> Result<Option<String>, String> {
     Ok(None)
 }
 
-/// Win11 关位置服务时 netsh 拿不到 SSID 的兜底：查 WLAN-AutoConfig 操作日志的
+/// Win11 关位置服务时 netsh 拿不到 SSID 的首选兜底：NLA（网络位置感知）
+/// NetworkListManager COM——网络名不在位置权限管控栈内（2026-11-18 本机实测：
+/// netsh 被拒的同一台机器上 COM 枚举给出真实 SSID，且反映实时连接状态）。
+/// WiFi 网络的 NLA 网络名默认即 SSID；按「无线适配器 GUID」过滤，避免把
+/// VPN TUN / 有线网的 NLA 名误当 SSID（本机实测 FlClash TUN 也在列表中）。
+/// 无线卡存在但 NLA 无其连接 → Ok(None)（实时状态：未连接）；
+/// COM 不可用 / 无线 GUID 集合为空 / 枚举失败 → Err（交由调用方走下一级兜底）。
+#[cfg(target_os = "windows")]
+fn ssid_from_nla() -> Result<Option<String>, String> {
+    use windows::core::GUID;
+    use windows::Win32::Networking::NetworkListManager::{
+        INetworkConnection, INetworkListManager, IEnumNetworkConnections,
+    };
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
+    };
+
+    // CLSID_NetworkListManager {DCB00C01-570F-4A9B-8D69-199FDBA5723B}：
+    // windows 0.58 的 coclass 绑定不稳定，直接手写常量
+    const CLSID_NETWORK_LIST_MANAGER: GUID = GUID::from_values(
+        0xDCB00C01, 0x570F, 0x4A9B, [0x8D, 0x69, 0x19, 0x9F, 0xDB, 0xA5, 0x72, 0x3B],
+    );
+
+    // 无线适配器 GUID 集合（复用适配器枚举；格式 "{...}"，统一去括号大写后比较）
+    let (adapters, _, _) = crate::network::discovery::query_adapters_addresses()
+        .map_err(|e| format!("枚举适配器失败: {e}"))?;
+    let wireless_guids: Vec<String> = adapters
+        .iter()
+        .filter(|a| a.wireless)
+        .map(|a| a.guid.trim_matches(|c| c == '{' || c == '}').to_uppercase())
+        .collect();
+    if wireless_guids.is_empty() {
+        return Err("无无线适配器".to_string());
+    }
+
+    unsafe {
+        // 调用线程可能已有 STA 初始化（RPC_E_CHANGED_MODE），此时沿用现有初始化
+        let co = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let need_uninit = co.is_ok();
+
+        let result = (|| -> Result<Option<String>, String> {
+            let nlm: INetworkListManager =
+                CoCreateInstance(&CLSID_NETWORK_LIST_MANAGER, None, CLSCTX_ALL)
+                    .map_err(|e| format!("创建 NetworkListManager 失败: {e}"))?;
+            let conns: IEnumNetworkConnections = nlm
+                .GetNetworkConnections()
+                .map_err(|e| format!("枚举网络连接失败: {e}"))?;
+
+            let mut items: [Option<INetworkConnection>; 1] = [None];
+            let mut fetched: u32 = 0;
+            loop {
+                if conns.Next(&mut items, Some(&mut fetched)).is_err() || fetched == 0 {
+                    break;
+                }
+                let Some(conn) = items[0].take() else { break };
+                let adapter_guid = conn
+                    .GetAdapterId()
+                    .map_err(|e| format!("读连接适配器失败: {e}"))?;
+                let g = adapter_guid;
+                let normalized = format!(
+                    "{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
+                    g.data1, g.data2, g.data3,
+                    g.data4[0], g.data4[1], g.data4[2], g.data4[3],
+                    g.data4[4], g.data4[5], g.data4[6], g.data4[7],
+                );
+                if wireless_guids.iter().any(|g| *g == normalized) {
+                    // 无线连接：NLA 网络名即 SSID；名字为空视为异常交下一级兜底
+                    let network = conn
+                        .GetNetwork()
+                        .map_err(|e| format!("读网络对象失败: {e}"))?;
+                    let name = network
+                        .GetName()
+                        .map_err(|e| format!("读网络名失败: {e}"))?
+                        .to_string();
+                    if name.is_empty() {
+                        return Err("无线 NLA 网络名为空".to_string());
+                    }
+                    return Ok(Some(name));
+                }
+            }
+            // 枚举完整结束仍无无线连接：实时状态为未连接
+            Ok(None)
+        })();
+
+        if need_uninit {
+            CoUninitialize();
+        }
+        result
+    }
+}
+
+/// Win11 关位置服务时 netsh 拿不到 SSID 的最后兜底：查 WLAN-AutoConfig 操作日志的
 /// 最近一次 8001（连接成功）/8003（断开）——事件日志不经过位置权限检查。
 /// 8001 → 当前 SSID；8003 → None（未连接）；日志被清空/解析失败 → Err。
 /// 局限：结论来自最近一次连接/断开事件，日志通道被禁期间的状态变化无从感知。
@@ -321,6 +416,18 @@ mod tests {
         assert!(!is_private_campus_range("invalid"));
         assert!(!is_private_campus_range(""));
         assert!(!is_private_campus_range("10.2.0"));
+    }
+
+    /// 真机验证（本机 Win11 位置服务关闭 + WiFi 连接中）：
+    /// NLA COM 通道应给出与实际一致的 SSID。
+    #[test]
+    #[ignore = "需真实 Windows 环境（无线连接中）"]
+    fn nla通道_位置关闭时返回真实ssid() {
+        match ssid_from_nla() {
+            Ok(Some(ssid)) => eprintln!("NLA SSID = {ssid}"),
+            Ok(None) => panic!("无线已连接但 NLA 报未连接"),
+            Err(e) => panic!("NLA 通道失败: {e}"),
+        }
     }
 
     #[test]

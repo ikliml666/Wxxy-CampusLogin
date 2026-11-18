@@ -87,6 +87,7 @@ windows-core = "0.62"
 windows = { version = "0.58", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_NetworkListManager",
     "Win32_Networking_WinSock",
     "Win32_System_IO",
     "Win32_Devices_DeviceAndDriverInstallation",

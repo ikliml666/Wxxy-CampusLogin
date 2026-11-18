@@ -9,15 +9,17 @@
   - `CoreService.wifiSsid()` 改调 `CurfewShell.currentSsid`，行为不变。
   - `NetworkBindPlugin.getWifiSsid()` 双通道：定位权限在手走 `WifiManager`（无 binder 开销）；无定位权限回落 `CurfewShell.currentSsid`（与后台守则同一条 Shizuku/root 通道，免定位免开关）。`granted` 字段语义改为"本次 ssid 为可信读数"（Rust 侧 `campus_detect.rs::current_wifi_ssid` 只消费 ssid 字段，无消费方受影响）。
   - MonitorPanel 名称检查开关注释同步：权限请求是免费读数路径，Shizuku/root 为兜底。
-- **Windows（netsh 被位置权限拒绝时走 WLAN 事件日志）**：
-  - `network/subnet.rs`：netsh 位置权限错误（实测退出码 1 且带中文提示，必须在退出码检查之前识别，否则被"退出码非 0"分支吞掉）时，回落查 `Microsoft-Windows-WLAN-AutoConfig/Operational` 最近一次 8001（连接成功）/8003（断开）事件——事件日志不经过位置权限检查。
-  - 新增 `parse_wlan_eventlog_ssid` 纯函数解析 wevtutil `/f:text` 输出：最新 8001 → SSID、8003 → None、无事件/残缺 → Err（如实上报，退回原告警路径）。局限（注释已记）：结论来自最近一次连接/断开事件，日志通道被禁期间的状态变化无从感知。
+- **Windows（netsh 被位置权限拒绝时两级兜底：NLA COM → WLAN 事件日志）**：
+  - `network/subnet.rs`：netsh 位置权限错误（实测退出码 1 且带中文提示，必须在退出码检查之前识别，否则被"退出码非 0"分支吞掉）时，依次尝试两级免定位通道。
+  - **首选 `ssid_from_nla()`**：NLA（网络位置感知）NetworkListManager COM——网络名不在位置权限管控栈内，反映**实时连接状态**（事件日志方案的"最近事件推断"在睡眠/禁用网卡场景会产生陈旧读数，NLA 无此缺陷）。按「无线适配器 GUID」过滤（复用适配器枚举），避免把 VPN TUN / 有线网的 NLA 名误当 SSID（本机实测 FlClash TUN 同在已连接列表中）。无线 GUID 集合为空 / COM 不可用 → Err 交下一级；枚举完整而无线无连接 → Ok(None)（实时未连接）。
+  - **最后兜底事件日志**：查 `Microsoft-Windows-WLAN-AutoConfig/Operational` 最近一次 8001（连接成功）/8003（断开）事件，`parse_wlan_eventlog_ssid` 纯函数解析（新增 3 个单测）。局限（注释已记）：日志被禁期间的状态变化无从感知。
+  - 新增真机单测 `nla通道_位置关闭时返回真实ssid`（`#[ignore]` 需无线连接环境，与项目真机用例惯例一致）。
 
 **验证**
 
 - 安卓：`gradlew :tauri-plugin-campus-monitor-service:compileDebugKotlin :tauri-plugin-campus-network-bind:compileDebugKotlin` 与 `:app:compileUniversalDebugKotlin` BUILD SUCCESSFUL；class 产物符号核验含 `currentSsid`/`readSsidViaShell`（确认编译的是本 worktree 源码——`tauri.settings.gradle` 的 projectDir 需指向 worktree，其默认生成路径指向 Local checkout 会静默编译旧码）；安卓前端 `tsc` 通过。
-- 桌面：`cargo test` **691 passed / 0 failed / 4 ignored**（新增 3 个事件日志解析单测）。
-- 真机端到端（Windows，位置服务关闭 + WiFi 连接中）：修复前 `get_wireless_ssid() = Ok(None)`（netsh 退出码非 0 分支吞掉），修复后 **`Ok(Some("kiku-5G"))`**——免位置拿到真实 SSID。
+- 桌面：`cargo test` **691 passed / 0 failed / 5 ignored**（新增 3 个事件日志解析单测 + 1 个真机 NLA 用例）。
+- 真机验证（Windows，位置服务关闭 + WiFi 连接中）：修复前 `get_wireless_ssid() = Ok(None)`（netsh 退出码非 0 分支吞掉）；修复后完整链路 **`Ok(Some("kiku-5G"))`**，NLA 单测单独跑同得 `kiku-5G`（证明通道走的是 NLA COM 而非事件日志）。
 - 未验证：安卓真机无定位权限 + Shizuku 在位时 Badge 实际显示（需装机；shell 通道本身已被后台守则长期真机验证）。
 
 **平台说明**：两端各为平台专属能力（安卓 Shizuku/root 通道、Windows 事件日志），无共用面，不做双端镜像；桌面 WiFi 守则卡片的"当前连接"徽标（复用 `get_wireless_ssid`）自动受益。
