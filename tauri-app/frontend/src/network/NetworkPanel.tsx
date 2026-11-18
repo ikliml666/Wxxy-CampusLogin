@@ -6,7 +6,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, GripVertical, Zap, Route, RotateCcw, SlidersHorizontal, BedDouble, X, ChevronRight } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, Zap, Route, RotateCcw, SlidersHorizontal, BedDouble, X, ChevronLeft, ChevronRight, PowerOff } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
@@ -15,8 +15,7 @@ import { SettingRow } from '@/components/ui/setting-row'
 import { SegmentTabs } from '@/shared/SegmentTabs'
 import React, { useState, useCallback, useMemo, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { m, Reorder, useDragControls } from 'framer-motion'
-import { buildOutboundOrder } from './outboundOrder'
+import { m } from 'framer-motion'
 import { AdapterSettingsDialog } from './AdapterSettingsDialog'
 import { ProbeSettingsDialog } from './ProbeSettingsDialog'
 import { useAdapterTraffic } from './useAdapterTraffic'
@@ -289,11 +288,6 @@ const SsidListEditor = memo(function SsidListEditor({
   )
 })
 
-/** 长按触发拖拽的时长（ms）；行体按下后移出死区即取消，防止滚动/点击误触发 */
-const DRAG_LONG_PRESS_MS = 250
-/** 长按等待期内允许的位移死区（px），超出视为滚动意图并取消长按 */
-const DRAG_DEAD_ZONE_PX = 8
-
 interface SortableAdapterRowProps {
   adapter: Adapter
   isOutboundTarget: boolean
@@ -310,97 +304,25 @@ interface SortableAdapterRowProps {
   /** IP 旁的续租/刷新小按钮：有 IP 走续租，无 IP 走刷新 DHCP */
   onRenewIp?: () => void
   renewing?: boolean
-  /** 拖拽结束提交顺序（父组件统一落盘 outboundPriority） */
-  onDragEndCommit: () => void
-  /** 起拖标记（父组件同步 isDraggingRef，屏蔽外部顺序同步） */
-  onDragStart: () => void
-  /** 行右侧按钮区（切换出站 / 启用） */
+  /** 行右侧按钮区（夜间目标 / 启用禁用 / 切换出站） */
   children: React.ReactNode
 }
 
 /**
- * 可拖拽行：行体任意处长按 DRAG_LONG_PRESS_MS 起拖（移动超死区或松开取消，
- * 避免滚动/点击误触发）。children = 行右侧按钮区（按钮区已统一
- * stopPropagation 的 pointerdown，防止点按钮拖走整行）。
+ * 网卡行：列表已按跃点排序，不再支持拖拽调序（顺序不再承载夜间目标语义，
+ * 目标由行内月亮按钮单独指定）。children = 行右侧按钮区。
  */
-const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboundTarget, isCurrentOutbound, roleLabel, badges, metricChip, traffic, onRenewIp, renewing, onDragEndCommit, onDragStart, children }: SortableAdapterRowProps) {
+const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboundTarget, isCurrentOutbound, roleLabel, badges, metricChip, traffic, onRenewIp, renewing, children }: SortableAdapterRowProps) {
   const { t } = useTranslation()
-  const controls = useDragControls()
-  const longPressTimer = useRef<number | null>(null)
-  const longPressArmed = useRef(false)
-  const pressOrigin = useRef<{ x: number; y: number } | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
-
-  const clearLongPress = useCallback(() => {
-    if (longPressTimer.current !== null) {
-      window.clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
-    }
-    longPressArmed.current = false
-    pressOrigin.current = null
-  }, [])
-
-  const startDrag = useCallback((e: React.PointerEvent) => {
-    clearLongPress()
-    setIsDragging(true)
-    onDragStart()
-    controls.start(e, { snapToCursor: false })
-  }, [controls, onDragStart, clearLongPress])
-
-  // 行体按下：布置长按定时器并记录起点；移动超死区或松开则取消
-  const handleRowPointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    longPressArmed.current = true
-    pressOrigin.current = { x: e.clientX, y: e.clientY }
-    const originEvent = e
-    longPressTimer.current = window.setTimeout(() => {
-      longPressTimer.current = null
-      if (longPressArmed.current) startDrag(originEvent)
-    }, DRAG_LONG_PRESS_MS)
-  }, [startDrag])
-
-  const handleRowPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!longPressArmed.current) return
-    const origin = pressOrigin.current
-    if (origin && Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > DRAG_DEAD_ZONE_PX) {
-      clearLongPress()
-    }
-  }, [clearLongPress])
-
-  // 松开/离开/取消：未起拖则清定时器（起拖后的清理交给 onDragEnd）
-  const handleRowPointerCancel = useCallback(() => {
-    if (!isDragging) clearLongPress()
-  }, [clearLongPress])
 
   return (
-    <Reorder.Item
-      value={adapter.name}
-      dragListener={false}
-      dragControls={controls}
-      onDragEnd={() => {
-        setIsDragging(false)
-        onDragEndCommit()
-      }}
-      whileDrag={{ scale: 1.02, boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}
-      onPointerDown={handleRowPointerDown}
-      onPointerMove={handleRowPointerMove}
-      onPointerUp={handleRowPointerCancel}
-      onPointerLeave={handleRowPointerCancel}
-      onPointerCancel={handleRowPointerCancel}
+    <div
       className={cn(
         'group flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200 select-none',
         isOutboundTarget ? 'bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]' : 'bg-muted/30',
       )}
     >
       <div className="flex items-center gap-3 min-w-0">
-        {/* 拖拽可发现性：把手常驻低对比，hover 亮起；纯视觉指示，长按起拖逻辑不变 */}
-        <GripVertical
-          aria-hidden
-          className={cn(
-            'h-4 w-4 shrink-0 cursor-grab text-muted-foreground/30 transition-colors duration-200 group-hover:text-muted-foreground/60 active:cursor-grabbing',
-            isDragging && 'text-muted-foreground',
-          )}
-        />
         <div className={cn(
           'relative w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
           isOutboundTarget ? 'bg-primary/15' : 'bg-muted',
@@ -476,7 +398,7 @@ const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboun
       >
         {children}
       </div>
-    </Reorder.Item>
+    </div>
   )
 })
 
@@ -502,56 +424,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const onlineOperatorLabel = statusState === 'online' ? operatorLabelKey(onlineOperator) : undefined
   const secondaryOperatorLabel = statusState === 'online' ? operatorLabelKey(secondaryOnlineOperator) : undefined
 
-  // 出站排序：以 outboundPriority 为基座构建完整顺序（见 outboundOrder.ts），
-  // 展示列表 = 出站排序列 ∪ 当前适配器列表（保证新网卡可见可排）。
-  // 拖拽期间用本地顺序渲染（outboundPriority 落盘是异步回显，不能让外部顺序打断拖拽）；
-  // onDragEnd 才一次性提交 outboundPriority。外部顺序变化且非拖拽中 → 重置本地态。
-  const outboundOrder = buildOutboundOrder(
-    config.outboundPriority,
-    adapters.map(a => a.name),
-    adapters.filter(a => a.wireless).map(a => a.name),
-  )
-  const outboundOrderKey = outboundOrder.join('\n')
-  const [dragOrder, setDragOrder] = useState<string[] | null>(null)
-  const isDraggingRef = useRef(false)
-  const dragOrderRef = useRef<string[]>(outboundOrder)
-  useEffect(() => {
-    if (!isDraggingRef.current) {
-      dragOrderRef.current = outboundOrder
-      setDragOrder(null)
-    }
-    // 依赖用顺序键：outboundOrder 每渲染都是新数组，直接依赖会死循环
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outboundOrderKey])
-  const displayedOrder = dragOrder ?? outboundOrder
-  const orderedAdapters = displayedOrder
-    .map(name => adapters.find(a => a.name === name))
-    .filter((a): a is Adapter => !!a)
-
-  // 起拖：标记拖拽中，屏蔽外部顺序同步（effect 不再重置本地态）
-  const handleDragStart = useCallback(() => {
-    isDraggingRef.current = true
-  }, [])
-
-  // 拖拽中每帧回调：仅写本地态渲染，不落盘（onDragEnd 才提交）
-  const handleReorder = useCallback((order: string[]) => {
-    isDraggingRef.current = true
-    dragOrderRef.current = order
-    setDragOrder(order)
-  }, [])
-
-  // 拖拽结束：提交最新顺序并解除本地态持有（回显到达前 dragOrder 保持，
-  // 避免闪烁回旧序；外部顺序到达后由上方 effect 重置）
-  const handleDragEnd = useCallback(() => {
-    isDraggingRef.current = false
-    const committed = dragOrderRef.current
-    // 顺序未变化（误触长按未移动）不落盘
-    if (committed.join('\n') !== outboundOrderKey) {
-      onUpdateConfig({ outboundPriority: committed })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outboundOrderKey])
-
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
   const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
   // 适配器/账号与检测参数各由一个弹窗承载（卡片只留入口按钮）
@@ -575,11 +447,34 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     handleOutboundRestore,
     nightSwitching,
     handleNightSwitch,
+    disablingAdapter,
+    settingNightTarget,
+    handleDisableAdapter,
+    handleSetNightTarget,
   } = useOutboundManual(adapters.length)
 
   // 切换态判据：切换成功必先落跃点快照（outboundMetricRestore），还原收尾清空。
   // config 由后端 config-changed 事件回传，切换/还原后自动更新。
   const outboundSwitched = config.outboundMetricRestore !== ''
+
+  // 列表顺序 = 跃点升序（越低越优先，与 Windows 选路一致）；未知跃点排最后。
+  // 顺序只表达「谁更优先」，夜间目标由配置的 outboundNightTarget 单独指定，
+  // 不再依赖排列顺序——所以这里也没有拖拽（拖拽顺序已无消费方）。
+  const orderedAdapters = [...adapters].sort((a, b) => {
+    const ma = adapterMetrics[a.name]
+    const mb = adapterMetrics[b.name]
+    return (ma ?? Number.MAX_SAFE_INTEGER) - (mb ?? Number.MAX_SAFE_INTEGER)
+  })
+  // 一页最多 3 张卡：网卡多了卡片会撑满整屏，改为翻页
+  const ADAPTERS_PER_PAGE = 3
+  const [adapterPage, setAdapterPage] = useState(0)
+  const pageCount = Math.max(1, Math.ceil(orderedAdapters.length / ADAPTERS_PER_PAGE))
+  const safePage = Math.min(adapterPage, pageCount - 1)
+  const pageAdapters = orderedAdapters.slice(
+    safePage * ADAPTERS_PER_PAGE,
+    safePage * ADAPTERS_PER_PAGE + ADAPTERS_PER_PAGE,
+  )
+
 
   // WebView2 最小化时定时器被节流，且夜间自动切换（改路由 metric/临时禁卡）多数
   // 不改变适配器数量——恢复窗口时常看到陈旧的当前出站徽标与适配器列表。
@@ -783,18 +678,12 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 <p className="text-xs text-muted-foreground/60 mt-1">{t('network.noAdaptersTip')}</p>
               </div>
             ) : (
-              <Reorder.Group
-                axis="y"
-                values={displayedOrder}
-                onReorder={handleReorder}
-                className="space-y-2"
-                as="div"
-              >
-                {orderedAdapters.map((a) => (
+              <div className="space-y-2">
+                {pageAdapters.map((a) => (
                   <SortableAdapterRow
                     key={a.name}
                     adapter={a}
-                    isOutboundTarget={displayedOrder[0] === a.name}
+                    isOutboundTarget={config.outboundNightTarget === a.name}
                     isCurrentOutbound={currentOutbound === a.name}
                     roleLabel={a.name === config.adapter1
                       ? t('network.primary')
@@ -823,7 +712,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                             {t(secondaryOperatorLabel)}
                           </Badge>
                         )}
-                        {displayedOrder[0] === a.name && (
+                        {config.outboundNightTarget === a.name && (
                           <Badge variant="outline" size="sm" className="shrink-0 border-primary/30 text-primary">
                             {t('network.outboundBadge')}
                           </Badge>
@@ -847,25 +736,53 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                           : undefined
                     }
                     renewing={a.ip ? gettingNewIpAdapter === a.name : isRefreshingAdapters}
-                    onDragStart={handleDragStart}
-                    onDragEndCommit={handleDragEnd}
                   >
-                    {a.status === 'disabled' && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 gap-1 border-green-500/30 text-[11px] text-green-600 hover:border-green-500/50 hover:bg-green-500/10 hover:text-green-700"
-                        onClick={() => handleEnableAdapter(a.name)}
-                        disabled={enablingAdapter === a.name}
-                      >
-                        {enablingAdapter === a.name ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Shield className="h-3 w-3" />
-                        )}
-                        {enablingAdapter === a.name ? t('network.enabling') : t('network.enable')}
-                      </Button>
-                    )}
+                    {/* 夜间目标（独立于列表顺序）：点月亮图标把这张卡设为夜间目标，
+                        当前目标显示实心月亮且不可再点 */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`h-7 w-7 p-0 ${config.outboundNightTarget === a.name ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+                      onClick={() => handleSetNightTarget(a.name)}
+                      disabled={config.outboundNightTarget === a.name || settingNightTarget === a.name}
+                      title={config.outboundNightTarget === a.name ? t('network.nightTargetBadge') : t('network.setNightTarget')}
+                      aria-label={t('network.setNightTarget')}
+                    >
+                      {settingNightTarget === a.name ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <MoonStar className={`h-3.5 w-3.5 ${config.outboundNightTarget === a.name ? 'fill-current' : ''}`} />
+                      )}
+                    </Button>
+                    {/* 启用/禁用常驻同一位置：已禁用显示「启用」，在线显示「禁用」 */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={`h-7 gap-1 text-[11px] ${
+                        a.status === 'disabled'
+                          ? 'border-green-500/30 text-green-600 hover:border-green-500/50 hover:bg-green-500/10 hover:text-green-700'
+                          : 'border-destructive/30 text-destructive hover:border-destructive/50 hover:bg-destructive/10'
+                      }`}
+                      onClick={() =>
+                        a.status === 'disabled' ? handleEnableAdapter(a.name) : handleDisableAdapter(a.name)
+                      }
+                      disabled={enablingAdapter === a.name || disablingAdapter === a.name}
+                    >
+                      {enablingAdapter === a.name || disablingAdapter === a.name ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : a.status === 'disabled' ? (
+                        <Shield className="h-3 w-3" />
+                      ) : (
+                        <PowerOff className="h-3 w-3" />
+                      )}
+                      {enablingAdapter === a.name
+                        ? t('network.enabling')
+                        : disablingAdapter === a.name
+                          ? t('network.disabling')
+                          : a.status === 'disabled'
+                            ? t('network.enable')
+                            : t('network.disable')}
+                    </Button>
                     {/* 切换态下当前出口行改为「还原出口」（否则界面没有任何手动还原入口）；
                         其它行仍是「切换出站」——跳过优先级选卡，只要求有 IP 且不是当前出站 */}
                     {a.ip && (
@@ -897,12 +814,41 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                     )}
                   </SortableAdapterRow>
                 ))}
-              </Reorder.Group>
+              </div>
+            )}
+            {pageCount > 1 && (
+              <div className="mt-3 flex items-center justify-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  onClick={() => setAdapterPage(p => Math.max(0, p - 1))}
+                  disabled={safePage === 0}
+                  title={t('network.adapterPrevPage')}
+                  aria-label={t('network.adapterPrevPage')}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {safePage + 1} / {pageCount}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  onClick={() => setAdapterPage(p => Math.min(pageCount - 1, p + 1))}
+                  disabled={safePage >= pageCount - 1}
+                  title={t('network.adapterNextPage')}
+                  aria-label={t('network.adapterNextPage')}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             )}
             {adapters.length > 0 && (
               <p className="mt-3 text-xs text-muted-foreground flex items-center gap-1.5">
-                <GripVertical className="h-3 w-3 shrink-0" />
-                {t('network.outboundDragHint')}
+                <MoonStar className="h-3 w-3 shrink-0" />
+                {t('network.outboundTargetHint')}
               </p>
             )}
             {/* 适配器与账号、检测参数各由弹窗承载：卡片只留适配器清单与两枚入口按钮，

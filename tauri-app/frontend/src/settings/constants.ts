@@ -33,6 +33,7 @@ export const DEFAULT_CONFIG: Config = {
   wifiCurfewChannel: 'auto',
   wifiCurfewProfileRestore: '',
   outboundPriority: [],
+  outboundNightTarget: 'WLAN',
   outboundMetricRestore: '',
   outboundDisabledAdapters: '',
   outboundStandbyRoute: '',

@@ -56,6 +56,8 @@ export interface Config {
   /** 就寝守则亲手改过连接模式的 WiFi 快照（后端内部状态，桌面专用） */
   wifiCurfewProfileRestore: string
   outboundPriority: string[]
+  /** 夜间出站目标网卡名（默认 WLAN）：独立于列表顺序，由网卡行内月亮按钮设置 */
+  outboundNightTarget: string
   outboundMetricRestore: string
   /** 原出口连接重置现场（DisabledRow JSON，后端内部状态；非空表示下线/启用事务未完成） */
   outboundDisabledAdapters: string

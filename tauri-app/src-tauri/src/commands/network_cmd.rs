@@ -35,6 +35,41 @@ pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, Strin
     Ok(CommandResult::ok_msg("适配器已启用"))
 }
 
+/// 禁用适配器（网卡卡片常驻按钮，与 enable_adapter 共用一个位置）。
+/// helper 的 disable_adapter 是 PnP 设备级禁用，走与夜间切换同一提权通道。
+#[tauri::command]
+pub async fn disable_adapter(adapter_name: String) -> Result<CommandResult, String> {
+    crate::log_info!("network", "禁用适配器: {}", adapter_name);
+    crate::network::adapter_cache::validate_adapter_name(&adapter_name)?;
+    let adapter_name_log = adapter_name.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::monitor::outbound_night::manual_disable_adapter(&adapter_name)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    crate::log_info!("network", "适配器禁用成功: {}", adapter_name_log);
+    Ok(CommandResult::ok_msg("适配器已禁用"))
+}
+
+/// 设置夜间出站目标网卡（卡片上的「设为夜间目标」按钮）：写配置即可，
+/// 下一次夜间自动切换与「夜晚切换」按钮都按它选卡。
+#[tauri::command]
+pub async fn set_outbound_night_target(
+    app_handle: AppHandle,
+    adapter_name: String,
+) -> Result<CommandResult, String> {
+    crate::network::adapter_cache::validate_adapter_name(&adapter_name)?;
+    let name = adapter_name.clone();
+    let state = app_handle.state::<AppState>();
+    crate::config::persist::mutate_config_and_save(&app_handle, &state, move |fresh| {
+        fresh.outbound_night_target = adapter_name;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
+    crate::log_info!("network", "夜间出站目标已设为: {name}");
+    Ok(CommandResult::ok_msg(&format!("夜间出站目标已设为 {name}")))
+}
+
 /// 适配器流量视图：累计收发字节 + 两次采样间的实时速率（bit/s）。
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

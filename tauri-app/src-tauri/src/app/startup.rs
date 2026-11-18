@@ -77,6 +77,8 @@ pub fn run(core_count: usize) {
             crate::commands::network_cmd::check_campus_status,
             crate::commands::network_cmd::check_portal_status,
             crate::commands::network_cmd::enable_adapter,
+            crate::commands::network_cmd::disable_adapter,
+            crate::commands::network_cmd::set_outbound_night_target,
             crate::commands::network_cmd::dhcp_renew_all,
             crate::commands::network_cmd::dhcp_release_renew,
             crate::commands::network_cmd::dhcp_release_renew_adapter,
@@ -208,6 +210,9 @@ fn setup_app(app: &mut tauri::App, core_count: usize) -> Result<(), Box<dyn std:
         crate::commands::config_cmd::load_config_from_disk_or_default(&app_handle)
     };
 
+    // 系统网络变更 → 前端事件（用户在系统设置里启用/禁用网卡、改跃点、DHCP 换地址
+    // 都会立即反映到界面，不再等 60s 兜底轮询）
+    crate::platform::net_notify::watch_network_changes(app.handle().clone());
     crate::log_info!("startup", "应用启动, CPU核心: {}, 安装目录: {:?}, 日志目录: {:?}", core_count, install_dir, log_dir);
     crate::log_info!("app", "应用启动, 版本: v{}", env!("APP_VERSION"));
 

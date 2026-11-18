@@ -504,7 +504,7 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
     REQUIRED_FAILURE_ROUNDS.store(config.outbound_failure_rounds.clamp(1, 5), Ordering::Relaxed);
     SWITCH_BACK_HEALTHY_ROUNDS.store(config.outbound_healthy_rounds.clamp(1, 5), Ordering::Relaxed);
     let (adapter1, adapter2) = crate::network::resolve_adapter_names(&adapters, config);
-    let priority = super::outbound_switch::effective_outbound_priority(&config.outbound_priority, &candidates);
+    let priority = super::outbound_switch::effective_outbound_priority(&config.outbound_priority, &config.outbound_night_target, &candidates);
     let probe_candidates: Vec<(Adapter, String)> = candidates
         .iter()
         .filter(|(adapter, _)| {

@@ -997,7 +997,11 @@ fn build_outbound_plan(
     // 见 effective_outbound_priority），且必须有 IP 且判定为非校园网
     apply_outbound_backoff_config(config);
     let portal_host = portal_probe_host(&config.portal_url);
-    let priority = effective_outbound_priority(&config.outbound_priority, &candidates);
+    let priority = effective_outbound_priority(
+        &config.outbound_priority,
+        &config.outbound_night_target,
+        &candidates,
+    );
     let probe_targets =
         collect_probe_targets(&priority, &candidates, &config.campus_gateway, &portal_host);
     // 绑源网关探测与公网健康探测互不依赖：串行时切点耗时是两者之和（实测
@@ -1513,6 +1517,21 @@ pub(super) fn enforce_origin_offline(app_handle: &AppHandle, config: &crate::con
                 "出站切换态守护: 重新禁用原出口网卡 {} 失败: {reason}",
                 row.name
             ),
+        }
+    }
+}
+
+/// 手动禁用单张网卡（网卡卡片常驻按钮）：不经名单、不记失败计数——
+/// 这是用户主动操作，不是夜间切换事务，失败直接把原因回给前端 toast。
+pub(crate) fn manual_disable_adapter(name: &str) -> Result<(), String> {
+    match run_helper_op("disable_adapter", &[name.to_string()], outbound_allow_uac()) {
+        Ok(()) => {
+            crate::log_info!("network", "已禁用网卡 {name}");
+            Ok(())
+        }
+        Err(failure) => {
+            note_channel_failure(&failure);
+            Err(format!("禁用网卡 {name} 失败: {}", failure.reason))
         }
     }
 }

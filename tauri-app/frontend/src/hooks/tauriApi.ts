@@ -102,6 +102,12 @@ interface TauriApi {
   dhcpReleaseRenewAdapter: (adapterName: string) => Promise<DhcpReleaseRenewResult>
   /** 「夜晚切换」：立即执行夜间模式——禁用目标卡以外的所有网卡并保持到还原 */
   outboundSwitchNow: () => Promise<CommandResult>
+  /** 禁用单张网卡（与 enableAdapter 共用同一个按钮位置） */
+  disableAdapter: (adapterName: string) => Promise<CommandResult>
+  /** 把某张卡设为夜间出站目标（独立于列表顺序，默认 WLAN） */
+  setOutboundNightTarget: (adapterName: string) => Promise<CommandResult>
+  /** 系统网络变更（启停网卡 / 改跃点 / DHCP 换址）事件，返回取消订阅函数 */
+  onNetworkChanged: (handler: () => void) => Promise<() => void>
   /** 「立即切换出站」到指定网卡（条目按钮：只改跃点，不动网卡状态） */
   outboundSwitchTo: (adapterName: string) => Promise<CommandResult>
   /** 「还原出口」：把跃点写回切换前快照（切换态下当前出口行的按钮） */
@@ -235,6 +241,10 @@ const tauriApi: TauriApi = {
   dhcpReleaseRenew: () => invoke<DhcpReleaseRenewResult>('dhcp_release_renew'),
   dhcpReleaseRenewAdapter: (adapterName) => invoke<DhcpReleaseRenewResult>('dhcp_release_renew_adapter', { adapterName }),
   outboundSwitchNow: () => invoke<CommandResult>('outbound_switch_now'),
+  disableAdapter: (adapterName) => invoke<CommandResult>('disable_adapter', { adapterName }),
+  setOutboundNightTarget: (adapterName) => invoke<CommandResult>('set_outbound_night_target', { adapterName }),
+  onNetworkChanged: (handler) =>
+    listen('network-changed', () => handler()),
   outboundSwitchTo: (adapterName) => invoke<CommandResult>('outbound_switch_to', { adapterName }),
   outboundRestoreNow: () => invoke<CommandResult>('outbound_restore_now'),
   getAdapterMetrics: () => invoke<AdapterMetric[]>('get_adapter_metrics'),
