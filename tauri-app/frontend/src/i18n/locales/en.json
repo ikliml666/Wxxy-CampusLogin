@@ -282,8 +282,6 @@
   },
   "network": {
     "networkAdapters": "Network Adapters",
-    "detectedCount": "{{count}} adapter(s) detected",
-    "detectedCountWithDisabled": "{{count}} adapter(s) detected, {{disabled}} disconnected/disabled",
     "noAdapters": "No Network Adapters Detected",
     "noAdaptersTip": "Please check your network connection",
     "noIp": "No IP",
@@ -368,7 +366,6 @@
     "dnsResetFailed": "Failed to Restore Auto DNS",
     "dhcpRenewFailed": "DHCP renew failed",
     "nightOutboundSwitch": "Night Outbound Switch",
-    "nightOutboundSwitchDesc": "Switches outbound to a non-campus adapter at 23:00 Sun–Thu and 23:30 Fri–Sat, and immediately after two unreachable rounds on the current outbound. Night switching disables every adapter except the target and keeps them off until restore (so existing connections reconnect on the new one); at {{time}} next morning they are re-enabled and metrics restored from the pre-switch snapshot. The button at the top of the card switches/restores manually at any time, so a mistaken action can be reverted with one click",
     "nightSwitchNow": "Night Switch",
     "nightSwitchNowHint": "Run the night switch now: disable every adapter except the target and keep them off until restore",
     "nightSwitchSuccess": "Switched to night outbound",
@@ -388,7 +385,6 @@
     "internetOffline": "Offline",
 
     "internetCheckedAt": "Last internet probe for this adapter: {{time}}",
-    "outboundTargetHint": "Click the moon icon in a row to pick the night outbound target (WLAN by default). Rows are sorted by metric, lowest first, 3 per page",
     "wifiCurfew": "WiFi Connection Rules",
     "wifiCurfewDesc": "At 23:00 Sun–Thu and 23:30 Fri–Sat the networks below are disconnected and kept from auto-reconnecting, then restored at {{time}} the next day. Only the listed networks are touched — other saved profiles stay as they are",
     "wifiCurfewExcluded": "Disconnect during the window",
@@ -407,7 +403,6 @@
     "wifiCurfewRestoreHint": "Shares the restore time with the night outbound switch — change \"Restore Time\" above",
     "wifiCurfewWildcardHint": "Use * to disconnect everything except the allowed list",
     "nightRestoreTime": "Restore Time",
-    "nightRestoreTimeDesc": "When campus outbound is restored and re-logged-in the next morning (default 07:30)",
     "outboundBadge": "Night Outbound Target",
     "outboundAdminHint": "Switching runs silently via the scheduled task, which needs administrator rights",
     "currentOutboundBadge": "Current Outbound",
