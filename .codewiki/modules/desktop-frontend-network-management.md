@@ -4,7 +4,6 @@ type: module
 source_files:
   - tauri-app/frontend/src/network/adapters.test.ts
   - tauri-app/frontend/src/network/adapters.ts
-  - tauri-app/frontend/src/network/outboundOrder.ts
   - tauri-app/frontend/src/network/types.ts
   - tauri-app/frontend/src/network/useDnsSetup.ts
   - tauri-app/frontend/src/network/useNetwork.test.ts

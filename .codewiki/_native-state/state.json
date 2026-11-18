@@ -2,28 +2,41 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "debbc1014f5f94bc54dd45fd2c24f1f588ffe8a3",
-    "headCommit": "82e3ea5859a4689102ab54e74408c0d34e32496d"
+    "baseCommit": "82e3ea5859a4689102ab54e74408c0d34e32496d",
+    "headCommit": "5005f32e2eead96818b791b79f1014d97b786d53"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "debbc1014f5f94bc54dd45fd2c24f1f588ffe8a3",
-    "headCommit": "82e3ea5859a4689102ab54e74408c0d34e32496d",
+    "baseCommit": "82e3ea5859a4689102ab54e74408c0d34e32496d",
+    "headCommit": "5005f32e2eead96818b791b79f1014d97b786d53",
     "committed": [
       "changelogs/CHANGELOG_v2.4.4.md",
       "tauri-app/frontend/src/hooks/tauriApi.ts",
       "tauri-app/frontend/src/i18n/locales/en.json",
       "tauri-app/frontend/src/i18n/locales/zh.json",
       "tauri-app/frontend/src/network/NetworkPanel.tsx",
+      "tauri-app/frontend/src/network/outboundOrder.test.ts",
+      "tauri-app/frontend/src/network/outboundOrder.ts",
       "tauri-app/frontend/src/network/useOutboundManual.ts",
+      "tauri-app/frontend/src/settings/constants.ts",
+      "tauri-app/frontend/src/settings/types.ts",
+      "tauri-app/src-tauri/src/app/startup.rs",
+      "tauri-app/src-tauri/src/commands/network_cmd.rs",
+      "tauri-app/src-tauri/src/config/model.rs",
       "tauri-app/src-tauri/src/monitor/outbound_failover.rs",
       "tauri-app/src-tauri/src/monitor/outbound_night.rs",
-      "tauri-app/src-tauri/src/monitor/scheduled.rs"
+      "tauri-app/src-tauri/src/monitor/outbound_switch.rs",
+      "tauri-app/src-tauri/src/network/adapter.rs",
+      "tauri-app/src-tauri/src/platform/mod.rs",
+      "tauri-app/src-tauri/src/platform/net_notify.rs"
     ],
     "staged": [],
     "unstaged": [],
     "untracked": [],
-    "deleted": [],
+    "deleted": [
+      "tauri-app/frontend/src/network/outboundOrder.test.ts",
+      "tauri-app/frontend/src/network/outboundOrder.ts"
+    ],
     "renamed": [],
     "reason": ""
   },
@@ -31,11 +44,12 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwkxzsx3-2-native（66 个文件）"
+    "持久化基线 debbc10 与本次 cw 基线 82e3ea5 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwljflzu-0-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-17T17:05:01.291Z"
+  "updatedAt": "2026-11-18T03:05:10.016Z"
 }
