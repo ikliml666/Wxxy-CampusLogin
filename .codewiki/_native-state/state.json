@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "5102f6a28a7bfce6848c158ff2d311ecd90e65e2",
-    "headCommit": "b8881681107cf4d3438af31c4a7686d890ceecf8"
+    "headCommit": "10c98583a33f7abd2eb92c0c2032e988f2deaaac"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "5102f6a28a7bfce6848c158ff2d311ecd90e65e2",
-    "headCommit": "b8881681107cf4d3438af31c4a7686d890ceecf8",
+    "headCommit": "10c98583a33f7abd2eb92c0c2032e988f2deaaac",
     "committed": [
       "android/plugins/foreground-service/android/src/main/aidl/com/campuslogin/plugin/monitorservice/IRemoteShell.aidl",
       "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CurfewShell.kt",
@@ -27,12 +27,11 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 7f71345 与本次 cw 基线 5102f6a 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwma6v8h-1-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwma8arw-2-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T15:34:11.905Z"
+  "updatedAt": "2026-11-18T15:35:17.098Z"
 }
