@@ -2,25 +2,21 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "f120aed76235c2504da147df6e0dad84e227df51",
-    "headCommit": "2ead27d3e1c1fb873129ec8f1e92853bac1f0f30"
+    "baseCommit": "2ead27d3e1c1fb873129ec8f1e92853bac1f0f30",
+    "headCommit": "8dffa613a630337685b36d88540dd5182f988379"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "f120aed76235c2504da147df6e0dad84e227df51",
-    "headCommit": "2ead27d3e1c1fb873129ec8f1e92853bac1f0f30",
+    "baseCommit": "2ead27d3e1c1fb873129ec8f1e92853bac1f0f30",
+    "headCommit": "8dffa613a630337685b36d88540dd5182f988379",
     "committed": [
-      "android/frontend/src/i18n/locales/en.json",
-      "android/frontend/src/i18n/locales/zh.json",
-      "android/frontend/src/network/NetworkPanel.tsx",
-      "android/frontend/src/network/curfewMock.ts",
+      "android/frontend/src/monitor/MonitorPanel.tsx",
+      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CoreService.kt",
+      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CurfewShell.kt",
+      "android/plugins/network-bind/android/src/main/java/com/campuslogin/plugin/networkbind/NetworkBindPlugin.kt",
       "changelogs/CHANGELOG_v2.4.4.md",
-      "tauri-app/frontend/src/hooks/tauriApi.ts",
-      "tauri-app/frontend/src/i18n/locales/en.json",
-      "tauri-app/frontend/src/i18n/locales/zh.json",
-      "tauri-app/frontend/src/network/NetworkPanel.tsx",
-      "tauri-app/src-tauri/src/app/startup.rs",
-      "tauri-app/src-tauri/src/commands/network_cmd.rs"
+      "tauri-app/src-tauri/Cargo.toml",
+      "tauri-app/src-tauri/src/network/subnet.rs"
     ],
     "staged": [],
     "unstaged": [],
@@ -33,11 +29,12 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlvfxrf-6-native（66 个文件）"
+    "持久化基线 f120aed 与本次 cw 基线 2ead27d 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlzsfnt-3-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T08:41:25.682Z"
+  "updatedAt": "2026-11-18T10:43:00.778Z"
 }
