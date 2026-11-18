@@ -59,9 +59,6 @@ class CoreService : Service() {
         // 不再用通知新鲜度刷新 last_tick_ms（巡检活性只看真实巡检）
         const val NOTIFY_CHECK_INTERVAL_MS = 30 * 1000L
 
-        /** `cmd wifi status` 的 WifiInfo 行：`Wifi is connected to "SSID"` */
-        private val SSID_LINE = Regex("connected to \"([^\"]+)\"")
-
         /** RSSI 触发守则的最小跨档幅度（dBm）：回调高频，同档不重判 */
         private const val RSSI_BUCKET_DBM = 5
 
@@ -321,12 +318,7 @@ class CoreService : Service() {
      * 两条都不通时如实返回空串，由 UI 显示「未获取网络名」，而不是让网关判定冒充名称命中。
      */
     fun wifiSsid(): String {
-        if (CurfewShell.ready(this)) {
-            CurfewShell.exec(this, "cmd wifi status")
-                ?.let { SSID_LINE.find(it)?.groupValues?.getOrNull(1)?.trim() }
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { return it }
-        }
+        CurfewShell.currentSsid(this)?.let { return it }
         if (!hasSsidPermission()) return ""
         return try {
             @Suppress("DEPRECATION")

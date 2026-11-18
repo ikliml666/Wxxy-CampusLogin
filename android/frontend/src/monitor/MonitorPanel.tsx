@@ -244,7 +244,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                   onCheckedChange={checked => {
                     onUpdateConfig({ enableNetworkNameCheck: checked })
                     // 开启即请求"附近的设备"权限（API 33+，幂等；已授权/低版本无感返回）：
-                    // 未授权时后端拿不到 SSID，Badge 恒显示「未获取」
+                    // 免费读数路径；拒绝后仍有 Shizuku/root 通道兜底，无通道才恒「未获取」
                     if (checked) void tauriApiWithRetry.requestWifiSsidPermission().catch(() => {})
                   }}
                   className="shrink-0 ml-2"

@@ -611,25 +611,34 @@ class NetworkBindPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /**
-     * 取当前 WiFi SSID（只读，绝不弹权限框）：`{"granted": bool, "ssid": String}`。
+     * 取当前 WiFi SSID（只读，绝不弹权限框）：`{"granted": bool, "ssid": String}`，
+     * granted 表示本次 ssid 是可信读数。
      *
-     * 两条权限任一在手即视为可取：ACCESS_FINE_LOCATION（Android 12+ 读 SSID 的硬前提，
-     * 真机 RMX3300/Android 15 上只给 NEARBY_WIFI_DEVICES 时 connectionInfo 仍返回
-     * "<unknown ssid>"）或 Android 13+ 的 NEARBY_WIFI_DEVICES。
-     * 未授权时不弹框直接返回 granted=false——弹框只走 requestWifiSsidPermission，
-     * 本命令会被 Rust 每拍探测调用，高频路径弹窗是骚扰。
+     * 两条通道依次尝试：
+     * 1. 定位权限在手（ACCESS_FINE_LOCATION，Android 12+ 读 SSID 的硬前提，真机
+     *    RMX3300/Android 15 上只给 NEARBY_WIFI_DEVICES 时 connectionInfo 仍返回
+     *    "<unknown ssid>"）读 WifiManager——无 binder 开销；
+     * 2. 无定位权限时回落 CurfewShell 的 cmd wifi status（Shizuku/root）——系统真值，
+     *    不受定位权限与定位开关影响，与 CoreService.wifiSsid 同一条通道。
+     * 两条都不通返回 granted=false、ssid=""，UI 显示「未获取」。
+     * 未授权时不弹框——弹框只走 requestWifiSsidPermission，本命令会被 Rust 每拍探测
+     * 调用，高频路径弹窗是骚扰。
      *
      * 注意 NetworkCallback.onCapabilitiesChanged 里的 WifiInfo 在 Android 12+ 被系统
-     * 抹掉位置信息（SSID 恒 <unknown ssid>），watcher 路径拿不到，必须走 WifiManager 主动查。
+     * 抹掉位置信息（SSID 恒 <unknown ssid>），watcher 路径拿不到，必须走主动查。
      */
     @Command
     fun getWifiSsid(invoke: Invoke) {
+        val ssid = if (canReadSsid()) readSsid() else readSsidViaShell()
         val ret = JSObject()
-        val granted = canReadSsid()
-        ret.put("granted", granted)
-        ret.put("ssid", if (granted) readSsid() else "")
+        ret.put("granted", ssid.isNotEmpty())
+        ret.put("ssid", ssid)
         invoke.resolve(ret)
     }
+
+    /** shell 通道读 SSID（免定位）：无 Shizuku/root 通道或未连 WiFi 返回空串 */
+    private fun readSsidViaShell(): String =
+        CurfewShell.currentSsid(activity.applicationContext) ?: ""
 
     /**
      * 报告当前 WiFi 网络不可用：触发系统 NetworkMonitor 对该网络的重新验证。

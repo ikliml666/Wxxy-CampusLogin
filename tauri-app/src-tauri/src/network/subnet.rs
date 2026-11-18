@@ -61,15 +61,23 @@ fn get_wireless_ssid_uncached() -> Result<Option<String>, String> {
         .output()
         .map_err(|e| format!("获取无线网络信息失败: {e}"))?;
 
-    if !output.status.success() {
-        warn_ssid_query_failed("netsh 退出码非 0");
-        return Ok(None);
+    let stdout = crate::platform::console_output::decode_console_bytes(&output.stdout);
+    // Win11 位置服务关闭时 netsh wlan 报位置权限错误（实测退出码 1 且带
+    // 中文提示），必须在退出码检查之前识别，否则被"退出码非 0"分支吞掉
+    if stdout.contains("位置权限") || stdout.to_lowercase().contains("location permission") {
+        // 免定位兜底：WLAN-AutoConfig 事件日志不经过位置权限检查（2026-11-18
+        // 本机实测：netsh 被拒的同一台机器上事件日志照常给出真实 SSID）
+        return match ssid_from_wlan_eventlog() {
+            Ok(v) => Ok(v),
+            Err(reason) => {
+                warn_ssid_query_failed(&format!("系统位置服务未开启，事件日志兜底不可用（{reason}）"));
+                Ok(None)
+            }
+        };
     }
 
-    let stdout = crate::platform::console_output::decode_console_bytes(&output.stdout);
-    // Win11 位置服务关闭时 netsh wlan 可能正常退出但输出错误提示而非 SSID
-    if stdout.contains("位置权限") || stdout.to_lowercase().contains("location permission") {
-        warn_ssid_query_failed("系统位置服务未开启");
+    if !output.status.success() {
+        warn_ssid_query_failed("netsh 退出码非 0");
         return Ok(None);
     }
     for line in stdout.lines() {
@@ -90,6 +98,63 @@ fn get_wireless_ssid_uncached() -> Result<Option<String>, String> {
     }
 
     Ok(None)
+}
+
+/// Win11 关位置服务时 netsh 拿不到 SSID 的兜底：查 WLAN-AutoConfig 操作日志的
+/// 最近一次 8001（连接成功）/8003（断开）——事件日志不经过位置权限检查。
+/// 8001 → 当前 SSID；8003 → None（未连接）；日志被清空/解析失败 → Err。
+/// 局限：结论来自最近一次连接/断开事件，日志通道被禁期间的状态变化无从感知。
+fn ssid_from_wlan_eventlog() -> Result<Option<String>, String> {
+    let output = new_command("wevtutil")
+        .args([
+            "qe",
+            "Microsoft-Windows-WLAN-AutoConfig/Operational",
+            "/q:*[System[(EventID=8001) or (EventID=8003)]]",
+            "/c:4",
+            "/rd:true",
+            "/f:text",
+        ])
+        .output()
+        .map_err(|e| format!("查询 WLAN 事件日志失败: {e}"))?;
+    if !output.status.success() {
+        return Err("wevtutil 退出码非 0".to_string());
+    }
+    let stdout = crate::platform::console_output::decode_console_bytes(&output.stdout);
+    parse_wlan_eventlog_ssid(&stdout)
+}
+
+/// wevtutil `/f:text` 输出按 `Event[N]` 分段；只看第一个（最新）事件的
+/// Event ID 与行首 `SSID:` 行（键不本地化，中文系统实测同为英文键；
+/// BSSID 行以 B 开头不会误匹配）。
+fn parse_wlan_eventlog_ssid(stdout: &str) -> Result<Option<String>, String> {
+    let mut in_first_event = false;
+    let mut event_id: Option<u32> = None;
+    let mut ssid: Option<String> = None;
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Event[") {
+            if in_first_event {
+                break; // 第二个事件开始，第一段已完整
+            }
+            in_first_event = true;
+        } else if in_first_event {
+            if let Some(rest) = trimmed.strip_prefix("Event ID:") {
+                event_id = rest.trim().parse().ok();
+            } else if trimmed.starts_with("SSID:") {
+                let value = trimmed["SSID:".len()..].trim();
+                if !value.is_empty() {
+                    ssid = Some(value.to_string());
+                }
+            }
+        }
+    }
+    match (in_first_event, event_id) {
+        (true, Some(8001)) => {
+            ssid.map(Some).ok_or_else(|| "8001 事件缺少 SSID 行".to_string())
+        }
+        (true, Some(8003)) => Ok(None),
+        _ => Err("未找到 8001/8003 事件".to_string()),
+    }
 }
 
 pub fn get_wired_network_profile() -> Result<Option<String>, String> {
@@ -256,5 +321,25 @@ mod tests {
         assert!(!is_private_campus_range("invalid"));
         assert!(!is_private_campus_range(""));
         assert!(!is_private_campus_range("10.2.0"));
+    }
+
+    #[test]
+    fn 事件日志解析_最新8001返回SSID() {
+        let text = "Event[0]\n  Event ID: 8001\n  SSID: kiku-5G\n  BSS 类型: Infrastructure\n\nEvent[1]\n  Event ID: 8003\n  SSID: 旧网络\n";
+        assert_eq!(parse_wlan_eventlog_ssid(text), Ok(Some("kiku-5G".to_string())));
+    }
+
+    #[test]
+    fn 事件日志解析_最新8003返回未连接() {
+        let text = "Event[0]\n  Event ID: 8003\n  SSID: kiku-5G\n\nEvent[1]\n  Event ID: 8001\n  SSID: kiku-5G\n";
+        assert_eq!(parse_wlan_eventlog_ssid(text), Ok(None));
+    }
+
+    #[test]
+    fn 事件日志解析_无事件或残缺报错() {
+        // 空日志、非目标事件、8001 缺 SSID 行都如实报错
+        assert!(parse_wlan_eventlog_ssid("").is_err());
+        assert!(parse_wlan_eventlog_ssid("Event[0]\n  Event ID: 8002\n").is_err());
+        assert!(parse_wlan_eventlog_ssid("Event[0]\n  Event ID: 8001\n").is_err());
     }
 }

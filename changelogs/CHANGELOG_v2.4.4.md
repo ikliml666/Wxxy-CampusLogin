@@ -1,3 +1,27 @@
+### 行为调整：当前 WiFi 名称免定位权限读取（双端，2026-11-18）
+
+**为什么**：两端都存在"不开位置信息就看不到当前 WiFi"的问题。安卓：Android 12+ 的 `WifiManager.connectionInfo` 在缺 `ACCESS_FINE_LOCATION` 时恒返回 `<unknown ssid>`（真机 RMX3300/Android 15 实测 `NEARBY_WIFI_DEVICES` 单独不够），UI 的 SSID Badge 恒显示「未获取」。Windows：Win11 关位置服务后 `netsh wlan` 直接拒绝（本机复现：退出码 1 + "网络 shell 命令需要位置权限才能访问 WLAN 信息"）。而两个平台都有不经过位置管控的读取通道，此前只有安卓后台守则在用。
+
+**改了什么**
+
+- **安卓（UI 读取链路接入 Shizuku/root 特权通道）**：
+  - `CurfewShell.kt` 新增 `currentSsid(context)`：封装 `cmd wifi status`（`Wifi is connected to "SSID"` 行）的 shell 读取与解析，单点实现；正则从 `CoreService` 迁入。
+  - `CoreService.wifiSsid()` 改调 `CurfewShell.currentSsid`，行为不变。
+  - `NetworkBindPlugin.getWifiSsid()` 双通道：定位权限在手走 `WifiManager`（无 binder 开销）；无定位权限回落 `CurfewShell.currentSsid`（与后台守则同一条 Shizuku/root 通道，免定位免开关）。`granted` 字段语义改为"本次 ssid 为可信读数"（Rust 侧 `campus_detect.rs::current_wifi_ssid` 只消费 ssid 字段，无消费方受影响）。
+  - MonitorPanel 名称检查开关注释同步：权限请求是免费读数路径，Shizuku/root 为兜底。
+- **Windows（netsh 被位置权限拒绝时走 WLAN 事件日志）**：
+  - `network/subnet.rs`：netsh 位置权限错误（实测退出码 1 且带中文提示，必须在退出码检查之前识别，否则被"退出码非 0"分支吞掉）时，回落查 `Microsoft-Windows-WLAN-AutoConfig/Operational` 最近一次 8001（连接成功）/8003（断开）事件——事件日志不经过位置权限检查。
+  - 新增 `parse_wlan_eventlog_ssid` 纯函数解析 wevtutil `/f:text` 输出：最新 8001 → SSID、8003 → None、无事件/残缺 → Err（如实上报，退回原告警路径）。局限（注释已记）：结论来自最近一次连接/断开事件，日志通道被禁期间的状态变化无从感知。
+
+**验证**
+
+- 安卓：`gradlew :tauri-plugin-campus-monitor-service:compileDebugKotlin :tauri-plugin-campus-network-bind:compileDebugKotlin` 与 `:app:compileUniversalDebugKotlin` BUILD SUCCESSFUL；class 产物符号核验含 `currentSsid`/`readSsidViaShell`（确认编译的是本 worktree 源码——`tauri.settings.gradle` 的 projectDir 需指向 worktree，其默认生成路径指向 Local checkout 会静默编译旧码）；安卓前端 `tsc` 通过。
+- 桌面：`cargo test` **691 passed / 0 failed / 4 ignored**（新增 3 个事件日志解析单测）。
+- 真机端到端（Windows，位置服务关闭 + WiFi 连接中）：修复前 `get_wireless_ssid() = Ok(None)`（netsh 退出码非 0 分支吞掉），修复后 **`Ok(Some("kiku-5G"))`**——免位置拿到真实 SSID。
+- 未验证：安卓真机无定位权限 + Shizuku 在位时 Badge 实际显示（需装机；shell 通道本身已被后台守则长期真机验证）。
+
+**平台说明**：两端各为平台专属能力（安卓 Shizuku/root 通道、Windows 事件日志），无共用面，不做双端镜像；桌面 WiFi 守则卡片的"当前连接"徽标（复用 `get_wireless_ssid`）自动受益。
+
 ### 缺陷修复：探测失败语义细分 + 深夜登录恢复拒绝退避（2026-11-18，双端共享）
 
 **为什么**：用户偶发看到「无法连接至登录地址 10.1.99.100」，需要判断是校园网线路波动还是设计问题。实测结论：**不是线路波动**——`check_portal_full` 串行 100 次 + 并发 8×25 全部成功（p99 ≤ 143ms，阈值 2s/3s），且 8 天日志中不存在任何一条 Portal 不可达的落盘记录。真正的问题是三类语义不同的失败被压扁成同一句文案、且失败细节不落盘：

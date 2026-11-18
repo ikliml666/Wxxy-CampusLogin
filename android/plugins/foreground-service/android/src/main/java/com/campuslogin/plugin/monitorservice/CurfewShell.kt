@@ -23,6 +23,9 @@ object CurfewShell {
     private const val TAG = "CurfewShell"
     private const val SHELL_WAIT_MS = 8000L
 
+    /** `cmd wifi status` 的 WifiInfo 行：`Wifi is connected to "SSID"` */
+    private val SSID_LINE = Regex("connected to \"([^\"]+)\"")
+
     @Volatile private var channel: IRemoteShell? = null
     private val CHANNEL_LOCK = Any()
 
@@ -40,6 +43,20 @@ object CurfewShell {
             dropChannel()
             withRoot(context, command)
         }
+    }
+
+    /**
+     * 读当前连接的 SSID（`cmd wifi status` 的 `Wifi is connected to "SSID"` 行）。
+     *
+     * 系统真值，不受定位权限脱敏影响——Android 12+ 的 WifiManager.connectionInfo
+     * 在缺 ACCESS_FINE_LOCATION 时恒返回 "<unknown ssid>"（NEARBY_WIFI_DEVICES 单独
+     * 不够），shell 是免定位读 SSID 的通道。没有可用通道或未连 WiFi 返回 null。
+     */
+    fun currentSsid(context: Context): String? {
+        if (!ready(context)) return null
+        return exec(context, "cmd wifi status")
+            ?.let { SSID_LINE.find(it)?.groupValues?.getOrNull(1)?.trim() }
+            ?.takeIf { it.isNotEmpty() }
     }
 
     /**
