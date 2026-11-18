@@ -3,15 +3,24 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "f120aed76235c2504da147df6e0dad84e227df51",
-    "headCommit": "00edd5ed2682e1898a9e068434027f9630bee96d"
+    "headCommit": "e3d2ba721a44062a33b5e422b92bd8a7220de772"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "f120aed76235c2504da147df6e0dad84e227df51",
-    "headCommit": "00edd5ed2682e1898a9e068434027f9630bee96d",
+    "headCommit": "e3d2ba721a44062a33b5e422b92bd8a7220de772",
     "committed": [
+      "android/frontend/src/i18n/locales/en.json",
+      "android/frontend/src/i18n/locales/zh.json",
+      "android/frontend/src/network/NetworkPanel.tsx",
+      "android/frontend/src/network/curfewMock.ts",
       "changelogs/CHANGELOG_v2.4.4.md",
-      "tauri-app/frontend/src/network/NetworkPanel.tsx"
+      "tauri-app/frontend/src/hooks/tauriApi.ts",
+      "tauri-app/frontend/src/i18n/locales/en.json",
+      "tauri-app/frontend/src/i18n/locales/zh.json",
+      "tauri-app/frontend/src/network/NetworkPanel.tsx",
+      "tauri-app/src-tauri/src/app/startup.rs",
+      "tauri-app/src-tauri/src/commands/network_cmd.rs"
     ],
     "staged": [],
     "unstaged": [],
@@ -28,8 +37,7 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 1730f04 与本次 cw 基线 f120aed 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlupbgb-3-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlvcbhd-4-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T08:20:39.016Z"
+  "updatedAt": "2026-11-18T08:38:31.706Z"
 }

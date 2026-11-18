@@ -16,6 +16,7 @@ source_files:
   - android/frontend/src/network/index.ts
   - android/frontend/src/network/types.ts
   - android/frontend/src/network/AccessCard.tsx
+  - android/frontend/src/network/curfewMock.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_monitoring_network.md
