@@ -35,6 +35,13 @@ pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, Strin
     Ok(CommandResult::ok_msg("适配器已启用"))
 }
 
+/// 当前连接的 WiFi 名称（未连接/读不到时为 None）。就寝守则卡片用它说明
+/// 「现在连的是哪一个、会不会被断」，比让用户自己去系统设置里看更直接。
+#[tauri::command]
+pub async fn get_current_wifi_ssid() -> Result<Option<String>, String> {
+    crate::network::subnet::get_wireless_ssid()
+}
+
 /// 系统里已保存的 WiFi 名称（就寝守则名单的数据源）。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SavedWifiNetwork {

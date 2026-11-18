@@ -130,6 +130,8 @@ interface TauriApi {
   getInternetStatus: () => Promise<AdapterReachability[]>
   /** 系统已保存的 WiFi 名单（就寝守则名单的勾选来源） */
   listSavedWifiNetworks: () => Promise<SavedWifiNetworksResult>
+  /** 当前连接的 WiFi 名称（未连接为 null） */
+  getCurrentWifiSsid: () => Promise<string | null>
   /** 各网卡可达性更新事件（整表），返回取消订阅函数 */
   onInternetStatusChanged: (handler: (rows: AdapterReachability[]) => void) => Promise<() => void>
   /** 「立即切换出站」到指定网卡（条目按钮：只改跃点，不动网卡状态） */
@@ -271,6 +273,7 @@ const tauriApi: TauriApi = {
     listen('network-changed', () => handler()),
   getInternetStatus: () => invoke<AdapterReachability[]>('get_internet_status'),
   listSavedWifiNetworks: () => invoke<SavedWifiNetworksResult>('list_saved_wifi_networks'),
+  getCurrentWifiSsid: () => invoke<string | null>('get_current_wifi_ssid'),
   onInternetStatusChanged: (handler) =>
     listen<AdapterReachability[]>('internet-status-changed', event => handler(event.payload)),
   outboundSwitchTo: (adapterName) => invoke<CommandResult>('outbound_switch_to', { adapterName }),

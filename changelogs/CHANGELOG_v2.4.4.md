@@ -1,3 +1,22 @@
+### 前端性能优化：WiFi 连接管控卡片重设计（双端，2026-11-18）
+
+**为什么**：上一轮删文案时把 `wifiCurfewWildcardHint` 一并删了却漏改模板，卡片底部直接显示 `network.wifiCurfewWildcardHint` 这个键名；同时两块名单各带一条重复的灰字说明、结构上又说不出"现在连的是哪个网络、到点会怎样"——用户只能靠系统设置自己核对。
+
+**改了什么**
+
+- **修复未定义键**：底部提示只保留「恢复时刻与夜间切换共用」一句，通配符说明移回「全部网络」选项自身（`wifiCurfewWildcardOptionHint`）。
+- **新增状态行（双端一致）**：卡片首行显示「当前连接：<SSID>」+ 状态徽标——桌面按名单比对给出「放行 / 就寝时会断开 / 不在名单」；安卓展示试运行判定「会切到「X」/ 会断开 WiFi / 窗口外不动作」。
+- 删除桌面两条重复的名单说明（`wifiCurfewExcludedHint` / `wifiCurfewAllowedHint`）与其 i18n 键，说明只在编辑弹窗内出现一次。
+- **桌面新增命令** `get_current_wifi_ssid`（复用 `network::subnet::get_wireless_ssid`）：卡片挂载拉一次，随后跟随 `network-changed` 事件刷新。
+- **安卓删除四个调试按钮**（执行守则 / 试运行 / 关 WiFi / 开 WiFi）及 `describeCurfewResult`、`handleTestCurfew`、`handleWifiSwitch`：状态行改为自动跑一次 `dryRun`（不执行任何动作）把真实判定拉回来，配置变化时自动重算。
+- **安卓新增浏览器预览 mock** `network/curfewMock.ts`：`import.meta.env.DEV` 且无 `__TAURI_INTERNALS__` 时提供已保存名单与试运行结果，浏览器里能直接看到列表、状态行与各判定分支的真实形状；真机与生产构建不受影响。
+
+**验证**
+
+- `cargo test`：lib **683 passed; 0 failed; 4 ignored**，全 suite 全绿（新命令无独立用例，复用已验证的 `get_wireless_ssid`）。
+- 桌面：`tsc` 通过、`vitest` **127 passed**、`vite build` 成功；安卓：`tsc` 通过、`vite build` 成功（该端无测试文件）。
+- 未验证：真机 Shizuku 通道下状态行的实际判定与刷新时机；mock 仅覆盖浏览器预览。
+
 ### 行为调整：夜间切换支持提前一小时准备 WLAN（2026-11-18，桌面）
 
 **为什么**：到点才动手时，无线换网要经过"发现目标 → 关联/握手 → DHCP 拿地址 → 出网可用"，通常几十秒；这段时间正好是校园网刚被切断、出站还没切过去的空窗。提前把这些做完，到点只需补出站与跃点。

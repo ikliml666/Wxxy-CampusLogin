@@ -506,6 +506,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
 
   const [gettingNewIpAdapter, setGettingNewIpAdapter] = useState<string | null>(null)
   const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
+  // 就寝守则卡片要显示「当前连的是哪个 WiFi」，挂载拉一次、系统网络变化时刷新
+  const [currentSsid, setCurrentSsid] = useState<string | null>(null)
   // 适配器/账号与检测参数各由一个弹窗承载（卡片只留入口按钮）
   const [adapterDialogOpen, setAdapterDialogOpen] = useState(false)
   const [probeDialogOpen, setProbeDialogOpen] = useState(false)
@@ -513,6 +515,38 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const trafficByIfIndex = useAdapterTraffic(adapters.length > 0)
   const ipc = tauriApiWithRetry
   const mountedRef = useRef(true)
+
+  // 当前 WiFi 名称：挂载拉一次，之后跟随系统网络变化事件刷新
+  useEffect(() => {
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    const refresh = () => {
+      void tauriApiWithRetry.getCurrentWifiSsid?.()
+        .then(name => { if (!disposed) setCurrentSsid(name ?? null) })
+        .catch(() => { /* 读不到就按未连接显示，不影响其它信息 */ })
+    }
+    refresh()
+    void tauriApiWithRetry.onNetworkChanged?.(refresh).then(fn => {
+      if (disposed) fn?.()
+      else unlisten = fn
+    })
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [])
+
+  // 当前网络与两份名单的关系（纯比对，供卡片上的状态徽标用）
+  const isAllowedSsid = useCallback(
+    (ssid: string) => config.wifiCurfewAllowed.some(it => it.toLowerCase() === ssid.toLowerCase()),
+    [config.wifiCurfewAllowed],
+  )
+  const isExcludedSsid = useCallback(
+    (ssid: string) => config.wifiCurfewExcluded.some(
+      it => it === '*' || it.toLowerCase() === ssid.toLowerCase(),
+    ),
+    [config.wifiCurfewExcluded],
+  )
 
   // 出站查询/轮询与手动切换/还原（useOutboundManual.ts）
   const {
@@ -1028,6 +1062,28 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            {/* 当前连接：告诉用户「现在连的是哪一个、它会不会被断」，
+                比让他自己去系统设置里核对更直接；未连接时不占位 */}
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 px-3 py-2">
+              <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+                {currentSsid
+                  ? t('network.wifiCurfewCurrent', { name: currentSsid })
+                  : t('network.wifiCurfewNoWifi')}
+              </span>
+              {currentSsid && (
+                <Badge
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 text-[10px] text-muted-foreground"
+                >
+                  {isAllowedSsid(currentSsid)
+                    ? t('network.wifiCurfewKeep')
+                    : isExcludedSsid(currentSsid)
+                      ? t('network.wifiCurfewCut')
+                      : t('network.wifiCurfewOther')}
+                </Badge>
+              )}
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="wifi-curfew-excluded" className="text-xs font-medium">{t('network.wifiCurfewExcluded')}</Label>
               <WifiProfilePicker
@@ -1040,7 +1096,6 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 allowWildcard
                 onChange={next => onUpdateConfig({ wifiCurfewExcluded: next })}
               />
-              <p className="text-[11px] text-muted-foreground/70">{t('network.wifiCurfewExcludedHint')}</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="wifi-curfew-allowed" className="text-xs font-medium">{t('network.wifiCurfewAllowed')}</Label>
@@ -1053,14 +1108,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 disabled={!config.enableWifiCurfew}
                 onChange={next => onUpdateConfig({ wifiCurfewAllowed: next })}
               />
-              <p className="text-[11px] text-muted-foreground/70">{t('network.wifiCurfewAllowedHint')}</p>
             </div>
-            <div className="flex items-start gap-2 rounded-lg bg-muted/40 p-2">
-              <MoonStar className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">
-                {t('network.wifiCurfewRestoreHint')} · {t('network.wifiCurfewWildcardHint')}
-              </span>
-            </div>
+            <p className="text-[11px] text-muted-foreground/70">{t('network.wifiCurfewRestoreHint')}</p>
           </CardContent>
         </AnimatedCard>
       </div>

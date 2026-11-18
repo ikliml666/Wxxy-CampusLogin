@@ -10,6 +10,7 @@ import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { tauriApiWithRetry, type AvoidBadWifiStatus, type CurfewChannelStatus, type PrivateDnsStatus, type SavedWifiNetwork } from '@/hooks/tauriApi'
+import { isBrowserPreview, mockCurfewProbe, mockSavedNetworks } from './curfewMock'
 import { AccessCard } from './AccessCard'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -31,43 +32,23 @@ const RESTORE_TIME_DEFAULT_MINUTES = 450
  *  永不还原。与后端 `restore_start_minutes` 的「>= 1380 判越界」同口径 */
 const RESTORE_TIME_MAX_MINUTES = 1379
 /** 恢复时刻下限 05:00：00:00–05:00 是「凌晨补切窗口」，把恢复点设进那里会让补切与还原互相顶掉 */
-/**
- * 把守则执行结果译成中文。这是临时调试面板，文案不走 i18n；
- * 正式功能确认无误后应随之删除。
- */
-function describeCurfewResult(result: Record<string, unknown>): { title: string; detail: string } {
-  const action = String(result.action ?? '')
-  const current = result.currentSsid ? String(result.currentSsid) : '未连接'
-  const channel = String(result.channel ?? '')
-  const tried = Array.isArray(result.tried) ? (result.tried as string[]) : []
-  const trace = result.trace ? String(result.trace) : ''
-  const triedText = tried.join('；')
-  switch (action) {
-    case 'keep':
-      return { title: '保持当前网络', detail: [triedText, `当前：${current}`].filter(Boolean).join('；') }
-    case 'would-keep':
-      return { title: '试运行：保持当前网络', detail: [triedText, `当前：${current}`].filter(Boolean).join('；') }
-    case 'connect':
-      return { title: `已切换到「${String(result.target ?? '')}」`, detail: `原网络：${current}` }
+/** 试运行 action → 状态行短标签（keep 类不显示，避免噪声） */
+function curfewProbeActionLabel(
+  probe: Record<string, unknown> | null,
+  t: (key: string, vars?: Record<string, unknown>) => string,
+): string {
+  switch (String(probe?.action ?? '')) {
     case 'would-connect':
-      return {
-        title: `试运行：会切换到「${String(result.target ?? '')}」`,
-        detail: [triedText, `当前：${current}`].filter(Boolean).join('；'),
-      }
-    case 'wifi-off':
-      return { title: '已断开 WiFi', detail: [triedText, `当前：${current}`].filter(Boolean).join('；') }
+      return t('network.wifiCurfewSwitchTo', { name: String(probe?.target ?? '') })
     case 'would-wifi-off':
-      return { title: '试运行：会断开 WiFi', detail: triedText || `当前：${current}` }
-    case 'restore':
-      return { title: '已恢复 WiFi', detail: `通道：${channel}` }
+      return t('network.wifiCurfewWillOff')
     case 'would-restore':
-      return { title: '试运行：会恢复 WiFi', detail: `当前：${current}` }
-    case 'failed':
-      return { title: '断开失败', detail: [triedText, trace].filter(Boolean).join('；') }
+      return t('network.wifiCurfewWillRestore')
     default:
-      return { title: `执行完成（${action}）`, detail: trace || `通道：${channel}` }
+      return ''
   }
 }
+
 const RESTORE_TIME_MIN_MINUTES = 300
 
 /** 阿里云公共 DNS 的 DoT 主机名（官方：dns.alidns.com:853），用作「指定主机」的默认预填 */
@@ -385,7 +366,10 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
       setSavedNetworksError(false)
     }
     try {
-      const result = await ipc.listSavedWifiNetworks()
+      // 浏览器预览没有 Shizuku 通道：用固定名单渲染真实形状，真机仍走 IPC
+      const result = isBrowserPreview()
+        ? mockSavedNetworks()
+        : await ipc.listSavedWifiNetworks()
       if (!mountedRef.current) return
       setSavedNetworks(result.networks ?? [])
       setSavedNetworksError(Boolean(result.error))
@@ -426,58 +410,43 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
       if (mountedRef.current) setCurfewRequesting(false)
     }
   }, [ipc, t, refreshCurfewChannel, refreshSavedNetworks])
-  // 调试入口：立即按当前配置跑一次守则，不必等到深夜
-  const [curfewTestRunning, setCurfewTestRunning] = useState(false)
-  const [curfewSwitching, setCurfewSwitching] = useState(false)
-  const buildCurfewPayload = useCallback(
-    (dryRun: boolean) =>
-      JSON.stringify({
+  // 守则当前状态：用一次「试运行」把真实判定拉回来（dryRun 不执行任何动作），
+  // 卡片直接展示「现在连的是哪个、到点会做什么」，不再靠手动点测试按钮
+  const [curfewProbe, setCurfewProbe] = useState<Record<string, unknown> | null>(null)
+  useEffect(() => {
+    let disposed = false
+    let cancelled = false
+    const probe = async () => {
+      const payload = JSON.stringify({
         enabled: config.enableWifiCurfew,
         excluded: config.wifiCurfewExcluded,
         allowed: config.wifiCurfewAllowed,
         restoreStart: config.nightRestoreMinutes,
         weakRssi: config.wifiCurfewWeakRssi ?? 0,
         channel: config.wifiCurfewChannel ?? 'auto',
-        dryRun,
-      }),
-    [config]
-  )
-  const handleTestCurfew = useCallback(
-    async (dryRun: boolean) => {
-      setCurfewTestRunning(true)
+        dryRun: true,
+      })
       try {
-        const result = await ipc.testWifiCurfew(buildCurfewPayload(dryRun), true)
-        const described = describeCurfewResult(result)
-        useLogToastStore.getState().addToast(described.title, 'info', described.detail, 15000)
-      } catch (e) {
-        useLogToastStore
-          .getState()
-          .addToast(t('network.wifiCurfewTestFailed'), 'error', extractErrorMessage(e), 15000)
-      } finally {
-        if (mountedRef.current) setCurfewTestRunning(false)
+        const result = isBrowserPreview()
+          ? mockCurfewProbe({
+              enabled: config.enableWifiCurfew,
+              excluded: config.wifiCurfewExcluded,
+              allowed: config.wifiCurfewAllowed,
+              channel: config.wifiCurfewChannel ?? 'auto',
+            })
+          : await ipc.testWifiCurfew(payload, false)
+        // 通道不可用时上一次的结果会过期，直接清掉而不是留个假的"当前网络"
+        if (!disposed) setCurfewProbe(cancelled ? null : result)
+      } catch {
+        if (!disposed) setCurfewProbe(null)
       }
-    },
-    [ipc, t, buildCurfewPayload]
-  )
-  const handleWifiSwitch = useCallback(async (enable: boolean) => {
-    setCurfewSwitching(true)
-    try {
-      const result = await ipc.testWifiSwitch(enable)
-      const described = describeCurfewResult(result)
-      useLogToastStore
-        .getState()
-        .addToast(
-          enable ? t('network.wifiCurfewTestWifiOn') : t('network.wifiCurfewTestWifiOff'),
-          'info',
-          described.title,
-          15000
-        )
-    } catch (e) {
-      useLogToastStore.getState().addToast(t('network.wifiCurfewTestFailed'), 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) setCurfewSwitching(false)
     }
-  }, [ipc, t])
+    void probe()
+    return () => {
+      disposed = true
+      cancelled = true
+    }
+  }, [ipc, config.enableWifiCurfew, config.wifiCurfewExcluded, config.wifiCurfewAllowed, config.nightRestoreMinutes, config.wifiCurfewWeakRssi, config.wifiCurfewChannel])
 
   const applyDot = useCallback(
     async (mode: 'off' | 'auto' | 'hostname', host?: string) => {
@@ -661,43 +630,17 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
               )}
             </div>
 
-            <div className="pt-1 space-y-1.5">
-                <p className="text-[11px] text-muted-foreground">{t('network.wifiCurfewTestHint')}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleTestCurfew(false)}
-                    disabled={curfewTestRunning}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border border-input bg-card hover:bg-accent/50 transition-colors disabled:opacity-60"
-                  >
-                    {curfewTestRunning && <Loader2 className="h-3 w-3 animate-spin" />}
-                    {t('network.wifiCurfewTestRun')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleTestCurfew(true)}
-                    disabled={curfewTestRunning}
-                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-input bg-card hover:bg-accent/50 transition-colors disabled:opacity-60"
-                  >
-                    {t('network.wifiCurfewTestDryRun')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleWifiSwitch(false)}
-                    disabled={curfewSwitching}
-                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-input bg-card hover:bg-accent/50 transition-colors disabled:opacity-60"
-                  >
-                    {t('network.wifiCurfewTestWifiOff')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleWifiSwitch(true)}
-                    disabled={curfewSwitching}
-                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-input bg-card hover:bg-accent/50 transition-colors disabled:opacity-60"
-                  >
-                    {t('network.wifiCurfewTestWifiOn')}
-                  </button>
-                </div>
+            {/* 状态行：当前连的是哪个网络、到点会做什么。数据来自一次试运行，
+                与桌面端同一信息结构（不再有手动调试按钮） */}
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
+              <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+                {curfewProbe?.currentSsid
+                  ? t('network.wifiCurfewCurrent', { name: String(curfewProbe.currentSsid) })
+                  : t('network.wifiCurfewNoWifi')}
+              </span>
+              <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
+                {curfewProbeActionLabel(curfewProbe, t)}
+              </span>
             </div>
           </CardContent>
         </AnimatedCard>
