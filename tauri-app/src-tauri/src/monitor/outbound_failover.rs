@@ -118,6 +118,19 @@ fn reset_state() {
     *STATE.lock().unwrap_or_else(|e| e.into_inner()) = FailoverState::default();
 }
 
+/// 切回判定的早退路径用：只清 failover 判定相关状态，保留登录拒绝退避——
+/// 早退常因适配器枚举瞬态失败或暂时读不到当前出口名，切换态本身没变；
+/// 此时清掉退避会让深夜拒绝升级（120→240→300s）被一次瞬态失败打回 60s。
+fn reset_failover_rounds_keep_rejection() {
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    state.adapter = None;
+    state.failures = 0;
+    state.recovery_result = None;
+    state.recovery_attempted = false;
+    state.switch_back_adapter = None;
+    state.switch_back_rounds = 0;
+}
+
 /// 运营商夜切在出口故障待决时让位，避免在切换前发起必然失败的校园认证。
 pub(super) fn outbound_failover_pending() -> bool {
     let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
@@ -305,6 +318,9 @@ fn recover_current_adapter(app_handle: &AppHandle, config: &Config, adapter_name
 /// 登录失败结果分类：仅当协议层给出「服务器明确回应、且非传输失败」的证据
 /// （data.retryable == false）才计入拒绝退避。传输失败（retryable=true）与
 /// 结果壳缺失（data=None，如适配器未就绪）可能是网络瞬态，保持原有节奏。
+/// retryable=false 除「服务器拒绝」（Authentication fail/终端超限/流量超限等）
+/// 外还含 parse_login_result 的「Portal 返回非预期格式(HTML)」分支——Portal 被
+/// AC 注入/劫持同样属持续异常，重试同样大概率无效，退避对该场景同样合理。
 fn note_login_recovery_rejection(config: &Config, result: &crate::infra::state::CommandResult) {
     let rejected_by_server = result
         .data
@@ -318,11 +334,14 @@ fn note_login_recovery_rejection(config: &Config, result: &crate::infra::state::
     let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let streak = state.recovery_reject_streak.saturating_add(1);
     state.recovery_reject_streak = streak;
-    // 指数退避 60s→120s→240s→…，封顶取用户配置的出站退避上限（默认 300s）；
-    // streak 限 6 防移位溢出
-    let start = u64::from(config.outbound_backoff_start_secs.max(1));
-    let cap = u64::from(config.outbound_backoff_max_secs).max(start);
-    let backoff = start.saturating_mul(1u64 << streak.min(6).saturating_sub(1)).min(cap);
+    // 指数退避与出站切换共用同一阶梯（outbound_night::outbound_backoff_window_ms），
+    // 起步/封顶取用户配置的出站退避参数（默认 60s→封顶 300s）
+    let backoff_ms = super::outbound_night::outbound_backoff_window_ms(
+        u64::from(config.outbound_backoff_start_secs) * 1000,
+        u64::from(config.outbound_backoff_max_secs) * 1000,
+        streak,
+    );
+    let backoff = backoff_ms / 1000;
     state.recovery_reject_backoff_until =
         Some(std::time::Instant::now() + std::time::Duration::from_secs(backoff));
     let msg = result.message.clone().unwrap_or_default();
@@ -395,14 +414,14 @@ fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
         return;
     }
     let Some(current_name) = current_outbound_name() else {
-        reset_state();
+        reset_failover_rounds_keep_rejection();
         return;
     };
     let adapters = match crate::network::get_adapters_cached() {
         Ok(adapters) => adapters,
         Err(e) => {
             crate::log_debug!("outbound", "切回判定获取适配器失败: {e}");
-            reset_state();
+            reset_failover_rounds_keep_rejection();
             return;
         }
     };
@@ -414,7 +433,7 @@ fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
         .map(|adapter| (adapter.clone(), String::new()))
         .collect();
     if managed.is_empty() {
-        reset_state();
+        reset_failover_rounds_keep_rejection();
         return;
     }
     let health = probe_internet_access(
@@ -795,6 +814,41 @@ mod tests {
             assert_eq!(s.recovery_reject_streak, 0, "无 retryable 证据不应计入退避");
             assert!(s.recovery_reject_backoff_until.is_none());
         }
+    }
+
+    #[test]
+    fn 早退重置保留拒绝退避() {
+        let _state_guard = REJECTION_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_rejection_state();
+        let config = test_backoff_config();
+        // 深夜升级到第 3 级退避(240s)
+        for _ in 0..3 {
+            note_login_recovery_rejection(&config, &rejected_result());
+        }
+        let before = {
+            let s = STATE.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(s.recovery_reject_streak, 3, "预置连续 3 次拒绝");
+            s.recovery_reject_backoff_until
+        };
+
+        // 切回判定早退(适配器枚举瞬态失败等): rounds 清零、退避保留
+        reset_failover_rounds_keep_rejection();
+        {
+            let s = STATE.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(s.failures, 0, "早退应清失败轮次");
+            assert!(s.recovery_adapter.is_none() || s.recovery_adapter.is_some(), "只动判定字段");
+            assert_eq!(s.recovery_reject_streak, 3, "早退不应清拒绝升级");
+            assert_eq!(s.recovery_reject_backoff_until, before, "早退不应清退避到期时刻");
+        }
+
+        // 全量 reset_state(切回完成/健康恢复)仍清退避——语义两分
+        reset_state();
+        {
+            let s = STATE.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(s.recovery_reject_streak, 0, "全量重置应清拒绝升级");
+            assert!(s.recovery_reject_backoff_until.is_none());
+        }
+        reset_rejection_state();
     }
 
     #[test]

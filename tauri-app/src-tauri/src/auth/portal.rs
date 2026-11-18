@@ -301,31 +301,28 @@ impl PortalFailure {
         }
     }
 
-    fn message(self) -> &'static str {
+    /// (用户文案, error_kind, 日志标签) 三元组一次 match 出——新增变体只改这一处
+    fn display_parts(self) -> (&'static str, &'static str, &'static str) {
         match self {
-            PortalFailure::Timeout => "Portal 响应超时",
-            PortalFailure::StaleSource => "源地址已失效（网卡切换中），等待下一轮探测",
-            PortalFailure::Connect => "Portal 不可达",
-            PortalFailure::Other => "Portal页面请求失败",
+            PortalFailure::Timeout => ("Portal 响应超时", "timeout", "超时"),
+            PortalFailure::StaleSource => {
+                ("源地址已失效（网卡切换中），等待下一轮探测", "stale_source", "源地址失效")
+            }
+            PortalFailure::Connect => ("Portal 不可达", "unreachable", "连接失败"),
+            PortalFailure::Other => ("Portal页面请求失败", "request_failed", "页面异常"),
         }
+    }
+
+    fn message(self) -> &'static str {
+        self.display_parts().0
     }
 
     fn error_kind(self) -> &'static str {
-        match self {
-            PortalFailure::Timeout => "timeout",
-            PortalFailure::StaleSource => "stale_source",
-            PortalFailure::Connect => "unreachable",
-            PortalFailure::Other => "request_failed",
-        }
+        self.display_parts().1
     }
 
     fn label(self) -> &'static str {
-        match self {
-            PortalFailure::Timeout => "超时",
-            PortalFailure::StaleSource => "源地址失效",
-            PortalFailure::Connect => "连接失败",
-            PortalFailure::Other => "页面异常",
-        }
+        self.display_parts().2
     }
 }
 
@@ -369,9 +366,9 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
         Ok(r) => r,
         Err(e) => {
             let failure = PortalFailure::from_reqwest_error(&e);
-            // warn 而非 debug:探测失败是用户可见异常,必须落盘供事后归因
-            //(历史缺陷:debug 级在默认 warning 日志下不落盘,偶发失败无从查证)
-            crate::log_warn!("network", "Portal页面请求失败({}): {}", failure.label(), e);
+            // 错误原文细节条走 debug：调用方 log_portal_page_failed 已有一条
+            // 带 adapter/ip/耗时的 warn 汇总,这里再 warn 会让一次失败落两行
+            crate::log_debug!("network", "Portal页面请求失败({}): {}", failure.label(), e);
             return PageCheckResult::Failed(failure);
         }
     };
@@ -485,7 +482,8 @@ fn log_portal_page_failed(
     failure: PortalFailure,
 ) {
     // warn 而非 debug + 带耗时:耗时是区分「0ms 源地址失效」与「3s 真超时」的
-    // 关键观测,偶发失败落盘后才可归因
+    // 关键观测,偶发失败落盘后才可归因。elapsed 为总耗时(含前置 chkstatus 探测),
+    // stale bind 场景两段都瞬时失败,总耗时即 bind 失败耗时。
     crate::log_warn!("network", "Portal页面请求失败({}): adapter={}, ip={}, 耗时={}ms",
         failure.label(), adapter_name.unwrap_or("unknown"), adapter_ip, elapsed.as_millis());
 }

@@ -20,6 +20,16 @@
 - 真机端到端回归（新增 `tests/portal_stale_source_e2e.rs`，#[ignore] 需校园网）：绑已不属于本机的 10.2.106.90 → `message="源地址已失效（网卡切换中），等待下一轮探测"` `error_kind=Some("stale_source")`，落盘日志 `Portal页面请求失败(源地址失效): adapter=以太网, ip=10.2.106.90, 耗时=3ms`。
 - 顺手排查确认（不修）：11-13 14:41-14:47 登录历史 6 条指向 `http://10.99.99.99:801` 的失败，当前配置/账号/代码中均为 10.1.99.100，该地址只能经设置页保存 `portalUrl` 写入全局（`config_cmd.rs:215/294`），属用户当时误改门户地址后 14:47 重启恢复，非代码泄漏。
 - 未验证：真实深夜场景下退避的实际节奏（需夜间切换态 + 服务器持续拒绝，等下一轮夜间观察日志确认）。
+- **评审修订（同日）**：双轴代码审查（Standards/Spec 两个独立子代理）产出 11 条发现，主 agent 逐条核实后修复 7 条实质项：
+  ① e2e 测试 .join().ok() 吞掉断言失败（测试永不红）→ 改 .expect()，真机复跑通过、断言恢复可证伪；
+  ② 登录重试日志只提级未带耗时（spec 漏做）→ 重试层按轮计时并入 warn（耗时只进日志，不污染用户可见 message；protocol.rs 用 attempt 级计时而非请求级 t_req，因后者作用域在 do_login_request 内不可达）；
+  ③ 切回判定三个早退路径的 reset_state() 会把深夜拒绝升级（120→240→300s）误清回 60s（夜间适配器枚举瞬态 Err 即触发）→ 新增 reset_failover_rounds_keep_rejection 只清判定字段、保留退避，新增单测「早退重置保留拒绝退避」锁定该口径；
+  ④ 登录恢复退避公式与 outbound_night.rs 的 outbound_backoff_ms 完全同形 → 抽共享纯函数 outbound_backoff_window_ms(start, max, fail_count) 两处复用（outbound_night 既有退避测试全绿行为不变）；
+  ⑤ 同次探测失败落两条同前缀 warn → 错误原文细节条降回 debug，保留带 adapter/ip/耗时的汇总条；
+  ⑥ 两处注释与实现不符（"streak 限 6 防移位溢出"实由 cap 封顶兜底；"耗时区分 0ms 源地址失效"实为含 chkstatus 的总耗时）→ 修正表述；note_login_recovery_rejection 注释补明 retryable=false 的语义边界（含「Portal 返回非预期格式(HTML)」分支——AC 注入属持续异常，退避同样合理，行为不变）；
+  ⑦ PortalFailure 三个平铺 match（message/error_kind/label）→ 合并为 display_parts() 单 match 三元组，新增变体只改一处。
+  未修（语义可辩护）：退避起点复用 outboundBackoffStartSecs（spec 只点名封顶，但与出站切换共用同一退避节奏参数是一致性取舍，validate 下限 10s 保证不失控）。
+  验证：桌面 cargo test **688 passed / 0 failed / 4 ignored**（含新口径单测）、真机 e2e 复跑通过、安卓 cargo check --target aarch64-linux-android --all-targets exit 0。
 
 ### 行为调整：夜间切换支持提前一小时准备 WLAN（2026-11-18，桌面）
 

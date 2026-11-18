@@ -21,5 +21,5 @@ fn stale_source_ip_reports_stale_kind() {
         assert_eq!(st.message, "源地址已失效（网卡切换中），等待下一轮探测");
     })
     .join()
-    .ok();
+    .expect("探测断言线程 panic：stale 源未按预期归类");
 }

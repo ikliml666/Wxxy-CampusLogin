@@ -213,6 +213,7 @@ pub fn do_login_with_retry(user: &str, password: &str, operator: &str, adapter_i
 
         crate::log_debug!("login", "登录尝试 [{}/{}]", attempt, max_retries);
 
+        let t_attempt = std::time::Instant::now();
         match do_login_request(user, password, operator, adapter_ip) {
             Ok(r) => {
                 let success = r.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -227,8 +228,13 @@ pub fn do_login_with_retry(user: &str, password: &str, operator: &str, adapter_i
                 // 排障时只见连续"登录请求开始"而无任何失败原因
                 // 单次重试失败是过程信息，最终结果由上层统一记录
                 // warn 而非 debug:传输层失败必须落盘(默认 warning 级日志下
-                // debug 不落盘,偶发失败无从归因)
-                crate::log_warn!("login", "登录请求失败 [{}/{}]: {}", attempt, max_retries, e);
+                // debug 不落盘,偶发失败无从归因)。耗时只进日志——"0ms 还是
+                // 6s"区分瞬态与真超时,不污染用户可见 message。
+                crate::log_warn!(
+                    "login",
+                    "登录请求失败 [{}/{}]（耗时{}ms）: {}",
+                    attempt, max_retries, t_attempt.elapsed().as_millis(), e
+                );
                 last_result = Some(serde_json::json!({ "code": "error", "message": e, "success": false, "retryable": true }));
             }
         }
