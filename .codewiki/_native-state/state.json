@@ -2,13 +2,13 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "be77851f96d337155f0ca1835312b95df4ab7685",
-    "headCommit": "107e9928bd8efc2a6270fce35ea4bc6c4d596e0a"
+    "baseCommit": "107e9928bd8efc2a6270fce35ea4bc6c4d596e0a",
+    "headCommit": "c800d543031002622782975acf7d33811d8034b9"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "be77851f96d337155f0ca1835312b95df4ab7685",
-    "headCommit": "107e9928bd8efc2a6270fce35ea4bc6c4d596e0a",
+    "baseCommit": "107e9928bd8efc2a6270fce35ea4bc6c4d596e0a",
+    "headCommit": "c800d543031002622782975acf7d33811d8034b9",
     "committed": [
       "changelogs/CHANGELOG_v2.4.4.md",
       "tauri-app/frontend/src/i18n/locales/en.json",
@@ -26,11 +26,12 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlo1szw-g-native（66 个文件）"
+    "持久化基线 be77851 与本次 cw 基线 107e992 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwloh56k-h-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T05:14:41.215Z"
+  "updatedAt": "2026-11-18T05:26:17.894Z"
 }
