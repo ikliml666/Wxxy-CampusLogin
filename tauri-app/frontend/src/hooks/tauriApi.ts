@@ -15,12 +15,11 @@ interface ConnectionCampusStatus {
 }
 
 /** 逐卡校园网判定结果（每张网卡独立走 名称→网段→网关→Portal 短路判定） */
-/** 当前出口的公网可达性结论（后端 monitor::internet_status::InternetSnapshot） */
-export interface InternetStatus {
+/** 单张网卡的公网可达性（后端 monitor::internet_status::AdapterReachability） */
+export interface AdapterReachability {
+  adapter: string
   online: boolean
   checkedAtMs: number
-  /** 被探测的网卡名（当前默认出口） */
-  adapter: string
 }
 
 export interface AdapterCampusStatus {
@@ -116,10 +115,10 @@ interface TauriApi {
   setOutboundNightTarget: (adapterName: string) => Promise<CommandResult>
   /** 系统网络变更（启停网卡 / 改跃点 / DHCP 换址）事件，返回取消订阅函数 */
   onNetworkChanged: (handler: () => void) => Promise<() => void>
-  /** 当前出口的公网可达性（null = 本次启动尚未探测过） */
-  getInternetStatus: () => Promise<InternetStatus | null>
-  /** 外网探测结论更新事件，返回取消订阅函数 */
-  onInternetStatusChanged: (handler: (status: InternetStatus) => void) => Promise<() => void>
+  /** 各网卡最近一次公网可达性（未探测过的卡不在列表里） */
+  getInternetStatus: () => Promise<AdapterReachability[]>
+  /** 各网卡可达性更新事件（整表），返回取消订阅函数 */
+  onInternetStatusChanged: (handler: (rows: AdapterReachability[]) => void) => Promise<() => void>
   /** 「立即切换出站」到指定网卡（条目按钮：只改跃点，不动网卡状态） */
   outboundSwitchTo: (adapterName: string) => Promise<CommandResult>
   /** 「还原出口」：把跃点写回切换前快照（切换态下当前出口行的按钮） */
@@ -257,9 +256,9 @@ const tauriApi: TauriApi = {
   setOutboundNightTarget: (adapterName) => invoke<CommandResult>('set_outbound_night_target', { adapterName }),
   onNetworkChanged: (handler) =>
     listen('network-changed', () => handler()),
-  getInternetStatus: () => invoke<InternetStatus | null>('get_internet_status'),
+  getInternetStatus: () => invoke<AdapterReachability[]>('get_internet_status'),
   onInternetStatusChanged: (handler) =>
-    listen<InternetStatus>('internet-status-changed', event => handler(event.payload)),
+    listen<AdapterReachability[]>('internet-status-changed', event => handler(event.payload)),
   outboundSwitchTo: (adapterName) => invoke<CommandResult>('outbound_switch_to', { adapterName }),
   outboundRestoreNow: () => invoke<CommandResult>('outbound_restore_now'),
   getAdapterMetrics: () => invoke<AdapterMetric[]>('get_adapter_metrics'),

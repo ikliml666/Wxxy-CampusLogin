@@ -599,41 +599,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 </CardIcon>
                 <div className="min-w-0">
                   <CardTitle>{t('network.networkAdapters')}</CardTitle>
-                  <CardDescription className="flex items-center gap-2">
-                    <span>
-                      {effectiveDisabledAdapters.length > 0 ? t('network.detectedCountWithDisabled', { count: adapters.length, disabled: effectiveDisabledAdapters.length }) : t('network.detectedCount', { count: adapters.length })}
-                    </span>
-                    {/* 外网连通状态：结论直接来自后台已有的质量检测，不额外探测 */}
-                    {internetStatus ? (
-                      <Badge
-                        variant="outline"
-                        size="sm"
-                        className={cn(
-                          'shrink-0 gap-1',
-                          internetStatus.online
-                            ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-                            : 'border-red-500/30 text-red-600 dark:text-red-400',
-                        )}
-                        title={t('network.internetCheckedAt', {
-                          time: new Date(internetStatus.checkedAtMs).toLocaleTimeString(),
-                          adapter: internetStatus.adapter,
-                        })}
-                      >
-                        <span
-                          className={cn(
-                            'h-1.5 w-1.5 rounded-full',
-                            internetStatus.online ? 'bg-emerald-500' : 'bg-red-500',
-                          )}
-                        />
-                        {internetStatus.online
-                          ? t('network.internetOnline')
-                          : t('network.internetOffline')}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" size="sm" className="shrink-0 text-muted-foreground">
-                        {t('network.internetUnknown')}
-                      </Badge>
-                    )}
+                  <CardDescription>
+                    {effectiveDisabledAdapters.length > 0 ? t('network.detectedCountWithDisabled', { count: adapters.length, disabled: effectiveDisabledAdapters.length }) : t('network.detectedCount', { count: adapters.length })}
                   </CardDescription>
                 </div>
               </div>
@@ -753,6 +720,27 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         {config.outboundNightTarget === a.name && (
                           <Badge variant="outline" size="sm" className="shrink-0 border-primary/30 text-primary">
                             {t('network.outboundBadge')}
+                          </Badge>
+                        )}
+                        {/* 该卡自己的公网可达性（网络适配器检测模块的结论，逐卡独立） */}
+                        {internetStatus[a.name] && (
+                          <Badge
+                            variant="outline"
+                            size="sm"
+                            className={cn(
+                              'shrink-0 gap-1',
+                              internetStatus[a.name].online
+                                ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                                : 'border-red-500/30 text-red-600 dark:text-red-400',
+                            )}
+                            title={t('network.internetCheckedAt', {
+                              time: new Date(internetStatus[a.name].checkedAtMs).toLocaleTimeString(),
+                            })}
+                          >
+                            <Globe className="h-3 w-3" />
+                            {internetStatus[a.name].online
+                              ? t('network.internetOnline')
+                              : t('network.internetOffline')}
                           </Badge>
                         )}
                         {a.status !== 'connected' && (

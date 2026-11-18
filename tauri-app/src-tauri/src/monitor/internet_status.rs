@@ -1,28 +1,29 @@
 //! 外网连通状态：缓存「网络适配器检测模块」最近一次公网可达性探测的结论，
-//! 供界面展示。
+//! **按网卡分别记录**，供卡片每一行展示自己那张卡通不通。
 //!
 //! 数据源是适配器侧的公网探测（`network::quality::check_internet_access_with_if`，
-//! 目标取自 `internet_probe_hosts`，由「网络检测参数」控制），**不是**质量检测
-//! 模块的延迟测试——后者是独立的定时测速，与"现在能不能上外网"不是一回事。
+//! 目标取自 `internet_probe_hosts`，由「网络检测参数」控制），不是质量检测模块的
+//! 定时测速——后者测的是延迟质量，与"这张卡能不能出去"不是一回事。
 //!
-//! 只记录**当前默认出口**那张卡的结论：切换/故障判定会同时探测多张卡，
-//! 其中未当选的卡探测失败是正常的，不能拿它把状态涂成"不通"。
+//! 多卡场景下每张卡的结果各自独立：校园网卡夜里不通是正常状态，不能影响夜间
+//! 目标卡的结论；因此这里存的是「网卡名 → 结论」的表，而不是单一全局状态。
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
 
-/// 一次公网可达性探测的结论。
+/// 单张网卡的公网可达性结论。
 #[derive(Clone, serde::Serialize)]
-pub struct InternetSnapshot {
-    /// 当前出口是否可达公网
+pub struct AdapterReachability {
+    /// 网卡名
+    pub adapter: String,
+    /// 该卡能否访问公网
     pub online: bool,
     /// 探测时刻（Unix 毫秒）
     pub checked_at_ms: u64,
-    /// 被探测的网卡名（当前默认出口）
-    pub adapter: String,
 }
 
-static SNAPSHOT: Mutex<Option<InternetSnapshot>> = Mutex::new(None);
+static SNAPSHOTS: Mutex<Option<HashMap<String, AdapterReachability>>> = Mutex::new(None);
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -31,76 +32,100 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// 记录一次当前出口的公网探测结论；结论有变化或首次记录时返回快照（供广播）。
-/// 相同结论不重复广播，避免每拍刷一次事件。
-pub fn record_probe(adapter: &str, online: bool) -> Option<InternetSnapshot> {
-    let mut guard = SNAPSHOT.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(previous) = guard.as_ref() {
-        if previous.online == online && previous.adapter == adapter {
-            // 结论没变，只更新时间，不广播
-            let refreshed = InternetSnapshot {
-                online,
-                checked_at_ms: now_ms(),
-                adapter: adapter.to_string(),
-            };
-            *guard = Some(refreshed);
-            return None;
-        }
+/// 批量记录一次探测结果（key=网卡名，value=是否可达）。
+/// 结论确有变化时返回整张表（供广播），否则返回 None——每拍都探测，
+/// 不变化就不该刷事件。
+pub fn record_probes(entries: &[(String, bool)]) -> Option<Vec<AdapterReachability>> {
+    if entries.is_empty() {
+        return None;
     }
-    let snapshot = InternetSnapshot {
-        online,
-        checked_at_ms: now_ms(),
-        adapter: adapter.to_string(),
-    };
-    *guard = Some(snapshot.clone());
-    Some(snapshot)
+    let at = now_ms();
+    let mut guard = SNAPSHOTS.lock().unwrap_or_else(|e| e.into_inner());
+    let table = guard.get_or_insert_with(HashMap::new);
+    let mut changed = false;
+    for (adapter, online) in entries {
+        match table.get(adapter) {
+            Some(previous) if previous.online == *online => {}
+            _ => changed = true,
+        }
+        table.insert(
+            adapter.clone(),
+            AdapterReachability {
+                adapter: adapter.clone(),
+                online: *online,
+                checked_at_ms: at,
+            },
+        );
+    }
+    if !changed {
+        return None;
+    }
+    Some(table.values().cloned().collect())
 }
 
-/// 读取最近一次结论；进程启动后尚未探测过则为 None。
-pub fn current() -> Option<InternetSnapshot> {
-    SNAPSHOT.lock().unwrap_or_else(|e| e.into_inner()).clone()
-}
-
-/// 记录并广播（`internet-status-changed`），供各探测调用点复用。
-pub fn record_and_emit(app_handle: &AppHandle, adapter: &str, online: bool) {
-    if let Some(snapshot) = record_probe(adapter, online) {
+/// 记录并广播整张表（只在结论变化时发）。
+pub fn record_probes_and_emit(app_handle: &AppHandle, entries: &[(String, bool)]) {
+    if let Some(snapshot) = record_probes(entries) {
         let _ = app_handle.emit("internet-status-changed", &snapshot);
     }
+}
+
+/// 读取当前所有已知网卡的结论；尚未探测过的卡不在表中。
+pub fn current_all() -> Vec<AdapterReachability> {
+    SNAPSHOTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .map(|table| table.values().cloned().collect())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn reset() {
-        *SNAPSHOT.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    /// 这几条用例共享进程内的全局表：cargo test 默认多线程并行，
+    /// 不加串行锁会互相 reset 对方的状态。
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn reset() -> std::sync::MutexGuard<'static, ()> {
+        let guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        *SNAPSHOTS.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        guard
+    }
+
+    fn snapshot_for(name: &str) -> Option<AdapterReachability> {
+        current_all().into_iter().find(|row| row.adapter == name)
     }
 
     #[test]
-    fn 首次探测落状态并广播() {
-        reset();
-        let snapshot = record_probe("WLAN", true).expect("首次应广播");
-        assert!(snapshot.online);
-        assert_eq!(snapshot.adapter, "WLAN");
-        assert_eq!(current().map(|s| s.online), Some(true));
+    fn 每张卡各自记录互不影响() {
+        let _guard = reset();
+        let changed = record_probes(&[
+            ("WLAN".to_string(), true),
+            ("以太网".to_string(), false),
+        ])
+        .expect("首次应广播");
+        assert_eq!(changed.len(), 2);
+        assert_eq!(snapshot_for("WLAN").map(|r| r.online), Some(true));
+        assert_eq!(snapshot_for("以太网").map(|r| r.online), Some(false));
     }
 
     #[test]
-    fn 结论不变只更新时间不重复广播() {
-        reset();
-        record_probe("WLAN", true).expect("首次");
-        assert!(
-            record_probe("WLAN", true).is_none(),
-            "同一结论不该每拍重复推送事件"
-        );
-        assert!(record_probe("WLAN", false).is_some(), "结论翻转必须广播");
+    fn 结论不变不重复广播() {
+        let _guard = reset();
+        record_probes(&[("WLAN".to_string(), true)]).expect("首次");
+        assert!(record_probes(&[("WLAN".to_string(), true)]).is_none());
     }
 
     #[test]
-    fn 出口换到另一张卡时即使都是连通也要广播() {
-        reset();
-        record_probe("以太网", true).expect("首次");
-        let snapshot = record_probe("WLAN", true).expect("换卡应广播");
-        assert_eq!(snapshot.adapter, "WLAN");
+    fn 只有某张卡翻转也要广播整表() {
+        let _guard = reset();
+        record_probes(&[("WLAN".to_string(), true), ("以太网".to_string(), true)]).expect("首次");
+        let changed =
+            record_probes(&[("WLAN".to_string(), true), ("以太网".to_string(), false)])
+                .expect("单卡翻转应广播");
+        assert_eq!(changed.len(), 2);
+        assert_eq!(snapshot_for("以太网").map(|r| r.online), Some(false));
     }
 }

@@ -35,11 +35,11 @@ pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, Strin
     Ok(CommandResult::ok_msg("适配器已启用"))
 }
 
-/// 最近一次外网探测的结论（网络适配器卡片顶部徽标）；尚未检测过返回 None。
+/// 各网卡最近一次公网可达性（网络适配器卡片逐行展示）；未探测过的卡不在返回里。
 #[tauri::command]
-pub async fn get_internet_status() -> Result<Option<crate::monitor::internet_status::InternetSnapshot>, String>
-{
-    Ok(crate::monitor::internet_status::current())
+pub async fn get_internet_status(
+) -> Result<Vec<crate::monitor::internet_status::AdapterReachability>, String> {
+    Ok(crate::monitor::internet_status::current_all())
 }
 
 /// 禁用适配器（网卡卡片常驻按钮，与 enable_adapter 共用一个位置）。
