@@ -745,6 +745,31 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 className="w-24 h-7 text-sm font-mono"
               />
             </SettingRow>
+            <SettingRow
+              htmlFor="night-prepare-minutes"
+              className="mt-2"
+              icon={<MoonStar className="h-3.5 w-3.5 text-muted-foreground" />}
+              label={t('network.nightPrepare')}
+              description={t('network.nightPrepareDesc')}
+            >
+              <Input
+                id="night-prepare-minutes"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={180}
+                step={10}
+                value={config.nightPrepareMinutes ?? 0}
+                disabled={!config.enableNightOutboundSwitch && !config.enableWifiCurfew}
+                onChange={e => {
+                  const raw = Number(e.target.value)
+                  onUpdateConfig({
+                    nightPrepareMinutes: Number.isFinite(raw) ? Math.min(180, Math.max(0, Math.round(raw))) : 0,
+                  })
+                }}
+                className="w-20 h-7 text-sm font-mono"
+              />
+            </SettingRow>
             <CardDescription className="mt-2">
               {t('network.nightOutboundSwitchDesc', { time: formatRestoreTime(config.nightRestoreMinutes) })}
             </CardDescription>

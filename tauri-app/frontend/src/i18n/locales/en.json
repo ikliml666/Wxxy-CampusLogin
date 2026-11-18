@@ -413,6 +413,8 @@
 
     "nightRestoreTime": "Restore Time",
     "nightRestoreTimeDesc": "Campus outbound resumes next morning",
+    "nightPrepare": "Prepare ahead (min)",
+    "nightPrepareDesc": "Switch the WLAN to a usable network this many minutes early; 0 = start at the switch time",
     "outboundTargetHint": "Click the moon to make it the night target",
     "outboundBadge": "Night Outbound Target",
     "outboundAdminHint": "Switching runs silently via the scheduled task, which needs administrator rights",

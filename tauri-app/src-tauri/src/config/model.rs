@@ -75,6 +75,11 @@ pub struct Config {
     /// 因校园网恢复时刻因作息而异，硬编码 07:30 无法适配。安卓端消费此字段
     #[serde(rename = "nightRestoreMinutes", default)]
     pub night_restore_minutes: u32,
+    /// 夜间切换的提前准备分钟数（桌面）：在切换时刻前这么多分钟开始把 WLAN
+    /// 切到放行名单里的可用网络（出站/跃点仍在切换时刻才动）。0 = 关闭，
+    /// 即到点才开始断与连。上限 180，见 config::wifi_curfew::prepare_lead_minutes
+    #[serde(rename = "nightPrepareMinutes", default = "default_night_prepare_minutes")]
+    pub night_prepare_minutes: u32,
     /// WiFi 就寝守则总开关（跨平台）: 周日至周四 23:00、周五六 23:30 起阻断
     /// `wifiCurfewExcluded` 里的 WiFi 连接，次日 `nightRestoreMinutes` 恢复。
     /// 时段与夜切共用一份时间表（见 config::wifi_curfew）
@@ -333,6 +338,12 @@ pub fn default_required_network_name() -> String {
 
 /// 就寝守则默认排除的校园网 SSID：与 `default_required_network_name` 的三值同源，
 /// 但这里是列表形态（可增删），不复用那个逗号/顿号分隔的字符串字段
+/// 提前准备默认值：一小时。给无线留出「发现目标网络 → 连接 → 出网探测」的
+/// 余量，到点时 WiFi 已经就位，不必在现场等
+pub fn default_night_prepare_minutes() -> u32 {
+    60
+}
+
 pub fn default_wifi_curfew_excluded() -> Vec<String> {
     vec!["i-wxxy".to_string(), "iwxxy-2".to_string(), "iwxxy-3".to_string()]
 }
@@ -374,6 +385,7 @@ impl Default for Config {
             enable_night_outbound_switch: false,
             // 0 = 未自定义，回落默认 07:30（见 config::night_switch::restore_start_minutes）
             night_restore_minutes: 0,
+            night_prepare_minutes: default_night_prepare_minutes(),
             enable_wifi_curfew: false,
             wifi_curfew_excluded: default_wifi_curfew_excluded(),
             wifi_curfew_allowed: Vec::new(),

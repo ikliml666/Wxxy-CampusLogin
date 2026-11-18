@@ -282,6 +282,7 @@ mod tests {
             night_operator_restore: String::new(),
             enable_night_outbound_switch: false,
             night_restore_minutes: 0,
+            night_prepare_minutes: 0,
             enable_wifi_curfew: false,
             wifi_curfew_excluded: Vec::new(),
             wifi_curfew_allowed: Vec::new(),

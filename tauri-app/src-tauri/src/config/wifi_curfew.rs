@@ -19,6 +19,26 @@ pub fn in_curfew_window(weekday: u32, now_minutes: u32, restore_start: u32) -> b
     switch_time_for(weekday).is_some_and(|t| now_minutes >= t)
 }
 
+/// 提前准备的分钟数：0 = 关闭；上限 180（再大就跨到白天的时段里去了）。
+pub fn prepare_lead_minutes(configured: u32) -> u32 {
+    configured.min(180)
+}
+
+/// 是否处于「提前准备」窗口：切换时刻前 `lead` 分钟内（不含切换时刻本身，
+/// 那一刻起由 [`in_curfew_window`] 接管）。
+///
+/// 这个窗口里做的事是「把 WLAN 先切到放行名单里的可用网络」——无线换网要
+/// 发现、握手、拿到地址，到点才动手往往要空等几十秒；提前切过去，到点只需
+/// 补出站与跃点。
+pub fn in_prepare_window(weekday: u32, now_minutes: u32, lead: u32, restore_start: u32) -> bool {
+    let lead = prepare_lead_minutes(lead);
+    if lead == 0 || in_curfew_window(weekday, now_minutes, restore_start) {
+        return false;
+    }
+    switch_time_for(weekday)
+        .is_some_and(|switch_at| now_minutes < switch_at && now_minutes >= switch_at.saturating_sub(lead))
+}
+
 /// 按本机当前时间判定是否处于守则窗口。双端调用方共用——安卓侧没有独立的
 /// 时间换算，拼一遍 chrono 等于把「周日至周四 23:00」这条口径复制一份。
 pub fn in_curfew_window_now(restore_start: u32) -> bool {
@@ -59,6 +79,22 @@ mod tests {
 
     fn v(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn prepare_window_sits_just_before_switch_time() {
+        // 周二 23:00 切换，提前 60 分钟 → 22:00 起进入准备窗
+        assert!(in_prepare_window(2, 22 * 60, 60, 0));
+        assert!(in_prepare_window(2, 22 * 60 + 59, 60, 0));
+        // 22:00 之前不进入
+        assert!(!in_prepare_window(2, 22 * 60 - 1, 60, 0));
+        // 到点后由 in_curfew_window 接管，准备窗不再报 true
+        assert!(!in_prepare_window(2, 23 * 60, 60, 0));
+        // 0 = 关闭
+        assert!(!in_prepare_window(2, 22 * 60 + 30, 0, 0));
+        // 周五 23:30 切换 → 22:30 进入
+        assert!(in_prepare_window(5, 22 * 60 + 30, 60, 0));
+        assert!(!in_prepare_window(5, 22 * 60 + 29, 60, 0));
     }
 
     #[test]
