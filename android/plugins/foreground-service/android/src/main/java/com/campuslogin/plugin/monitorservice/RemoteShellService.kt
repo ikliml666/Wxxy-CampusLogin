@@ -45,20 +45,6 @@ class RemoteShellService : IRemoteShell.Stub() {
     }
 
     /**
-     * 按 networkId 让系统连上「已保存」的网络——与用户在 WiFi 列表里点选它同一条路径：
-     * 走系统里已有的凭据，**不需要明文密码**，也不新建或改动配置。
-     *
-     * 直接调 `IWifiManager#enableNetwork(netId, disableOthers, packageName)`：
-     * WifiServiceImpl 在 disableOthers=true 时走 `triggerConnectAndReturnStatus`，
-     * 即「只启用这一个并发起连接」。权限侧 root/shell 都持有 NETWORK_SETTINGS，
-     * 能过 isPrivileged 校验。
-     *
-     * 这是 `cmd wifi connect-network` 做不到的：那条子命令对 wpa2/wpa3/wep 强制要显式密码
-     * （真机实测缺参报 IllegalArgumentException），而系统存的是加密凭据、拿不到明文。
-     *
-     * 返回 "ok" / "fail" / "error:<原因>"，与 exec 的 exit= 格式区分开。
-     */
-    /**
      * 断开当前 WiFi 连接，WiFi 开关保持开启、系统里的网络配置不删。
      *
      * 走 `IWifiManager#disconnect(packageName)`：Android 10 起应用侧 `WifiManager.disconnect()`
@@ -132,10 +118,10 @@ class RemoteShellService : IRemoteShell.Stub() {
         }
     }
 
-    override fun enableSavedNetwork(netId: Int): String {
+    override fun enableSavedNetwork(netId: Int, disableOthers: Boolean): String {
         val service = wifiService()
         if (service == null) {
-            Log.w(TAG, "enableSavedNetwork($netId): 取不到 wifi 服务")
+            Log.w(TAG, "enableSavedNetwork($netId, $disableOthers): 取不到 wifi 服务")
             return "error:no-wifi-service"
         }
         // uid 2000 走 com.android.shell；root 后端下该包名与 uid 对不上，用 android
@@ -150,7 +136,7 @@ class RemoteShellService : IRemoteShell.Stub() {
                     )
             }
             val ok = if (modern != null) {
-                modern.invoke(service, netId, true, pkg) as? Boolean ?: false
+                modern.invoke(service, netId, disableOthers, pkg) as? Boolean ?: false
             } else {
                 val legacy = service.javaClass.methods.firstOrNull {
                     it.name == "enableNetwork" &&
@@ -158,16 +144,16 @@ class RemoteShellService : IRemoteShell.Stub() {
                             arrayOf(Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
                         )
                 } ?: return "error:no-enable-network"
-                legacy.invoke(service, netId, true) as? Boolean ?: false
+                legacy.invoke(service, netId, disableOthers) as? Boolean ?: false
             }
-            Log.i(TAG, "enableSavedNetwork($netId) 结果=" + ok)
+            Log.i(TAG, "enableSavedNetwork($netId, $disableOthers) 结果=" + ok)
             if (ok) "ok" else "fail"
         } catch (e: InvocationTargetException) {
             val cause = e.targetException
-            Log.w(TAG, "enableSavedNetwork($netId) 调用异常", cause)
+            Log.w(TAG, "enableSavedNetwork($netId, $disableOthers) 调用异常", cause)
             "error:" + cause.javaClass.simpleName + ":" + cause.message
         } catch (e: Throwable) {
-            Log.w(TAG, "enableSavedNetwork($netId) 失败", e)
+            Log.w(TAG, "enableSavedNetwork($netId, $disableOthers) 失败", e)
             "error:" + e.javaClass.simpleName + ":" + e.message
         }
     }

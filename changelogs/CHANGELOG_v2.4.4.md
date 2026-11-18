@@ -1,3 +1,29 @@
+### 缺陷修复：安卓 WiFi 连接管控切换误禁热点配置（2026-11-18，安卓）
+
+**为什么**：用户实测：开启 WiFi 管控后，连接着的热点自己断开且不再自动恢复。根因在切换通路：`IWifiManager#enableNetwork(netId, true)` 的 disableOthers 参数是 AOSP 文档写明的持久副作用——系统受理连接请求的同时，把**目标以外的全部已存网络**标记为不自动连接。就寝窗口内（23:00/23:30–07:30）管控开启且放行名单非空时，执行器对每个放行目标尝试切换；放行网络不可达（人不在宿舍等）时切换失败，但热点及其它网络配置已被禁用，且两层恢复机制都是空的：
+
+1. 失败路径无恢复：被禁的 netId 从未被记录（prefs 只记断开名单路径的单个 netId），`restore()` 无从放回；
+2. 出窗恢复 `unblockWifi` 本身也用 `enableNetwork(id, true)`——恢复一个又禁掉其它全部（恢复语义反了）。
+
+**改了什么**（`android/plugins/foreground-service`，4 文件）
+
+- `IRemoteShell.aidl`：`enableSavedNetwork(netId)` → `enableSavedNetwork(netId, disableOthers)`；`CurfewShell` 的 UserServiceArgs version 3→4（Shizuku 据此销毁旧 UserService 进程加载新签名，否则跨进程按旧签名调用直接失败）。
+- `WifiCurfewRunner`：
+  - **切换前快照**：`cmd wifi list-networks` 结果里「放行名单以外全部 netIds」写入 prefs（`switch_disabled_ids`）——disableOthers 恰好禁的就是这批；
+  - **失败立即放回**：放行目标全部连不上时，逐个 `enableNetwork(id, false)`（只解禁、不再禁别人）放回，系统按 autojoin 连回热点，之后才走断开名单判定；
+  - **残留守卫**：切换分支入口发现上拍恢复没跑完（进程被杀/通道中断）时先放回旧记录再重新尝试，快照覆盖不会弄丢待恢复集合；
+  - **出窗统一放回**：切换成功时快照保留到 `restore()` 出窗时放回（用户白天连任何非放行网络不再受影响）；
+  - `unblockWifi` 改用 `disableOthers=false`，修正恢复语义。
+- 注释修正：删除「enableNetwork 与用户点选网络同一条路径」的错误表述（Settings 点选实际走 `connect()`；正是这个误解让副作用无人设防）。
+- 影响面：仅 Shizuku 通道的加密网络切换路径（`cmd wifi connect-network` 的 open/OWE 免密路径走 WifiShellCommand 的 connect()，无此副作用，不需快照）；断开名单与弱信号路径的 disableNetwork 单网禁用本就有记录有恢复，行为不变。
+
+**验证**
+
+- worktree 深路径触发 MSVC link 与 aidl.exe 的长路径限制（LNK1104 / AIDL parse 失败），全量 APK 无法在 worktree 出包——环境限制非代码问题；经 junction 短路径（C:\wtbuild）验证：
+  - `gradlew :tauri-plugin-campus-monitor-service:compileDebugKotlin` **BUILD SUCCESSFUL**（本次改动的全部代码所在模块，AIDL 新签名 stub 生成、Kotlin 编译通过，仅一条既有 connectionInfo deprecation 警告）；
+  - 产物符号核验：生成 stub `IRemoteShell.java` 含 `enableSavedNetwork(int netId, boolean disableOthers)`，确认编译的是新代码（tauri.settings.gradle 的 projectDir 已从 Local 绝对路径改指 worktree，规避静默编译旧码的坑）。
+- 未验证（需真机）：Shizuku 在位 + 窗口内开启管控 + 连着热点 + 放行网络不可达 → 热点应保持可连（结果 `tried` 出现 `switchRecover`）；切换成功场景次日出窗后已存网络全部恢复正常连接。
+
 ### 行为调整：当前 WiFi 名称免定位权限读取（双端，2026-11-18）
 
 **为什么**：两端都存在"不开位置信息就看不到当前 WiFi"的问题。安卓：Android 12+ 的 `WifiManager.connectionInfo` 在缺 `ACCESS_FINE_LOCATION` 时恒返回 `<unknown ssid>`（真机 RMX3300/Android 15 实测 `NEARBY_WIFI_DEVICES` 单独不够），UI 的 SSID Badge 恒显示「未获取」。Windows：Win11 关位置服务后 `netsh wlan` 直接拒绝（本机复现：退出码 1 + "网络 shell 命令需要位置权限才能访问 WLAN 信息"）。而两个平台都有不经过位置管控的读取通道，此前只有安卓后台守则在用。

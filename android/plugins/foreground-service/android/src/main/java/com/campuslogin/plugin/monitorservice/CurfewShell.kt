@@ -60,17 +60,18 @@ object CurfewShell {
     }
 
     /**
-     * 按 networkId 让系统连上「已保存」的网络，返回 "ok" / "fail" / "error:..."。
+     * 按 networkId 启用/连接「已保存」的网络，返回 "ok" / "fail" / "error:..."。
      *
-     * 与用户在 WiFi 列表里点选网络同一条系统路径：走已存凭据，不需要明文密码。
-     * 没有 Shizuku 通道返回 null，由调用方如实回报失败原因。
+     * [disableOthers] 透传给 `IWifiManager#enableNetwork`：true 是系统受理连接请求
+     * 的开关，副作用是把其它已存网络全部持久禁用（调用方必须快照并负责放回）；
+     * false 只解除该网络的禁用状态。没有 Shizuku 通道返回 null，由调用方如实回报。
      */
-    fun enableSavedNetwork(context: Context, netId: Int): String? {
+    fun enableSavedNetwork(context: Context, netId: Int, disableOthers: Boolean): String? {
         val remote = shellChannel(context) ?: return null
         return try {
-            remote.enableSavedNetwork(netId)
+            remote.enableSavedNetwork(netId, disableOthers)
         } catch (e: Throwable) {
-            Log.w(TAG, "enableSavedNetwork(" + netId + ") 调用失败", e)
+            Log.w(TAG, "enableSavedNetwork(" + netId + ", " + disableOthers + ") 调用失败", e)
             dropChannel()
             null
         }
@@ -141,7 +142,9 @@ object CurfewShell {
                 .daemon(true)
                 .processNameSuffix("shell")
                 .debuggable(false)
-                .version(3)
+                // enableSavedNetwork 增加了 disableOthers 参数：版本号必须随之 bump，
+                // Shizuku 才会销毁旧 UserService 进程并加载新实现，否则跨进程调用旧签名直接失败
+                .version(4)
             val latch = CountDownLatch(1)
             var bound: IRemoteShell? = null
             val conn = object : ServiceConnection {
