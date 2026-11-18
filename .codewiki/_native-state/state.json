@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "171292a7d252490502fcb65cc44d09cad867e401",
-    "headCommit": "f1dee0e9f2c96349f0e71991905535434fb5cdd4"
+    "headCommit": "2673cccc6e7c747b4fde3e3a1524071051fdbf31"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "171292a7d252490502fcb65cc44d09cad867e401",
-    "headCommit": "f1dee0e9f2c96349f0e71991905535434fb5cdd4",
+    "headCommit": "2673cccc6e7c747b4fde3e3a1524071051fdbf31",
     "committed": [
       "changelogs/CHANGELOG_v2.4.4.md",
       "tauri-app/frontend/src/hooks/tauriApi.ts",
@@ -20,7 +20,8 @@
       "tauri-app/src-tauri/src/commands/network_cmd.rs",
       "tauri-app/src-tauri/src/monitor/internet_status.rs",
       "tauri-app/src-tauri/src/monitor/mod.rs",
-      "tauri-app/src-tauri/src/monitor/quality_scheduler.rs"
+      "tauri-app/src-tauri/src/monitor/outbound_failover.rs",
+      "tauri-app/src-tauri/src/monitor/outbound_night.rs"
     ],
     "staged": [],
     "unstaged": [],
@@ -37,8 +38,7 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 4989aeb 与本次 cw 基线 171292a 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwllbyj7-6-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwllkd1d-7-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T03:58:18.196Z"
+  "updatedAt": "2026-11-18T04:04:50.841Z"
 }
