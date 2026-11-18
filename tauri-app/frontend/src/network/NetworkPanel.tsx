@@ -644,6 +644,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               className="mt-3"
               icon={<MoonStar className="h-3.5 w-3.5 text-primary" />}
               label={t('network.nightRestoreTime')}
+              description={t('network.nightRestoreTimeDesc')}
             >
               <Input
                 id="night-restore-time"
@@ -666,6 +667,9 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 className="w-24 h-7 text-sm font-mono"
               />
             </SettingRow>
+            <CardDescription className="mt-2">
+              {t('network.nightOutboundSwitchDesc', { time: formatRestoreTime(config.nightRestoreMinutes) })}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {adapters.length === 0 ? (
@@ -865,6 +869,12 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
+            )}
+            {adapters.length > 0 && (
+              <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <MoonStar className="h-3 w-3 shrink-0" />
+                {t('network.outboundTargetHint')}
+              </p>
             )}
             {/* 适配器与账号、检测参数各由弹窗承载：卡片只留适配器清单与两枚入口按钮，
                 与账号管理卡卡尾同构，省掉卡片里一整块表单 */}
