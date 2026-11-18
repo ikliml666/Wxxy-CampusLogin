@@ -2,13 +2,13 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "10b712c510b2d0adb097d2a444036b370cae5246",
-    "headCommit": "933e89820c36c172289373effedd31a2a109e2fa"
+    "baseCommit": "933e89820c36c172289373effedd31a2a109e2fa",
+    "headCommit": "248f5ccc89b581655b375ce7b958ffd5e9262b6b"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "10b712c510b2d0adb097d2a444036b370cae5246",
-    "headCommit": "933e89820c36c172289373effedd31a2a109e2fa",
+    "baseCommit": "933e89820c36c172289373effedd31a2a109e2fa",
+    "headCommit": "248f5ccc89b581655b375ce7b958ffd5e9262b6b",
     "committed": [],
     "staged": [],
     "unstaged": [
@@ -36,9 +36,10 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "工作区未提交改动已合成临时 commit 707c9b4afafc（4 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlrmj5m-1-native（66 个文件）",
-    "本轮把 4 个未提交源码改动一并写进产物（快照 707c9b4afafc）：tauri-app/src-tauri/src/auth/portal.rs、tauri-app/src-tauri/src/auth/protocol.rs、tauri-app/src-tauri/src/monitor/outbound_failover.rs、tauri-app/src-tauri/tests/portal_stale_source_e2e.rs"
+    "持久化基线 10b712c 与本次 cw 基线 933e898 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "工作区未提交改动已合成临时 commit a22453044f74（4 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlsp3uv-5-native（66 个文件）",
+    "本轮把 4 个未提交源码改动一并写进产物（快照 a22453044f74）：tauri-app/src-tauri/src/auth/portal.rs、tauri-app/src-tauri/src/auth/protocol.rs、tauri-app/src-tauri/src/monitor/outbound_failover.rs、tauri-app/src-tauri/tests/portal_stale_source_e2e.rs"
   ],
-  "updatedAt": "2026-11-18T06:54:40.319Z"
+  "updatedAt": "2026-11-18T07:24:30.975Z"
 }
