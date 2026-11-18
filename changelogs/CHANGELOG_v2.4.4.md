@@ -56,6 +56,24 @@
   ⑦ PortalFailure 三个平铺 match（message/error_kind/label）→ 合并为 display_parts() 单 match 三元组，新增变体只改一处。
   未修（语义可辩护）：退避起点复用 outboundBackoffStartSecs（spec 只点名封顶，但与出站切换共用同一退避节奏参数是一致性取舍，validate 下限 10s 保证不失控）。
   验证：桌面 cargo test **688 passed / 0 failed / 4 ignored**（含新口径单测）、真机 e2e 复跑通过、安卓 cargo check --target aarch64-linux-android --all-targets exit 0。
+### 缺陷修复：已保存 WiFi 列表不随系统变化刷新（2026-11-18，桌面）
+
+**为什么**：用户在系统里连了新网络或「忘记」某个网络后，守则卡片的已保存列表仍是旧数据。这是上一轮卡片重做引入的回归：旧版 `WifiProfilePicker` 每次打开弹窗都会重新拉取，重做时改成了「面板挂载时拉一次」，而 `network-changed` 事件的回调又只刷新当前 SSID——列表从此停在挂载那一刻。
+
+**改了什么**（`NetworkPanel.tsx`）
+
+- 提取 `refreshSavedWifiProfiles()`，三处触发：
+  1. 面板挂载时（原有）；
+  2. `network-changed` 事件回调里与当前 SSID 一起刷新——连上新 WiFi、换卡都伴随接口/IP 变化，事件可靠覆盖；
+  3. `CurfewListBlock` 新增 `onRefresh`，**打开弹窗时重读一次**——这条是兜底：在系统设置里「忘记」网络不产生任何接口变化事件，只有使用前的这一刻重读才靠得住。
+- 重读不清空旧列表（stale-while-revalidate）：读失败时旧数据仍可勾选，弹窗不闪 loading。
+
+**验证**
+
+- `npx tsc --noEmit --incremental` 通过；`npx vitest run` **127 passed**；`npx vite build` 成功。
+- 未验证：实机「连接新网络 → 打开弹窗出现新 SSID」「忘记网络 → 打开弹窗消失」两条链路（需人工在系统里操作一次）。
+- 安卓不受影响：其 `SavedNetworkPicker` 保持挂载拉取 + 授权后刷新 + 失败重试的原有行为，无此回归。
+
 ### 前端性能优化：WiFi 连接管控卡片按「时序 + 对偶名单」重做（双端，2026-11-18）
 
 **为什么**：上一版修了未定义键、补了状态行，但卡片骨干仍是「标签 + 整行『已选 N 个网络｜编辑名单 >』+ chips」重复两遍——两行设置项加一段说明去描述"什么时候发生什么"，用户读的是文字而不是布局。

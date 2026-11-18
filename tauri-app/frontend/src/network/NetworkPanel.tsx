@@ -173,7 +173,7 @@ function formatRestoreTime(minutes: number | undefined): string {
  *  勾选的名字与系统里完全一致，避免手输大小写/空格差异导致规则不命中。
  */
 const CurfewListBlock = memo(function CurfewListBlock({
-  title, tone, description, items, saved, currentSsid, removeLabel, disabled, allowWildcard, onChange,
+  title, tone, description, items, saved, currentSsid, removeLabel, disabled, allowWildcard, onRefresh, onChange,
 }: {
   title: string
   /** cut = 就寝时断开（红），keep = 保留并切过去（绿） */
@@ -186,11 +186,17 @@ const CurfewListBlock = memo(function CurfewListBlock({
   removeLabel: (name: string) => string
   disabled?: boolean
   allowWildcard?: boolean
+  /** 打开弹窗时重读系统清单：挂载后用户新连/忘记的网络只有这一刻能被发现 */
+  onRefresh?: () => void | Promise<void>
   onChange: (next: string[]) => void
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  // 打开弹窗即重读；不清空旧列表——stale-while-revalidate，读失败时旧数据仍可用
+  useEffect(() => {
+    if (open) void onRefresh?.()
+  }, [open, onRefresh])
 
   const has = useCallback(
     (ssid: string) => items.some(it => it.toLowerCase() === ssid.toLowerCase()),
@@ -556,8 +562,18 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
   // 就寝守则卡片要显示「当前连的是哪个 WiFi」，挂载拉一次、系统网络变化时刷新
   const [currentSsid, setCurrentSsid] = useState<string | null>(null)
-  // 系统已保存的 WiFi：两侧名单的勾选来源，打开弹窗时读一次
+  // 系统已保存的 WiFi：两侧名单的勾选来源。三处触发刷新——挂载、
+  // 系统网络变化事件、弹窗打开——弹窗打开那次是兜底：在系统里「忘记」网络
+  // 不产生接口变化事件，只有打开那一刻重读才靠得住
   const [savedWifiProfiles, setSavedWifiProfiles] = useState<string[] | null>(null)
+  const refreshSavedWifiProfiles = useCallback(async () => {
+    try {
+      const result = await tauriApiWithRetry.listSavedWifiNetworks()
+      setSavedWifiProfiles((result.networks ?? []).map(n => n.ssid))
+    } catch {
+      setSavedWifiProfiles([])
+    }
+  }, [])
   // 适配器/账号与检测参数各由一个弹窗承载（卡片只留入口按钮）
   const [adapterDialogOpen, setAdapterDialogOpen] = useState(false)
   const [probeDialogOpen, setProbeDialogOpen] = useState(false)
@@ -574,11 +590,10 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
       void tauriApiWithRetry.getCurrentWifiSsid?.()
         .then(name => { if (!disposed) setCurrentSsid(name ?? null) })
         .catch(() => { /* 读不到就按未连接显示，不影响其它信息 */ })
+      // 连上新 WiFi/换卡也会改变已保存列表，一并刷新
+      void refreshSavedWifiProfiles()
     }
     refresh()
-    void tauriApiWithRetry.listSavedWifiNetworks?.()
-      .then(result => { if (!disposed) setSavedWifiProfiles((result.networks ?? []).map(n => n.ssid)) })
-      .catch(() => { if (!disposed) setSavedWifiProfiles([]) })
     void tauriApiWithRetry.onNetworkChanged?.(refresh).then(fn => {
       if (disposed) fn?.()
       else unlisten = fn
@@ -1133,6 +1148,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 removeLabel={name => t('network.wifiCurfewRemove', { name })}
                 disabled={!config.enableWifiCurfew}
                 allowWildcard
+                onRefresh={refreshSavedWifiProfiles}
                 onChange={next => onUpdateConfig({ wifiCurfewExcluded: next })}
               />
               <CurfewListBlock
@@ -1144,6 +1160,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 currentSsid={currentSsid}
                 removeLabel={name => t('network.wifiCurfewRemove', { name })}
                 disabled={!config.enableWifiCurfew}
+                onRefresh={refreshSavedWifiProfiles}
                 onChange={next => onUpdateConfig({ wifiCurfewAllowed: next })}
               />
             </div>
