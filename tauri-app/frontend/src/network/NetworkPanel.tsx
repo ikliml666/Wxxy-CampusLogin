@@ -21,6 +21,7 @@ import { ProbeSettingsDialog } from './ProbeSettingsDialog'
 import { useAdapterTraffic } from './useAdapterTraffic'
 import { useDnsSetup } from './useDnsSetup'
 import { useOutboundManual } from './useOutboundManual'
+import { useInternetStatus } from './useInternetStatus'
 import { DnsAdapterCard } from './DnsAdapterCard'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useAdapterStore, refreshAdapterData } from '@/hooks/useAdapterStore'
@@ -454,6 +455,9 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     handleSetNightTarget,
   } = useOutboundManual(adapters.length)
 
+  // 外网连通状态（来自后台已有质量检测的结论）
+  const internetStatus = useInternetStatus()
+
   // 切换态判据：切换成功必先落跃点快照（outboundMetricRestore），还原收尾清空。
   // config 由后端 config-changed 事件回传，切换/还原后自动更新。
   const outboundSwitched = config.outboundMetricRestore !== ''
@@ -595,8 +599,41 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                 </CardIcon>
                 <div className="min-w-0">
                   <CardTitle>{t('network.networkAdapters')}</CardTitle>
-                  <CardDescription>
-                    {effectiveDisabledAdapters.length > 0 ? t('network.detectedCountWithDisabled', { count: adapters.length, disabled: effectiveDisabledAdapters.length }) : t('network.detectedCount', { count: adapters.length })}
+                  <CardDescription className="flex items-center gap-2">
+                    <span>
+                      {effectiveDisabledAdapters.length > 0 ? t('network.detectedCountWithDisabled', { count: adapters.length, disabled: effectiveDisabledAdapters.length }) : t('network.detectedCount', { count: adapters.length })}
+                    </span>
+                    {/* 外网连通状态：结论直接来自后台已有的质量检测，不额外探测 */}
+                    {internetStatus ? (
+                      <Badge
+                        variant="outline"
+                        size="sm"
+                        className={cn(
+                          'shrink-0 gap-1',
+                          internetStatus.online
+                            ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                            : 'border-red-500/30 text-red-600 dark:text-red-400',
+                        )}
+                        title={t('network.internetCheckedAt', {
+                          time: new Date(internetStatus.checkedAtMs).toLocaleTimeString(),
+                          adapter: internetStatus.adapter,
+                        })}
+                      >
+                        <span
+                          className={cn(
+                            'h-1.5 w-1.5 rounded-full',
+                            internetStatus.online ? 'bg-emerald-500' : 'bg-red-500',
+                          )}
+                        />
+                        {internetStatus.online
+                          ? t('network.internetOnline', { latency: internetStatus.latencyMs })
+                          : t('network.internetOffline')}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" size="sm" className="shrink-0 text-muted-foreground">
+                        {t('network.internetUnknown')}
+                      </Badge>
+                    )}
                   </CardDescription>
                 </div>
               </div>

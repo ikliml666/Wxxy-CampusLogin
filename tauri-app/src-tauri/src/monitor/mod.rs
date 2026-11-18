@@ -6,6 +6,7 @@ pub mod adapter_watch;
 pub mod campus_check;
 pub mod outbound_switch;
 pub mod portal_check;
+pub mod internet_status;
 pub mod quality_scheduler;
 pub mod background_emit;
 pub mod background_check;
