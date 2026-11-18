@@ -1,3 +1,22 @@
+### 行为调整：夜间切换支持提前一小时准备 WLAN（2026-11-18，桌面）
+
+**为什么**：到点才动手时，无线换网要经过"发现目标 → 关联/握手 → DHCP 拿地址 → 出网可用"，通常几十秒；这段时间正好是校园网刚被切断、出站还没切过去的空窗。提前把这些做完，到点只需补出站与跃点。
+
+**改了什么**
+
+- 新增配置 `nightPrepareMinutes`（serde `nightPrepareMinutes`，默认 **60**，上限 180，0 = 关闭）。
+- `config/wifi_curfew.rs` 新增 `prepare_lead_minutes`（钳到 180）与 `in_prepare_window(weekday, now_minutes, lead, restore_start)`：切换时刻前 lead 分钟内为 true，到切换时刻即交给 `in_curfew_window` 接管，两者不重叠。
+- `monitor/wifi_curfew.rs` 的生效条件由 `in_curfew_window` 扩为 `in_curfew_window || in_prepare_window`：准备窗内就执行「改手动 → 断开 → 连放行网络」，并记一条日志说明进入了准备窗。
+- **出站/跃点仍按原切换时刻执行**（`monitor/scheduled.rs` 未改）：提前的只是 WLAN 层面，正式切换仍在 23:00 / 23:30。
+- 前端网卡卡片新增「提前准备（分钟）」数字输入（0–180，步进 10），与「还原时刻」并列；关闭夜间切换且未开守则时置灰。
+
+**验证**
+
+- `cargo test`：lib **682 passed; 0 failed; 4 ignored**（新增 `prepare_window_sits_just_before_switch_time`：22:00 进入、21:59 不进入、23:00 交给窗口判定、0 = 关闭、周五 23:30 对应 22:30）。
+- `npx tsc --noEmit --incremental` 通过；`npx vitest run` **127 passed**；`npx vite build` 成功。
+- 未验证：真实 22:00 的提前切换链路。
+- **安卓端未同步**：`WifiCurfewRunner.kt` 自带一份窗口换算（`inCurfewWindow`），提前准备需要改 Kotlin 与设置界面，本轮未做，安卓仍按切换时刻执行。
+
 ### 行为调整：就寝守则断开后自动连到放行名单（2026-11-18，桌面）
 
 **为什么**：此前窗口内只做「断开」——校园网一断，机器整晚没有无线可用，而用户明明是有一台放行名单里的宿舍路由器可用的。安卓端（`WifiCurfewRunner.kt`）一直是「断开 → 连放行名单」，桌面缺这一步，双端语义不一致。

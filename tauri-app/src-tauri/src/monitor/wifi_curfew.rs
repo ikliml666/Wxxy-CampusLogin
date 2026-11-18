@@ -186,7 +186,22 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
         now_minutes,
         config.night_restore_minutes,
     );
-    let active = config.enable_wifi_curfew && in_window;
+    // 提前准备：切换时刻前 night_prepare_minutes 分钟内就先动手，让到点那一刻
+    // 只差出站与跃点。出站切换本身仍按原时刻执行（见 monitor::scheduled）
+    let preparing = crate::config::wifi_curfew::in_prepare_window(
+        weekday,
+        now_minutes,
+        config.night_prepare_minutes,
+        config.night_restore_minutes,
+    );
+    let active = config.enable_wifi_curfew && (in_window || preparing);
+    if preparing && !in_window {
+        crate::log_info!(
+            "wifi_curfew",
+            "就寝守则: 进入提前准备窗口（切换前 {} 分钟），先把 WLAN 切到放行网络",
+            crate::config::wifi_curfew::prepare_lead_minutes(config.night_prepare_minutes)
+        );
+    }
     let mut snapshot = parse_snapshot(&config.wifi_curfew_profile_restore);
 
     if !active {

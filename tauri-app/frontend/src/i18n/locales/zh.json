@@ -413,6 +413,8 @@
 
     "nightRestoreTime": "还原时刻",
     "nightRestoreTimeDesc": "次日恢复校园网出站",
+    "nightPrepare": "提前准备（分钟）",
+    "nightPrepareDesc": "切换前先探测并把 WLAN 切到可用网络，0 = 关到点才开始",
     "outboundTargetHint": "点月亮设为夜间出站目标",
     "outboundBadge": "夜间出站目标",
     "outboundAdminHint": "切换动作将通过计划任务静默完成，需要管理员权限",
