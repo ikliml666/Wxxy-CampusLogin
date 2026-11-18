@@ -63,6 +63,7 @@ source_files:
   - tauri-app/src-tauri/src/monitor/auth_recovery.rs
   - tauri-app/src-tauri/src/monitor/outbound_failover.rs
   - tauri-app/src-tauri/src/monitor/wifi_curfew.rs
+  - tauri-app/src-tauri/src/monitor/internet_status.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_auth.md
