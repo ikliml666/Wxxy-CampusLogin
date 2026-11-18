@@ -5,7 +5,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Globe, Check, BedDouble, Loader2, Wifi, Lock, X, ChevronRight } from 'lucide-react'
+import { Globe, Check, BedDouble, Loader2, Wifi, Lock, X, Plus } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import React, { useState, useCallback, memo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -80,6 +80,8 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
   loadError,
   conflict,
   disabled,
+  tone,
+  currentSsid,
   onChange,
   onConflict,
   onRetry,
@@ -96,6 +98,10 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
   /** 另一份名单里的 SSID：放行与断开互斥，选中时会从对方移除 */
   conflict: string[]
   disabled?: boolean
+  /** cut = 就寝时断开（红），keep = 保留并切过去（绿） */
+  tone: 'cut' | 'keep'
+  /** 当前连接的 SSID：命中的那枚 chip 描边，一眼看出自己正踩在哪种规则上 */
+  currentSsid?: string | null
   onChange: (next: string[]) => void
   onConflict: (ssid: string) => void
   onRetry: () => void
@@ -121,30 +127,25 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
   }
 
   return (
-    <div className={cn('space-y-2', disabled && 'opacity-60')}>
-      <button
-        id={id}
-        type="button"
-        disabled={disabled}
-        onClick={() => setOpen(true)}
-        className="flex w-full items-center justify-between rounded-xl border border-input/70 bg-muted/30 px-3 py-2 text-[12px] transition-colors hover:bg-primary/5 disabled:opacity-50"
-      >
-        <span className="text-muted-foreground">
-          {items.length > 0
-            ? t('network.wifiCurfewSelectCount', { count: items.length })
-            : t('network.wifiCurfewSelectNone')}
-        </span>
-        <span className="inline-flex items-center gap-1 text-primary">
-          {t('network.wifiCurfewSelectAction')}
-          <ChevronRight className="h-3.5 w-3.5" />
-        </span>
-      </button>
-      {items.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {items.map((name) => (
+    <div className={cn('rounded-xl border border-border/60 p-3', disabled && 'opacity-60')}>
+      <div className="flex items-center gap-1.5">
+        <span className={cn('h-1.5 w-1.5 rounded-full', tone === 'cut' ? 'bg-red-500' : 'bg-emerald-500')} />
+        <span className="text-[11px] font-medium text-muted-foreground">{title}</span>
+        <span className="ml-auto text-[11px] tabular-nums text-muted-foreground/60">{items.length}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {items.map((name) => {
+          const isCurrent = Boolean(currentSsid) && name.toLowerCase() === currentSsid!.toLowerCase()
+          return (
             <span
               key={name}
-              className="inline-flex items-center gap-1 rounded-full bg-primary/10 py-0.5 pl-2 pr-1 text-[11px] font-medium text-primary"
+              className={cn(
+                'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px]',
+                tone === 'cut'
+                  ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                isCurrent && 'ring-1 ring-current'
+              )}
             >
               {name}
               <button
@@ -152,14 +153,24 @@ const SavedNetworkPicker = memo(function SavedNetworkPicker({
                 disabled={disabled}
                 aria-label={t('network.wifiCurfewDeselect', { name })}
                 onClick={() => toggle(name, false)}
-                className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full transition-colors hover:bg-primary/20 disabled:opacity-50"
+                className="inline-flex h-3 w-3 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100 disabled:opacity-30"
               >
                 <X className="h-2.5 w-2.5" />
               </button>
             </span>
-          ))}
-        </div>
-      )}
+          )
+        })}
+        <button
+          type="button"
+          id={id}
+          disabled={disabled}
+          aria-label={title}
+          onClick={() => setOpen(true)}
+          className="inline-flex h-5 w-5 items-center justify-center rounded-md border border-dashed border-muted-foreground/40 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-40"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="flex max-h-[80vh] w-[calc(100vw-2rem)] max-w-sm flex-col gap-3 p-4">
           <DialogHeader>
@@ -386,6 +397,9 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
   }, [refreshSavedNetworks])
 
   // 0 / 越界都按默认 07:30 显示，与后端 restore_start_minutes 的归一化同口径
+  // 今日切换时刻：与后端 switch_time_for 同口径（周五六 23:30，其余 23:00）
+  const todaySwitchMinutes = new Date().getDay() === 5 || new Date().getDay() === 6 ? 1410 : 1380
+
   const restoreMinutes =
     config.nightRestoreMinutes >= RESTORE_TIME_MIN_MINUTES && config.nightRestoreMinutes < 1380
       ? config.nightRestoreMinutes
@@ -532,30 +546,35 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="wifi-curfew-restore-time" className="text-xs font-medium cursor-pointer">
-                {t('network.wifiCurfewRestoreAt')}
-              </Label>
-              <Input
-                id="wifi-curfew-restore-time"
-                type="time"
-                min="05:00"
-                max="22:59"
-                value={formatRestoreTime(restoreMinutes)}
-                onChange={e => {
-                  const [h, min] = e.target.value.split(':').map(Number)
-                  if (isNaN(h) || isNaN(min)) return
-                  const total = h * 60 + min
-                  if (total >= RESTORE_TIME_MIN_MINUTES && total < RESTORE_TIME_MAX_MINUTES + 1) {
-                    onUpdateConfig({ nightRestoreMinutes: total })
-                  }
-                }}
-                className="w-32 h-8 text-sm font-mono"
-              />
+            {/* 夜间时序：两件事就是这张卡片的全部行为，时间就地可改 */}
+            <div className="flex items-center justify-between gap-2 rounded-xl bg-muted/40 px-4 py-2.5">
+              <div className="flex flex-col items-center gap-0.5">
+                <span className="text-[13px] font-medium tabular-nums text-foreground">{formatRestoreTime(todaySwitchMinutes)}</span>
+                <span className="text-[10px] text-muted-foreground">{t('network.curfewSwitchNode')}</span>
+              </div>
+              <span className="h-px flex-1 bg-border" />
+              <div className="flex flex-col items-center gap-0.5">
+                <Input
+                  id="wifi-curfew-restore-time"
+                  type="time"
+                  min="05:00"
+                  max="22:59"
+                  value={formatRestoreTime(restoreMinutes)}
+                  onChange={e => {
+                    const [h, min] = e.target.value.split(':').map(Number)
+                    if (isNaN(h) || isNaN(min)) return
+                    const total = h * 60 + min
+                    if (total >= RESTORE_TIME_MIN_MINUTES && total < RESTORE_TIME_MAX_MINUTES + 1) {
+                      onUpdateConfig({ nightRestoreMinutes: total })
+                    }
+                  }}
+                  className="h-6 w-24 border-0 bg-transparent px-0 text-center text-[13px] tabular-nums shadow-none"
+                />
+                <span className="text-[10px] text-muted-foreground">{t('network.curfewRestoreNode')}</span>
+              </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="wifi-curfew-excluded" className="text-xs font-medium">{t('network.wifiCurfewExcluded')}</Label>
+            <div className="grid gap-3">
               <SavedNetworkPicker
                 id="wifi-curfew-excluded"
                 title={t('network.wifiCurfewExcludedTitle')}
@@ -574,11 +593,9 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                   })
                 }
                 onRetry={() => void refreshSavedNetworks()}
+                tone="cut"
+                currentSsid={curfewProbe?.currentSsid ? String(curfewProbe.currentSsid) : null}
               />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="wifi-curfew-allowed" className="text-xs font-medium">{t('network.wifiCurfewAllowed')}</Label>
               <SavedNetworkPicker
                 id="wifi-curfew-allowed"
                 title={t('network.wifiCurfewAllowedTitle')}
@@ -597,6 +614,8 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                   })
                 }
                 onRetry={() => void refreshSavedNetworks()}
+                tone="keep"
+                currentSsid={curfewProbe?.currentSsid ? String(curfewProbe.currentSsid) : null}
               />
             </div>
 
@@ -630,17 +649,15 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
               )}
             </div>
 
-            {/* 状态行：当前连的是哪个网络、到点会做什么。数据来自一次试运行，
-                与桌面端同一信息结构（不再有手动调试按钮） */}
-            <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
-              <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+            {/* 当前连接落在哪一侧：不是单独一块状态卡，而是时序条下方的一行注脚，
+                SSID 命中哪份名单，就在那边的 chip 上描边（见 CurfewListBlock） */}
+            <div className="flex items-center justify-between gap-3 px-1 text-[11px] text-muted-foreground">
+              <span className="min-w-0 truncate">
                 {curfewProbe?.currentSsid
-                  ? t('network.wifiCurfewCurrent', { name: String(curfewProbe.currentSsid) })
+                  ? String(curfewProbe.currentSsid)
                   : t('network.wifiCurfewNoWifi')}
               </span>
-              <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
-                {curfewProbeActionLabel(curfewProbe, t)}
-              </span>
+              <span className="shrink-0">{curfewProbeActionLabel(curfewProbe, t)}</span>
             </div>
           </CardContent>
         </AnimatedCard>

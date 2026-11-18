@@ -56,6 +56,24 @@
   ⑦ PortalFailure 三个平铺 match（message/error_kind/label）→ 合并为 display_parts() 单 match 三元组，新增变体只改一处。
   未修（语义可辩护）：退避起点复用 outboundBackoffStartSecs（spec 只点名封顶，但与出站切换共用同一退避节奏参数是一致性取舍，validate 下限 10s 保证不失控）。
   验证：桌面 cargo test **688 passed / 0 failed / 4 ignored**（含新口径单测）、真机 e2e 复跑通过、安卓 cargo check --target aarch64-linux-android --all-targets exit 0。
+### 前端性能优化：WiFi 连接管控卡片按「时序 + 对偶名单」重做（双端，2026-11-18）
+
+**为什么**：上一版修了未定义键、补了状态行，但卡片骨干仍是「标签 + 整行『已选 N 个网络｜编辑名单 >』+ chips」重复两遍——两行设置项加一段说明去描述"什么时候发生什么"，用户读的是文字而不是布局。
+
+**改了什么**
+
+- **时序条取代配置行**：桌面三段 `准备 → 断开并切换 → 恢复`，安卓两段 `断开并切换 → 恢复`（安卓尚无提前准备字段）。节点上的时间直接可改：准备节点点开输入分钟数（0–180）、恢复节点点开选时刻；中间的切换时刻由今日星期决定（周五六 23:30，其余 23:00）不可改。两行 `SettingRow` 与还原时刻的说明文字随之删除。
+- **两份名单做成对偶区**：左右并置（窄屏上下叠），各自带色点与数量——红「断开」/ 绿「放行」；**当前连接的 SSID 在对应一侧描边高亮**，状态行并入这个结构后删除。
+- **名单变成可操作实体**：去掉「编辑名单 >」整行触发器，chips 行尾一个虚线加号是唯一入口；编辑弹窗保留搜索、勾选、互斥与「未保存」标记。桌面新增 `Plus` 图标导入，安卓移除已无用的 `ChevronRight`。
+- 删除随之失效的 i18n 键（`wifiCurfewCurrent`/`NoWifi`/`Keep`/`Cut`/`Other`/`RestoreHint`、两份名单的标题键与两条说明键），新增 `curfewPrepNode`/`curfewSwitchNode`/`curfewRestoreNode`/`curfewCutTitle`/`curfewKeepTitle`。
+
+**验证**
+
+- 桌面：`npx tsc --noEmit --incremental` 通过、`vitest` **127 passed**、`vite build` 成功。
+- 安卓：`npx tsc --noEmit --incremental` 通过、`vite build` 成功（该端无测试文件）。
+- `cargo test`：lib **688 passed / 0 failed / 4 ignored**（本轮只动前端，后端未变，作为回归基线）。
+- 未验证：真实窗口下的并排布局与窄屏堆叠（需人工看），以及时序条内联编辑的焦点行为（Blur 提交、Enter 提交、Esc 取消）。
+
 ### 前端性能优化：WiFi 连接管控卡片重设计（双端，2026-11-18）
 
 **为什么**：上一轮删文案时把 `wifiCurfewWildcardHint` 一并删了却漏改模板，卡片底部直接显示 `network.wifiCurfewWildcardHint` 这个键名；同时两块名单各带一条重复的灰字说明、结构上又说不出"现在连的是哪个网络、到点会怎样"——用户只能靠系统设置自己核对。

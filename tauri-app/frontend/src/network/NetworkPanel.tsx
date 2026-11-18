@@ -6,7 +6,7 @@ import { AnimatedCard } from '@/components/ui/animated-card'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, Zap, Route, RotateCcw, SlidersHorizontal, BedDouble, X, ChevronLeft, ChevronRight, PowerOff } from 'lucide-react'
+import { Wifi, Cable, Network, Router, AlertTriangle, Shield, CheckCircle2, Loader2, RefreshCw, Globe, Layers, MoonStar, Zap, Route, RotateCcw, SlidersHorizontal, BedDouble, X, Plus, ChevronLeft, ChevronRight, PowerOff } from 'lucide-react'
 import { cn, extractErrorMessage } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
@@ -166,59 +166,31 @@ function formatRestoreTime(minutes: number | undefined): string {
 }
 
 
-/** 就寝守则的 WiFi 名单编辑器：从系统已保存的 WiFi 里勾选，不再手输 SSID。
+/** 就寝守则的一侧名单：chips 直接可增删，末尾一个加号打开系统已保存网络。
  *
- *  数据源是 Windows 的 WLAN 配置（`netsh wlan show profiles`，后端
- *  `list_saved_wifi_networks`）——用户连过一次的网络就有 profile，勾选即
- *  保证名字与系统里完全一致；手输的旧数据（大小写/空格差异）正是之前名单
- *  不生效的根源。已选但系统里已不存在的条目仍列出，供移除。
+ *  不再有「已选 N 个网络｜编辑名单 >」那层整行按钮——名单本身就在卡片上，
+ *  点加号是唯一入口。数据源是 Windows 的 WLAN 配置（`list_saved_wifi_networks`），
+ *  勾选的名字与系统里完全一致，避免手输大小写/空格差异导致规则不命中。
  */
-const WifiProfilePicker = memo(function WifiProfilePicker({
-  id,
-  title,
-  description,
-  items,
-  removeLabel,
-  disabled,
-  allowWildcard,
-  onChange,
+const CurfewListBlock = memo(function CurfewListBlock({
+  title, tone, description, items, saved, currentSsid, removeLabel, disabled, allowWildcard, onChange,
 }: {
-  id: string
   title: string
+  /** cut = 就寝时断开（红），keep = 保留并切过去（绿） */
+  tone: 'cut' | 'keep'
   description: string
   items: string[]
+  /** 系统已保存的网络；null = 尚未读取 */
+  saved: string[] | null
+  currentSsid: string | null
   removeLabel: (name: string) => string
   disabled?: boolean
-  /** 是否提供「全部网络」选项（排除名单用；选中即写入 `*`） */
   allowWildcard?: boolean
   onChange: (next: string[]) => void
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const [profiles, setProfiles] = useState<string[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-
-  const load = useCallback(async () => {
-    setProfiles(null)
-    setLoadError(null)
-    try {
-      const result = await tauriApiWithRetry.listSavedWifiNetworks()
-      setProfiles((result.networks ?? []).map(n => n.ssid))
-      if (result.error) setLoadError(result.error)
-    } catch (e) {
-      setProfiles([])
-      setLoadError(extractErrorMessage(e))
-    }
-  }, [])
-
-  // 只在真正打开弹窗时读系统清单：卡片常驻，没必要每次渲染都跑 netsh
-  useEffect(() => {
-    if (open) {
-      void load()
-      setQuery('')
-    }
-  }, [open, load])
 
   const has = useCallback(
     (ssid: string) => items.some(it => it.toLowerCase() === ssid.toLowerCase()),
@@ -231,48 +203,33 @@ const WifiProfilePicker = memo(function WifiProfilePicker({
     [has, items, onChange],
   )
 
-  // 已选但系统里已不存在（改名/删配置/旧数据）：单独列出，否则用户在勾选列表里
-  // 找不到它，也就没法移除
-  const orphans = items.filter(it => it !== '*' && !(profiles ?? []).some(p => p.toLowerCase() === it.toLowerCase()))
+  const cut = tone === 'cut'
+  // 已选但系统里已不存在（改名/删配置/旧数据）：仍然列出，否则用户找不到也就删不掉
+  const orphans = items.filter(it => it !== '*' && !(saved ?? []).some(p => p.toLowerCase() === it.toLowerCase()))
   const keyword = query.trim().toLowerCase()
-  const filtered = (profiles ?? []).filter(p => !keyword || p.toLowerCase().includes(keyword))
-
-  const rowClass = (checked: boolean) =>
-    cn(
-      'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors',
-      checked ? 'bg-primary/10 text-primary' : 'hover:bg-muted/60',
-    )
-  const boxClass = (checked: boolean) =>
-    cn(
-      'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-      checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input',
-    )
+  const filtered = (saved ?? []).filter(p => !keyword || p.toLowerCase().includes(keyword))
 
   return (
-    <div className={cn('space-y-2', disabled && 'opacity-60')}>
-      <button
-        id={id}
-        type="button"
-        disabled={disabled}
-        onClick={() => setOpen(true)}
-        className="flex w-full items-center justify-between rounded-xl border border-input/70 bg-muted/30 px-3 py-2 text-[12px] transition-colors hover:bg-primary/5 disabled:opacity-50"
-      >
-        <span className="text-muted-foreground">
-          {items.length > 0
-            ? t('network.wifiCurfewSelectCount', { count: items.length })
-            : t('network.wifiCurfewSelectNone')}
-        </span>
-        <span className="inline-flex items-center gap-1 text-primary">
-          {t('network.wifiCurfewSelectAction')}
-          <ChevronRight className="h-3.5 w-3.5" />
-        </span>
-      </button>
-      {items.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {items.map(name => (
+    <div className={cn('rounded-xl border border-border/60 p-3', disabled && 'opacity-60')}>
+      <div className="flex items-center gap-1.5">
+        <span className={cn('h-1.5 w-1.5 rounded-full', cut ? 'bg-red-500' : 'bg-emerald-500')} />
+        <span className="text-[11px] font-medium text-muted-foreground">{title}</span>
+        <span className="ml-auto text-[11px] tabular-nums text-muted-foreground/60">{items.length}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {items.map(name => {
+          const isCurrent = Boolean(currentSsid) && name.toLowerCase() === currentSsid!.toLowerCase()
+          return (
             <span
               key={name}
-              className="inline-flex items-center gap-1 rounded-full bg-primary/10 py-0.5 pl-2 pr-1 text-[11px] font-medium text-primary"
+              className={cn(
+                'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px]',
+                cut
+                  ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                // 当前连接的那一项描边：一眼看出「我现在正踩在这条规则上」
+                isCurrent && 'ring-1 ring-current',
+              )}
             >
               {name === '*' ? t('network.wifiCurfewWildcardOption') : name}
               <button
@@ -281,14 +238,24 @@ const WifiProfilePicker = memo(function WifiProfilePicker({
                 aria-label={removeLabel(name)}
                 title={removeLabel(name)}
                 onClick={() => onChange(items.filter(it => it !== name))}
-                className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full transition-colors hover:bg-primary/20 disabled:opacity-50"
+                className="inline-flex h-3 w-3 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100 disabled:opacity-30"
               >
                 <X className="h-2.5 w-2.5" />
               </button>
             </span>
-          ))}
-        </div>
-      )}
+          )
+        })}
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={title}
+          title={title}
+          onClick={() => setOpen(true)}
+          className="inline-flex h-5 w-5 items-center justify-center rounded-md border border-dashed border-muted-foreground/40 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-40"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="flex max-h-[80vh] w-[calc(100vw-2rem)] max-w-sm flex-col gap-3 p-4">
           <DialogHeader>
@@ -303,29 +270,17 @@ const WifiProfilePicker = memo(function WifiProfilePicker({
           />
           <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
             {allowWildcard && (
-              <button type="button" onClick={() => toggle('*')} className={rowClass(has('*'))}>
-                <span className={boxClass(has('*'))}>{has('*') && <CheckCircle2 className="h-3 w-3" />}</span>
-                <span className="font-medium">{t('network.wifiCurfewWildcardOption')}</span>
-                <span className="ml-auto text-[11px] text-muted-foreground">
-                  {t('network.wifiCurfewWildcardOptionHint')}
+              <button type="button" onClick={() => toggle('*')} className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px]', has('*') ? 'bg-primary/10 text-primary' : 'hover:bg-muted/60')}>
+                <span className={cn('inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border', has('*') ? 'border-primary bg-primary text-primary-foreground' : 'border-input')}>
+                  {has('*') && <CheckCircle2 className="h-3 w-3" />}
                 </span>
+                <span className="font-medium">{t('network.wifiCurfewWildcardOption')}</span>
               </button>
             )}
-            {profiles === null && !loadError && (
-              <p className="px-2 py-6 text-center text-[12px] text-muted-foreground">
-                {t('network.wifiCurfewLoading')}
-              </p>
+            {saved === null && (
+              <p className="px-2 py-6 text-center text-[12px] text-muted-foreground">{t('network.wifiCurfewLoading')}</p>
             )}
-            {loadError && (
-              <div className="px-2 py-4 text-center">
-                <p className="text-[12px] text-destructive">{t('network.wifiCurfewLoadFailed')}</p>
-                <p className="mt-1 break-all text-[11px] text-muted-foreground/70">{loadError}</p>
-                <Button variant="outline" size="sm" className="mt-2 h-7 text-[11px]" onClick={() => void load()}>
-                  {t('network.wifiCurfewRetry')}
-                </Button>
-              </div>
-            )}
-            {profiles !== null && !loadError && filtered.length === 0 && (
+            {saved !== null && filtered.length === 0 && (
               <p className="px-2 py-6 text-center text-[12px] text-muted-foreground">
                 {keyword ? t('network.wifiCurfewNoMatch') : t('network.wifiCurfewEmpty')}
               </p>
@@ -333,8 +288,10 @@ const WifiProfilePicker = memo(function WifiProfilePicker({
             {filtered.map(ssid => {
               const checked = has(ssid)
               return (
-                <button key={ssid} type="button" onClick={() => toggle(ssid)} className={rowClass(checked)}>
-                  <span className={boxClass(checked)}>{checked && <CheckCircle2 className="h-3 w-3" />}</span>
+                <button key={ssid} type="button" onClick={() => toggle(ssid)} className={cn('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px]', checked ? 'bg-primary/10 text-primary' : 'hover:bg-muted/60')}>
+                  <span className={cn('inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border', checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input')}>
+                    {checked && <CheckCircle2 className="h-3 w-3" />}
+                  </span>
                   <span className="truncate">{ssid}</span>
                 </button>
               )
@@ -344,16 +301,8 @@ const WifiProfilePicker = memo(function WifiProfilePicker({
                 {orphans.map(ssid => (
                   <div key={ssid} className="flex items-center gap-2 px-2 py-1.5 text-[12px] text-muted-foreground">
                     <span className="truncate">{ssid}</span>
-                    <span className="ml-auto shrink-0 text-[11px] text-muted-foreground/60">
-                      {t('network.wifiCurfewOrphan')}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={removeLabel(ssid)}
-                      title={removeLabel(ssid)}
-                      onClick={() => onChange(items.filter(it => it !== ssid))}
-                      className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-destructive/10 hover:text-destructive"
-                    >
+                    <span className="ml-auto shrink-0 text-[11px] text-muted-foreground/60">{t('network.wifiCurfewOrphan')}</span>
+                    <button type="button" aria-label={removeLabel(ssid)} title={removeLabel(ssid)} onClick={() => onChange(items.filter(it => it !== ssid))} className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-destructive/10 hover:text-destructive">
                       <X className="h-3 w-3" />
                     </button>
                   </div>
@@ -363,6 +312,105 @@ const WifiProfilePicker = memo(function WifiProfilePicker({
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+})
+
+/** 夜间时序：准备 → 断开并切换 → 恢复。
+ *
+ *  这三件事就是这张卡片的全部行为，直接排成一条时间轴、时间就地可改；
+ *  不再用两行设置项加一段说明去描述它们。
+ */
+const CurfewTimeline = memo(function CurfewTimeline({
+  prepareMinutes, switchMinutes, restoreMinutes, disabled, onPrepareChange, onRestoreChange,
+}: {
+  /** 提前准备分钟数；0 = 关闭（准备节点与切换节点重合） */
+  prepareMinutes: number
+  /** 当日切换时刻（分钟数）：周日至周四 23:00，周五六 23:30 */
+  switchMinutes: number
+  restoreMinutes: number
+  disabled?: boolean
+  onPrepareChange: (minutes: number) => void
+  onRestoreChange: (minutes: number) => void
+}) {
+  const { t } = useTranslation()
+  const [editing, setEditing] = useState<'prepare' | 'restore' | null>(null)
+  const fmt = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+  // 准备时刻 = 切换时刻往前推；跨零点按一天取模
+  const prepareAt = (((switchMinutes - prepareMinutes) % 1440) + 1440) % 1440
+
+  const renderNode = (key: 'prepare' | 'switch' | 'restore') => {
+    const fixed = key === 'switch'
+    const time = key === 'prepare' ? (prepareMinutes > 0 ? fmt(prepareAt) : fmt(switchMinutes)) : key === 'switch' ? fmt(switchMinutes) : fmt(restoreMinutes)
+    const label = key === 'prepare' ? t('network.curfewPrepNode') : key === 'switch' ? t('network.curfewSwitchNode') : t('network.curfewRestoreNode')
+    const muted = key === 'prepare' && prepareMinutes === 0
+    return (
+      <div className="flex min-w-0 flex-col items-center gap-0.5">
+        {editing === key ? (
+          key === 'prepare' ? (
+            <Input
+              autoFocus
+              type="number"
+              min={0}
+              max={180}
+              step={10}
+              defaultValue={prepareMinutes}
+              onBlur={e => {
+                const value = Number(e.target.value)
+                onPrepareChange(Number.isFinite(value) ? Math.min(180, Math.max(0, Math.round(value))) : 0)
+                setEditing(null)
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                if (e.key === 'Escape') setEditing(null)
+              }}
+              className="h-6 w-16 text-center text-[13px] tabular-nums"
+            />
+          ) : (
+            <Input
+              autoFocus
+              type="time"
+              defaultValue={fmt(restoreMinutes)}
+              onBlur={e => {
+                const [h, m] = e.target.value.split(':').map(Number)
+                if (!isNaN(h) && !isNaN(m)) {
+                  onRestoreChange(Math.min(RESTORE_TIME_MAX_MINUTES, Math.max(RESTORE_TIME_MIN_MINUTES, h * 60 + m)))
+                }
+                setEditing(null)
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                if (e.key === 'Escape') setEditing(null)
+              }}
+              className="h-6 w-[5.5rem] text-center text-[13px] tabular-nums"
+            />
+          )
+        ) : (
+          <button
+            type="button"
+            disabled={disabled || fixed}
+            onClick={() => !fixed && setEditing(key as 'prepare' | 'restore')}
+            className={cn(
+              'rounded px-1 text-[13px] font-medium tabular-nums transition-colors',
+              muted ? 'text-muted-foreground/50' : 'text-foreground',
+              !fixed && 'hover:text-primary',
+            )}
+          >
+            {fixed || muted ? time : time}
+          </button>
+        )}
+        <span className="text-[10px] text-muted-foreground">{label}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className={cn('flex items-center justify-between gap-2 rounded-xl bg-muted/30 px-4 py-2.5', disabled && 'opacity-60')}>
+      {renderNode('prepare')}
+      <span className="h-px flex-1 bg-border" />
+      {renderNode('switch')}
+      <span className="h-px flex-1 bg-border" />
+      {renderNode('restore')}
     </div>
   )
 })
@@ -508,6 +556,8 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
   const [enablingAdapter, setEnablingAdapter] = useState<string | null>(null)
   // 就寝守则卡片要显示「当前连的是哪个 WiFi」，挂载拉一次、系统网络变化时刷新
   const [currentSsid, setCurrentSsid] = useState<string | null>(null)
+  // 系统已保存的 WiFi：两侧名单的勾选来源，打开弹窗时读一次
+  const [savedWifiProfiles, setSavedWifiProfiles] = useState<string[] | null>(null)
   // 适配器/账号与检测参数各由一个弹窗承载（卡片只留入口按钮）
   const [adapterDialogOpen, setAdapterDialogOpen] = useState(false)
   const [probeDialogOpen, setProbeDialogOpen] = useState(false)
@@ -526,6 +576,9 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
         .catch(() => { /* 读不到就按未连接显示，不影响其它信息 */ })
     }
     refresh()
+    void tauriApiWithRetry.listSavedWifiNetworks?.()
+      .then(result => { if (!disposed) setSavedWifiProfiles((result.networks ?? []).map(n => n.ssid)) })
+      .catch(() => { if (!disposed) setSavedWifiProfiles([]) })
     void tauriApiWithRetry.onNetworkChanged?.(refresh).then(fn => {
       if (disposed) fn?.()
       else unlisten = fn
@@ -536,17 +589,12 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
     }
   }, [])
 
-  // 当前网络与两份名单的关系（纯比对，供卡片上的状态徽标用）
-  const isAllowedSsid = useCallback(
-    (ssid: string) => config.wifiCurfewAllowed.some(it => it.toLowerCase() === ssid.toLowerCase()),
-    [config.wifiCurfewAllowed],
-  )
-  const isExcludedSsid = useCallback(
-    (ssid: string) => config.wifiCurfewExcluded.some(
-      it => it === '*' || it.toLowerCase() === ssid.toLowerCase(),
-    ),
-    [config.wifiCurfewExcluded],
-  )
+  // 今日切换时刻：与后端 config::night_switch::switch_time_for 同口径
+  const todaySwitchMinutes = useMemo(() => {
+    const weekday = new Date().getDay()
+    return weekday === 5 || weekday === 6 ? 1410 : 1380
+  }, [])
+
 
   // 出站查询/轮询与手动切换/还原（useOutboundManual.ts）
   const {
@@ -1062,54 +1110,43 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {/* 当前连接：告诉用户「现在连的是哪一个、它会不会被断」，
-                比让他自己去系统设置里核对更直接；未连接时不占位 */}
-            <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 px-3 py-2">
-              <span className="min-w-0 truncate text-[12px] text-muted-foreground">
-                {currentSsid
-                  ? t('network.wifiCurfewCurrent', { name: currentSsid })
-                  : t('network.wifiCurfewNoWifi')}
-              </span>
-              {currentSsid && (
-                <Badge
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 text-[10px] text-muted-foreground"
-                >
-                  {isAllowedSsid(currentSsid)
-                    ? t('network.wifiCurfewKeep')
-                    : isExcludedSsid(currentSsid)
-                      ? t('network.wifiCurfewCut')
-                      : t('network.wifiCurfewOther')}
-                </Badge>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="wifi-curfew-excluded" className="text-xs font-medium">{t('network.wifiCurfewExcluded')}</Label>
-              <WifiProfilePicker
-                id="wifi-curfew-excluded"
-                title={t('network.wifiCurfewExcludedTitle')}
+            <CurfewTimeline
+              prepareMinutes={config.nightPrepareMinutes ?? 0}
+              switchMinutes={todaySwitchMinutes}
+              restoreMinutes={
+                config.nightRestoreMinutes >= RESTORE_TIME_MIN_MINUTES && config.nightRestoreMinutes < RESTORE_TIME_MAX_MINUTES + 1
+                  ? config.nightRestoreMinutes
+                  : RESTORE_TIME_DEFAULT_MINUTES
+              }
+              disabled={!config.enableWifiCurfew}
+              onPrepareChange={minutes => onUpdateConfig({ nightPrepareMinutes: minutes })}
+              onRestoreChange={minutes => onUpdateConfig({ nightRestoreMinutes: minutes })}
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <CurfewListBlock
+                title={t('network.curfewCutTitle')}
+                tone="cut"
                 description={t('network.wifiCurfewExcludedDesc')}
                 items={config.wifiCurfewExcluded}
+                saved={savedWifiProfiles}
+                currentSsid={currentSsid}
                 removeLabel={name => t('network.wifiCurfewRemove', { name })}
                 disabled={!config.enableWifiCurfew}
                 allowWildcard
                 onChange={next => onUpdateConfig({ wifiCurfewExcluded: next })}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="wifi-curfew-allowed" className="text-xs font-medium">{t('network.wifiCurfewAllowed')}</Label>
-              <WifiProfilePicker
-                id="wifi-curfew-allowed"
-                title={t('network.wifiCurfewAllowedTitle')}
+              <CurfewListBlock
+                title={t('network.curfewKeepTitle')}
+                tone="keep"
                 description={t('network.wifiCurfewAllowedDesc')}
                 items={config.wifiCurfewAllowed}
+                saved={savedWifiProfiles}
+                currentSsid={currentSsid}
                 removeLabel={name => t('network.wifiCurfewRemove', { name })}
                 disabled={!config.enableWifiCurfew}
                 onChange={next => onUpdateConfig({ wifiCurfewAllowed: next })}
               />
             </div>
-            <p className="text-[11px] text-muted-foreground/70">{t('network.wifiCurfewRestoreHint')}</p>
           </CardContent>
         </AnimatedCard>
       </div>
