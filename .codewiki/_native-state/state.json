@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "4989aeb5e29d83f0ab8a926a19ae973c76cbb2ee",
-    "headCommit": "b0084b90611b364129382f4a2f8ca63b5bea400e"
+    "headCommit": "171292a7d252490502fcb65cc44d09cad867e401"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "4989aeb5e29d83f0ab8a926a19ae973c76cbb2ee",
-    "headCommit": "b0084b90611b364129382f4a2f8ca63b5bea400e",
+    "headCommit": "171292a7d252490502fcb65cc44d09cad867e401",
     "committed": [
       "android/src-tauri/src/config_state.rs",
       "changelogs/CHANGELOG_v2.4.4.md",
@@ -41,8 +41,7 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 82e3ea5 与本次 cw 基线 4989aeb 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlkmbvs-3-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlku1kh-5-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T03:38:21.984Z"
+  "updatedAt": "2026-11-18T03:44:27.795Z"
 }
