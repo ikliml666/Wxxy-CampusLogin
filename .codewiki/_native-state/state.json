@@ -2,33 +2,28 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "933e89820c36c172289373effedd31a2a109e2fa",
-    "headCommit": "248f5ccc89b581655b375ce7b958ffd5e9262b6b"
+    "baseCommit": "248f5ccc89b581655b375ce7b958ffd5e9262b6b",
+    "headCommit": "1730f040ae36c3762e5de9a501be0e3bc6fc71e9"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "933e89820c36c172289373effedd31a2a109e2fa",
-    "headCommit": "248f5ccc89b581655b375ce7b958ffd5e9262b6b",
-    "committed": [],
-    "staged": [],
-    "unstaged": [
+    "baseCommit": "248f5ccc89b581655b375ce7b958ffd5e9262b6b",
+    "headCommit": "1730f040ae36c3762e5de9a501be0e3bc6fc71e9",
+    "committed": [
+      "changelogs/CHANGELOG_v2.4.4.md",
       "tauri-app/src-tauri/src/auth/portal.rs",
       "tauri-app/src-tauri/src/auth/protocol.rs",
-      "tauri-app/src-tauri/src/monitor/outbound_failover.rs"
-    ],
-    "untracked": [
+      "tauri-app/src-tauri/src/monitor/outbound_failover.rs",
       "tauri-app/src-tauri/tests/portal_stale_source_e2e.rs"
     ],
+    "staged": [],
+    "unstaged": [],
+    "untracked": [],
     "deleted": [],
     "renamed": [],
     "reason": ""
   },
-  "unconsumed": [
-    "tauri-app/src-tauri/src/auth/portal.rs",
-    "tauri-app/src-tauri/src/auth/protocol.rs",
-    "tauri-app/src-tauri/src/monitor/outbound_failover.rs",
-    "tauri-app/src-tauri/tests/portal_stale_source_e2e.rs"
-  ],
+  "unconsumed": [],
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
@@ -36,10 +31,8 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 10b712c 与本次 cw 基线 933e898 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "工作区未提交改动已合成临时 commit a22453044f74（4 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlsp3uv-5-native（66 个文件）",
-    "本轮把 4 个未提交源码改动一并写进产物（快照 a22453044f74）：tauri-app/src-tauri/src/auth/portal.rs、tauri-app/src-tauri/src/auth/protocol.rs、tauri-app/src-tauri/src/monitor/outbound_failover.rs、tauri-app/src-tauri/tests/portal_stale_source_e2e.rs"
+    "持久化基线 933e898 与本次 cw 基线 248f5cc 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlt2ib9-7-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T07:24:30.975Z"
+  "updatedAt": "2026-11-18T07:35:25.115Z"
 }
