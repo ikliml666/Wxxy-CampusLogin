@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "f120aed76235c2504da147df6e0dad84e227df51",
-    "headCommit": "e3d2ba721a44062a33b5e422b92bd8a7220de772"
+    "headCommit": "2ead27d3e1c1fb873129ec8f1e92853bac1f0f30"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "f120aed76235c2504da147df6e0dad84e227df51",
-    "headCommit": "e3d2ba721a44062a33b5e422b92bd8a7220de772",
+    "headCommit": "2ead27d3e1c1fb873129ec8f1e92853bac1f0f30",
     "committed": [
       "android/frontend/src/i18n/locales/en.json",
       "android/frontend/src/i18n/locales/zh.json",
@@ -33,11 +33,11 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlvcbhd-4-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlvfxrf-6-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T08:38:31.706Z"
+  "updatedAt": "2026-11-18T08:41:25.682Z"
 }
