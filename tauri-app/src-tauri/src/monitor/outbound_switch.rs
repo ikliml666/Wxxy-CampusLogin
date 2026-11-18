@@ -45,22 +45,18 @@ pub fn is_campus_adapter(
 /// 此处转导出以保持既有调用点（campus_check / outbound_night）。
 pub use crate::campus::rules::portal_probe_host;
 
-/// 出站优先级的生效列表：用户已排序（非空）按原序透传；未排序（空）默认
-/// 「无线卡优先、有线卡随后」，组内保持发现顺序——未拖动排序时夜间切换目标
-/// 默认落在 WLAN/无线出口上，校园有线出口不会成为首选目标。
+/// 出站选卡的候选顺序：夜间目标卡（仅夜间/手动切换时置顶）→ 其余无线卡 →
+/// 有线卡，组内保持发现顺序。顺序只决定「谁先被尝试」：每张卡仍要过校园网判定
+/// 与网关/公网探测，目标卡不可用时自然落到下一张。
 pub fn effective_outbound_priority(
-    priority: &[String],
     night_target: &str,
     details: &[(Adapter, String)],
+    prefer_night_target: bool,
 ) -> Vec<String> {
-    let mut order = if !priority.is_empty() {
-        priority.to_vec()
-    } else {
-        base_outbound_order(details)
-    };
-    // 显式指定的夜间目标提到首位：选择逻辑仍走 select_outbound_candidate 的
-    // 校园网/可达性判定，目标卡不可用时自然落到后面候选，不会整夜不切。
-    if !night_target.is_empty() {
+    let mut order = base_outbound_order(details);
+    // 夜间目标只在夜间/手动切换时置顶：白天故障切换按「无线优先」走，
+    // 不会因为配置了夜间目标就把流量优先往那张卡上迁。
+    if prefer_night_target && !night_target.is_empty() {
         if let Some(idx) = order.iter().position(|name| name == night_target) {
             let picked = order.remove(idx);
             order.insert(0, picked);
@@ -69,7 +65,7 @@ pub fn effective_outbound_priority(
     order
 }
 
-/// 未指定优先级时的默认顺序：无线卡优先、有线卡随后（组内保持发现顺序）。
+/// 默认候选顺序：无线卡优先、有线卡随后（组内保持发现顺序）。
 fn base_outbound_order(details: &[(Adapter, String)]) -> Vec<String> {
     let mut order: Vec<String> = details
         .iter()
@@ -430,37 +426,41 @@ mod tests {
     }
 
     #[test]
-    fn effective_priority_non_empty_passthrough() {
-        // 用户已排序：原序透传，不做无线优先重排
+    fn effective_priority_prefers_night_target_only_when_asked() {
+        // 夜间/手动切换：目标卡置顶
         let details = vec![
-            (adapter("WLAN", "{G2}", "192.168.43.10", true), "192.168.43.1".to_string()),
             (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string()),
+            (adapter("WLAN", "{G2}", "192.168.6.115", true), "192.168.6.1".to_string()),
         ];
-        let priority = vec!["以太网".to_string(), "WLAN".to_string()];
-        assert_eq!(effective_outbound_priority(&priority, "", &details), priority);
-        // 显式夜间目标提到首位，其余保持用户顺序
         assert_eq!(
-            effective_outbound_priority(&priority, "WLAN", &details),
-            vec!["WLAN".to_string(), "以太网".to_string()]
+            effective_outbound_priority("以太网", &details, true),
+            vec!["以太网".to_string(), "WLAN".to_string()],
+            "夜间切换应把目标卡置顶"
+        );
+        // 白天故障切换：目标卡不置顶，仍按无线优先
+        assert_eq!(
+            effective_outbound_priority("以太网", &details, false),
+            vec!["WLAN".to_string(), "以太网".to_string()],
+            "白天故障切换不该被夜间目标带偏"
         );
     }
 
     #[test]
-    fn effective_priority_empty_defaults_wireless_first() {
-        // 未排序：无线卡优先（组内保发现序），有线卡随后（保发现序）
+    fn effective_priority_defaults_wireless_first() {
+        // 未指定目标：无线卡优先（组内保发现序），有线卡随后（保发现序）
         let details = vec![
             (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string()),
             (adapter("以太网 2", "{G3}", "192.168.6.109", false), "192.168.6.1".to_string()),
             (adapter("WLAN", "{G2}", "192.168.6.115", true), "192.168.6.1".to_string()),
         ];
         assert_eq!(
-            effective_outbound_priority(&[], "WLAN", &details),
+            effective_outbound_priority("", &details, true),
             vec!["WLAN".to_string(), "以太网".to_string(), "以太网 2".to_string()]
         );
     }
 
     #[test]
-    fn effective_priority_empty_multiple_wireless_keep_discovery_order() {
+    fn effective_priority_multiple_wireless_keep_discovery_order() {
         // 多张无线卡同样按发现顺序排列在有线卡之前
         let details = vec![
             (adapter("以太网", "{G1}", "10.64.1.2", false), "10.64.60.1".to_string()),
@@ -468,19 +468,18 @@ mod tests {
             (adapter("WLAN", "{G2}", "192.168.6.115", true), "192.168.6.1".to_string()),
         ];
         assert_eq!(
-            effective_outbound_priority(&[], "WLAN 2", &details),
+            effective_outbound_priority("WLAN 2", &details, true),
             vec!["WLAN 2".to_string(), "WLAN".to_string(), "以太网".to_string()]
         );
     }
 
     #[test]
-    fn effective_priority_empty_no_adapters_is_empty() {
-        // 没有适配器：默认序为空，select 侧自然得到 None（后续走无候选告警）
-        assert!(effective_outbound_priority(&[], "", &[]).is_empty());
+    fn effective_priority_no_adapters_is_empty() {
+        assert!(effective_outbound_priority("", &[], true).is_empty());
         // 目标名不在当前网卡里（卡已拔出/改名）：顺序保持原样，不 panic 不置顶
         assert_eq!(
-            effective_outbound_priority(&["以太网".to_string()], "WLAN 9", &[]),
-            vec!["以太网".to_string()]
+            effective_outbound_priority("WLAN 9", &[], true),
+            Vec::<String>::new()
         );
     }
 

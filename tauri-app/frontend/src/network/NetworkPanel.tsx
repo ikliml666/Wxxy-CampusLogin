@@ -288,9 +288,10 @@ const SsidListEditor = memo(function SsidListEditor({
   )
 })
 
-interface SortableAdapterRowProps {
+interface AdapterRowProps {
   adapter: Adapter
-  isOutboundTarget: boolean
+  /** 该卡是配置的夜间出站目标（行高亮 + 月亮徽标） */
+  isNightTarget: boolean
   /** 当前系统出站落在本卡（图标角落翡翠圆点；全局态仍在头部徽标） */
   isCurrentOutbound: boolean
   /** 主/副适配器角色文案（名称行内的小标签；未配置角色为 undefined） */
@@ -312,25 +313,25 @@ interface SortableAdapterRowProps {
  * 网卡行：列表已按跃点排序，不再支持拖拽调序（顺序不再承载夜间目标语义，
  * 目标由行内月亮按钮单独指定）。children = 行右侧按钮区。
  */
-const SortableAdapterRow = memo(function SortableAdapterRow({ adapter, isOutboundTarget, isCurrentOutbound, roleLabel, badges, metricChip, traffic, onRenewIp, renewing, children }: SortableAdapterRowProps) {
+const AdapterRow = memo(function AdapterRow({ adapter, isNightTarget, isCurrentOutbound, roleLabel, badges, metricChip, traffic, onRenewIp, renewing, children }: AdapterRowProps) {
   const { t } = useTranslation()
 
   return (
     <div
       className={cn(
         'group flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200 select-none',
-        isOutboundTarget ? 'bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]' : 'bg-muted/30',
+        isNightTarget ? 'bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]' : 'bg-muted/30',
       )}
     >
       <div className="flex items-center gap-3 min-w-0">
         <div className={cn(
           'relative w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
-          isOutboundTarget ? 'bg-primary/15' : 'bg-muted',
+          isNightTarget ? 'bg-primary/15' : 'bg-muted',
         )}>
           {adapter.wireless ? (
-            <Wifi className={cn('h-5 w-5', isOutboundTarget ? 'text-primary' : 'text-muted-foreground')} />
+            <Wifi className={cn('h-5 w-5', isNightTarget ? 'text-primary' : 'text-muted-foreground')} />
           ) : (
-            <Cable className={cn('h-5 w-5', isOutboundTarget ? 'text-primary' : 'text-muted-foreground')} />
+            <Cable className={cn('h-5 w-5', isNightTarget ? 'text-primary' : 'text-muted-foreground')} />
           )}
           {/* 当前出站：图标角落在线圆点（tooltip 说明；全局态由头部徽标承载） */}
           {isCurrentOutbound && (
@@ -680,10 +681,10 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
             ) : (
               <div className="space-y-2">
                 {pageAdapters.map((a) => (
-                  <SortableAdapterRow
+                  <AdapterRow
                     key={a.name}
                     adapter={a}
-                    isOutboundTarget={config.outboundNightTarget === a.name}
+                    isNightTarget={config.outboundNightTarget === a.name}
                     isCurrentOutbound={currentOutbound === a.name}
                     roleLabel={a.name === config.adapter1
                       ? t('network.primary')
@@ -745,7 +746,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                       className={`h-7 w-7 p-0 ${config.outboundNightTarget === a.name ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
                       onClick={() => handleSetNightTarget(a.name)}
                       disabled={config.outboundNightTarget === a.name || settingNightTarget === a.name}
-                      title={config.outboundNightTarget === a.name ? t('network.nightTargetBadge') : t('network.setNightTarget')}
+                      title={config.outboundNightTarget === a.name ? t('network.outboundBadge') : t('network.setNightTarget')}
                       aria-label={t('network.setNightTarget')}
                     >
                       {settingNightTarget === a.name ? (
@@ -812,7 +813,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                         </Button>
                       )
                     )}
-                  </SortableAdapterRow>
+                  </AdapterRow>
                 ))}
               </div>
             )}
@@ -822,7 +823,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                   variant="ghost"
                   size="sm"
                   className="h-7 w-7 p-0"
-                  onClick={() => setAdapterPage(p => Math.max(0, p - 1))}
+                  onClick={() => setAdapterPage(Math.max(0, safePage - 1))}
                   disabled={safePage === 0}
                   title={t('network.adapterPrevPage')}
                   aria-label={t('network.adapterPrevPage')}
@@ -836,7 +837,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                   variant="ghost"
                   size="sm"
                   className="h-7 w-7 p-0"
-                  onClick={() => setAdapterPage(p => Math.min(pageCount - 1, p + 1))}
+                  onClick={() => setAdapterPage(Math.min(pageCount - 1, safePage + 1))}
                   disabled={safePage >= pageCount - 1}
                   title={t('network.adapterNextPage')}
                   aria-label={t('network.adapterNextPage')}

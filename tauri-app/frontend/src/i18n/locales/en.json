@@ -405,7 +405,6 @@
     "nightRestoreTime": "Restore Time",
     "nightRestoreTimeDesc": "When campus outbound is restored and re-logged-in the next morning (default 07:30)",
     "outboundBadge": "Night Outbound Target",
-    "outboundDragHint": "Drag to set the nightly outbound priority: the switch picks its target in this order (metrics change and the previous outbound is briefly taken offline during the switch; everything is restored to pre-switch values next morning)",
     "outboundAdminHint": "Switching runs silently via the scheduled task, which needs administrator rights",
     "currentOutboundBadge": "Current Outbound",
     "outboundSwitchTo": "Switch Outbound",

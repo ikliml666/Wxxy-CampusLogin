@@ -32,7 +32,6 @@ export const DEFAULT_CONFIG: Config = {
   wifiCurfewWeakRssi: 0,
   wifiCurfewChannel: 'auto',
   wifiCurfewProfileRestore: '',
-  outboundPriority: [],
   outboundNightTarget: 'WLAN',
   outboundMetricRestore: '',
   outboundDisabledAdapters: '',
