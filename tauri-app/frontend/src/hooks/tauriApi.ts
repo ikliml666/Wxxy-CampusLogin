@@ -15,12 +15,11 @@ interface ConnectionCampusStatus {
 }
 
 /** 逐卡校园网判定结果（每张网卡独立走 名称→网段→网关→Portal 短路判定） */
-/** 最近一次外网探测结论（后端 monitor::internet_status::InternetSnapshot） */
+/** 当前出口的公网可达性结论（后端 monitor::internet_status::InternetSnapshot） */
 export interface InternetStatus {
   online: boolean
-  /** 外网站点平均延迟；-1 = 本轮无有效样本 */
-  latencyMs: number
   checkedAtMs: number
+  /** 被探测的网卡名（当前默认出口） */
   adapter: string
 }
 
@@ -117,7 +116,7 @@ interface TauriApi {
   setOutboundNightTarget: (adapterName: string) => Promise<CommandResult>
   /** 系统网络变更（启停网卡 / 改跃点 / DHCP 换址）事件，返回取消订阅函数 */
   onNetworkChanged: (handler: () => void) => Promise<() => void>
-  /** 最近一次外网探测结论（null = 本次启动尚未检测过） */
+  /** 当前出口的公网可达性（null = 本次启动尚未探测过） */
   getInternetStatus: () => Promise<InternetStatus | null>
   /** 外网探测结论更新事件，返回取消订阅函数 */
   onInternetStatusChanged: (handler: (status: InternetStatus) => void) => Promise<() => void>

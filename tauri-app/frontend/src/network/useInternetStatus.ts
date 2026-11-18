@@ -4,16 +4,15 @@ import { tauriApiWithRetry } from '@/hooks/tauriApi'
 /** 后端 monitor::internet_status::InternetSnapshot 的前端映射 */
 export interface InternetSnapshot {
   online: boolean
-  /** 外网站点平均延迟（毫秒）；-1 = 本轮无有效样本 */
-  latencyMs: number
   /** 探测时刻（Unix 毫秒） */
   checkedAtMs: number
-  /** 探测所绑定的网卡名 */
+  /** 被探测的网卡名（当前默认出口） */
   adapter: string
 }
 
 /**
- * 外网连通状态：数据只来自后端已有的质量检测结论（不额外探测）。
+ * 外网连通状态：数据来自网络适配器侧的公网可达性探测（`internet_probe_hosts`，
+ * 即「网络检测参数」里的公网检测目标），不是质量检测模块的延迟测试。
  * 挂载时拉一次最近结论，之后靠 `internet-status-changed` 事件更新——
  * 质量检测按用户配置的周期跑，事件随之到达，不需要自己轮询。
  */
