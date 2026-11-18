@@ -1403,8 +1403,8 @@ fn verify_switch_effect(
             &hosts,
         ),
     );
-    // 切换完成即刷新外网状态：目标卡就是新的当前出口
-    super::internet_status::record_and_emit(app_handle, target_name, ok);
+    // 切换完成即刷新目标卡的外网状态（它就是新的默认出口）
+    super::internet_status::record_probes_and_emit(app_handle, &[(target_name.to_string(), ok)]);
     if !ok {
         let reason = format!(
             "绑定 {target_name}({target_ip}) 的出网探测失败（路由已指向该卡但实际不通，可能被其他物理卡或代理抢走流量）"

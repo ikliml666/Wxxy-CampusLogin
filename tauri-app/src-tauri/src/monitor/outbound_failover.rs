@@ -130,14 +130,13 @@ pub(super) fn probe_internet_access(
     let skip_ttfb = config.skip_ttfb_in_latency;
     let skip_content = config.skip_content_in_latency;
     let current_adapter = current_adapter.map(str::to_string);
-    // 外网状态只认当前出口那张卡：其余卡探测失败是常态（未当选/校园网内），
-    // 拿它们的结果会把状态涂成"不通"。探测前先记下它的 IP，收尾时按 IP 取结论。
-    let current_probe: Option<(String, String)> = current_adapter.as_deref().and_then(|name| {
-        candidates
-            .iter()
-            .find(|(adapter, _)| adapter.name == name && !adapter.ip.is_empty())
-            .map(|(adapter, _)| (adapter.name.clone(), adapter.ip.clone()))
-    });
+    // 每张卡各自的外网结论都要留下（卡片按行展示）：ip → 网卡名反查表，
+    // 收尾时按探测结果逐卡记录。
+    let name_by_ip: std::collections::HashMap<String, String> = candidates
+        .iter()
+        .filter(|(adapter, _)| !adapter.ip.is_empty())
+        .map(|(adapter, _)| (adapter.ip.clone(), adapter.name.clone()))
+        .collect();
     let candidates: Vec<Adapter> = candidates
         .iter()
         .filter(|(adapter, _)| !adapter.ip.is_empty())
@@ -189,12 +188,12 @@ pub(super) fn probe_internet_access(
                 }
             }
         }
-        // 记录当前出口的公网可达性（网络适配器检测模块的结论，供界面展示）
-        if let Some((name, ip)) = current_probe {
-            if let Some(&ok) = results.get(&ip) {
-                super::internet_status::record_and_emit(app_handle, &name, ok);
-            }
-        }
+        // 逐卡记录公网可达性（网络适配器检测模块的结论，供卡片每行展示）
+        let entries: Vec<(String, bool)> = results
+            .iter()
+            .filter_map(|(ip, ok)| name_by_ip.get(ip).map(|name| (name.clone(), *ok)))
+            .collect();
+        super::internet_status::record_probes_and_emit(app_handle, &entries);
         results
     })
 }
