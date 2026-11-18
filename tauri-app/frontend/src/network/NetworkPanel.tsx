@@ -320,7 +320,7 @@ const AdapterRow = memo(function AdapterRow({ adapter, isNightTarget, isCurrentO
   return (
     <div
       className={cn(
-        'group flex items-center justify-between p-3.5 rounded-xl transition-colors duration-200 select-none',
+        'group flex items-start justify-between gap-3 p-3.5 rounded-xl transition-colors duration-200 select-none',
         isNightTarget ? 'bg-primary/5 shadow-[0_0_0_1px_rgba(59,130,246,0.08)]' : 'bg-muted/30',
       )}
     >
@@ -351,8 +351,8 @@ const AdapterRow = memo(function AdapterRow({ adapter, isNightTarget, isCurrentO
             {roleLabel && <span className="text-[10px] font-medium text-muted-foreground/80">{roleLabel}</span>}
             {badges}
           </div>
-          {/* 行2：IP + 续租小按钮（原「获取新IP」按钮收进 IP 旁边） */}
-          <div className="mt-1 flex min-w-0 items-center gap-1.5">
+          {/* 行2：IP + 续租小按钮 + 跃点 chip（三样都是这张卡的标识，放同一行省高度） */}
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
             <span className="truncate font-mono text-xs text-muted-foreground">
               {adapter.ip || t('network.noIp')}
             </span>
@@ -368,9 +368,8 @@ const AdapterRow = memo(function AdapterRow({ adapter, isNightTarget, isCurrentO
                 <RefreshCw className={cn('h-3 w-3', renewing && 'animate-spin')} />
               </button>
             )}
+            {metricChip}
           </div>
-          {/* 行3：跃点 chip（单独一行） */}
-          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">{metricChip}</div>
           {/* 行4：链路速率 + 实时上下行 + 接口累计字节（采样断档时只留累计） */}
           {traffic || formatSpeed(adapter.linkSpeed) ? (
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] tabular-nums text-muted-foreground/80">
@@ -394,8 +393,9 @@ const AdapterRow = memo(function AdapterRow({ adapter, isNightTarget, isCurrentO
           ) : null}
         </div>
       </div>
+      {/* 行级操作与名称行同高：卡片内容多行，垂直居中会让按钮悬在中间与作用对象错位 */}
       <div
-        className="flex items-center gap-2 shrink-0"
+        className="flex shrink-0 items-center gap-2 self-start"
         onPointerDown={(e) => e.stopPropagation()}
       >
         {children}
@@ -722,26 +722,29 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                             {t('network.outboundBadge')}
                           </Badge>
                         )}
-                        {/* 该卡自己的公网可达性（网络适配器检测模块的结论，逐卡独立） */}
+                        {/* 该卡自己的公网可达性（网络适配器检测模块的结论，逐卡独立）。
+                            连通是常态，只留一个绿点；不通才是需要被看见的异常，才给文字。 */}
                         {internetStatus[a.name] && (
-                          <Badge
-                            variant="outline"
-                            size="sm"
-                            className={cn(
-                              'shrink-0 gap-1',
-                              internetStatus[a.name].online
-                                ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-                                : 'border-red-500/30 text-red-600 dark:text-red-400',
-                            )}
+                          <span
+                            role="img"
+                            aria-label={internetStatus[a.name].online
+                              ? t('network.internetOnline')
+                              : t('network.internetOffline')}
                             title={t('network.internetCheckedAt', {
                               time: new Date(internetStatus[a.name].checkedAtMs).toLocaleTimeString(),
                             })}
+                            className={cn(
+                              'inline-flex shrink-0 items-center gap-1',
+                              internetStatus[a.name].online
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-red-600 dark:text-red-400',
+                            )}
                           >
-                            <Globe className="h-3 w-3" />
-                            {internetStatus[a.name].online
-                              ? t('network.internetOnline')
-                              : t('network.internetOffline')}
-                          </Badge>
+                            <Globe className="h-3.5 w-3.5" />
+                            {!internetStatus[a.name].online && (
+                              <span className="text-[10px] font-medium">{t('network.internetOffline')}</span>
+                            )}
+                          </span>
                         )}
                         {a.status !== 'connected' && (
                           <Badge variant="outline" size="sm" className={cn(
@@ -766,9 +769,9 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                     {/* 夜间目标（独立于列表顺序）：点月亮图标把这张卡设为夜间目标，
                         当前目标显示实心月亮且不可再点 */}
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      className={`h-7 w-7 p-0 ${config.outboundNightTarget === a.name ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+                      className={`h-7 w-7 shrink-0 p-0 ${config.outboundNightTarget === a.name ? 'border-primary/40 text-primary' : 'border-muted-foreground/25 text-muted-foreground hover:border-primary/40 hover:text-primary'}`}
                       onClick={() => handleSetNightTarget(a.name)}
                       disabled={config.outboundNightTarget === a.name || settingNightTarget === a.name}
                       title={config.outboundNightTarget === a.name ? t('network.outboundBadge') : t('network.setNightTarget')}
