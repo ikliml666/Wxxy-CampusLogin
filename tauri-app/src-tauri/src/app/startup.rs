@@ -79,6 +79,7 @@ pub fn run(core_count: usize) {
             crate::commands::network_cmd::enable_adapter,
             crate::commands::network_cmd::disable_adapter,
             crate::commands::network_cmd::set_outbound_night_target,
+            crate::commands::network_cmd::get_internet_status,
             crate::commands::network_cmd::dhcp_renew_all,
             crate::commands::network_cmd::dhcp_release_renew,
             crate::commands::network_cmd::dhcp_release_renew_adapter,

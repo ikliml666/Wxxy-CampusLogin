@@ -35,6 +35,13 @@ pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, Strin
     Ok(CommandResult::ok_msg("适配器已启用"))
 }
 
+/// 最近一次外网探测的结论（网络适配器卡片顶部徽标）；尚未检测过返回 None。
+#[tauri::command]
+pub async fn get_internet_status() -> Result<Option<crate::monitor::internet_status::InternetSnapshot>, String>
+{
+    Ok(crate::monitor::internet_status::current())
+}
+
 /// 禁用适配器（网卡卡片常驻按钮，与 enable_adapter 共用一个位置）。
 /// helper 的 disable_adapter 是 PnP 设备级禁用，走与夜间切换同一提权通道。
 #[tauri::command]
@@ -406,6 +413,14 @@ pub async fn check_network_quality(app_handle: AppHandle) -> Result<serde_json::
     }
     let result = check_network_quality_async(&adapter_name, &adapter_ip, skip_ttfb, skip_content, &fixed_gateway, state.exit.is_quitting.clone(), None, false).await;
     crate::log_info!("network", "网络质量检测完成");
+    // 手动检测同样是「检测返回的结果」：同步刷新外网状态徽标
+    let result_json = serde_json::to_value(&result).unwrap_or(serde_json::Value::Null);
+    if let Some(snapshot) =
+        crate::monitor::internet_status::record_quality_check(&adapter_name, &result_json)
+    {
+        use tauri::Emitter;
+        let _ = app_handle.emit("internet-status-changed", &snapshot);
+    }
     // 质量历史落盘：手动检测同样记一条，供趋势回溯
     if let Err(e) = crate::config::persist::append_quality_history(&app_handle, &result) {
         crate::log_warn!("network", "写入网络质量历史失败: {}", e);

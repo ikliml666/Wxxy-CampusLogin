@@ -15,6 +15,15 @@ interface ConnectionCampusStatus {
 }
 
 /** 逐卡校园网判定结果（每张网卡独立走 名称→网段→网关→Portal 短路判定） */
+/** 最近一次外网探测结论（后端 monitor::internet_status::InternetSnapshot） */
+export interface InternetStatus {
+  online: boolean
+  /** 外网站点平均延迟；-1 = 本轮无有效样本 */
+  latencyMs: number
+  checkedAtMs: number
+  adapter: string
+}
+
 export interface AdapterCampusStatus {
   name: string
   wireless: boolean
@@ -108,6 +117,10 @@ interface TauriApi {
   setOutboundNightTarget: (adapterName: string) => Promise<CommandResult>
   /** 系统网络变更（启停网卡 / 改跃点 / DHCP 换址）事件，返回取消订阅函数 */
   onNetworkChanged: (handler: () => void) => Promise<() => void>
+  /** 最近一次外网探测结论（null = 本次启动尚未检测过） */
+  getInternetStatus: () => Promise<InternetStatus | null>
+  /** 外网探测结论更新事件，返回取消订阅函数 */
+  onInternetStatusChanged: (handler: (status: InternetStatus) => void) => Promise<() => void>
   /** 「立即切换出站」到指定网卡（条目按钮：只改跃点，不动网卡状态） */
   outboundSwitchTo: (adapterName: string) => Promise<CommandResult>
   /** 「还原出口」：把跃点写回切换前快照（切换态下当前出口行的按钮） */
@@ -245,6 +258,9 @@ const tauriApi: TauriApi = {
   setOutboundNightTarget: (adapterName) => invoke<CommandResult>('set_outbound_night_target', { adapterName }),
   onNetworkChanged: (handler) =>
     listen('network-changed', () => handler()),
+  getInternetStatus: () => invoke<InternetStatus | null>('get_internet_status'),
+  onInternetStatusChanged: (handler) =>
+    listen<InternetStatus>('internet-status-changed', event => handler(event.payload)),
   outboundSwitchTo: (adapterName) => invoke<CommandResult>('outbound_switch_to', { adapterName }),
   outboundRestoreNow: () => invoke<CommandResult>('outbound_restore_now'),
   getAdapterMetrics: () => invoke<AdapterMetric[]>('get_adapter_metrics'),
