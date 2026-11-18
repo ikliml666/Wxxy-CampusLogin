@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "bc561f69c5a52ab822f47f916e43860275c0223f",
-    "headCommit": "8656b06e714d493d92103cbd62816601abade672"
+    "headCommit": "10b712c510b2d0adb097d2a444036b370cae5246"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "bc561f69c5a52ab822f47f916e43860275c0223f",
-    "headCommit": "8656b06e714d493d92103cbd62816601abade672",
+    "headCommit": "10b712c510b2d0adb097d2a444036b370cae5246",
     "committed": [
       "changelogs/CHANGELOG_v2.4.4.md",
       "tauri-app/frontend/src/hooks/tauriApi.ts",
@@ -35,11 +35,11 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlq5dvc-m-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlq6za0-o-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T06:13:32.076Z"
+  "updatedAt": "2026-11-18T06:14:29.137Z"
 }
