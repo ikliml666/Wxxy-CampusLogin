@@ -146,11 +146,5 @@ pub(super) async fn run_quality_check(app_handle: &AppHandle, adapter_name: &str
             record_last_quality(&s, &current);
         }
     }
-    // 外网连通状态：所有周期性外网探测都汇聚到这里，只在此记录一次，
-    // 不额外造探测；界面靠事件实时更新，避免再开一条轮询。
-    if let Some(snapshot) = super::internet_status::record_quality_check(adapter_name, &first) {
-        use tauri::Emitter;
-        let _ = app_handle.emit("internet-status-changed", &snapshot);
-    }
     Some(first)
 }

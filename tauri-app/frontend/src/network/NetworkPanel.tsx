@@ -626,7 +626,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                           )}
                         />
                         {internetStatus.online
-                          ? t('network.internetOnline', { latency: internetStatus.latencyMs })
+                          ? t('network.internetOnline')
                           : t('network.internetOffline')}
                       </Badge>
                     ) : (
