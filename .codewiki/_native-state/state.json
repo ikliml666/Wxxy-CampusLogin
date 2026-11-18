@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "7f71345cdde77ecad4b16a80e28a444de8f28f09",
-    "headCommit": "b617bf116ce9a3aed087479759fd5a33b780e0aa"
+    "headCommit": "5102f6a28a7bfce6848c158ff2d311ecd90e65e2"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "7f71345cdde77ecad4b16a80e28a444de8f28f09",
-    "headCommit": "b617bf116ce9a3aed087479759fd5a33b780e0aa",
+    "headCommit": "5102f6a28a7bfce6848c158ff2d311ecd90e65e2",
     "committed": [
       "changelogs/CHANGELOG_v2.4.4.md",
       "tauri-app/frontend/src/network/NetworkPanel.tsx"
@@ -24,12 +24,11 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 25a6a5e 与本次 cw 基线 7f71345 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwm8dhjg-5-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwm8zhvs-6-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T14:43:19.369Z"
+  "updatedAt": "2026-11-18T15:00:23.445Z"
 }
