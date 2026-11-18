@@ -166,38 +166,87 @@ function formatRestoreTime(minutes: number | undefined): string {
 }
 
 
-/** 就寝守则的 WiFi 名单编辑器：已选项以 chip 呈现，输入框回车追加、点 × 移除。
- *  名单是纯文本（用户手输 SSID）；去重不区分大小写——Windows 对 SSID 的比较本身也不区分 */
-const SsidListEditor = memo(function SsidListEditor({
+/** 就寝守则的 WiFi 名单编辑器：从系统已保存的 WiFi 里勾选，不再手输 SSID。
+ *
+ *  数据源是 Windows 的 WLAN 配置（`netsh wlan show profiles`，后端
+ *  `list_saved_wifi_networks`）——用户连过一次的网络就有 profile，勾选即
+ *  保证名字与系统里完全一致；手输的旧数据（大小写/空格差异）正是之前名单
+ *  不生效的根源。已选但系统里已不存在的条目仍列出，供移除。
+ */
+const WifiProfilePicker = memo(function WifiProfilePicker({
   id,
   title,
   description,
   items,
-  placeholder,
   removeLabel,
   disabled,
+  allowWildcard,
   onChange,
 }: {
   id: string
   title: string
   description: string
   items: string[]
-  placeholder: string
   removeLabel: (name: string) => string
   disabled?: boolean
+  /** 是否提供「全部网络」选项（排除名单用；选中即写入 `*`） */
+  allowWildcard?: boolean
   onChange: (next: string[]) => void
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState('')
-  const commit = useCallback(() => {
-    const value = draft.trim()
-    if (!value) return
-    if (!items.some((it) => it.toLowerCase() === value.toLowerCase())) {
-      onChange([...items, value])
+  const [profiles, setProfiles] = useState<string[] | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+
+  const load = useCallback(async () => {
+    setProfiles(null)
+    setLoadError(null)
+    try {
+      const result = await tauriApiWithRetry.listSavedWifiNetworks()
+      setProfiles((result.networks ?? []).map(n => n.ssid))
+      if (result.error) setLoadError(result.error)
+    } catch (e) {
+      setProfiles([])
+      setLoadError(extractErrorMessage(e))
     }
-    setDraft('')
-  }, [draft, items, onChange])
+  }, [])
+
+  // 只在真正打开弹窗时读系统清单：卡片常驻，没必要每次渲染都跑 netsh
+  useEffect(() => {
+    if (open) {
+      void load()
+      setQuery('')
+    }
+  }, [open, load])
+
+  const has = useCallback(
+    (ssid: string) => items.some(it => it.toLowerCase() === ssid.toLowerCase()),
+    [items],
+  )
+  const toggle = useCallback(
+    (ssid: string) => {
+      onChange(has(ssid) ? items.filter(it => it.toLowerCase() !== ssid.toLowerCase()) : [...items, ssid])
+    },
+    [has, items, onChange],
+  )
+
+  // 已选但系统里已不存在（改名/删配置/旧数据）：单独列出，否则用户在勾选列表里
+  // 找不到它，也就没法移除
+  const orphans = items.filter(it => it !== '*' && !(profiles ?? []).some(p => p.toLowerCase() === it.toLowerCase()))
+  const keyword = query.trim().toLowerCase()
+  const filtered = (profiles ?? []).filter(p => !keyword || p.toLowerCase().includes(keyword))
+
+  const rowClass = (checked: boolean) =>
+    cn(
+      'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors',
+      checked ? 'bg-primary/10 text-primary' : 'hover:bg-muted/60',
+    )
+  const boxClass = (checked: boolean) =>
+    cn(
+      'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+      checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input',
+    )
 
   return (
     <div className={cn('space-y-2', disabled && 'opacity-60')}>
@@ -220,18 +269,18 @@ const SsidListEditor = memo(function SsidListEditor({
       </button>
       {items.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          {items.map((name) => (
+          {items.map(name => (
             <span
               key={name}
               className="inline-flex items-center gap-1 rounded-full bg-primary/10 py-0.5 pl-2 pr-1 text-[11px] font-medium text-primary"
             >
-              {name}
+              {name === '*' ? t('network.wifiCurfewWildcardOption') : name}
               <button
                 type="button"
                 disabled={disabled}
                 aria-label={removeLabel(name)}
                 title={removeLabel(name)}
-                onClick={() => onChange(items.filter((it) => it !== name))}
+                onClick={() => onChange(items.filter(it => it !== name))}
                 className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full transition-colors hover:bg-primary/20 disabled:opacity-50"
               >
                 <X className="h-2.5 w-2.5" />
@@ -246,43 +295,72 @@ const SsidListEditor = memo(function SsidListEditor({
             <DialogTitle className="text-base">{title}</DialogTitle>
             <DialogDescription className="text-[12px]">{description}</DialogDescription>
           </DialogHeader>
-          {items.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {items.map((name) => (
-                <span
-                  key={name}
-                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 py-1 pl-2.5 pr-1.5 text-[12px] text-primary"
-                >
-                  {name}
-                  <button
-                    type="button"
-                    aria-label={removeLabel(name)}
-                    title={removeLabel(name)}
-                    onClick={() => onChange(items.filter((it) => it !== name))}
-                    className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-primary/20"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
           <Input
-            value={draft}
-            autoFocus
-            placeholder={placeholder}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                commit()
-              } else if (e.key === 'Escape') {
-                e.preventDefault()
-                setDraft('')
-              }
-            }}
+            value={query}
+            placeholder={t('network.wifiCurfewSearchPlaceholder')}
+            onChange={e => setQuery(e.target.value)}
             className="h-9 text-[13px]"
           />
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+            {allowWildcard && (
+              <button type="button" onClick={() => toggle('*')} className={rowClass(has('*'))}>
+                <span className={boxClass(has('*'))}>{has('*') && <CheckCircle2 className="h-3 w-3" />}</span>
+                <span className="font-medium">{t('network.wifiCurfewWildcardOption')}</span>
+                <span className="ml-auto text-[11px] text-muted-foreground">
+                  {t('network.wifiCurfewWildcardOptionHint')}
+                </span>
+              </button>
+            )}
+            {profiles === null && !loadError && (
+              <p className="px-2 py-6 text-center text-[12px] text-muted-foreground">
+                {t('network.wifiCurfewLoading')}
+              </p>
+            )}
+            {loadError && (
+              <div className="px-2 py-4 text-center">
+                <p className="text-[12px] text-destructive">{t('network.wifiCurfewLoadFailed')}</p>
+                <p className="mt-1 break-all text-[11px] text-muted-foreground/70">{loadError}</p>
+                <Button variant="outline" size="sm" className="mt-2 h-7 text-[11px]" onClick={() => void load()}>
+                  {t('network.wifiCurfewRetry')}
+                </Button>
+              </div>
+            )}
+            {profiles !== null && !loadError && filtered.length === 0 && (
+              <p className="px-2 py-6 text-center text-[12px] text-muted-foreground">
+                {keyword ? t('network.wifiCurfewNoMatch') : t('network.wifiCurfewEmpty')}
+              </p>
+            )}
+            {filtered.map(ssid => {
+              const checked = has(ssid)
+              return (
+                <button key={ssid} type="button" onClick={() => toggle(ssid)} className={rowClass(checked)}>
+                  <span className={boxClass(checked)}>{checked && <CheckCircle2 className="h-3 w-3" />}</span>
+                  <span className="truncate">{ssid}</span>
+                </button>
+              )
+            })}
+            {orphans.length > 0 && (
+              <div className="mt-1 border-t border-border/50 pt-1">
+                {orphans.map(ssid => (
+                  <div key={ssid} className="flex items-center gap-2 px-2 py-1.5 text-[12px] text-muted-foreground">
+                    <span className="truncate">{ssid}</span>
+                    <span className="ml-auto shrink-0 text-[11px] text-muted-foreground/60">
+                      {t('network.wifiCurfewOrphan')}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={removeLabel(ssid)}
+                      title={removeLabel(ssid)}
+                      onClick={() => onChange(items.filter(it => it !== ssid))}
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
@@ -927,26 +1005,25 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
           <CardContent className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="wifi-curfew-excluded" className="text-xs font-medium">{t('network.wifiCurfewExcluded')}</Label>
-              <SsidListEditor
+              <WifiProfilePicker
                 id="wifi-curfew-excluded"
                 title={t('network.wifiCurfewExcludedTitle')}
                 description={t('network.wifiCurfewExcludedDesc')}
                 items={config.wifiCurfewExcluded}
-                placeholder={t('network.wifiCurfewAddPlaceholder')}
                 removeLabel={name => t('network.wifiCurfewRemove', { name })}
                 disabled={!config.enableWifiCurfew}
+                allowWildcard
                 onChange={next => onUpdateConfig({ wifiCurfewExcluded: next })}
               />
               <p className="text-[11px] text-muted-foreground/70">{t('network.wifiCurfewExcludedHint')}</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="wifi-curfew-allowed" className="text-xs font-medium">{t('network.wifiCurfewAllowed')}</Label>
-              <SsidListEditor
+              <WifiProfilePicker
                 id="wifi-curfew-allowed"
                 title={t('network.wifiCurfewAllowedTitle')}
                 description={t('network.wifiCurfewAllowedDesc')}
                 items={config.wifiCurfewAllowed}
-                placeholder={t('network.wifiCurfewAddPlaceholder')}
                 removeLabel={name => t('network.wifiCurfewRemove', { name })}
                 disabled={!config.enableWifiCurfew}
                 onChange={next => onUpdateConfig({ wifiCurfewAllowed: next })}
