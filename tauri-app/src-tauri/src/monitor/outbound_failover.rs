@@ -546,20 +546,17 @@ fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
 pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config) {
     let today = chrono::Local::now().date_naive().num_days_from_ce();
     let switch_active = super::outbound_night::outbound_switch_active(app_handle);
-    // 恢复保持只有伴随真实切换态才有意义；旧版本幂等点击可能只留下日期而没有
-    // 快照，这种残留不得再关闭当天的出口健康监测。
-    if !config.enable_night_outbound_switch
-        || (switch_active && config.outbound_manual_hold_day == today)
-    {
-        reset_state();
-        return;
-    }
     // 已在切换态：只判定"原校园网出口是否已恢复、该切回"，不再触发新的故障切换。
+    // 恢复保持只有伴随真实切换态才有意义；旧版本幂等点击可能只留下日期而没有
+    // 快照，这种残留以及开关中途关掉，都只清判定状态、不做切回评估。
     if switch_active {
-        evaluate_switch_back(app_handle, config);
-        return;
-    }
-    if STATE.lock().unwrap_or_else(|e| e.into_inner()).recovery_running {
+        if !config.enable_night_outbound_switch
+            || config.outbound_manual_hold_day == today
+        {
+            reset_state();
+        } else {
+            evaluate_switch_back(app_handle, config);
+        }
         return;
     }
 
@@ -590,7 +587,35 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
             (adapter.clone(), gateway)
         })
         .collect();
-    let Some(current_name) = current_outbound_name() else {
+    let current_name = current_outbound_name();
+    // 逐卡公网结论要喂给「网络适配器卡片每行的外网状态」展示：探测集合是全部
+    // 有 IP 的卡，且无条件每拍执行——夜间出站切换开关关着、登录恢复进行中也要
+    // 刷新，否则只有切换验证过的目标卡有结论，其余卡行永远不显示外网状态。
+    // 读不到当前出口时全卡严格绑源。
+    let probe_candidates: Vec<(Adapter, String)> = candidates
+        .iter()
+        .filter(|(adapter, _)| !adapter.ip.is_empty())
+        .cloned()
+        .collect();
+    let health = probe_internet_access(
+        app_handle,
+        config,
+        &probe_candidates,
+        current_name.as_deref(),
+        std::time::Duration::from_secs(3),
+    );
+    if app_handle.state::<AppState>().exit.is_quitting.load(std::sync::atomic::Ordering::Acquire) {
+        return;
+    }
+    // —— 以下是出口故障评估，仅夜间出站切换开启时执行 ——
+    if !config.enable_night_outbound_switch {
+        reset_state();
+        return;
+    }
+    if STATE.lock().unwrap_or_else(|e| e.into_inner()).recovery_running {
+        return;
+    }
+    let Some(current_name) = current_name else {
         reset_state();
         return;
     };
@@ -602,40 +627,6 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
     REQUIRED_FAILURE_ROUNDS.store(config.outbound_failure_rounds.clamp(1, 5), Ordering::Relaxed);
     SWITCH_BACK_HEALTHY_ROUNDS.store(config.outbound_healthy_rounds.clamp(1, 5), Ordering::Relaxed);
     let (adapter1, adapter2) = crate::network::resolve_adapter_names(&adapters, config);
-    // 白天故障切换按「无线优先」，夜间窗口内才让夜间目标卡置顶：
-    // 用户配置夜间目标是给夜切用的，不该连带影响白天的故障迁移方向
-    let prefer_night_target =
-        crate::config::outbound_switch::is_night_outbound_guard_window_with_restore(
-            config.enable_night_outbound_switch,
-            chrono::Local::now().weekday().num_days_from_sunday(),
-            crate::infra::local_now_minutes() as u32,
-            config.night_restore_minutes,
-        );
-    let priority = super::outbound_switch::effective_outbound_priority(
-        &config.outbound_night_target,
-        &candidates,
-        prefer_night_target,
-    );
-    let probe_candidates: Vec<(Adapter, String)> = candidates
-        .iter()
-        .filter(|(adapter, _)| {
-            adapter.name == current_name
-                || adapter.name == adapter1
-                || (config.dual_adapter && adapter.name == adapter2)
-                || priority.iter().any(|name| name == &adapter.name)
-        })
-        .cloned()
-        .collect();
-    let health = probe_internet_access(
-        app_handle,
-        config,
-        &probe_candidates,
-        Some(&current_name),
-        std::time::Duration::from_secs(3),
-    );
-    if app_handle.state::<AppState>().exit.is_quitting.load(std::sync::atomic::Ordering::Acquire) {
-        return;
-    }
     let Some(current_healthy) = probe_candidates
         .iter()
         .find(|(adapter, _)| adapter.name == current_name)
