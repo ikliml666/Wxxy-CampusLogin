@@ -8,7 +8,7 @@
 - `config/wifi_curfew.rs` 新增 `prepare_lead_minutes`（钳到 180）与 `in_prepare_window(weekday, now_minutes, lead, restore_start)`：切换时刻前 lead 分钟内为 true，到切换时刻即交给 `in_curfew_window` 接管，两者不重叠。
 - `monitor/wifi_curfew.rs` 的生效条件由 `in_curfew_window` 扩为 `in_curfew_window || in_prepare_window`：准备窗内就执行「改手动 → 断开 → 连放行网络」，并记一条日志说明进入了准备窗。
 - **出站/跃点仍按原切换时刻执行**（`monitor/scheduled.rs` 未改）：提前的只是 WLAN 层面，正式切换仍在 23:00 / 23:30。
-- 前端网卡卡片新增「提前准备（分钟）」数字输入（0–180，步进 10），与「还原时刻」并列；关闭夜间切换且未开守则时置灰。
+- 前端网卡卡片新增「提前准备（分钟）」数字输入（0–180，步进 10），与「还原时刻」并列；关闭夜间切换且未开守则时置灰。数字居中显示（`text-center`），与左对齐的纯文本不同——短数字居中在窄框里重心更稳。
 
 **验证**
 
