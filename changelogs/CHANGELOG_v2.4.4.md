@@ -1,3 +1,35 @@
+### 缺陷修复：探测失败语义细分 + 深夜登录恢复拒绝退避（2026-11-18，双端共享）
+
+**为什么**：用户偶发看到「无法连接至登录地址 10.1.99.100」，需要判断是校园网线路波动还是设计问题。实测结论：**不是线路波动**——`check_portal_full` 串行 100 次 + 并发 8×25 全部成功（p99 ≤ 143ms，阈值 2s/3s），且 8 天日志中不存在任何一条 Portal 不可达的落盘记录。真正的问题是三类语义不同的失败被压扁成同一句文案、且失败细节不落盘：
+
+1. **源地址失效伪装成线路故障**（代码缺陷，主修复）：传入探测的适配器 IP 已不属于本机（网卡切换/DHCP 换址瞬态）时，reqwest bind 失败 0ms 即返回，被归入 `PortalFailure::Connect` 报「Portal 不可达」。真机实测错误链：reqwest(is_connect) → hyper `tcp bind local error` → os error 10049 (WSAEADDRNOTAVAIL)。
+2. **深夜登录恢复风暴**（行为缺陷，主修复）：2026-11-13/14 实测，深夜校园网断公网后切换态每 60~90s 对原卡硬试登录，Portal 全程可达（请求 11~600ms 完成 status=200）、但服务器持续回绝（Authentication fail），一夜刷 37 条登录失败记录——对确定无效的重试没有退避。
+3. **失败不落盘**（观测缺陷）：探测/登录的传输失败日志全是 `log_debug!`，默认 `warning` 级日志下不落盘，偶发失败事后无从归因；`emit_login_log` 只发前端内存事件。
+
+**改了什么**
+
+- `auth/portal.rs`：`PortalFailure` 新增 `StaleSource` 变体，`from_reqwest_error` 对 connect 错误先查错误链（hyper `tcp bind local error` 文案 + `io::ErrorKind::AddrNotAvailable` 双判据）识别源地址 bind 失败；文案「源地址已失效（网卡切换中），等待下一轮探测」，`error_kind="stale_source"`。消费方核对：`portal_check.rs` 仅对 `request_failed` 特判（stale 走正常状态流转）、安卓 `core/monitor.rs` 三态消费按 `error_kind=None` 翻转在线（stale 不翻转）、`should_attempt_login` 拿 `reachable=false` 不发登录——均无需改动。
+- `auth/portal.rs`：`check_portal_page` 失败与 `log_portal_page_failed` 从 debug 提级 warn 并带耗时（区分「0ms 源地址失效」与「3s 真超时」的关键观测）。
+- `auth/protocol.rs`：登录请求重试失败从 debug 提级 warn。
+- `monitor/outbound_failover.rs`：`FailoverState` 新增 `recovery_reject_streak`/`recovery_reject_backoff_until`；`recover_current_adapter` 登录失败且协议层给出「服务器明确回应、非传输失败」证据（`data.retryable == false`）时指数退避（60s→120s→…，封顶复用 `outboundBackoffMaxSecs` 默认 300s）；传输失败（retryable=true）与结果壳缺失（data=None）不退避——可能是网络瞬态，保持原有节奏。切换态轮转 spawn 前检查退避期（只跳登录，不阻断切回判定）；登录成功/切回/健康复位时 `reset_state` 自动清零。
+
+**验证**
+
+- 桌面 `cargo test`：**687 passed / 0 failed / 4 ignored**，含新增：`stale_bind_detected_from_error_chain`（模拟错误链：AddrNotAvailable 命中、ConnectionRefused 不误判、hyper 文案判据）、`服务器拒绝进入指数退避`（60→120s 指数增长 + 封顶 300s）、`传输失败与结果壳缺失不计入退避`、`登录成功清零退避`，以及 `build_request_failed_status_correct` 扩展的 StaleSource 断言。
+- 安卓 `cargo check --target aarch64-linux-android --all-targets` exit 0（暖缓存 34s，无警告）；协议核心单点改动，安卓经 path 依赖自动继承，无复制。
+- 真机端到端回归（新增 `tests/portal_stale_source_e2e.rs`，#[ignore] 需校园网）：绑已不属于本机的 10.2.106.90 → `message="源地址已失效（网卡切换中），等待下一轮探测"` `error_kind=Some("stale_source")`，落盘日志 `Portal页面请求失败(源地址失效): adapter=以太网, ip=10.2.106.90, 耗时=3ms`。
+- 顺手排查确认（不修）：11-13 14:41-14:47 登录历史 6 条指向 `http://10.99.99.99:801` 的失败，当前配置/账号/代码中均为 10.1.99.100，该地址只能经设置页保存 `portalUrl` 写入全局（`config_cmd.rs:215/294`），属用户当时误改门户地址后 14:47 重启恢复，非代码泄漏。
+- 未验证：真实深夜场景下退避的实际节奏（需夜间切换态 + 服务器持续拒绝，等下一轮夜间观察日志确认）。
+- **评审修订（同日）**：双轴代码审查（Standards/Spec 两个独立子代理）产出 11 条发现，主 agent 逐条核实后修复 7 条实质项：
+  ① e2e 测试 .join().ok() 吞掉断言失败（测试永不红）→ 改 .expect()，真机复跑通过、断言恢复可证伪；
+  ② 登录重试日志只提级未带耗时（spec 漏做）→ 重试层按轮计时并入 warn（耗时只进日志，不污染用户可见 message；protocol.rs 用 attempt 级计时而非请求级 t_req，因后者作用域在 do_login_request 内不可达）；
+  ③ 切回判定三个早退路径的 reset_state() 会把深夜拒绝升级（120→240→300s）误清回 60s（夜间适配器枚举瞬态 Err 即触发）→ 新增 reset_failover_rounds_keep_rejection 只清判定字段、保留退避，新增单测「早退重置保留拒绝退避」锁定该口径；
+  ④ 登录恢复退避公式与 outbound_night.rs 的 outbound_backoff_ms 完全同形 → 抽共享纯函数 outbound_backoff_window_ms(start, max, fail_count) 两处复用（outbound_night 既有退避测试全绿行为不变）；
+  ⑤ 同次探测失败落两条同前缀 warn → 错误原文细节条降回 debug，保留带 adapter/ip/耗时的汇总条；
+  ⑥ 两处注释与实现不符（"streak 限 6 防移位溢出"实由 cap 封顶兜底；"耗时区分 0ms 源地址失效"实为含 chkstatus 的总耗时）→ 修正表述；note_login_recovery_rejection 注释补明 retryable=false 的语义边界（含「Portal 返回非预期格式(HTML)」分支——AC 注入属持续异常，退避同样合理，行为不变）；
+  ⑦ PortalFailure 三个平铺 match（message/error_kind/label）→ 合并为 display_parts() 单 match 三元组，新增变体只改一处。
+  未修（语义可辩护）：退避起点复用 outboundBackoffStartSecs（spec 只点名封顶，但与出站切换共用同一退避节奏参数是一致性取舍，validate 下限 10s 保证不失控）。
+  验证：桌面 cargo test **688 passed / 0 failed / 4 ignored**（含新口径单测）、真机 e2e 复跑通过、安卓 cargo check --target aarch64-linux-android --all-targets exit 0。
 ### 前端性能优化：WiFi 连接管控卡片重设计（双端，2026-11-18）
 
 **为什么**：上一轮删文案时把 `wifiCurfewWildcardHint` 一并删了却漏改模板，卡片底部直接显示 `network.wifiCurfewWildcardHint` 这个键名；同时两块名单各带一条重复的灰字说明、结构上又说不出"现在连的是哪个网络、到点会怎样"——用户只能靠系统设置自己核对。

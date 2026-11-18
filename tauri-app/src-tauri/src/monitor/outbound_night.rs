@@ -154,16 +154,23 @@ fn now_epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// 退避窗（纯函数）：无失败历史（0 次）为 0；否则 60s 起步、每失败翻倍、封顶 300s
-fn outbound_backoff_ms(fail_count: u32) -> u64 {
+/// 退避窗（纯函数）：无失败历史（0 次）为 0；否则起步、每失败翻倍、封顶。
+/// 出站切换与登录恢复拒绝两处共用同一阶梯（评审修订：原先两份同形公式分别维护）。
+/// 位移上限 6 只防极端计数下移位溢出，实际窗口由 cap 封顶。
+pub(super) fn outbound_backoff_window_ms(start_ms: u64, max_ms: u64, fail_count: u32) -> u64 {
     if fail_count == 0 {
         return 0;
     }
+    let cap = max_ms.max(start_ms);
+    start_ms
+        .saturating_mul(1u64 << (fail_count - 1).min(6))
+        .min(cap)
+}
+
+fn outbound_backoff_ms(fail_count: u32) -> u64 {
     let start = OUTBOUND_BACKOFF_START_MS.load(Ordering::Relaxed);
-    let max = OUTBOUND_BACKOFF_MAX_MS.load(Ordering::Relaxed).max(start);
-    start
-        .saturating_mul(1u64 << (fail_count - 1).min(3))
-        .min(max)
+    let max = OUTBOUND_BACKOFF_MAX_MS.load(Ordering::Relaxed);
+    outbound_backoff_window_ms(start, max, fail_count)
 }
 
 /// 退避闸（纯函数）：true=允许本拍发起动作。距上次失败不足当前退避窗则压制。

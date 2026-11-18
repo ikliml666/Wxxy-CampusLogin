@@ -40,6 +40,7 @@ source_files:
   - tauri-app/src-tauri/src/platform/if_stats.rs
   - tauri-app/src-tauri/src/platform/memory_trim.rs
   - tauri-app/src-tauri/src/platform/tcp_probe.rs
+  - tauri-app/src-tauri/src/platform/net_notify.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_backend_tauri/android_backend_tauri_state_storage.md

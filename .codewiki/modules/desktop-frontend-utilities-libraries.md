@@ -87,8 +87,6 @@ source_files:
   - tauri-app/frontend/src/network/adapters.ts
   - tauri-app/frontend/src/network/constants.ts
   - tauri-app/frontend/src/network/index.ts
-  - tauri-app/frontend/src/network/outboundOrder.test.ts
-  - tauri-app/frontend/src/network/outboundOrder.ts
   - tauri-app/frontend/src/network/types.ts
   - tauri-app/frontend/src/network/useDnsSetup.ts
   - tauri-app/frontend/src/network/useNetwork.test.ts
@@ -113,6 +111,7 @@ source_files:
   - tauri-app/frontend/src/network/AdapterSettingsDialog.tsx
   - tauri-app/frontend/src/network/ProbeSettingsDialog.tsx
   - tauri-app/frontend/src/network/useAdapterTraffic.ts
+  - tauri-app/frontend/src/network/useInternetStatus.ts
 tags: []
 generated_by: fsoft-native
 fsoft_page: desktop_frontend_utilities_libraries.md

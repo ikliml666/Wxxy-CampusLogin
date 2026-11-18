@@ -1,10 +1,10 @@
 {
   "manifestVersion": 1,
-  "fingerprint": "2f6538bdbb32501d",
+  "fingerprint": "2a58f07d3eaf5246",
   "version": "2.0.0",
   "pythonVersion": "3.12.10",
-  "upstreamCommit": "9c50ecb5911e676e07c43326753e91dc49caa7e8",
+  "upstreamCommit": "7fcf9354f70a5468bc739d849055f8cbab9d46aa",
   "engineRoot": "",
   "pipCheckOk": true,
-  "recordedAt": "2026-11-16T13:20:20.931Z"
+  "recordedAt": "2026-11-17T15:52:37.037Z"
 }
