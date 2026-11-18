@@ -2,19 +2,16 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "5102f6a28a7bfce6848c158ff2d311ecd90e65e2",
-    "headCommit": "10c98583a33f7abd2eb92c0c2032e988f2deaaac"
+    "baseCommit": "10c98583a33f7abd2eb92c0c2032e988f2deaaac",
+    "headCommit": "fdae47a63034d1f41d5c6313e18d8c2e8a1089bd"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "5102f6a28a7bfce6848c158ff2d311ecd90e65e2",
-    "headCommit": "10c98583a33f7abd2eb92c0c2032e988f2deaaac",
+    "baseCommit": "10c98583a33f7abd2eb92c0c2032e988f2deaaac",
+    "headCommit": "fdae47a63034d1f41d5c6313e18d8c2e8a1089bd",
     "committed": [
-      "android/plugins/foreground-service/android/src/main/aidl/com/campuslogin/plugin/monitorservice/IRemoteShell.aidl",
-      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CurfewShell.kt",
-      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/RemoteShellService.kt",
-      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/WifiCurfewRunner.kt",
-      "changelogs/CHANGELOG_v2.4.4.md"
+      "changelogs/CHANGELOG_v2.4.4.md",
+      "tauri-app/src-tauri/src/monitor/outbound_failover.rs"
     ],
     "staged": [],
     "unstaged": [],
@@ -27,11 +24,12 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwma8arw-2-native（66 个文件）"
+    "持久化基线 5102f6a 与本次 cw 基线 10c9858 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwman32f-4-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T15:35:17.098Z"
+  "updatedAt": "2026-11-18T15:46:47.295Z"
 }
