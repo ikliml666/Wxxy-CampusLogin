@@ -767,7 +767,7 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
                     nightPrepareMinutes: Number.isFinite(raw) ? Math.min(180, Math.max(0, Math.round(raw))) : 0,
                   })
                 }}
-                className="w-20 h-7 text-sm font-mono"
+                className="w-20 h-7 text-center text-sm font-mono"
               />
             </SettingRow>
             <CardDescription className="mt-2">
