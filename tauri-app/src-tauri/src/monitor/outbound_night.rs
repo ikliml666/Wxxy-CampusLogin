@@ -82,12 +82,11 @@ static OUTBOUND_RESTORE_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 static OUTBOUND_CHANNEL_FAIL_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 每天至多一次的提醒通知去重标记（num_days_from_ce；i32::MIN = 从未提醒）：
 /// 无候选/空禁用名单/跃点快照损坏/兜底路由是唯一默认路径
-/// 四类「不阻塞流程但该让用户知道」的问题各占一枚
+/// 三类「不阻塞流程但该让用户知道」的问题各占一枚
 static OUTBOUND_NO_CANDIDATE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_METRIC_SNAPSHOT_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 static OUTBOUND_LAST_PATH_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 /// 原出口卡「禁用后启用失败」残留（卡停在禁用态，出口已切好）
-static OUTBOUND_ORIGIN_DISABLE_WARN_DAY: AtomicI32 = AtomicI32::new(i32::MIN);
 
 /// 出站动作单飞闸：切换与还原互斥。手动入口（命令线程）与 30s 调度拍（后台线程）
 /// 可能同时进 `apply_outbound_*`；若还原拿着"切换前"读到的快照收尾，会把刚写入的
@@ -993,14 +992,15 @@ fn build_outbound_plan(
             target_if_index: adapter.if_index,
         });
     }
-    // 候选来自出站优先级生效列表（用户已排序按原序；未排序默认无线卡优先，
-    // 见 effective_outbound_priority），且必须有 IP 且判定为非校园网
+    // 候选顺序由 effective_outbound_priority 给出：夜间目标卡置顶，其后无线卡、
+    // 有线卡；每张都必须有 IP 且判定为非校园网
     apply_outbound_backoff_config(config);
     let portal_host = portal_probe_host(&config.portal_url);
+    // 夜间与手动「立即切换」都按夜间语义选卡：目标卡置顶
     let priority = effective_outbound_priority(
-        &config.outbound_priority,
         &config.outbound_night_target,
         &candidates,
+        true,
     );
     let probe_targets =
         collect_probe_targets(&priority, &candidates, &config.campus_gateway, &portal_host);
@@ -1524,7 +1524,7 @@ pub(super) fn enforce_origin_offline(app_handle: &AppHandle, config: &crate::con
 /// 手动禁用单张网卡（网卡卡片常驻按钮）：不经名单、不记失败计数——
 /// 这是用户主动操作，不是夜间切换事务，失败直接把原因回给前端 toast。
 pub(crate) fn manual_disable_adapter(name: &str) -> Result<(), String> {
-    match run_helper_op("disable_adapter", &[name.to_string()], outbound_allow_uac()) {
+    match disable_adapter_via_helper(name) {
         Ok(()) => {
             crate::log_info!("network", "已禁用网卡 {name}");
             Ok(())
@@ -1536,10 +1536,14 @@ pub(crate) fn manual_disable_adapter(name: &str) -> Result<(), String> {
     }
 }
 
+/// 调 helper 下线一张网卡（PnP 设备级禁用）。失败语义由调用方决定：
+/// 手动禁用直接回前端 toast，夜间事务还要记失败计数推进退避。
+fn disable_adapter_via_helper(name: &str) -> Result<(), HelperFailure> {
+    run_helper_op("disable_adapter", &[name.to_string()], outbound_allow_uac())
+}
+
 fn hold_origin_offline(_app_handle: &AppHandle, name: &str, _guid: &str) -> Result<(), String> {
-    if let Err(failure) =
-        run_helper_op("disable_adapter", &[name.to_string()], outbound_allow_uac())
-    {
+    if let Err(failure) = disable_adapter_via_helper(name) {
         note_channel_failure(&failure);
         // 禁用失败 = 既有连接没断、原卡仍在选路：保留现场，退避后重放整笔事务。
         mark_outbound_failure(&OUTBOUND_SWITCH_LAST_FAIL_MS, &OUTBOUND_SWITCH_FAIL_COUNT);

@@ -1,3 +1,23 @@
+### 缺陷修复：评审发现的 12 项问题按第一性原理收敛（2026-11-18，桌面）
+
+**为什么**：上一轮网卡面板改造通过功能验证但留下了一批结构性问题——多为「用补丁盖住旧设计」，而不是把旧设计拆掉。这轮按评审清单逐条从根上改。
+
+**改了什么**
+
+- **删掉 `outboundPriority` 配置字段**（桌面 config、安卓 `config_state.rs`、前端类型与默认值）：列表顺序已改为按跃点排序、夜间目标已独立成 `outboundNightTarget`，该字段再无消费者。留着它会产生「显示第 2 位」与「夜间回退第 2 位」两套顺序（旧拖拽配置残留时不一致），是真正的语义分裂源。
+- **`effective_outbound_priority` 去掉 priority 基座，加 `prefer_night_target` 参数**：夜间/手动切换置顶目标卡；`outbound_failover.rs` 通过 `is_night_outbound_guard_window_with_restore` 判定是否处于夜间窗口——白天故障切换不再被夜间目标带偏。
+- **事件通知补齐并改成真正的合并**：`net_notify.rs` 同时订阅 `NotifyIpInterfaceChange` 与 `NotifyUnicastIpAddressChange`（DHCP 换址走后者）；去抖由「窗口内直接丢弃」改为「记待补发 + 窗口收尾发一次」，不再丢末条变化。前端同步改为「最后一次事件后 400ms」的 debounce。
+- **i18n**：夜间目标按钮的 tooltip 复用已有 `network.outboundBadge`，不再引用未定义的 `nightTargetBadge`（此前会显示裸 key）；删除已无引用的 `outboundDragHint`。
+- **命名与分页**：`SortableAdapterRow`→`AdapterRow`、`isOutboundTarget`→`isNightTarget`（拖拽早已删除，旧名误导）；分页翻页改为基于已钳制的 `safePage` 计算，网卡减少导致页码越界后不再点不动。
+- **去重**：`useOutboundManual.ts` 六个条目级动作收敛到一个 `runAdapterAction`（置忙碌→调后端→toast→重拉）；`outbound_night.rs` 两处 `disable_adapter` 调用收敛到 `disable_adapter_via_helper`。
+
+**验证**
+
+- `cargo test`：lib **677 passed; 0 failed; 4 ignored**，集成与文档测试全绿；重写了 `effective_priority_*` 系列测试，显式断言「白天故障切换不置顶夜间目标」。
+- 前端 `npx tsc --noEmit --incremental` 通过；`npx vitest run` **127 passed**。
+- 安卓端：`outbound_priority` 字段随桌面一并删除（该端只存不用）。`android/build-apk.ps1` 在本会话工作树里因目录层级过深触发 LNK1104（build script 的 .exe 打不开），改用 `CARGO_TARGET_DIR` 指向短路径后 `cargo check --target aarch64-linux-android --lib` **通过**；`net_notify` 收敛为平台内模块，非 Windows 编译不再产生未使用告警。
+- 未验证：两条系统通知的实际触发（要真机改网卡/DHCP 换址）。
+
 ### 行为调整：夜间目标改为显式指定，网卡列表分页并按跃点排序，界面改事件驱动（2026-11-18，桌面）
 
 **为什么**：网卡一多，卡片会被整屏撑满；而且「夜间切到哪张卡」此前靠拖拽顺序隐式表达，用户拖动一次就改了夜间目标却看不出来。另外界面变化只能靠 60s 兜底轮询，在系统设置里启用/禁用网卡或改跃点后，界面会长时间停在旧状态。

@@ -405,7 +405,6 @@
     "nightRestoreTime": "还原时刻",
     "nightRestoreTimeDesc": "次日恢复校园网出站并重新登录的时刻（默认 07:30）",
     "outboundBadge": "夜间出站目标",
-    "outboundDragHint": "拖动条目调整夜间出站优先级：夜间切换按此顺序选目标卡（切换时调整跃点并临时下线原出口，次日按切换前原值还原）",
     "outboundAdminHint": "切换动作将通过计划任务静默完成，需要管理员权限",
     "currentOutboundBadge": "当前出站",
     "outboundSwitchTo": "切换出站",

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { extractErrorMessage } from '@/lib/utils'
+import type { CommandResult } from '@/auth/types'
 import { tauriApiWithRetry } from '@/hooks/tauriApi'
 import { useLogToastStore } from '@/hooks/useLogToastStore'
 import { refreshAdapterData } from '@/hooks/useAdapterStore'
@@ -71,20 +72,24 @@ export function useOutboundManual(adaptersCount: number) {
     return () => window.clearInterval(timer)
   }, [refreshCurrentOutbound])
 
-  // 系统网络变更（启用/禁用网卡、在系统里改跃点、DHCP 换址）→ 立即重拉，
-  // 不再等 60s 兜底轮询。后端已做 300ms 去抖，这里再按 800ms 合并：
-  // 一次网卡启停会连发多条通知，逐条刷新会打满 IPC。
+  // 系统网络变更（启用/禁用网卡、在系统里改跃点、DHCP 换址）→ 重拉。
+  // 用「最后一次事件后 400ms 再刷新」的 debounce，而不是「窗口内直接丢弃」：
+  // 一次网卡启停会连发多条通知，丢弃式节流会让末条变化丢失、界面停在中间态。
   useEffect(() => {
     let unlisten: (() => void) | undefined
     let disposed = false
-    let lastSync = 0
-    const onChanged = () => {
-      const now = Date.now()
-      if (now - lastSync < 800) return
-      lastSync = now
+    let trailing: number | null = null
+    const refreshNow = () => {
       void refreshAdapterData({ force: true })
       void refreshCurrentOutbound()
       void refreshAdapterMetrics()
+    }
+    const onChanged = () => {
+      if (trailing !== null) window.clearTimeout(trailing)
+      trailing = window.setTimeout(() => {
+        trailing = null
+        refreshNow()
+      }, 400)
     }
     void ipc.onNetworkChanged?.(onChanged).then(fn => {
       if (disposed) fn?.()
@@ -92,57 +97,65 @@ export function useOutboundManual(adaptersCount: number) {
     })
     return () => {
       disposed = true
+      if (trailing !== null) window.clearTimeout(trailing)
       unlisten?.()
     }
   }, [ipc, refreshCurrentOutbound, refreshAdapterMetrics])
 
-  // 「切换出站」到指定网卡（条目按钮）：后端以该卡为目标直接切换，忽略优先级选卡
-  const handleOutboundSwitchTo = useCallback(async (adapterName: string) => {
-    setSwitchingToAdapter(adapterName)
+  /**
+   * 条目级动作的统一流程：置忙碌 → 调后端 → toast → 清忙碌并强制重拉。
+   * 六个动作（切卡/改跃点/禁用/设目标/启用）此前各写一份同样的
+   * try/catch/finally，新增一个动作就多一份拷贝，收敛到这里。
+   */
+  const runAdapterAction = useCallback(async (options: {
+    adapterName: string
+    setBusy: (value: string | null) => void
+    call: () => Promise<CommandResult | undefined>
+    successMessage: string
+    failureMessage: string
+  }) => {
+    const { adapterName, setBusy, call, successMessage, failureMessage } = options
+    setBusy(adapterName)
     try {
-      const result = await ipc.outboundSwitchTo?.(adapterName)
+      const result = await call()
       if (!mountedRef.current) return
       if (result?.success) {
-        useLogToastStore.getState().addToast(t('network.outboundSwitchToSuccess', { name: adapterName }), 'success', result.message)
+        useLogToastStore.getState().addToast(successMessage, 'success', result.message)
       } else {
-        useLogToastStore.getState().addToast(t('network.outboundSwitchToFailed', { name: adapterName }), 'error', result?.message)
+        useLogToastStore.getState().addToast(failureMessage, 'error', result?.message)
       }
     } catch (e: unknown) {
       if (!mountedRef.current) return
-      useLogToastStore.getState().addToast(t('network.outboundSwitchToFailed', { name: adapterName }), 'error', extractErrorMessage(e))
+      useLogToastStore.getState().addToast(failureMessage, 'error', extractErrorMessage(e))
     } finally {
       if (mountedRef.current) {
-        setSwitchingToAdapter(null)
+        setBusy(null)
         void refreshAdapterData({ force: true })
         void refreshCurrentOutbound()
         void refreshAdapterMetrics()
       }
     }
-  }, [ipc, t, refreshCurrentOutbound, refreshAdapterMetrics])
+  }, [refreshCurrentOutbound, refreshAdapterMetrics])
+
+  // 「切换出站」到指定网卡（条目按钮）：后端以该卡为目标直接切换，忽略优先级选卡
+  const handleOutboundSwitchTo = useCallback((adapterName: string) =>
+    runAdapterAction({
+      adapterName,
+      setBusy: setSwitchingToAdapter,
+      call: () => ipc.outboundSwitchTo?.(adapterName) as Promise<CommandResult | undefined>,
+      successMessage: t('network.outboundSwitchToSuccess', { name: adapterName }),
+      failureMessage: t('network.outboundSwitchToFailed', { name: adapterName }),
+    }), [runAdapterAction, ipc, t])
 
   // 修改单卡跃点：切换态下后端拒绝并返回原因（快照原值会被覆盖）
-  const handleSaveMetric = useCallback(async (adapterName: string, metric: number) => {
-    setSavingMetricAdapter(adapterName)
-    try {
-      const result = await ipc.setAdapterMetric?.(adapterName, metric)
-      if (!mountedRef.current) return
-      if (result?.success) {
-        useLogToastStore.getState().addToast(t('network.outboundMetricSaved', { name: adapterName, metric }), 'success', result.message)
-      } else {
-        useLogToastStore.getState().addToast(t('network.outboundMetricSaveFailed', { name: adapterName }), 'error', result?.message)
-      }
-    } catch (e: unknown) {
-      if (!mountedRef.current) return
-      useLogToastStore.getState().addToast(t('network.outboundMetricSaveFailed', { name: adapterName }), 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) {
-        setSavingMetricAdapter(null)
-        void refreshAdapterData({ force: true })
-        void refreshCurrentOutbound()
-        void refreshAdapterMetrics()
-      }
-    }
-  }, [ipc, t, refreshCurrentOutbound, refreshAdapterMetrics])
+  const handleSaveMetric = useCallback((adapterName: string, metric: number) =>
+    runAdapterAction({
+      adapterName,
+      setBusy: setSavingMetricAdapter,
+      call: () => ipc.setAdapterMetric?.(adapterName, metric) as Promise<CommandResult | undefined>,
+      successMessage: t('network.outboundMetricSaved', { name: adapterName, metric }),
+      failureMessage: t('network.outboundMetricSaveFailed', { name: adapterName }),
+    }), [runAdapterAction, ipc, t])
 
   // 「夜晚切换」（卡片顶部）：立即执行夜间模式——禁用目标卡以外的所有网卡并保持到还原。
   // 与行内「切换出站」分工：行内只改跃点（白天临时改出口），这颗是夜间整卡下线语义，
@@ -171,47 +184,24 @@ export function useOutboundManual(adaptersCount: number) {
   }, [ipc, t, refreshCurrentOutbound, refreshAdapterMetrics])
 
   // 禁用单卡（常驻按钮，与启用同位置）：用户主动操作，失败直接 toast
-  const handleDisableAdapter = useCallback(async (adapterName: string) => {
-    setDisablingAdapter(adapterName)
-    try {
-      const result = await ipc.disableAdapter?.(adapterName)
-      if (!mountedRef.current) return
-      if (result?.success) {
-        useLogToastStore.getState().addToast(t('network.adapterDisabled', { name: adapterName }), 'success', result.message)
-      } else {
-        useLogToastStore.getState().addToast(t('network.adapterDisableFailed', { name: adapterName }), 'error', result?.message)
-      }
-    } catch (e: unknown) {
-      if (!mountedRef.current) return
-      useLogToastStore.getState().addToast(t('network.adapterDisableFailed', { name: adapterName }), 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) {
-        setDisablingAdapter(null)
-        void refreshAdapterData({ force: true })
-        void refreshCurrentOutbound()
-        void refreshAdapterMetrics()
-      }
-    }
-  }, [ipc, t, refreshCurrentOutbound, refreshAdapterMetrics])
+  const handleDisableAdapter = useCallback((adapterName: string) =>
+    runAdapterAction({
+      adapterName,
+      setBusy: setDisablingAdapter,
+      call: () => ipc.disableAdapter?.(adapterName) as Promise<CommandResult | undefined>,
+      successMessage: t('network.adapterDisabled', { name: adapterName }),
+      failureMessage: t('network.adapterDisableFailed', { name: adapterName }),
+    }), [runAdapterAction, ipc, t])
 
   // 设置夜间目标（独立于列表顺序）：只写配置，下一次夜间切换按它选卡
-  const handleSetNightTarget = useCallback(async (adapterName: string) => {
-    setSettingNightTarget(adapterName)
-    try {
-      const result = await ipc.setOutboundNightTarget?.(adapterName)
-      if (!mountedRef.current) return
-      if (result?.success) {
-        useLogToastStore.getState().addToast(t('network.nightTargetSet', { name: adapterName }), 'success', result.message)
-      } else {
-        useLogToastStore.getState().addToast(t('network.nightTargetSetFailed'), 'error', result?.message)
-      }
-    } catch (e: unknown) {
-      if (!mountedRef.current) return
-      useLogToastStore.getState().addToast(t('network.nightTargetSetFailed'), 'error', extractErrorMessage(e))
-    } finally {
-      if (mountedRef.current) setSettingNightTarget(null)
-    }
-  }, [ipc, t])
+  const handleSetNightTarget = useCallback((adapterName: string) =>
+    runAdapterAction({
+      adapterName,
+      setBusy: setSettingNightTarget,
+      call: () => ipc.setOutboundNightTarget?.(adapterName) as Promise<CommandResult | undefined>,
+      successMessage: t('network.nightTargetSet', { name: adapterName }),
+      failureMessage: t('network.nightTargetSetFailed'),
+    }), [runAdapterAction, ipc, t])
 
   // 「还原出口」：把跃点写回切换前快照（后端 manual_outbound_restore）。
   // 切换态已清时后端会改为按当前顺序重建出站，按钮只在切换态出现，正常不会走到。

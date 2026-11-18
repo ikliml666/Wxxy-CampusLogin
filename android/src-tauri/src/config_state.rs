@@ -70,7 +70,6 @@ pub struct Settings {
     pub wifi_curfew_channel: String,
     /// 出站网卡优先级(友好名有序列表,首项=夜间出站目标);空=未排序,列表外网卡
     /// 不参与夜间切换。安卓端不消费此字段
-    pub outbound_priority: Vec<String>,
     /// 桌面出站切换态快照(仅目标卡 IPv4/IPv6 两族的 metric JSON);非空=桌面处于
     /// 切换态。安卓端不消费此字段
     pub outbound_metric_restore: String,
@@ -208,7 +207,6 @@ impl Default for Settings {
             wifi_curfew_allowed: Vec::new(),
             wifi_curfew_weak_rssi: 0,
             wifi_curfew_channel: "auto".to_string(),
-            outbound_priority: Vec::new(),
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),
             outbound_standby_route: String::new(),

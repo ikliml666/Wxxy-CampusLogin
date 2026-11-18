@@ -114,16 +114,10 @@ pub struct Config {
     /// 退避封顶（秒，默认 300，60–1800，且不小于起点）
     #[serde(rename = "outboundBackoffMaxSecs", default = "default_outbound_backoff_max_secs")]
     pub outbound_backoff_max_secs: u32,
-    /// 出站网卡优先级（友好名有序列表，首项 = 夜间出站目标）；空 = 未排序，
-    /// 默认「无线卡优先、有线卡随后」（见 monitor::outbound_switch::
-    /// effective_outbound_priority），即未排序时夜间出站目标默认 WLAN/无线出口。
-    /// 安卓端不消费此字段
-    #[serde(rename = "outboundPriority", default)]
-    pub outbound_priority: Vec<String>,
-    /// 夜间出站目标网卡名（默认 "WLAN"）：用户在网卡卡片上显式指定，优先级高于
-    /// `outbound_priority` 的顺序。目标卡不可用（不存在/无 IP/判定为校园网）时
-    /// 自动回退到优先级列表的其余候选，不会因一张卡失效让整夜不切换。
-    /// 安卓端不消费此字段
+    /// 夜间出站目标网卡名（默认 "WLAN"）：用户在网卡卡片上显式指定。选卡时该卡
+    /// 提到最前，其后是其余无线卡、有线卡；每张都要过校园网判定与网关/公网探测，
+    /// 目标卡不可用（不存在/无 IP/判定为校园网）时自动落到下一张，不会因一张卡
+    /// 失效让整夜不切换。平台专属配置，安卓端无出站切换能力，不镜像。
     #[serde(rename = "outboundNightTarget", default = "default_outbound_night_target")]
     pub outbound_night_target: String,
     /// 切换态快照：`[{guid, family, automatic, metric}]` JSON（仅目标卡 IPv4/IPv6 两族）。
@@ -391,7 +385,6 @@ impl Default for Config {
             outbound_probe_timeout_ms: 1000,
             outbound_backoff_start_secs: 60,
             outbound_backoff_max_secs: 300,
-            outbound_priority: Vec::new(),
             outbound_night_target: default_outbound_night_target(),
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),

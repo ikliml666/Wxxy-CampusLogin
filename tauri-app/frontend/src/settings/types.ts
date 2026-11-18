@@ -55,7 +55,6 @@ export interface Config {
   wifiCurfewChannel: 'auto' | 'adb' | 'root'
   /** 就寝守则亲手改过连接模式的 WiFi 快照（后端内部状态，桌面专用） */
   wifiCurfewProfileRestore: string
-  outboundPriority: string[]
   /** 夜间出站目标网卡名（默认 WLAN）：独立于列表顺序，由网卡行内月亮按钮设置 */
   outboundNightTarget: string
   outboundMetricRestore: string

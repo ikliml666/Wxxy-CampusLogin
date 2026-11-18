@@ -293,7 +293,6 @@ mod tests {
             outbound_probe_timeout_ms: 1000,
             outbound_backoff_start_secs: 60,
             outbound_backoff_max_secs: 300,
-            outbound_priority: Vec::new(),
             outbound_night_target: "WLAN".to_string(),
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),

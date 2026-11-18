@@ -504,7 +504,20 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
     REQUIRED_FAILURE_ROUNDS.store(config.outbound_failure_rounds.clamp(1, 5), Ordering::Relaxed);
     SWITCH_BACK_HEALTHY_ROUNDS.store(config.outbound_healthy_rounds.clamp(1, 5), Ordering::Relaxed);
     let (adapter1, adapter2) = crate::network::resolve_adapter_names(&adapters, config);
-    let priority = super::outbound_switch::effective_outbound_priority(&config.outbound_priority, &config.outbound_night_target, &candidates);
+    // 白天故障切换按「无线优先」，夜间窗口内才让夜间目标卡置顶：
+    // 用户配置夜间目标是给夜切用的，不该连带影响白天的故障迁移方向
+    let prefer_night_target =
+        crate::config::outbound_switch::is_night_outbound_guard_window_with_restore(
+            config.enable_night_outbound_switch,
+            chrono::Local::now().weekday().num_days_from_sunday(),
+            crate::infra::local_now_minutes() as u32,
+            config.night_restore_minutes,
+        );
+    let priority = super::outbound_switch::effective_outbound_priority(
+        &config.outbound_night_target,
+        &candidates,
+        prefer_night_target,
+    );
     let probe_candidates: Vec<(Adapter, String)> = candidates
         .iter()
         .filter(|(adapter, _)| {
