@@ -44,6 +44,12 @@ struct FailoverState {
     switch_back_rounds: u32,
     /// 切换态下轮转尝试登录的游标（多受管卡时依次轮换，不固定首张）
     recovery_cursor: usize,
+    /// 登录恢复被服务器明确拒绝的连续次数（指数退避的指数）
+    recovery_reject_streak: u32,
+    /// 拒绝退避到期时刻；期间切换态不再对原卡发起登录恢复。
+    /// 2026-11-13/14 实测：深夜校园网断公网后，切换态每 60~90s 对原卡硬试登录，
+    /// Portal 可达但服务器持续拒绝（Authentication fail），整夜刷 37 条失败记录。
+    recovery_reject_backoff_until: Option<std::time::Instant>,
 }
 
 static STATE: std::sync::Mutex<FailoverState> = std::sync::Mutex::new(FailoverState {
@@ -56,6 +62,8 @@ static STATE: std::sync::Mutex<FailoverState> = std::sync::Mutex::new(FailoverSt
     switch_back_adapter: None,
     switch_back_rounds: 0,
     recovery_cursor: 0,
+    recovery_reject_streak: 0,
+    recovery_reject_backoff_until: None,
 });
 
 fn next_failure_round(state: &FailoverState, adapter: &str, healthy: bool) -> u32 {
@@ -282,13 +290,54 @@ fn recover_current_adapter(app_handle: &AppHandle, config: &Config, adapter_name
     state.network.update(|network| network.last_auto_login_attempt = std::time::Instant::now());
     let result = crate::auth::service::full_login(&state, app_handle, Some(adapter_name));
     if !result.success {
+        note_login_recovery_rejection(config, &result);
         return RecoveryOutcome::Failed;
     }
+    clear_login_recovery_rejection();
     if super::auto_auth::verify_adapter_portal_online(adapter_name, state.exit.is_quitting.as_ref()) {
         crate::auth::service::mark_login_success(&state);
         RecoveryOutcome::Succeeded
     } else {
         RecoveryOutcome::Failed
+    }
+}
+
+/// 登录失败结果分类：仅当协议层给出「服务器明确回应、且非传输失败」的证据
+/// （data.retryable == false）才计入拒绝退避。传输失败（retryable=true）与
+/// 结果壳缺失（data=None，如适配器未就绪）可能是网络瞬态，保持原有节奏。
+fn note_login_recovery_rejection(config: &Config, result: &crate::infra::state::CommandResult) {
+    let rejected_by_server = result
+        .data
+        .as_ref()
+        .and_then(|d| d.get("retryable"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(false);
+    if !rejected_by_server {
+        return;
+    }
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    let streak = state.recovery_reject_streak.saturating_add(1);
+    state.recovery_reject_streak = streak;
+    // 指数退避 60s→120s→240s→…，封顶取用户配置的出站退避上限（默认 300s）；
+    // streak 限 6 防移位溢出
+    let start = u64::from(config.outbound_backoff_start_secs.max(1));
+    let cap = u64::from(config.outbound_backoff_max_secs).max(start);
+    let backoff = start.saturating_mul(1u64 << streak.min(6).saturating_sub(1)).min(cap);
+    state.recovery_reject_backoff_until =
+        Some(std::time::Instant::now() + std::time::Duration::from_secs(backoff));
+    let msg = result.message.clone().unwrap_or_default();
+    crate::log_warn!(
+        "outbound",
+        "登录恢复被服务器拒绝（连续 {} 次，{:?}），退避 {}s 后再试",
+        streak, msg, backoff
+    );
+}
+
+fn clear_login_recovery_rejection() {
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    if state.recovery_reject_streak != 0 || state.recovery_reject_backoff_until.is_some() {
+        state.recovery_reject_streak = 0;
+        state.recovery_reject_backoff_until = None;
     }
 }
 
@@ -383,8 +432,17 @@ fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
     if !super::outbound_night::ensure_portal_bypass_route(app_handle, config) {
         crate::log_warn!("outbound", "切换态旁路路由未就绪，原卡登录可能失败");
     }
-    let recovery_busy = STATE.lock().unwrap_or_else(|e| e.into_inner()).recovery_running;
-    if !recovery_busy {
+    let (recovery_busy, reject_backoff_until) = {
+        let state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+        (state.recovery_running, state.recovery_reject_backoff_until)
+    };
+    // 服务器拒绝退避期内不再对原卡发起登录恢复:深夜校园网断公网时服务器对重复
+    // 认证持续回绝,继续每拍硬试只会整夜刷登录失败记录(2026-11-13/14 实测一夜
+    // 37 条 Authentication fail)。只跳过登录,不跳过切回判定。
+    let in_reject_backoff = reject_backoff_until
+        .map(|until| std::time::Instant::now() < until)
+        .unwrap_or(false);
+    if !recovery_busy && !in_reject_backoff {
         // 轮转选卡：固定取首张会让其余受管卡永远轮不到，而多卡时首张未必是刚被
         // 切走的那张（真正需要恢复登录的是它）
         let pick = {
@@ -396,6 +454,14 @@ fn evaluate_switch_back(app_handle: &AppHandle, config: &Config) {
         let (adapter, _) = &managed[pick];
         crate::log_debug!("outbound", "切换态下尝试登录原卡 {}", adapter.name);
         spawn_recovery(app_handle, config, &adapter.name);
+    } else if !recovery_busy && in_reject_backoff {
+        crate::log_debug!(
+            "outbound",
+            "登录恢复处于服务器拒绝退避期，剩余 {:?}，本轮跳过原卡登录",
+            reject_backoff_until
+                .map(|until| until.saturating_duration_since(std::time::Instant::now()))
+                .unwrap_or_default()
+        );
     }
     let recovered = managed
         .iter()
@@ -636,6 +702,113 @@ pub(super) fn evaluate_outbound_failover(app_handle: &AppHandle, config: &Config
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::infra::state::CommandResult;
+
+    /// 退避用例直接操作全局 STATE，Rust 测试默认并行——先拿这把锁再动 STATE，
+    /// 否则用例之间互相清零/计数导致断言随机失败
+    static REJECTION_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn reset_rejection_state() {
+        clear_login_recovery_rejection();
+    }
+
+    fn rejected_result() -> CommandResult {
+        CommandResult {
+            success: false,
+            message: Some("Authentication fail!".into()),
+            data: Some(serde_json::json!({ "success": false, "message": "Authentication fail!", "retryable": false })),
+        }
+    }
+
+    fn transport_failed_result() -> CommandResult {
+        CommandResult {
+            success: false,
+            message: Some("登录请求失败: error sending request".into()),
+            data: Some(serde_json::json!({ "success": false, "message": "error", "retryable": true })),
+        }
+    }
+
+    fn test_backoff_config() -> Config {
+        let mut config = Config::default();
+        config.outbound_backoff_start_secs = 60;
+        config.outbound_backoff_max_secs = 300;
+        config
+    }
+
+    #[test]
+    fn 服务器拒绝进入指数退避() {
+        let _state_guard = REJECTION_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_rejection_state();
+        let config = test_backoff_config();
+        // 第 1 次拒绝: 60s;第 2 次: 120s;连续翻倍封顶 300s
+        note_login_recovery_rejection(&config, &rejected_result());
+        let s1 = STATE.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(s1.recovery_reject_streak, 1);
+        let until1 = s1.recovery_reject_backoff_until.expect("第 1 次拒绝应有退避");
+        drop(s1);
+
+        note_login_recovery_rejection(&config, &rejected_result());
+        let s2 = STATE.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(s2.recovery_reject_streak, 2);
+        let until2 = s2.recovery_reject_backoff_until.expect("第 2 次拒绝应有退避");
+        drop(s2);
+        // 第 2 次的退避窗口至少比第 1 次长 60s（120 vs 60）
+        let w1 = until1.saturating_duration_since(std::time::Instant::now()).as_secs();
+        let w2 = until2.saturating_duration_since(std::time::Instant::now()).as_secs();
+        assert!(w2 >= w1 + 60, "退避应指数增长: w1={w1} w2={w2}");
+
+        // 封顶:连续拒绝 8 次后窗口不再超过 300s
+        for _ in 0..6 {
+            note_login_recovery_rejection(&config, &rejected_result());
+        }
+        {
+            let s3 = STATE.lock().unwrap_or_else(|e| e.into_inner());
+            let w3 = s3
+                .recovery_reject_backoff_until
+                .expect("多次拒绝应有退避")
+                .saturating_duration_since(std::time::Instant::now())
+                .as_secs();
+            assert!(w3 <= 300, "退避应封顶 300s: w3={w3}");
+        }
+        reset_rejection_state();
+    }
+
+    #[test]
+    fn 传输失败与结果壳缺失不计入退避() {
+        let _state_guard = REJECTION_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_rejection_state();
+        let config = test_backoff_config();
+        // 传输失败(retryable=true):可能是网络瞬态,保持原节奏
+        note_login_recovery_rejection(&config, &transport_failed_result());
+        // guard 用块作用域收束:STATE 的 MutexGuard 若活到函数尾,
+        // 同线程下一次 lock 就是 std Mutex 重入死锁
+        {
+            let s = STATE.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(s.recovery_reject_streak, 0, "传输失败不应计入拒绝退避");
+            assert!(s.recovery_reject_backoff_until.is_none());
+        }
+
+        // data=None(适配器未就绪等壳错误):没有服务器明确回应的证据,不退避
+        note_login_recovery_rejection(&config, &CommandResult::err("登录请求失败"));
+        {
+            let s = STATE.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(s.recovery_reject_streak, 0, "无 retryable 证据不应计入退避");
+            assert!(s.recovery_reject_backoff_until.is_none());
+        }
+    }
+
+    #[test]
+    fn 登录成功清零退避() {
+        let _state_guard = REJECTION_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_rejection_state();
+        let config = test_backoff_config();
+        note_login_recovery_rejection(&config, &rejected_result());
+        assert!(STATE.lock().unwrap_or_else(|e| e.into_inner()).recovery_reject_backoff_until.is_some());
+        clear_login_recovery_rejection();
+        let s = STATE.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(s.recovery_reject_streak, 0);
+        assert!(s.recovery_reject_backoff_until.is_none());
+    }
 
     #[test]
     fn 当前出口健康或换卡会复位失败轮次() {

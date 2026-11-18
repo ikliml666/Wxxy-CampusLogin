@@ -144,7 +144,7 @@ pub fn check_portal_full(adapter_ip: &str, adapter_name: Option<&str>) -> Result
             Ok(handle_unknown_page_status(adapter_name, adapter_ip))
         }
         PageCheckResult::Failed(failure) => {
-            log_portal_page_failed(adapter_name, adapter_ip, failure);
+            log_portal_page_failed(t0.elapsed(), adapter_name, adapter_ip, failure);
             Ok(build_request_failed_status(failure))
         }
     }
@@ -273,11 +273,15 @@ enum PageCheckResult {
     Failed(PortalFailure),
 }
 
-/// 探测失败的具体原因:超时/连不上/其它(状态码异常、响应体读不出)。
-/// 三者对用户的含义完全不同,不能都报「Portal 不可达」。
+/// 探测失败的具体原因:超时/连不上/源地址失效/其它(状态码异常、响应体读不出)。
+/// 四者对用户的含义完全不同,不能都报「Portal 不可达」。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PortalFailure {
     Timeout,
+    /// 本地源地址 bind 失败——传入的适配器 IP 已不属于任何网卡接口
+    /// (网卡切换/DHCP 换址/夜间切换禁用中的瞬态)。与本机无关的网络问题
+    /// 无关,等下一轮探测自然恢复,历史上被并入 Connect 伪装成线路故障。
+    StaleSource,
     Connect,
     Other,
 }
@@ -287,7 +291,11 @@ impl PortalFailure {
         if e.is_timeout() {
             PortalFailure::Timeout
         } else if e.is_connect() {
-            PortalFailure::Connect
+            if bind_source_unavailable(e) {
+                PortalFailure::StaleSource
+            } else {
+                PortalFailure::Connect
+            }
         } else {
             PortalFailure::Other
         }
@@ -296,6 +304,7 @@ impl PortalFailure {
     fn message(self) -> &'static str {
         match self {
             PortalFailure::Timeout => "Portal 响应超时",
+            PortalFailure::StaleSource => "源地址已失效（网卡切换中），等待下一轮探测",
             PortalFailure::Connect => "Portal 不可达",
             PortalFailure::Other => "Portal页面请求失败",
         }
@@ -304,6 +313,7 @@ impl PortalFailure {
     fn error_kind(self) -> &'static str {
         match self {
             PortalFailure::Timeout => "timeout",
+            PortalFailure::StaleSource => "stale_source",
             PortalFailure::Connect => "unreachable",
             PortalFailure::Other => "request_failed",
         }
@@ -312,8 +322,32 @@ impl PortalFailure {
     fn label(self) -> &'static str {
         match self {
             PortalFailure::Timeout => "超时",
+            PortalFailure::StaleSource => "源地址失效",
             PortalFailure::Connect => "连接失败",
             PortalFailure::Other => "页面异常",
+        }
+    }
+}
+
+/// 错误链里识别「本地源地址 bind 失败」。真机实测的错误链形态(2026-11-18,
+/// 绑已不属于本机的 10.2.106.90):reqwest(is_connect) → hyper "tcp bind local
+/// error" → os error 10049 (WSAEADDRNOTAVAIL, std 映射为 AddrNotAvailable)。
+/// 双判据:hyper 文案 + io 错误 kind,任一命中即判 stale——文案随 hyper 版本
+/// 变更时 kind 判据仍兜底。
+fn bind_source_unavailable(err: &(dyn std::error::Error + 'static)) -> bool {
+    let mut err = err;
+    loop {
+        if err.to_string().contains("bind local error") {
+            return true;
+        }
+        if let Some(io) = err.downcast_ref::<std::io::Error>() {
+            if io.kind() == std::io::ErrorKind::AddrNotAvailable {
+                return true;
+            }
+        }
+        match err.source() {
+            Some(src) => err = src,
+            None => return false,
         }
     }
 }
@@ -335,7 +369,9 @@ fn check_portal_page(client: &reqwest::Client, portal_base: &str) -> PageCheckRe
         Ok(r) => r,
         Err(e) => {
             let failure = PortalFailure::from_reqwest_error(&e);
-            crate::log_debug!("network", "Portal页面请求失败({}): {}", failure.label(), e);
+            // warn 而非 debug:探测失败是用户可见异常,必须落盘供事后归因
+            //(历史缺陷:debug 级在默认 warning 日志下不落盘,偶发失败无从查证)
+            crate::log_warn!("network", "Portal页面请求失败({}): {}", failure.label(), e);
             return PageCheckResult::Failed(failure);
         }
     };
@@ -442,9 +478,16 @@ fn log_portal_page_result(elapsed: std::time::Duration, adapter_name: Option<&st
         elapsed.as_millis(), adapter_name.unwrap_or("unknown"), adapter_ip, status.online, status.message);
 }
 
-fn log_portal_page_failed(adapter_name: Option<&str>, adapter_ip: &str, failure: PortalFailure) {
-    crate::log_debug!("network", "Portal页面请求失败({}): adapter={}, ip={}",
-        failure.label(), adapter_name.unwrap_or("unknown"), adapter_ip);
+fn log_portal_page_failed(
+    elapsed: std::time::Duration,
+    adapter_name: Option<&str>,
+    adapter_ip: &str,
+    failure: PortalFailure,
+) {
+    // warn 而非 debug + 带耗时:耗时是区分「0ms 源地址失效」与「3s 真超时」的
+    // 关键观测,偶发失败落盘后才可归因
+    crate::log_warn!("network", "Portal页面请求失败({}): adapter={}, ip={}, 耗时={}ms",
+        failure.label(), adapter_name.unwrap_or("unknown"), adapter_ip, elapsed.as_millis());
 }
 
 fn log_portal_no_credentials(adapter_name: Option<&str>, adapter_ip: &str) {
@@ -608,6 +651,56 @@ mod tests {
         let unreachable = build_request_failed_status(PortalFailure::Connect);
         assert_eq!(unreachable.message, "Portal 不可达");
         assert_eq!(unreachable.error_kind, Some("unreachable".to_string()));
+
+        // 源地址失效必须单列:它不是线路故障,用户不需要排查 Portal
+        let stale = build_request_failed_status(PortalFailure::StaleSource);
+        assert_eq!(stale.message, "源地址已失效（网卡切换中），等待下一轮探测");
+        assert_eq!(stale.error_kind, Some("stale_source".to_string()));
+    }
+
+    /// 模拟实测错误链(reqwest → hyper → io)的最小形状,验证 bind 判据
+    /// 不依赖真实网络也能回归。
+    #[test]
+    fn stale_bind_detected_from_error_chain() {
+        // 链末端是 AddrNotAvailable 的 io 错误 → 判 stale
+        let bind_io = std::io::Error::from(std::io::ErrorKind::AddrNotAvailable);
+        let connect_shell = ConnectErrorShell(bind_io);
+        assert!(bind_source_unavailable(&connect_shell));
+
+        // 普通连接拒绝(网络/服务端问题) → 不得误判 stale
+        let refused_io = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
+        let refused_shell = ConnectErrorShell(refused_io);
+        assert!(!bind_source_unavailable(&refused_shell));
+
+        // hyper 文案判据:链中任一层含 "tcp bind local error" 即命中
+        let label_shell = LabeledError(std::io::Error::from(std::io::ErrorKind::Other));
+        assert!(bind_source_unavailable(&label_shell));
+    }
+
+    #[derive(Debug)]
+    struct ConnectErrorShell(std::io::Error);
+    impl std::fmt::Display for ConnectErrorShell {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "client error (Connect)")
+        }
+    }
+    impl std::error::Error for ConnectErrorShell {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    #[derive(Debug)]
+    struct LabeledError(std::io::Error);
+    impl std::fmt::Display for LabeledError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "tcp bind local error: 地址无效")
+        }
+    }
+    impl std::error::Error for LabeledError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
     }
 
     #[test]
