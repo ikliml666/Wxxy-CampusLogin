@@ -2,18 +2,19 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "248f5ccc89b581655b375ce7b958ffd5e9262b6b",
-    "headCommit": "1730f040ae36c3762e5de9a501be0e3bc6fc71e9"
+    "baseCommit": "1730f040ae36c3762e5de9a501be0e3bc6fc71e9",
+    "headCommit": "e1f856eebce50ff819f385a1caf831f2482321fe"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "248f5ccc89b581655b375ce7b958ffd5e9262b6b",
-    "headCommit": "1730f040ae36c3762e5de9a501be0e3bc6fc71e9",
+    "baseCommit": "1730f040ae36c3762e5de9a501be0e3bc6fc71e9",
+    "headCommit": "e1f856eebce50ff819f385a1caf831f2482321fe",
     "committed": [
       "changelogs/CHANGELOG_v2.4.4.md",
       "tauri-app/src-tauri/src/auth/portal.rs",
       "tauri-app/src-tauri/src/auth/protocol.rs",
       "tauri-app/src-tauri/src/monitor/outbound_failover.rs",
+      "tauri-app/src-tauri/src/monitor/outbound_night.rs",
       "tauri-app/src-tauri/tests/portal_stale_source_e2e.rs"
     ],
     "staged": [],
@@ -27,12 +28,12 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 933e898 与本次 cw 基线 248f5cc 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlt2ib9-7-native（66 个文件）"
+    "持久化基线 248f5cc 与本次 cw 基线 1730f04 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlu9lu0-c-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T07:35:25.115Z"
+  "updatedAt": "2026-11-18T08:08:24.637Z"
 }
