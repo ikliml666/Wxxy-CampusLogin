@@ -120,6 +120,12 @@ pub struct Config {
     /// 安卓端不消费此字段
     #[serde(rename = "outboundPriority", default)]
     pub outbound_priority: Vec<String>,
+    /// 夜间出站目标网卡名（默认 "WLAN"）：用户在网卡卡片上显式指定，优先级高于
+    /// `outbound_priority` 的顺序。目标卡不可用（不存在/无 IP/判定为校园网）时
+    /// 自动回退到优先级列表的其余候选，不会因一张卡失效让整夜不切换。
+    /// 安卓端不消费此字段
+    #[serde(rename = "outboundNightTarget", default = "default_outbound_night_target")]
+    pub outbound_night_target: String,
     /// 切换态快照：`[{guid, family, automatic, metric}]` JSON（仅目标卡 IPv4/IPv6 两族）。
     /// 非空 = 桌面处于出站切换态。运行时修改重启即还原，快照跨应用重启仍有效。
     /// 导入配置时清空（本机系统状态不可迁移）。安卓端不消费此字段
@@ -386,6 +392,7 @@ impl Default for Config {
             outbound_backoff_start_secs: 60,
             outbound_backoff_max_secs: 300,
             outbound_priority: Vec::new(),
+            outbound_night_target: default_outbound_night_target(),
             outbound_metric_restore: String::new(),
             outbound_disabled_adapters: String::new(),
             outbound_standby_route: String::new(),
@@ -448,6 +455,7 @@ fn default_outbound_healthy_rounds() -> u32 { 2 }
 fn default_outbound_probe_timeout_ms() -> u32 { 1000 }
 fn default_outbound_backoff_start_secs() -> u32 { 60 }
 fn default_outbound_backoff_max_secs() -> u32 { 300 }
+fn default_outbound_night_target() -> String { "WLAN".to_string() }
 
 impl Config {
     /// 出站掩码（唯一出口约定：所有把 Config 发往前端的路径必须经由本方法，
