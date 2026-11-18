@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "25a6a5e01c686e98a6115a08003415beea72cf1e",
-    "headCommit": "64ea79043883d2e1fe3bffe4efcac45ee5c8b096"
+    "headCommit": "7f71345cdde77ecad4b16a80e28a444de8f28f09"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "25a6a5e01c686e98a6115a08003415beea72cf1e",
-    "headCommit": "64ea79043883d2e1fe3bffe4efcac45ee5c8b096",
+    "headCommit": "7f71345cdde77ecad4b16a80e28a444de8f28f09",
     "committed": [
       "android/frontend/src/i18n/locales/en.json",
       "android/frontend/src/i18n/locales/zh.json",
@@ -29,12 +29,11 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 2ead27d 与本次 cw 基线 25a6a5e 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwm6oqou-1-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwm6ubp6-2-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T13:56:07.687Z"
+  "updatedAt": "2026-11-18T14:00:23.872Z"
 }
