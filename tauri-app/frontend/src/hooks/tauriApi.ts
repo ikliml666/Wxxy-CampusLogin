@@ -15,6 +15,17 @@ interface ConnectionCampusStatus {
 }
 
 /** 逐卡校园网判定结果（每张网卡独立走 名称→网段→网关→Portal 短路判定） */
+/** 系统已保存的 WiFi（后端 commands::network_cmd::SavedWifiNetwork） */
+export interface SavedWifiNetwork {
+  ssid: string
+}
+
+/** 已保存 WiFi 名单读取结果：error 非空表示读不出来，与"一个都没保存"区分 */
+export interface SavedWifiNetworksResult {
+  networks: SavedWifiNetwork[]
+  error?: string | null
+}
+
 /** 单张网卡的公网可达性（后端 monitor::internet_status::AdapterReachability） */
 export interface AdapterReachability {
   adapter: string
@@ -117,6 +128,8 @@ interface TauriApi {
   onNetworkChanged: (handler: () => void) => Promise<() => void>
   /** 各网卡最近一次公网可达性（未探测过的卡不在列表里） */
   getInternetStatus: () => Promise<AdapterReachability[]>
+  /** 系统已保存的 WiFi 名单（就寝守则名单的勾选来源） */
+  listSavedWifiNetworks: () => Promise<SavedWifiNetworksResult>
   /** 各网卡可达性更新事件（整表），返回取消订阅函数 */
   onInternetStatusChanged: (handler: (rows: AdapterReachability[]) => void) => Promise<() => void>
   /** 「立即切换出站」到指定网卡（条目按钮：只改跃点，不动网卡状态） */
@@ -257,6 +270,7 @@ const tauriApi: TauriApi = {
   onNetworkChanged: (handler) =>
     listen('network-changed', () => handler()),
   getInternetStatus: () => invoke<AdapterReachability[]>('get_internet_status'),
+  listSavedWifiNetworks: () => invoke<SavedWifiNetworksResult>('list_saved_wifi_networks'),
   onInternetStatusChanged: (handler) =>
     listen<AdapterReachability[]>('internet-status-changed', event => handler(event.payload)),
   outboundSwitchTo: (adapterName) => invoke<CommandResult>('outbound_switch_to', { adapterName }),

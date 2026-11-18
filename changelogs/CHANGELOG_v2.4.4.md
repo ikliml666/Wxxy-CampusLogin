@@ -1,3 +1,20 @@
+### 行为调整：WiFi 就寝守则名单改为从系统已保存的 WiFi 勾选（2026-11-18，桌面）
+
+**为什么**：名单此前靠手输 SSID，用户写「i-wxxy」而系统里是「i-wxxy 」或少个空格，`ssid_blocked` 按字符串比较就永远不命中——守则形同虚设，而且从界面上看不出来错在哪。系统里每个连过的网络都有 WLAN profile，名字是唯一权威来源，直接读它并勾选就不会有拼写差异。
+
+**改了什么**
+
+- 后端新增命令 `list_saved_wifi_networks`（`commands/network_cmd.rs`），复用 `monitor/wifi_curfew.rs` 既有的 `list_profiles`（`netsh wlan show profiles` 解析，中英两版前缀都认）。返回 `{ networks: [{ ssid }], error }`——`error` 与「一个都没存过」分开，前者提示重试，后者提示先去系统里连一次。与安卓端同名命令同形状（安卓多带 security/netIds）。
+- `list_profiles` 改为 `pub(crate)` 并**按小写去重**：多块无线网卡时 netsh 按接口分段，同一 SSID 会重复出现。
+- 前端 `SsidListEditor`（手输 + 回车追加）整体替换为 `WifiProfilePicker`：打开弹窗时才拉取系统清单，带搜索框与复选框；已选但系统里已不存在的条目单列「本机已无此配置」可移除；排除名单多一个「全部网络」选项（写入 `*`，取代原先只能靠手输 `*` 的隐藏用法）。
+- i18n 删 `wifiCurfewAddPlaceholder`、`wifiCurfewWildcardHint`，新增 loading/loadFailed/retry/empty/noMatch/orphan/searchPlaceholder/wildcardOption 等键；两处列表说明文案改为「名单来自本机已保存的 WiFi」。
+
+**验证**
+
+- 实机 `netsh wlan show profiles` 输出确认为 `All User Profile : <SSID>` 格式（本机英文系统），解析前缀命中。
+- `cargo test` lib **680 passed; 0 failed; 4 ignored**；`npx tsc --noEmit --incremental` 通过；`npx vitest run` **127 passed**；`npx vite build` 成功。
+- 未验证：弹窗在真实窗口里的勾选/移除交互与搜索过滤（需人工点一遍）。
+
 ### 前端性能优化：网络适配器卡片去掉说明性文案（2026-11-18，桌面）
 
 **为什么**：卡片里堆了五处解释性文字——顶部长段落、还原时刻副标题、开关前的装饰月亮、头部适配器计数、底部长提示。它们复述的正是控件、列表与翻页已经表达的内容，删掉后读者不会更费力，只会更快看懂。

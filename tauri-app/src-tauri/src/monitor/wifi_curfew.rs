@@ -53,7 +53,7 @@ fn netsh_detail(output: &std::process::Output) -> String {
 }
 
 /// 已保存的 WLAN profile 名列表（用户配置文件，含组策略之外的普通配置）。
-fn list_profiles() -> Result<Vec<String>, String> {
+pub(crate) fn list_profiles() -> Result<Vec<String>, String> {
     let output = crate::network::discovery::new_command("netsh")
         .args(["wlan", "show", "profiles"])
         .output()
@@ -62,7 +62,10 @@ fn list_profiles() -> Result<Vec<String>, String> {
         return Err(netsh_detail(&output));
     }
     let text = crate::platform::console_output::decode_console_bytes(&output.stdout);
-    let mut names = Vec::new();
+    let mut names: Vec<String> = Vec::new();
+    // 多块无线网卡时 netsh 会按接口分段列出，同一 SSID 可能重复出现；
+    // 名单是勾选用的，重复条目只会让人以为有多条配置
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for line in text.lines() {
         let trimmed = line.trim();
         // 中英两版 netsh 输出的行前缀
@@ -75,7 +78,7 @@ fn list_profiles() -> Result<Vec<String>, String> {
         };
         if let Some(colon) = rest.find(':') {
             let name = rest[colon + 1..].trim();
-            if !name.is_empty() {
+            if !name.is_empty() && seen.insert(name.to_lowercase()) {
                 names.push(name.to_string());
             }
         }

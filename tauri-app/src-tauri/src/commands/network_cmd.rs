@@ -35,6 +35,41 @@ pub async fn enable_adapter(adapter_name: String) -> Result<CommandResult, Strin
     Ok(CommandResult::ok_msg("适配器已启用"))
 }
 
+/// 系统里已保存的 WiFi 名称（就寝守则名单的数据源）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SavedWifiNetwork {
+    pub ssid: String,
+}
+
+/// 已保存名单的读取结果：`error` 非空表示读不出来（与「确实一个都没保存」
+/// 区分开——后者 UI 该提示去连一次 WiFi，前者该提示重试）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SavedWifiNetworksResult {
+    pub networks: Vec<SavedWifiNetwork>,
+    pub error: Option<String>,
+}
+
+/// 读取系统已保存的 WLAN 配置。就寝守则的名单从这里勾选，不再靠手输 SSID。
+#[tauri::command]
+pub async fn list_saved_wifi_networks() -> Result<SavedWifiNetworksResult, String> {
+    match crate::monitor::wifi_curfew::list_profiles() {
+        Ok(names) => Ok(SavedWifiNetworksResult {
+            networks: names
+                .into_iter()
+                .map(|ssid| SavedWifiNetwork { ssid })
+                .collect(),
+            error: None,
+        }),
+        Err(e) => {
+            crate::log_warn!("wifi_curfew", "读取已保存 WiFi 名单失败: {e}");
+            Ok(SavedWifiNetworksResult {
+                networks: Vec::new(),
+                error: Some(e),
+            })
+        }
+    }
+}
+
 /// 各网卡最近一次公网可达性（网络适配器卡片逐行展示）；未探测过的卡不在返回里。
 #[tauri::command]
 pub async fn get_internet_status(
