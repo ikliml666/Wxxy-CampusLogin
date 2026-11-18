@@ -2,18 +2,22 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "107e9928bd8efc2a6270fce35ea4bc6c4d596e0a",
-    "headCommit": "bc561f69c5a52ab822f47f916e43860275c0223f"
+    "baseCommit": "bc561f69c5a52ab822f47f916e43860275c0223f",
+    "headCommit": "adc0eecb1453a1e35c4e727f01f3e9abe0f8af6e"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "107e9928bd8efc2a6270fce35ea4bc6c4d596e0a",
-    "headCommit": "bc561f69c5a52ab822f47f916e43860275c0223f",
+    "baseCommit": "bc561f69c5a52ab822f47f916e43860275c0223f",
+    "headCommit": "adc0eecb1453a1e35c4e727f01f3e9abe0f8af6e",
     "committed": [
       "changelogs/CHANGELOG_v2.4.4.md",
+      "tauri-app/frontend/src/hooks/tauriApi.ts",
       "tauri-app/frontend/src/i18n/locales/en.json",
       "tauri-app/frontend/src/i18n/locales/zh.json",
-      "tauri-app/frontend/src/network/NetworkPanel.tsx"
+      "tauri-app/frontend/src/network/NetworkPanel.tsx",
+      "tauri-app/src-tauri/src/app/startup.rs",
+      "tauri-app/src-tauri/src/commands/network_cmd.rs",
+      "tauri-app/src-tauri/src/monitor/wifi_curfew.rs"
     ],
     "staged": [],
     "unstaged": [],
@@ -26,11 +30,12 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlp4e95-j-native（66 个文件）"
+    "持久化基线 107e992 与本次 cw 基线 bc561f6 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlpesu5-k-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T05:44:42.035Z"
+  "updatedAt": "2026-11-18T05:52:44.436Z"
 }
