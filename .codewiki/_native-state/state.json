@@ -2,21 +2,21 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "2ead27d3e1c1fb873129ec8f1e92853bac1f0f30",
-    "headCommit": "25a6a5e01c686e98a6115a08003415beea72cf1e"
+    "baseCommit": "25a6a5e01c686e98a6115a08003415beea72cf1e",
+    "headCommit": "64ea79043883d2e1fe3bffe4efcac45ee5c8b096"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "2ead27d3e1c1fb873129ec8f1e92853bac1f0f30",
-    "headCommit": "25a6a5e01c686e98a6115a08003415beea72cf1e",
+    "baseCommit": "25a6a5e01c686e98a6115a08003415beea72cf1e",
+    "headCommit": "64ea79043883d2e1fe3bffe4efcac45ee5c8b096",
     "committed": [
-      "android/frontend/src/monitor/MonitorPanel.tsx",
-      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CoreService.kt",
-      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CurfewShell.kt",
-      "android/plugins/network-bind/android/src/main/java/com/campuslogin/plugin/networkbind/NetworkBindPlugin.kt",
+      "android/frontend/src/i18n/locales/en.json",
+      "android/frontend/src/i18n/locales/zh.json",
+      "android/frontend/src/network/NetworkPanel.tsx",
       "changelogs/CHANGELOG_v2.4.4.md",
-      "tauri-app/src-tauri/Cargo.toml",
-      "tauri-app/src-tauri/src/network/subnet.rs"
+      "tauri-app/frontend/src/i18n/locales/en.json",
+      "tauri-app/frontend/src/i18n/locales/zh.json",
+      "tauri-app/frontend/src/network/NetworkPanel.tsx"
     ],
     "staged": [],
     "unstaged": [],
@@ -29,11 +29,12 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlztrh4-5-native（66 个文件）"
+    "持久化基线 2ead27d 与本次 cw 基线 25a6a5e 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwm6oqou-1-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T10:44:00.272Z"
+  "updatedAt": "2026-11-18T13:56:07.687Z"
 }
