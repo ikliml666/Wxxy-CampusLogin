@@ -2,24 +2,16 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "98f31ce35966f449023a0edd7e233e3aee54006a",
-    "headCommit": "be77851f96d337155f0ca1835312b95df4ab7685"
+    "baseCommit": "be77851f96d337155f0ca1835312b95df4ab7685",
+    "headCommit": "b7883575a6daf9ec91caefdd3daaa3f4741ab8b9"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "98f31ce35966f449023a0edd7e233e3aee54006a",
-    "headCommit": "be77851f96d337155f0ca1835312b95df4ab7685",
+    "baseCommit": "be77851f96d337155f0ca1835312b95df4ab7685",
+    "headCommit": "b7883575a6daf9ec91caefdd3daaa3f4741ab8b9",
     "committed": [
       "changelogs/CHANGELOG_v2.4.4.md",
-      "tauri-app/frontend/src/hooks/tauriApi.ts",
-      "tauri-app/frontend/src/i18n/locales/en.json",
-      "tauri-app/frontend/src/i18n/locales/zh.json",
-      "tauri-app/frontend/src/network/NetworkPanel.tsx",
-      "tauri-app/frontend/src/network/useInternetStatus.ts",
-      "tauri-app/src-tauri/src/commands/network_cmd.rs",
-      "tauri-app/src-tauri/src/monitor/internet_status.rs",
-      "tauri-app/src-tauri/src/monitor/outbound_failover.rs",
-      "tauri-app/src-tauri/src/monitor/outbound_night.rs"
+      "tauri-app/frontend/src/network/NetworkPanel.tsx"
     ],
     "staged": [],
     "unstaged": [],
@@ -32,11 +24,12 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlmz7yg-c-native（66 个文件）"
+    "持久化基线 98f31ce 与本次 cw 基线 be77851 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwlneiey-d-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-18T04:44:22.018Z"
+  "updatedAt": "2026-11-18T04:56:15.213Z"
 }
