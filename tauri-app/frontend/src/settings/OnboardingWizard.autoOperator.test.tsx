@@ -4,6 +4,14 @@ import { render, fireEvent, waitFor, cleanup, screen } from '@testing-library/re
 // 账号步「下一步」自动识别运营商的流程测试：
 // query_bind_status 返回已绑定 → 自动选中该运营商并跳过绑定步骤；
 // 返回未绑定 → 照常进入绑定步骤。
+// jsdom 没有 ResizeObserver（向导卡堆用它跟随顶卡高度），补一个空实现
+class FakeResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = FakeResizeObserver
+
 const getBindStatus = vi.fn()
 const bindOperator = vi.fn()
 vi.mock('@/hooks/tauriApi', () => ({
@@ -199,8 +207,8 @@ describe('OnboardingWizard 账号步自动识别运营商', () => {
     fireEvent.click(topNextButton())
     await waitFor(() => expect(cardOf('onboarding.bindOperatorDesc').hasAttribute('inert')).toBe(false))
 
-    // 绑定步骤有明确的运营商下拉（状态胶囊之外的选择入口）
-    expect(screen.getByLabelText('onboarding.bindIsp')).toBeInTheDocument()
+    // 绑定步骤的运营商三块选择器本身就是选择入口（状态展示与选择合一，不再另设下拉）
+    expect(screen.getByText('settings.isp.telecom').closest('button')).toHaveAttribute('aria-pressed', 'false')
 
     // 点状态胶囊选中中国电信，下拉与绑定前提同步
     fireEvent.click(screen.getByText('settings.isp.telecom').closest('button')!)

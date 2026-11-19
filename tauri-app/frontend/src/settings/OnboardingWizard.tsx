@@ -14,7 +14,6 @@ import {
 } from '@/components/ui/dialog'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Switch } from '@/components/ui/switch'
-import { badgeVariants } from '@/components/ui/badge'
 import {
   Check, ChevronLeft, ChevronRight, X, Wifi, Cable, Shield, Zap,
   Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Network, Smartphone, Link2,
@@ -93,10 +92,9 @@ const STACK_LAYERS = [
 ] as const
 // 出场两段：先竖直飞起并微旋（ease-in），再落回队尾（ease-out）——参考的 swap 关键帧
 const EXIT_UP_MS = 240
-// 所有卡统一高度（取内容最多的「绑定运营商账号」步）；内容少的步底部留白由此而来，
-// 换成测量会让卡高随内容反馈自激，短内容步高度还会来回跳
-// 卡片统一高度的兜底（首帧测量出来前用它顶一下）
-const DECK_CARD_HEIGHT_FALLBACK = 'min(630px, calc(100vh - 140px))'
+// 每步卡高按自身内容自适应（欢迎/完成步不再为绑定步的大块内容留白），
+// 上限取视口可视高，超出部分在卡内滚动；首帧测量出来前用同一上限顶一下
+const CARD_MAX_HEIGHT = 'min(680px, calc(100vh - 140px))'
 const STACK_TRANSITION = 'transform .24s ease'
 const deckTransform = (y: number, scale: number) =>
   `translate(-50%, calc(-50% + ${y}px)) scale(${scale})`
@@ -186,43 +184,24 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   const [detectState, setDetectState] = useState<'idle' | 'querying' | 'bound' | 'unbound' | 'error'>('idle')
   const [detectedOperator, setDetectedOperator] = useState<OperatorKey | null>(null)
 
-  // 卡片统一高度 = 各步内容自然高度里的最大值（取「内容最多的那步」为统一值）：
-  // 短内容步靠底部留白填平，切步时卡高不跳。
+  // 卡堆容器高度跟随当前顶卡：卡本身高度由内容决定，容器只负责让整堆垂直居中。
+  // 用 ResizeObserver 而不是手工列依赖——绑定状态/双适配器下拉/语言切换都会改卡高。
   const cardRefs = useRef<Array<HTMLDivElement | null>>([])
-  const contentRefs = useRef<Array<HTMLDivElement | null>>([])
-  const [deckCardHeight, setDeckCardHeight] = useState(0)
-  const measureDeck = useCallback(() => {
-    let max = 0
-    for (let i = 0; i < STEP_COUNT; i++) {
-      const card = cardRefs.current[i]
-      const content = contentRefs.current[i]
-      const inner = content?.firstElementChild as HTMLElement | null
-      if (!card || !content || !inner) continue
-      // 内容区是 flex-1 撑满卡高的，直接量只能读到当前卡高（自我反馈，永远量不准）。
-      // 把卡高临时放开成 auto 让内容决定自然尺寸，读卡自身的 scrollHeight，量完立刻还原。
-      // 不用「内层高度 + 卡内边距」推算：窄屏换行、滚动条宽度会让两者差出几像素。
-      const prevHeight = card.style.height
-      card.style.height = 'auto'
-      const needed = Math.max(card.scrollHeight, inner.offsetHeight)
-      card.style.height = prevHeight
-      if (needed > max) max = needed
-    }
-    if (max > 0) {
-      // 视口兜底：不超过窗口可用高度，否则整堆会溢出屏幕
-      const next = Math.min(max, Math.max(420, window.innerHeight - 150))
-      setDeckCardHeight((prev) => (Math.abs(prev - next) < 1 ? prev : next))
-    }
-  }, [])
-
-  // 内容规模随步骤状态变化（绑定状态面板、双适配器下拉都会改高度），每次变化重测一次；
-  // useLayoutEffect 保证在绘制前完成，不闪一帧旧尺寸
+  const [deckHeight, setDeckHeight] = useState(0)
   useLayoutEffect(() => {
     if (!open) return
-    measureDeck()
-    // 首帧 Portal 里的卡片 ref 可能还没挂上（量到 0），下一帧补测一次
-    const raf = requestAnimationFrame(measureDeck)
-    return () => cancelAnimationFrame(raf)
-  }, [open, step, measureDeck, bindStatuses, statusQuerying, statusError, detectState, dualAdapter, operator, language, adapters.length])
+    const card = cardRefs.current[step]
+    if (!card) return
+    const sync = () => {
+      const h = card.offsetHeight
+      if (h > 0) setDeckHeight((prev) => (Math.abs(prev - h) < 1 ? prev : h))
+    }
+    // 首帧 Portal 里的卡片 ref 可能刚挂上、内容还没排完，先同步量一次再由 RO 接管
+    sync()
+    const ro = new ResizeObserver(sync)
+    ro.observe(card)
+    return () => ro.disconnect()
+  }, [open, step])
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
@@ -594,8 +573,11 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
             层位只改 y 与 scale，故始终围绕同一中心向上收叠 */}
         <div
           className="relative w-full"
-          // 堆容器 = 统一卡高 × 最外层放大 1.05 + 上下留白，卡高等高故整体不跳
-          style={{ height: deckCardHeight ? deckCardHeight * 1.05 + 64 : 'calc(min(630px, 100vh - 140px) * 1.05 + 64px)' }}
+          style={{
+            height: deckHeight ? deckHeight * 1.05 + 64 : 'calc(min(680px, 100vh - 140px) * 1.05 + 64px)',
+            // 切步时顶卡高度不同，容器高度跟着缓动，卡堆视觉中心不跳
+            transition: 'height .28s ease',
+          }}
         >
           {Array.from({ length: STEP_COUNT }, (_, i) => {
             const pos = (i - step + STEP_COUNT) % STEP_COUNT
@@ -613,7 +595,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                 inert={!isTop || isExiting}
                 ref={(el) => { cardRefs.current[i] = el }}
                 className={cn(
-                  'absolute left-1/2 top-1/2 flex w-[88%] flex-col rounded-[2rem] p-8',
+                  'absolute left-1/2 top-1/2 flex w-[88%] flex-col rounded-[2rem] p-6 min-[520px]:p-8',
                   // 项目统一卡面：靠柔光阴影 + 顶部高光区分层次，不用描边线
                   'onboarding-deck-card',
                   isTop ? 'pointer-events-auto' : 'pointer-events-none',
@@ -622,8 +604,9 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                   // 背景与圆角走内联：全局 `.bg-card` 规则带 !important，会把圆角压回 16px
                   background: 'hsl(var(--card))',
                   borderRadius: '2rem',
-                  // 统一卡高：所有卡取各步内容需求的最大值，切步时高度不跳
-                  height: deckCardHeight || DECK_CARD_HEIGHT_FALLBACK,
+                  // 卡高由本步内容决定，超过视口上限才在内容区滚动
+                  height: 'auto',
+                  maxHeight: CARD_MAX_HEIGHT,
                   transform: isExiting
                     ? EXIT_UP_TRANSFORM
                     : isEntering ? ENTER_FROM_TRANSFORM : deckTransform(layer.y, layer.scale),
@@ -640,7 +623,6 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
 
                   {/* 步骤内容（表单可能超长，卡内独立滚动） */}
                   <div
-                    ref={(el) => { contentRefs.current[i] = el }}
                     className="mt-3 flex-1 min-h-0 overflow-y-auto pr-1 [scrollbar-gutter:stable] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent"
                   >
                     {i === 0 && (
@@ -757,105 +739,91 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                     )}
 
                     {i === 2 && (
-                      <div className="space-y-4">
-                        <p className="text-sm leading-snug text-muted-foreground">{t('onboarding.bindOperatorDesc')}</p>
-                        <div className="space-y-2.5">
-                          {/* 绑定状态检测：进入本步自动查全部运营商；三个运营商并排成胶囊，
-                              已绑定绿色、未绑定灰色（复用项目 Badge 的胶囊变体） */}
-                          <div className="space-y-2 rounded-xl bg-muted/50 p-3">
-                            <div className="flex items-center justify-between">
-                              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{t('onboarding.bindStatusTitle')}</p>
-                              <button
-                                type="button"
-                                onClick={() => setBindRefreshTick(v => v + 1)}
-                                disabled={!canQueryBindStatus || statusQuerying}
-                                className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground transition-colors enabled:hover:bg-accent enabled:hover:text-foreground disabled:opacity-40"
-                              >
-                                <RefreshCw className={cn('h-3 w-3', statusQuerying && 'animate-spin')} />
-                                {t('onboarding.bindStatusRetry')}
-                              </button>
-                            </div>
+                      <div className="flex flex-col gap-3.5">
+                        <p className="text-[13px] leading-snug text-muted-foreground min-[520px]:text-sm">{t('onboarding.bindOperatorDesc')}</p>
 
-                            {!canQueryBindStatus ? (
-                              <p className="text-xs leading-relaxed text-muted-foreground">{t('onboarding.bindStatusNeedAccount')}</p>
-                            ) : (
-                              <>
-                                {/* 检测进行中/失败时仍渲染胶囊（否则查询失败就没有选择运营商的入口，
-                                    绑定流程会被卡死），失败原因作为单独一行提示 */}
-                                {statusError && (
-                                  <p className="flex items-start gap-1.5 text-xs leading-relaxed text-destructive">
-                                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                    {statusError}
-                                  </p>
-                                )}
-                                {statusQuerying && !bindStatuses && !statusError && (
-                                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    {t('onboarding.bindStatusChecking')}
-                                  </p>
-                                )}
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  {OPERATOR_STATUS_ORDER.map((key) => {
-                                    const info = bindStatuses?.[key] ?? null
-                                    const focused = focusedOperatorKey === key
-                                    return (
-                                      <button
-                                        key={key}
-                                        type="button"
-                                        aria-pressed={focused}
-                                        // 点胶囊即选中该运营商（本步唯一的选择入口）
-                                        onClick={() => setBindOperatorValue(OPERATOR_VALUE_BY_KEY[key])}
-                                        title={info ? `${t('onboarding.bindStatusBound')} · ${info.account}` : t('onboarding.bindStatusUnbound')}
-                                        className={cn(
-                                          badgeVariants({ variant: info ? 'success' : 'ghost' }),
-                                          'gap-1 transition-all',
-                                          focused && 'ring-2 ring-primary/45',
-                                          'hover:brightness-105',
-                                        )}
-                                      >
-                                        {info ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                        {/* 运营商三列状态块：既是绑定状态展示，也是本步唯一的选择器。
+                            原先「状态胶囊 + 运营商下拉」是两套重复入口，卡内被挤到必须滚动。 */}
+                        <div className="rounded-xl bg-muted/50 p-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{t('onboarding.bindIsp')}</p>
+                            <button
+                              type="button"
+                              onClick={() => setBindRefreshTick(v => v + 1)}
+                              disabled={!canQueryBindStatus || statusQuerying}
+                              className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground transition-colors enabled:hover:bg-accent enabled:hover:text-foreground disabled:opacity-40"
+                            >
+                              <RefreshCw className={cn('h-3 w-3', statusQuerying && 'animate-spin')} />
+                              {t('onboarding.bindStatusRetry')}
+                            </button>
+                          </div>
+
+                          {!canQueryBindStatus ? (
+                            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t('onboarding.bindStatusNeedAccount')}</p>
+                          ) : (
+                            <div className="mt-2 space-y-2">
+                              {/* 检测中/失败时仍渲染三块：否则查询失败就没有选择运营商的入口，
+                                  绑定流程会被卡死；失败原因单独一行提示 */}
+                              {statusError && (
+                                <p className="flex items-start gap-1.5 text-xs leading-relaxed text-destructive">
+                                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                  {statusError}
+                                </p>
+                              )}
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {OPERATOR_STATUS_ORDER.map((key) => {
+                                  const info = bindStatuses?.[key] ?? null
+                                  const focused = focusedOperatorKey === key
+                                  const pending = statusQuerying && !bindStatuses
+                                  return (
+                                    <button
+                                      key={key}
+                                      type="button"
+                                      aria-pressed={focused}
+                                      title={info ? `${t('onboarding.bindStatusBound')} · ${info.account}` : t('onboarding.bindStatusUnbound')}
+                                      onClick={() => setBindOperatorValue(OPERATOR_VALUE_BY_KEY[key])}
+                                      className={cn(
+                                        'flex flex-col items-center gap-1 rounded-lg border px-1.5 py-1.5 text-center transition-colors',
+                                        focused
+                                          ? 'border-primary/60 bg-primary/[0.12]'
+                                          : 'border-transparent bg-card hover:bg-accent/70',
+                                      )}
+                                    >
+                                      <span className={cn('w-full text-[12.5px] font-semibold leading-tight', focused ? 'text-primary' : 'text-foreground')}>
                                         {t(`settings.isp.${key}`)}
-                                      </button>
-                                    )
-                                  })}
-                                </div>
-                                {/* 选中运营商的放大提示（大字号 + 高对比色） */}
-                                {focusedOperatorKey && (
-                                  <p className={cn(
-                                    'text-base font-semibold leading-snug',
-                                    bindStatuses?.[focusedOperatorKey]
-                                      ? 'text-emerald-600 dark:text-emerald-400'
-                                      : 'text-amber-600 dark:text-amber-400',
-                                  )}>
-                                    {bindStatuses?.[focusedOperatorKey]
-                                      ? t('onboarding.bindStatusBoundDesc')
-                                      : t('onboarding.bindStatusUnboundDesc')}
-                                    {bindStatuses?.[focusedOperatorKey] && (
-                                      <span className="ml-1.5 font-mono text-sm font-normal text-muted-foreground">
-                                        {bindStatuses[focusedOperatorKey]?.account}
                                       </span>
-                                    )}
-                                  </p>
-                                )}
-                              </>
-                            )}
-                          </div>
+                                      <span className={cn(
+                                        'flex w-full items-center justify-center gap-0.5 truncate text-[10px] leading-none',
+                                        info ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
+                                      )}>
+                                        {info
+                                          ? <><Check className="h-2.5 w-2.5 shrink-0" /><span className="truncate font-mono">{info.account}</span></>
+                                          : pending ? '…' : t('onboarding.bindStatusUnbound')}
+                                      </span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                              {/* 选中运营商的状态一句话：已绑定可直接下一步，未绑定填下方表单 */}
+                              {focusedOperatorKey && (
+                                <p className={cn(
+                                  'flex items-center gap-1.5 text-xs font-medium leading-snug',
+                                  bindStatuses?.[focusedOperatorKey]
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-amber-600 dark:text-amber-400',
+                                )}>
+                                  {bindStatuses?.[focusedOperatorKey] ? (
+                                    <><Check className="h-3.5 w-3.5 shrink-0" />{t('onboarding.bindStatusBoundDesc')}</>
+                                  ) : (
+                                    <><AlertCircle className="h-3.5 w-3.5 shrink-0" />{t('onboarding.bindStatusUnboundDesc')}</>
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
 
-                          {/* 运营商下拉：状态胶囊只表达绑定状态，未绑定用户需要明确的选择控件 */}
-                          <div className="space-y-1.5">
-                            <Label className="text-xs font-medium">{t('onboarding.bindIsp')}</Label>
-                            <Select value={bindOperatorValue} onValueChange={setBindOperatorValue}>
-                              <SelectTrigger aria-label={t('onboarding.bindIsp')}>
-                                <SelectValue placeholder={t('onboarding.bindIspPlaceholder')} />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {ISP_OPTIONS.filter(o => o.value !== '__default__').map(o => (
-                                  <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
+                        <div className="space-y-2.5">
                           <div className="space-y-1.5">
                             <Label className="text-xs font-medium">{t('onboarding.bindPhone')}</Label>
                             <Input
@@ -878,31 +846,35 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                             <p className="text-[11px] leading-relaxed text-muted-foreground">{t('onboarding.bindSmsHint')}</p>
                           </div>
 
-                          {bindError && (
-                            <p className="flex items-start gap-1.5 rounded-lg bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
-                              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                              {bindError}
-                            </p>
-                          )}
-
-                          <Button
-                            onClick={handleBind}
-                            disabled={!canBind || bindState === 'loading' || bindState === 'success'}
-                            className="w-full gap-1.5"
-                          >
-                            {bindState === 'loading' ? (
-                              <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.binding')}</>
-                            ) : bindState === 'success' ? (
-                              <><Check className="h-4 w-4" /> {t('onboarding.bindSuccess')}</>
-                            ) : (
-                              <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
+                          {/* 主操作与错误提示钉在滚动态底部：短屏（≤640dp）内容区要滚动时
+                              绑定按钮仍然可见，不会藏在折叠线下面 */}
+                          <div className="sticky bottom-0 z-10 space-y-2 bg-card pt-2 relative">
+                            {/* 滚动到底前的渐隐遮罩：被按钮压住的提示文字淡出，不像是被裁断 */}
+                            <div className="pointer-events-none absolute inset-x-0 -top-7 h-7 bg-gradient-to-t from-card to-transparent" />
+                            {bindError && (
+                              <p className="flex items-start gap-1.5 rounded-lg bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
+                                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                {bindError}
+                              </p>
                             )}
-                          </Button>
-                          <p className="text-center text-[11px] text-muted-foreground">{t('onboarding.bindSkipHint')}</p>
+
+                            <Button
+                              onClick={handleBind}
+                              disabled={!canBind || bindState === 'loading' || bindState === 'success'}
+                              className="w-full gap-1.5"
+                            >
+                              {bindState === 'loading' ? (
+                                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.binding')}</>
+                              ) : bindState === 'success' ? (
+                                <><Check className="h-4 w-4" /> {t('onboarding.bindSuccess')}</>
+                              ) : (
+                                <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
+                              )}
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     )}
-
                     {i === 3 && (
                       <div className="space-y-4">
                         <p className="text-[15px] font-semibold leading-snug text-foreground">{t('onboarding.selectNetworkAdapterDesc')}</p>
@@ -1044,13 +1016,31 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                             </>
                           )}
                         </div>
+
+                        {/* 末步主操作放在内容流末尾：所有步骤的卡底都只剩导航行 */}
+                        {!loginSuccess ? (
+                          <Button
+                            onClick={handleLoginAndFinish}
+                            disabled={isLoggingIn || !username}
+                            className="w-full gap-1.5"
+                          >
+                            {isLoggingIn ? (
+                              <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.loggingIn')}</>
+                            ) : (
+                              <><Zap className="h-4 w-4" /> {t('onboarding.startLogin')}</>
+                            )}
+                          </Button>
+                        ) : (
+                          <div className="flex items-center justify-center gap-2 rounded-xl bg-emerald-500/10 py-2.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                            <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* 卡底三列网格：左=步骤说明，中=导航（恒居中），右=末步登录入口。
-                      用 grid 固定三列后，最后一页多出来的登录按钮只占右列，
-                      中间导航与左侧文字的位置完全不变。 */}
+                  {/* 卡底三列网格：左=步骤说明，中=导航（恒居中），右留白保持导航居中。
+                      末步登录入口已移入完成页内容流，卡底结构与其它步骤一致。 */}
                   <div className="mt-5 grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
@@ -1081,25 +1071,8 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                       />
                     </div>
 
-                    <div className="flex items-center justify-end gap-2">
-                      {i === STEP_COUNT - 1 && (
-                        <>
-                          {!loginSuccess ? (
-                            <Button onClick={handleLoginAndFinish} disabled={isLoggingIn || !username} className="gap-1.5">
-                              {isLoggingIn ? (
-                                <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.loggingIn')}</>
-                              ) : (
-                                <><Zap className="h-4 w-4" /> {t('onboarding.startLogin')}</>
-                              )}
-                            </Button>
-                          ) : (
-                            <div className="flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                              <Check className="h-4 w-4" /> {t('onboarding.loginSuccess')}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
+                    {/* 右侧空列：三列网格里把导航钉在正中 */}
+                    <div />
                   </div>
 
                 </div>
