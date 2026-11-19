@@ -87,6 +87,9 @@ windows-core = "0.62"
 windows = { version = "0.58", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
+    # WlanConnect 直调（wifi_curfew 切换放行网络）：netsh wlan connect 内部先列
+    # 可用网络，位置服务关闭时被位置隐私管控拦截；WlanConnect 不在管控清单
+    "Win32_NetworkManagement_WiFi",
     "Win32_Networking_NetworkListManager",
     "Win32_Networking_WinSock",
     "Win32_System_IO",

@@ -15,6 +15,11 @@
 //! 抑制：`netsh wlan connect` 对不可达目标同样会断开当前连接去尝试，每个
 //! 候选本窗口只试一次，全部失败即停，连上放行网络或出窗自动重置。
 //!
+//! 位置服务关闭的机器上 `netsh wlan connect` 被位置隐私管控整条拦截（见
+//! [connect_profile] 注释），切换改走 Win32 WlanConnect 直调——profile 模式
+//! 不扫描、不在管控清单。`show profiles` / `show profile name=` /
+//! `disconnect` 实测不受位置管控影响。
+//!
 //! 快照存在配置里（`wifiCurfewProfileRestore`）：程序退出/重启后仍能还原，
 //! 与夜切的跃点快照同一模式（只记本功能亲手改过的 SSID，不按当前状态推断）。
 
@@ -142,7 +147,24 @@ fn set_connection_mode(ssid: &str, mode: &str) -> Result<(), String> {
 }
 
 /// 连到指定 profile（name 即 SSID；profile 必须已保存）。
+///
+/// 优先 Win32 WlanConnect 直调：netsh wlan connect 内部先调
+/// WlanGetAvailableNetworkList 找目标，位置服务关闭时该 API 被位置隐私管控
+/// 拦截（微软 wi-fi-access-location-changes 文档：无位置授权返回
+/// ERROR_ACCESS_DENIED，管理员不豁免；2026-11-19 本机实测 netsh connect 直接
+/// 失败），而 WlanConnect 不在管控清单——profile 模式不需要扫描列表。
+/// FFI 层打不开句柄等失败回落 netsh（位置服务开启的机器上两路等价）。
 fn connect_profile(ssid: &str) -> Result<(), String> {
+    match connect_profile_via_api(ssid) {
+        Ok(()) => Ok(()),
+        Err(api_err) => {
+            crate::log_debug!("wifi_curfew", "WlanConnect 直调未成({api_err})，回落 netsh");
+            connect_profile_via_netsh(ssid)
+        }
+    }
+}
+
+fn connect_profile_via_netsh(ssid: &str) -> Result<(), String> {
     let output = crate::network::discovery::new_command("netsh")
         .args(["wlan", "connect", &format!("name={ssid}")])
         .output()
@@ -151,6 +173,61 @@ fn connect_profile(ssid: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(netsh_detail(&output))
+    }
+}
+
+/// Win32 WlanConnect（profile 模式）直连已保存的无线网络。
+///
+/// 连接请求是异步受理的：返回成功只代表系统接受了请求，目标不可达时同样
+/// 受理成功、随后连接失败——与 netsh 语义一致，由 tick 的 PENDING/FAILED
+/// 状态机在下一拍判定真实结果。本函数不做扫描（这正是它不受位置管控的原因）。
+fn connect_profile_via_api(ssid: &str) -> Result<(), String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::NetworkManagement::WiFi::{
+        WlanCloseHandle, WlanConnect, WlanEnumInterfaces, WlanFreeMemory, WlanOpenHandle,
+        WLAN_CONNECTION_PARAMETERS, dot11_BSS_type_any, wlan_connection_mode_profile,
+        WLAN_INTERFACE_INFO_LIST,
+    };
+
+    unsafe {
+        let mut negotiated: u32 = 0;
+        let mut handle = windows::Win32::Foundation::HANDLE::default();
+        let rc = WlanOpenHandle(2, None, &mut negotiated, &mut handle);
+        if rc != 0 {
+            return Err(format!("WlanOpenHandle: {rc}"));
+        }
+        let mut if_list: *mut WLAN_INTERFACE_INFO_LIST = std::ptr::null_mut();
+        // 拿到接口后逐分支算完再统一释放，保证 close/free 一定执行
+        let outcome: Result<(), String> = {
+            let rc = WlanEnumInterfaces(handle, None, &mut if_list);
+            if rc != 0 {
+                Err(format!("WlanEnumInterfaces: {rc}"))
+            } else if (*if_list).dwNumberOfItems == 0 {
+                Err("没有无线接口".to_string())
+            } else {
+                let guid = (*if_list).InterfaceInfo[0].InterfaceGuid;
+                let profile: Vec<u16> = ssid.encode_utf16().chain(std::iter::once(0)).collect();
+                let params = WLAN_CONNECTION_PARAMETERS {
+                    wlanConnectionMode: wlan_connection_mode_profile,
+                    strProfile: PCWSTR(profile.as_ptr()),
+                    pDot11Ssid: std::ptr::null_mut(),
+                    pDesiredBssidList: std::ptr::null_mut(),
+                    dot11BssType: dot11_BSS_type_any,
+                    dwFlags: 0,
+                };
+                let rc = WlanConnect(handle, &guid, &params, None);
+                if rc == 0 {
+                    Ok(())
+                } else {
+                    Err(format!("WlanConnect: {rc}"))
+                }
+            }
+        };
+        if !if_list.is_null() {
+            WlanFreeMemory(if_list.cast());
+        }
+        WlanCloseHandle(handle, None);
+        outcome
     }
 }
 
@@ -493,6 +570,17 @@ mod tests {
             filter_failed(vec!["网络Ｂ".to_string()], &failed),
             vec!["网络Ｂ".to_string()]
         );
+    }
+
+    #[test]
+    #[ignore = "需 Windows 无线环境：验证位置服务关闭时 WlanConnect 直调不被位置管控拦截"]
+    fn wlan_connect_api_works_without_location() {
+        // 对已保存 profile 发起 profile 模式连接是幂等无害的：已连着时等于重连，
+        // 不可达时只是受理后失败，不动其它网络
+        let profiles = list_profiles().expect("netsh show profiles 应可用（不受位置管控）");
+        let target = profiles.first().cloned().expect("本机应有已保存的无线 profile");
+        connect_profile_via_api(&target)
+            .unwrap_or_else(|e| panic!("WlanConnect 直调失败（位置管控或驱动问题）: {e}"));
     }
 
     #[test]
