@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "812e45f2b5c6d56c76aec956da06f444af82bff3",
-    "headCommit": "100c1e1e778dc3071fca344feee40236acce29ee"
+    "headCommit": "446a13f79c51d02a16815b8d130f7608e3f827cf"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "812e45f2b5c6d56c76aec956da06f444af82bff3",
-    "headCommit": "100c1e1e778dc3071fca344feee40236acce29ee",
+    "headCommit": "446a13f79c51d02a16815b8d130f7608e3f827cf",
     "committed": [
       "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/WifiCurfewRunner.kt",
       "changelogs/CHANGELOG_v2.4.4.md",
@@ -25,11 +25,11 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwmvnx8r-2-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwmvp2tt-3-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-19T01:35:20.209Z"
+  "updatedAt": "2026-11-19T01:36:15.046Z"
 }
