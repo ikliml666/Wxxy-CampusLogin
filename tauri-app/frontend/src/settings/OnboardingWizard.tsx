@@ -94,9 +94,10 @@ const STACK_LAYERS = [
 ] as const
 // 出场两段：先竖直飞起并微旋（ease-in），再落回队尾（ease-out）——参考的 swap 关键帧
 const EXIT_UP_MS = 240
-// 每步卡高按自身内容自适应（欢迎/完成步不再为绑定步的大块内容留白），
-// 上限取视口可视高，超出部分在卡内滚动；首帧测量出来前用同一上限顶一下
-const CARD_MAX_HEIGHT = 'min(680px, calc(100vh - 140px))'
+// 卡高 = 各步内容自然高度里的最大值（内容最多的那步决定），四卡等高、切步不跳；
+// 短内容步在卡内垂直居中，超出视口上限时在内容区滚动（绑定按钮粘底）。
+// 首帧测量出来前用上限顶一下
+const CARD_HEIGHT_FALLBACK = 'min(680px, calc(100vh - 140px))'
 const STACK_TRANSITION = 'transform .24s ease'
 const deckTransform = (y: number, scale: number) =>
   `translate(-50%, calc(-50% + ${y}px)) scale(${scale})`
@@ -166,6 +167,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const enterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+
   // 绑定运营商账号步骤（step 2）状态；凭据取自 accountInfo 步草稿/已落盘配置，
   // 不再单独收集学号与自助服务密码
   const [bindOperatorValue, setBindOperatorValue] = useState(BIND_OPERATOR_NONE)
@@ -186,24 +188,39 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
   const [detectState, setDetectState] = useState<'idle' | 'querying' | 'bound' | 'unbound' | 'error'>('idle')
   const [detectedOperator, setDetectedOperator] = useState<OperatorKey | null>(null)
 
-  // 卡堆容器高度跟随当前顶卡：卡本身高度由内容决定，容器只负责让整堆垂直居中。
-  // 用 ResizeObserver 而不是手工列依赖——绑定状态/双适配器下拉/语言切换都会改卡高。
+  // 四卡等高 = 各步内容自然高度里的最大值。测量时把卡高临时放开成 auto 让内容决定自然尺寸，
+  // 读完立刻还原；队尾卡内容靠 visibility 隐藏但仍参与布局，所以这里能量到每一页的真实高度。
   const cardRefs = useRef<Array<HTMLDivElement | null>>([])
-  const [deckHeight, setDeckHeight] = useState(0)
+  const contentRefs = useRef<Array<HTMLDivElement | null>>([])
+  const [deckCardHeight, setDeckCardHeight] = useState(0)
+  const measureDeck = useCallback(() => {
+    let max = 0
+    for (let i = 0; i < STEP_COUNT; i++) {
+      const card = cardRefs.current[i]
+      const content = contentRefs.current[i]
+      const inner = content?.firstElementChild as HTMLElement | null
+      if (!card || !content || !inner) continue
+      const prevHeight = card.style.height
+      card.style.height = 'auto'
+      // 读卡自身 scrollHeight 而非「内层 + 内边距」推算：窄屏换行与滚动条宽度会让两者差几像素
+      const needed = Math.max(card.scrollHeight, inner.offsetHeight)
+      card.style.height = prevHeight
+      if (needed > max) max = needed
+    }
+    if (max > 0) {
+      const next = Math.min(max, Math.max(420, window.innerHeight - 150))
+      setDeckCardHeight((prev) => (Math.abs(prev - next) < 1 ? prev : next))
+    }
+  }, [])
+
+  // 内容规模随步骤状态变化（绑定状态、错误提示、语言切换都会改高度），每次变化重测；
+  // useLayoutEffect 保证在绘制前完成，不闪一帧旧尺寸
   useLayoutEffect(() => {
     if (!open) return
-    const card = cardRefs.current[step]
-    if (!card) return
-    const sync = () => {
-      const h = card.offsetHeight
-      if (h > 0) setDeckHeight((prev) => (Math.abs(prev - h) < 1 ? prev : h))
-    }
-    // 首帧 Portal 里的卡片 ref 可能刚挂上、内容还没排完，先同步量一次再由 RO 接管
-    sync()
-    const ro = new ResizeObserver(sync)
-    ro.observe(card)
-    return () => ro.disconnect()
-  }, [open, step])
+    measureDeck()
+    const raf = requestAnimationFrame(measureDeck)
+    return () => cancelAnimationFrame(raf)
+  }, [open, step, measureDeck, bindStatuses, statusQuerying, statusError, detectState, language, password, dualAdapter, operator, adapters.length])
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
@@ -579,11 +596,9 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
             层位只改 y 与 scale，故始终围绕同一中心向上收叠 */}
         <div
           className="relative w-full"
-          style={{
-            height: deckHeight ? deckHeight * 1.05 + 64 : 'calc(min(680px, 100vh - 140px) * 1.05 + 64px)',
-            // 切步时顶卡高度不同，容器高度跟着缓动，卡堆视觉中心不跳
-            transition: 'height .28s ease',
-          }}
+          style={{ height: deckCardHeight
+            ? deckCardHeight * 1.05 + 64
+            : 'calc(min(680px, 100vh - 140px) * 1.05 + 64px)' }}
         >
           {Array.from({ length: STEP_COUNT }, (_, i) => {
             const pos = (i - step + STEP_COUNT) % STEP_COUNT
@@ -613,21 +628,22 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                   // 背景与圆角走内联：全局 `.bg-card` 规则带 !important，会把圆角压回 16px
                   background: 'hsl(var(--card))',
                   borderRadius: '2rem',
-                  // 顶卡按本步内容撑高（超视口上限才在内容区滚动）；
-                  // 队尾卡是同尺寸空壳，缩放后从顶卡四周露出等宽的边
-                  height: isTopContent ? 'auto' : (deckHeight || 0),
-                  maxHeight: isTopContent ? CARD_MAX_HEIGHT : undefined,
+                  // 统一取各步内容最大值；队尾卡同高，缩放后从顶卡四周露出等宽的边
+                  height: deckCardHeight || CARD_HEIGHT_FALLBACK,
                   transform: isExiting
                     ? EXIT_UP_TRANSFORM
                     : isEntering ? ENTER_FROM_TRANSFORM : deckTransform(layer.y, layer.scale),
                   opacity: isEntering ? 0.55 : 1,
                   transformOrigin: 'center center',
                   zIndex: isExiting ? 11 : layer.z,
-                  transition: `${STACK_TRANSITION_WITH_FADE}, height .28s ease`,
+                  transition: STACK_TRANSITION_WITH_FADE,
                 }}
               >
-                {isTopContent && (
-                  <>
+                <div
+                  className="flex min-h-0 flex-1 flex-col"
+                  // 队尾卡的内容只是布局占位（供测量与卡高），不可见、也不参与交互
+                  style={{ visibility: isTopContent ? 'visible' : 'hidden' }}
+                >
                   {/* 分类标签胶囊 */}
                   <div className="self-start rounded-full bg-primary/15 px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[0.08em] text-primary">
                     {t(STEP_TITLE_KEYS[i])}
@@ -635,10 +651,11 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
 
                   {/* 步骤内容（表单可能超长，卡内独立滚动） */}
                   <div
-                    className="mt-3 flex-1 min-h-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                    ref={(el) => { contentRefs.current[i] = el }}
+                    className="mt-3 flex flex-1 min-h-0 flex-col overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
                   >
                     {i === 0 && (
-                      <div className="flex flex-col items-center justify-center space-y-4 text-center">
+                      <div className="my-auto flex flex-col items-center justify-center space-y-4 text-center">
                         <MascotFigure variant="welcome" size="md" />
                         <div className="space-y-2">
                           <h2 className="text-[19px] font-bold leading-tight text-foreground">
@@ -663,7 +680,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                     )}
 
                     {i === 1 && (
-                      <div className="space-y-4">
+                      <div className="my-auto space-y-4">
                         <p className="text-[15px] font-semibold leading-snug text-foreground">{t('onboarding.fillLoginInfoDesc')}</p>
                         <div className="space-y-3">
                           <div className="space-y-1.5">
@@ -751,7 +768,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                     )}
 
                     {i === 2 && (
-                      <div className="flex flex-col gap-4">
+                      <div className="my-auto flex flex-col gap-4">
                         {/* 运营商三块：名字是选项，账号占位表达「已绑定」——
                             不再加区块标题、选中说明与「未绑定」字样，让三块与表单本身说明流程 */}
                         <div className="relative rounded-xl bg-muted/50 p-2.5">
@@ -779,7 +796,9 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                                   </button>
                                 </div>
                               )}
-                              <div className="grid grid-cols-3 gap-1.5">
+                              {/* 运营商竖排：一行一家，名字在左、绑定状态在右，选中的行描边并显示勾。
+                                  竖排把这一页的纵向空间撑起来，不再像三列那样挤在中间一条 */}
+                              <div className="space-y-1.5">
                                 {OPERATOR_STATUS_ORDER.map((key) => {
                                   const info = bindStatuses?.[key] ?? null
                                   const focused = focusedOperatorKey === key
@@ -792,23 +811,22 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                                       title={info ? `${t('onboarding.bindStatusBound')} · ${info.account}` : t('onboarding.bindStatusUnbound')}
                                       onClick={() => setBindOperatorValue(OPERATOR_VALUE_BY_KEY[key])}
                                       className={cn(
-                                        'flex h-full flex-col items-center justify-center gap-1 rounded-lg border px-1.5 py-2 text-center transition-colors',
+                                        'flex w-full items-center gap-2 rounded-lg border px-3 py-3 text-left transition-colors',
                                         focused
                                           ? 'border-primary/60 bg-primary/[0.12]'
                                           : 'border-transparent bg-card hover:bg-accent/70',
                                       )}
                                     >
-                                      <span className={cn('w-full text-[13px] font-semibold leading-tight', focused ? 'text-primary' : 'text-foreground')}>
+                                      <span className={cn('text-[14px] font-semibold leading-tight', focused ? 'text-primary' : 'text-foreground')}>
                                         {t(labelKey)}
                                       </span>
                                       <span className={cn(
-                                        'flex w-full items-center justify-center gap-0.5 truncate text-[10px] leading-none',
-                                        info ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
+                                        'ml-auto truncate text-[11px] leading-none',
+                                        info ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
                                       )}>
-                                        {info ? (
-                                          <><Check className="h-2.5 w-2.5 shrink-0" /><span className="truncate font-mono">{info.account}</span></>
-                                        ) : statusQuerying && !bindStatuses ? '…' : t('onboarding.bindStatusUnbound')}
+                                        {info ? info.account : statusQuerying && !bindStatuses ? '…' : t('onboarding.bindStatusUnbound')}
                                       </span>
+                                      <Check className={cn('h-4 w-4 shrink-0', focused ? 'text-primary' : 'text-transparent')} />
                                     </button>
                                   )
                                 })}
@@ -868,7 +886,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                       </div>
                     )}
                     {i === 3 && (
-                      <div className="space-y-4">
+                      <div className="my-auto space-y-4">
                         <p className="text-[15px] font-semibold leading-snug text-foreground">{t('onboarding.selectNetworkAdapterDesc')}</p>
                         <div className="space-y-3">
                           <div className="space-y-1.5">
@@ -956,7 +974,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                     )}
 
                     {i === 4 && (
-                      <div className="space-y-4">
+                      <div className="my-auto space-y-4">
                         <div className="flex flex-col items-center space-y-3 text-center">
                           <MascotFigure variant="celebrate" size="md" />
                           <div className="space-y-1">
@@ -1066,8 +1084,7 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                     {/* 右侧空列：三列网格里把导航钉在正中 */}
                     <div />
                   </div>
-                  </>
-                )}
+                </div>
 
                 </div>
               )
