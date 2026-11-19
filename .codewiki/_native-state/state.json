@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "446a13f79c51d02a16815b8d130f7608e3f827cf",
-    "headCommit": "03a827b01e1914cddc811875825704d64ae8c39a"
+    "headCommit": "5f3ebdf7bc47541d3e1f7dfe0e38d84cc0870d39"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "446a13f79c51d02a16815b8d130f7608e3f827cf",
-    "headCommit": "03a827b01e1914cddc811875825704d64ae8c39a",
+    "headCommit": "5f3ebdf7bc47541d3e1f7dfe0e38d84cc0870d39",
     "committed": [
       "android/frontend/src/i18n/locales/en.json",
       "android/frontend/src/i18n/locales/zh.json",
@@ -32,12 +32,11 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "丢弃 1 条已不存在且从未提交的旧账（android/frontend/tauri-mock.js）——只有 committed 才算消化的规则会让它们被永久携带，白跑整轮",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwmy9k24-9-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwmyx0je-a-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-19T02:48:08.231Z"
+  "updatedAt": "2026-11-19T03:06:37.426Z"
 }
