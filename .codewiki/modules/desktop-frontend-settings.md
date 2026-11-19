@@ -311,7 +311,7 @@ stateDiagram-v2
 
 关键约束与踩坑记录：
 
-- **卡高统一**：`measureDeck` 把卡高临时放开为 `auto` 读 `scrollHeight` 与内层 `offsetHeight` 的最大值，再取 `min(max, max(420, innerHeight - 150))`；短内容步靠底部留白填平，切步时高度不跳。`useLayoutEffect` 保证绘制前完成，首帧 ref 未挂上时用 `requestAnimationFrame` 补测一次。
+- **卡高统一**：直接用固定值 `CARD_HEIGHT = 'min(680px, calc(100vh - 140px))'` 作为四张卡的共同高度（短内容步靠 `my-auto` 垂直居中留白，绑定步内容超出时在卡内滚动、按钮粘底），不再按内容测量——切步时卡高与堆容器高度都不跳，四张卡视觉严格等高；堆容器高度取 `calc(min(680px, 100vh - 140px) * 1.05 + 64px)` 亦为常量。历史实现曾用 `measureDeck` + `ResizeObserver` + `useLayoutEffect` 按当前顶卡测量高度并让容器缓动，现已移除（连同 `useLayoutEffect` 导入）。
 - **不可见的卡仍会参与 Tab**：被盖住的卡仍在 DOM 里，仅 `pointer-events-none` 挡不住聚焦，因此用 `inert` 属性表达「整棵子树不可交互」。
 - **宽度不能用 `w-[760px] max-w-[calc(100vw-32px)]`**：`100vw` 在 WebView2 高 DPI/缩放下与真实布局宽不一致，会让固定宽溢出后被 `html{overflow:hidden}` 裁掉（曾表现为「引导卡左边框被截断」）；改为 `w-full + max-w` 从 flex 父容器取上限。
 - **绑定步的 Hello 门**：`useHelloGate()`（来自 [desktop_frontend_account_management](desktop-frontend-account-management.md) 的 `account/selfServiceState.ts`）在 `handleBind` 前先行验证，与后端验证门 TTL 对齐，保证一次通过；而进入步骤自动执行的 `query_bind_status` **不挂门**，避免刚进步骤就弹 Hello 打断引导。

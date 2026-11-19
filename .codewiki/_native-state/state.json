@@ -2,39 +2,43 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "d0f3566eedac66b33e9b7a9be7b0eae62889929b",
-    "headCommit": "4be056c53c04af4a916a613797975b5127d15687"
+    "baseCommit": "4be056c53c04af4a916a613797975b5127d15687",
+    "headCommit": "8739849b586cf749c8516d8dbe203044c8aa135f"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "d0f3566eedac66b33e9b7a9be7b0eae62889929b",
-    "headCommit": "4be056c53c04af4a916a613797975b5127d15687",
-    "committed": [
-      "android/frontend/src/i18n/locales/en.json",
-      "android/frontend/src/i18n/locales/zh.json",
+    "baseCommit": "4be056c53c04af4a916a613797975b5127d15687",
+    "headCommit": "8739849b586cf749c8516d8dbe203044c8aa135f",
+    "committed": [],
+    "staged": [],
+    "unstaged": [
       "android/frontend/src/settings/OnboardingWizard.tsx",
+      "android/frontend/tauri-mock.js",
       "changelogs/CHANGELOG_v2.4.4.md",
-      "tauri-app/frontend/src/i18n/locales/en.json",
-      "tauri-app/frontend/src/i18n/locales/zh.json",
-      "tauri-app/frontend/src/settings/OnboardingWizard.autoOperator.test.tsx",
       "tauri-app/frontend/src/settings/OnboardingWizard.tsx"
     ],
-    "staged": [],
-    "unstaged": [],
     "untracked": [],
     "deleted": [],
     "renamed": [],
     "reason": ""
   },
-  "unconsumed": [],
+  "unconsumed": [
+    "android/frontend/src/settings/OnboardingWizard.tsx",
+    "android/frontend/tauri-mock.js",
+    "changelogs/CHANGELOG_v2.4.4.md",
+    "tauri-app/frontend/src/settings/OnboardingWizard.tsx"
+  ],
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwn9osab-g-native（66 个文件）"
+    "持久化基线 d0f3566 与本次 cw 基线 4be056c 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "工作区未提交改动已合成临时 commit 3a42571dc76b（4 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwnfek3y-0-native（66 个文件）",
+    "本轮把 4 个未提交源码改动一并写进产物（快照 3a42571dc76b）：android/frontend/src/settings/OnboardingWizard.tsx、android/frontend/tauri-mock.js、changelogs/CHANGELOG_v2.4.4.md、tauri-app/frontend/src/settings/OnboardingWizard.tsx"
   ],
-  "updatedAt": "2026-11-19T08:07:53.483Z"
+  "updatedAt": "2026-11-19T10:55:00.151Z"
 }
