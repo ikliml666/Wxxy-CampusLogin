@@ -73,6 +73,13 @@ function cardOf(text: string): Element {
   return card
 }
 
+// 队尾卡只渲染空壳（不渲染标签/内容），非顶卡无法用文本定位，按 DOM 顺序取卡
+function cardAt(index: number): Element {
+  const card = document.querySelectorAll('.onboarding-deck-card')[index]
+  if (!card) throw new Error(`未找到第 ${index + 1} 张卡`)
+  return card
+}
+
 const baseProps = {
   open: true,
   onClose: () => {},
@@ -120,7 +127,7 @@ describe('OnboardingWizard 账号步自动识别运营商', () => {
     await waitFor(() => {
       expect(cardOf('onboarding.selectNetworkAdapterDesc').hasAttribute('inert')).toBe(false)
     })
-    expect(cardOf('onboarding.bindOperatorDesc').hasAttribute('inert')).toBe(true)
+    expect(cardAt(2).hasAttribute('inert')).toBe(true)
   })
 
   it('账号密码输入停止后自动选择，下一步复用同一次检测', async () => {
@@ -162,7 +169,7 @@ describe('OnboardingWizard 账号步自动识别运营商', () => {
     expect(getBindStatus).toHaveBeenCalledTimes(1)
 
     fireEvent.click(topNextButton())
-    await waitFor(() => expect(cardOf('onboarding.bindOperatorDesc').hasAttribute('inert')).toBe(false))
+    await waitFor(() => expect(cardAt(2).hasAttribute('inert')).toBe(false))
     expect(getBindStatus).toHaveBeenCalledTimes(1)
   })
 
@@ -176,13 +183,12 @@ describe('OnboardingWizard 账号步自动识别运营商', () => {
 
     fireEvent.change(document.getElementById('username')!, { target: { value: '24385214' } })
     fireEvent.change(document.getElementById('password')!, { target: { value: 'abc123' } })
+    // 账号步（此时仍是顶卡）自动检测出未绑定
+    await waitFor(() => expect(screen.getByText('onboarding.detectOperatorUnbound')).toBeInTheDocument())
     fireEvent.click(topNextButton())
 
-    await waitFor(() => {
-      expect(cardOf('onboarding.bindOperatorDesc').hasAttribute('inert')).toBe(false)
-    })
+    await waitFor(() => expect(cardAt(2).hasAttribute('inert')).toBe(false))
     expect(onUpdateConfig).toHaveBeenCalledWith(expect.objectContaining({ operator: '' }))
-    expect(screen.getByText('onboarding.detectOperatorUnbound')).toBeInTheDocument()
   })
 
   it('运营商下拉默认不选学校线路', async () => {
@@ -205,7 +211,7 @@ describe('OnboardingWizard 账号步自动识别运营商', () => {
     fireEvent.change(document.getElementById('username')!, { target: { value: '24385214' } })
     fireEvent.change(document.getElementById('password')!, { target: { value: 'abc123' } })
     fireEvent.click(topNextButton())
-    await waitFor(() => expect(cardOf('onboarding.bindOperatorDesc').hasAttribute('inert')).toBe(false))
+    await waitFor(() => expect(cardAt(2).hasAttribute('inert')).toBe(false))
 
     // 绑定步骤的运营商三块选择器本身就是选择入口（状态展示与选择合一，不再另设下拉）
     expect(screen.getByText('settings.isp.telecom').closest('button')).toHaveAttribute('aria-pressed', 'false')
