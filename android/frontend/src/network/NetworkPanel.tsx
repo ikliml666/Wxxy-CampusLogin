@@ -68,6 +68,102 @@ function formatRestoreTime(minutes: number | undefined): string {
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 }
 
+/** 行内时间编辑：静态为可点的时间文本，点击展开「时 : 分」两个数字输入；
+ *  焦点离开编辑区或 Enter 提交（钳到 [minMinutes, maxMinutes]），Escape 还原。
+ *  弃用原生 <input type="time">：安卓 WebView 压根不弹时间选择器，
+ *  WebView2 里段编辑也常只生效一半，双端只能自绘。 */
+function InlineTimeEdit({
+  id,
+  minutes,
+  minMinutes,
+  maxMinutes,
+  disabled,
+  onCommit,
+  buttonClassName,
+  inputClassName,
+}: {
+  id?: string
+  minutes: number
+  minMinutes: number
+  maxMinutes: number
+  disabled?: boolean
+  onCommit: (minutes: number) => void
+  buttonClassName?: string
+  inputClassName?: string
+}) {
+  const [draft, setDraft] = useState<{ h: string; m: string } | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const fmt2 = (n: number) => String(n).padStart(2, '0')
+
+  // 焦点离开整个编辑区才算结束：点进另一半不提交，Escape/Enter 即时结算
+  const commit = () => {
+    if (draft === null) return
+    setDraft(null)
+    if (draft.h === '' || draft.m === '') return
+    const value = Number(draft.h) * 60 + Number(draft.m)
+    if (!Number.isFinite(value)) return
+    onCommit(Math.min(maxMinutes, Math.max(minMinutes, value)))
+  }
+
+  if (draft === null) {
+    return (
+      <button
+        type="button"
+        id={id}
+        disabled={disabled}
+        onClick={() => setDraft({ h: fmt2(Math.floor(minutes / 60)), m: fmt2(minutes % 60) })}
+        className={cn('rounded tabular-nums transition-colors', disabled ? 'cursor-default' : 'hover:text-primary', buttonClassName)}
+      >
+        {fmt2(Math.floor(minutes / 60))}:{fmt2(minutes % 60)}
+      </button>
+    )
+  }
+
+  const inputCls = cn(
+    'h-6 text-center text-[13px] tabular-nums px-0',
+    '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
+    inputClassName,
+  )
+  return (
+    <div
+      ref={rootRef}
+      className="flex items-center gap-0.5"
+      onBlur={e => {
+        if (!rootRef.current?.contains(e.relatedTarget as Node | null)) commit()
+      }}
+    >
+      <Input
+        autoFocus
+        type="number"
+        inputMode="numeric"
+        min={Math.floor(minMinutes / 60)}
+        max={Math.floor(maxMinutes / 60)}
+        value={draft.h}
+        onChange={e => setDraft(d => (d ? { ...d, h: e.target.value } : d))}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') setDraft(null)
+        }}
+        className={cn(inputCls, 'w-9')}
+      />
+      <span className="text-[13px] tabular-nums text-muted-foreground">:</span>
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={59}
+        value={draft.m}
+        onChange={e => setDraft(d => (d ? { ...d, m: e.target.value } : d))}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') setDraft(null)
+        }}
+        className={cn(inputCls, 'w-10')}
+      />
+    </div>
+  )
+}
+
 /** 就寝守则的 WiFi 名单选择器：选项直接来自系统已保存的网络（不再手输 SSID）。
  *  已选但系统里已不存在的条目保留在末尾（标记「未保存」），取消勾选即移除；
  *  匹配不区分大小写，与后端 isBlocked 同口径。 */
@@ -532,7 +628,7 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                 </div>
                 <div className="min-w-0 flex-1">
                   <CardTitle className="truncate">{t('network.wifiCurfew')}</CardTitle>
-                  <CardDescription className="truncate">
+                  <CardDescription>
                     {t('network.wifiCurfewDesc', { time: formatRestoreTime(config.nightRestoreMinutes) })}
                   </CardDescription>
                 </div>
@@ -549,26 +645,21 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
             {/* 夜间时序：两件事就是这张卡片的全部行为，时间就地可改 */}
             <div className="flex items-center justify-between gap-2 rounded-xl bg-muted/40 px-4 py-2.5">
               <div className="flex flex-col items-center gap-0.5">
-                <span className="text-[13px] font-medium tabular-nums text-foreground">{formatRestoreTime(todaySwitchMinutes)}</span>
+                {/* 切换时刻不能用 formatRestoreTime：1380/1410 已被恢复上限 1379 判越界，会被回落成默认 07:30 */}
+                <span className="text-[13px] font-medium tabular-nums text-foreground">
+                  {String(Math.floor(todaySwitchMinutes / 60)).padStart(2, '0')}:{String(todaySwitchMinutes % 60).padStart(2, '0')}
+                </span>
                 <span className="text-[10px] text-muted-foreground">{t('network.curfewSwitchNode')}</span>
               </div>
               <span className="h-px flex-1 bg-border" />
               <div className="flex flex-col items-center gap-0.5">
-                <Input
+                <InlineTimeEdit
                   id="wifi-curfew-restore-time"
-                  type="time"
-                  min="05:00"
-                  max="22:59"
-                  value={formatRestoreTime(restoreMinutes)}
-                  onChange={e => {
-                    const [h, min] = e.target.value.split(':').map(Number)
-                    if (isNaN(h) || isNaN(min)) return
-                    const total = h * 60 + min
-                    if (total >= RESTORE_TIME_MIN_MINUTES && total < RESTORE_TIME_MAX_MINUTES + 1) {
-                      onUpdateConfig({ nightRestoreMinutes: total })
-                    }
-                  }}
-                  className="h-6 w-24 border-0 bg-transparent px-0 text-center text-[13px] tabular-nums shadow-none"
+                  minutes={restoreMinutes}
+                  minMinutes={RESTORE_TIME_MIN_MINUTES}
+                  maxMinutes={RESTORE_TIME_MAX_MINUTES}
+                  onCommit={total => onUpdateConfig({ nightRestoreMinutes: total })}
+                  buttonClassName="text-[13px] font-medium text-foreground"
                 />
                 <span className="text-[10px] text-muted-foreground">{t('network.curfewRestoreNode')}</span>
               </div>

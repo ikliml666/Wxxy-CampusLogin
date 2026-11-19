@@ -353,7 +353,7 @@
     "nightRestoreTime": "还原时刻",
     "nightRestoreTimeDesc": "次日恢复校园网出站并重新登录的时刻（默认 07:30）",
     "wifiCurfew": "WiFi 连接管控",
-    "wifiCurfewDesc": "周日至四 23:00 · 周五六 23:30 — {{time}}",
+    "wifiCurfewDesc": "夜间到点断网，{{time}} 恢复",
     "wifiCurfewRestoreAt": "恢复时刻",
     "wifiCurfewExcluded": "断开网络",
     "wifiCurfewAllowed": "放行网络",
