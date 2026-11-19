@@ -23,6 +23,7 @@
 //! 快照存在配置里（`wifiCurfewProfileRestore`）：程序退出/重启后仍能还原，
 //! 与夜切的跃点快照同一模式（只记本功能亲手改过的 SSID，不按当前状态推断）。
 
+use chrono::Datelike;
 use crate::config::Config;
 use tauri::{AppHandle, Manager};
 
@@ -229,6 +230,25 @@ fn connect_profile_via_api(ssid: &str) -> Result<(), String> {
         WlanCloseHandle(handle, None);
         outcome
     }
+}
+
+/// 就寝守则的用户可见告警去重标记（num_days_from_ce；i32::MIN = 从未提醒）：
+/// 全候选失败静默期每日一次提醒。此前静默期只有 debug 日志，放行网络连不上
+/// （热点改名/不在范围/profile 失效）整夜无感，用户次日只看到"夜间没切过去"
+/// 却无从归因（2026-11-18 实测：67 条失败日志全部静默于日志文件，无任何通知）。
+static CURFEW_ALL_FAILED_WARN_DAY: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(i32::MIN);
+
+/// 每天至多一次的就寝守则提醒（swap 当日去重，跨天自动重置）。
+fn notify_curfew_issue_once_per_day(app_handle: &AppHandle, title: &str, body: &str) {
+    let today = chrono::Local::now().num_days_from_ce();
+    if CURFEW_ALL_FAILED_WARN_DAY
+        .swap(today, std::sync::atomic::Ordering::AcqRel)
+        == today
+    {
+        return;
+    }
+    crate::infra::notification::emit_notification(app_handle, title, body, "mascot-alert");
 }
 
 /// 断开后切到放行名单时的候选轮转下标。
@@ -458,10 +478,19 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
     let saved_candidates = connect_candidates(&profiles, &config.wifi_curfew_allowed);
     if saved_candidates.is_empty() {
         if !config.wifi_curfew_allowed.is_empty() {
+            // 每日一次：此前每 30s 一条 WARN 刷屏，且日志提示用户看不到
             crate::log_warn!(
                 "wifi_curfew",
                 "放行名单里的网络在本机都没有保存过，无法自动连接: {:?}",
                 config.wifi_curfew_allowed
+            );
+            notify_curfew_issue_once_per_day(
+                app_handle,
+                "WiFi 就寝守则未生效",
+                &format!(
+                    "放行名单 {:?} 里的网络在本机都没有保存过（未连过一次），无法自动连接；请先在系统 WLAN 设置里连接一次",
+                    config.wifi_curfew_allowed
+                ),
             );
         }
         return;
@@ -470,7 +499,14 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
     if candidates.is_empty() {
         // 都试过且没连上：继续重试只会把用户正在用的网络反复踢断，停手；
         // 连上放行网络或出窗时失败记录自动重置。静息状态（无动作发生）用
-        // debug，避免整夜每 30s 一条 info 刷屏
+        // debug，避免整夜每 30s 一条 info 刷屏——但首次进入静默期发一次
+        // 用户可见通知（每日一次）：失败静默让热点改名/不在范围（profile 与
+        // 实际 SSID 漂移）整夜无感，用户只看到"夜间没切过去"无从归因。
+        notify_curfew_issue_once_per_day(
+            app_handle,
+            "WiFi 就寝守则未生效",
+            "放行网络本窗口内尝试后均未连上（可能热点已改名、不在范围内或凭据失效）；已暂停尝试，出窗自动重置。若热点改过名，请在系统 WLAN 设置重新连接一次以更新配置",
+        );
         crate::log_debug!(
             "wifi_curfew",
             "放行网络本窗口内都已尝试且未连上，暂停切换尝试（出窗自动重置）"
