@@ -2,16 +2,20 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "009ce594ecf4ac9083fd16e3ea27ffdf12fd491c",
-    "headCommit": "d0f3566eedac66b33e9b7a9be7b0eae62889929b"
+    "baseCommit": "d0f3566eedac66b33e9b7a9be7b0eae62889929b",
+    "headCommit": "9f8c6774c41a43428882fa37cb8692d796ec5b69"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "009ce594ecf4ac9083fd16e3ea27ffdf12fd491c",
-    "headCommit": "d0f3566eedac66b33e9b7a9be7b0eae62889929b",
+    "baseCommit": "d0f3566eedac66b33e9b7a9be7b0eae62889929b",
+    "headCommit": "9f8c6774c41a43428882fa37cb8692d796ec5b69",
     "committed": [
+      "android/frontend/src/i18n/locales/en.json",
+      "android/frontend/src/i18n/locales/zh.json",
       "android/frontend/src/settings/OnboardingWizard.tsx",
       "changelogs/CHANGELOG_v2.4.4.md",
+      "tauri-app/frontend/src/i18n/locales/en.json",
+      "tauri-app/frontend/src/i18n/locales/zh.json",
       "tauri-app/frontend/src/settings/OnboardingWizard.autoOperator.test.tsx",
       "tauri-app/frontend/src/settings/OnboardingWizard.tsx"
     ],
@@ -26,11 +30,12 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwn5eg1k-a-native（66 个文件）"
+    "持久化基线 009ce59 与本次 cw 基线 d0f3566 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwn9eyl9-f-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-19T06:07:49.040Z"
+  "updatedAt": "2026-11-19T08:00:15.702Z"
 }
