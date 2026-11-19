@@ -917,6 +917,62 @@ fn resolve_switch_target(adapter_name: &str) -> Result<crate::network::Adapter, 
     Ok(adapter.clone())
 }
 
+/// 点名/改切/重放共用的目标卡**现场非校园闸门**：无 IP 或绑源探测判在校园网内
+/// → Err（原因透传手动入口 toast）。判定腿与自动选卡完全同源（is_campus_adapter，
+/// 绑源探测 + 共享层去抖口径）——点名授权的是「选这张卡」，不是跳过事实校验：
+/// 2026-11-19 用户实测点名/重放沿用旧快照切到校园网卡后 verify 失败，整夜退避
+/// 循环留下半切状态。probe 注入便于单测；生产调用须在 spawn_blocking 线程内
+/// （真实绑源探测是阻塞调用）。
+fn ensure_target_off_campus_with_probe(
+    adapter: &crate::network::Adapter,
+    gateway: &str,
+    campus_gateway: &str,
+    portal_host: &str,
+    gateway_probe: impl Fn(&str, &str) -> bool,
+) -> Result<(), String> {
+    if adapter.ip.is_empty() {
+        return Err(format!("网卡 {} 当前没有 IP，无法作为出站目标", adapter.name));
+    }
+    if is_campus_adapter(
+        &adapter.ip,
+        gateway,
+        campus_gateway,
+        portal_host,
+        gateway_probe,
+    ) {
+        return Err(format!(
+            "网卡 {} 现场判定处于校园网内，拒绝切换（请确认该卡当前连接的网络）",
+            adapter.name
+        ));
+    }
+    Ok(())
+}
+
+/// 生产包装：按卡名实时 join 网关并执行现场判定（阻塞，须在 spawn_blocking 内）。
+/// 网关查不到按空网关处理——is_campus_adapter 对空网关跳过网关腿、仅剩 portal 腿，
+/// 行为安全（不会把无网关卡误判成校园卡）。
+fn ensure_target_off_campus(
+    adapter: &crate::network::Adapter,
+    config: &crate::config::Config,
+) -> Result<(), String> {
+    let gateway = crate::network::get_adapter_details_cached()
+        .map(|details| {
+            details
+                .iter()
+                .find(|d| d.name == adapter.name)
+                .map(|d| d.gateway.clone())
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    ensure_target_off_campus_with_probe(
+        adapter,
+        &gateway,
+        &config.campus_gateway,
+        &portal_probe_host(&config.portal_url),
+        |gw, src| crate::network::check_gateway_reachable_from(gw, Some(src)),
+    )
+}
+
 /// 跃点写入条目编码：`{guid}:{family}:0:{metric}`（helper `set_metric` 的 argv 形状）。
 fn encode_metric_rows(guid: &str, families: &[u16], metric: u32) -> Vec<String> {
     families
@@ -987,11 +1043,13 @@ fn build_outbound_plan(
             (a.clone(), gateway)
         })
         .collect();
-    // 用户显式指定目标卡（条目「立即切换出站」）：只要求有 IP 与 GUID，跳过
-    // 校园网判定与全部探测——显式动作优先，想切到哪张就切到哪张。
+    // 用户显式指定目标卡（条目「立即切换出站」）：跳过优先级选卡与公网复核，
+    // 但**不跳过校园网判定**——点名授权的是「选这张卡」，切换成立的凭据仍是
+    // 「该卡此刻不在校园网内」这一现场事实；跳过判定盲写跃点会把出口钉到校园卡
+    // 上，verify 失败后重放沿旧快照整夜循环（2026-11-19 用户实测）。
     if let Some(name) = forced_target {
-        // 点名切换只校验「卡在、有 IP、有 GUID」，不做校园判定与任何探测
         let adapter = resolve_switch_target(name)?;
+        ensure_target_off_campus(&adapter, config)?;
         return Ok(OutboundSwitchPlan {
             target_name: adapter.name,
             target_guid: adapter.guid,
@@ -1565,6 +1623,25 @@ fn hold_origin_offline(_app_handle: &AppHandle, name: &str, _guid: &str) -> Resu
     Ok(())
 }
 
+/// 快照目标卡是否已不可用或现场判定回到校园网（true = 重放应转还原）。快照空/损坏
+/// 不在此拦截——那两类已有各自的日志与重试口径（分支② any_fail）。目标卡当前不在
+/// 适配器列表时同样不拦：分支②已有「目标卡不存在」的失败保留口径。
+fn replay_target_back_on_campus(config: &crate::config::Config) -> bool {
+    let Ok(rows) = parse_outbound_snapshot(&config.outbound_metric_restore) else {
+        return false;
+    };
+    let Some(first) = rows.first() else {
+        return false;
+    };
+    let Ok(adapters) = crate::network::get_adapters_cached() else {
+        return false;
+    };
+    let Some(adapter) = adapters.iter().find(|a| a.guid == first.guid) else {
+        return false;
+    };
+    ensure_target_off_campus(adapter, config).is_err()
+}
+
 /// 补齐/重放切换动作：按快照把"切换没写完"的部分补齐，两个分支各自独立、
 /// 全部幂等（可反复调用），任一分支失败不影响其余分支：
 /// ① 禁用残留收尾：切换流程「禁用 → 保持 → 启用」原出口卡，进程若在中间被杀，卡会
@@ -1584,6 +1661,19 @@ fn hold_origin_offline(_app_handle: &AppHandle, name: &str, _guid: &str) -> Resu
 /// 回稳态 false；仅 helper 写入成功不能作为完成依据。
 pub(super) fn replay_outbound_switch(app_handle: &AppHandle, config: &crate::config::Config) {
     if !switch_gate_open() {
+        return;
+    }
+    // —— 重放前目标卡现场校验（2026-11-19）：重放沿用快照[0]认定的目标卡，若该卡
+    //    现场已失去 IP 或回到校园网（首次切换后网络环境变化），继续整夜盲压只会
+    //    循环失败——与启动对账 back_on_campus 同一语义：判定不成立转还原，把系统
+    //    交还原原状，下一拍到点重切会重新现场选卡。校验在动作闸之前：只读探测无需
+    //    互斥，转还原时 apply_outbound_restore 自己拿闸，此处不能持有。
+    if replay_target_back_on_campus(config) {
+        crate::log_info!(
+            "outbound",
+            "夜间出站切换: 快照目标卡现场已不可用或回到校园网，停止重放转还原"
+        );
+        let _ = apply_outbound_restore(app_handle, config);
         return;
     }
     // 与手动入口/还原互斥：重放会写 metric=1，若与还原并发，最坏是
@@ -2438,7 +2528,9 @@ pub(crate) fn manual_outbound_switch(app_handle: &AppHandle) -> Result<(), Strin
 }
 
 /// 「立即切换出站」命令入口（桌面，条目按钮）：以**指定网卡**为目标直接切换，
-/// 跳过优先级选卡与公网复核——用户点名要哪张就切哪张，哪怕它是校园网卡。
+/// 跳过优先级选卡与公网复核，但目标卡必须过**现场非校园闸门**（与首次切换同一
+/// 判定口径）：点名授权的是「选这张卡」，不是把出口钉到校园卡上——切过去出不了
+/// 公网，只会留下半切状态进退避循环（2026-11-19 用户实测）。
 /// 切换态内再点其它卡不再被拒：走 retarget_outbound_switch，上次那张卡立即按
 /// 快照原值还原，无需先点「恢复原出口」。实际切换成功后保持当日的自动还原。
 pub(crate) fn manual_outbound_switch_to(
@@ -2460,6 +2552,10 @@ pub(crate) fn manual_outbound_switch_to(
         );
         Ok(())
     } else if outbound_switch_active(app_handle) {
+        // 改切与首次切换同一安全口径：retarget 内部不再判校园归属（调用方负责），
+        // 点名改切先现场校验目标非校园，校园卡拒绝改切。
+        let adapter = resolve_switch_target(adapter_name)?;
+        ensure_target_off_campus(&adapter, &config)?;
         retarget_outbound_switch(app_handle, adapter_name)
     } else {
         apply_outbound_switch_with_health(app_handle, &config, None, Some(adapter_name), false, false)
@@ -3038,4 +3134,51 @@ mod tests {
 
     /// 单条目快照（与 monitor::outbound_switch::snapshot_json 的同构输出）
     const SNAPSHOT_ONE_ROW: &str = r#"[{"guid":"{G1}","family":2,"automatic":true,"metric":55}]"#;
+
+    /// 点名/改切/重放共用的目标卡现场非校园闸门：无 IP 或判在校园网内必须拒绝，
+    /// 非校园放行。2026-11-19 修复的回归锚：此前点名切换跳过判定盲写跃点，
+    /// verify 失败后重放沿旧快照整夜循环。
+    #[test]
+    fn 目标卡闸门_无ip直接拒绝() {
+        let ipless = adapter("WLAN", "", true);
+        let err = ensure_target_off_campus_with_probe(&ipless, "192.168.43.1", "10.2.127.254", "10.1.99.100", |_, _| panic!("无 IP 卡不应发探测")).unwrap_err();
+        assert!(err.contains("没有 IP"), "错误文案应可透传前端 toast: {err}");
+    }
+
+    #[test]
+    fn 目标卡闸门_现场判校园拒绝切换() {
+        let campus_card = adapter("WLAN", "192.168.6.109", true);
+        // 宿舍路由器 NAT 场景：绑源 portal 可达 → 判校园 → 拒绝
+        let probe = |target: &str, _: &str| target == "10.1.99.100" || target == "10.2.127.254";
+        let err = ensure_target_off_campus_with_probe(
+            &campus_card,
+            "192.168.6.1",
+            "10.2.127.254",
+            "10.1.99.100",
+            probe,
+        )
+        .unwrap_err();
+        assert!(err.contains("校园网"), "拒绝原因必须指明校园判定: {err}");
+    }
+
+    #[test]
+    fn 目标卡闸门_非校园放行() {
+        let hotspot = adapter("WLAN", "192.168.43.10", true);
+        // 校园网关/portal 全不可达 → 非校园 → 放行
+        ensure_target_off_campus_with_probe(
+            &hotspot,
+            "192.168.43.1",
+            "10.2.127.254",
+            "10.1.99.100",
+            |_, _| false,
+        )
+        .expect("非校园网卡应放行");
+    }
+
+    #[test]
+    fn 目标卡闸门_无ip卡不被误判校园() {
+        // 与启动对账 back_on_campus 同口径：无 IP 在 ensure 层即拒绝，不进探测腿
+        let ipless = adapter("以太网 2", "", false);
+        assert!(ensure_target_off_campus_with_probe(&ipless, "", "10.2.127.254", "10.1.99.100", |_, _| true).is_err());
+    }
 }
