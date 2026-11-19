@@ -404,6 +404,20 @@ fn write_outbound_metric(
     run_set_metric(app_handle, name, &encoded, notify_success, notify_suffix)
 }
 
+/// 复写批的竞争卡过滤：禁用步骤之后**仍在线**的卡才参与复写——已禁用的卡接口行
+/// 已拆除（IP 栈不存在即不进 GetIpInterfaceTable），对它写跃点必然「未找到接口行」
+/// 整批失败。纯函数便于单测锁定口径；与 replay 分支②的 offline_guids 跳过同语义。
+fn rewrite_suppress_rows(
+    suppress_write: &[(String, Vec<u16>)],
+    offline_guids: &std::collections::HashSet<String>,
+) -> Vec<(String, Vec<u16>)> {
+    suppress_write
+        .iter()
+        .filter(|(guid, _)| !offline_guids.contains(guid))
+        .cloned()
+        .collect()
+}
+
 /// 竞争卡跃点编码：每张卡的每个协议栈都抬到 SWITCHED_ORIGIN_METRIC。
 /// 纯函数便于单测锁定「所有竞争卡一起抬高」，不依赖 helper 通道。
 fn encode_suppress_rows(suppress: &[(String, Vec<u16>)]) -> Vec<String> {
@@ -985,8 +999,9 @@ fn encode_metric_rows(guid: &str, families: &[u16], metric: u32) -> Vec<String> 
 /// 再下线原卡，最后复写以覆盖接口重建可能重置的值。这样原卡重新上线、应用开始
 /// 重连时，默认路由已经指向目标卡；不存在「先上线抢回出口、再改跃点」的窗口。
 /// 首次切换与改切共用的事务顺序：先写新跃点（此时原卡仍在线，两卡都能写），
-/// 再把原卡下线并保持禁用，最后复写——复写**不包含已禁用的原卡**，否则对不存在
-/// 的接口写跃点会整笔失败，让切换陷入无意义的重试。
+/// 再把原卡下线并保持禁用，最后复写——复写**不包含任何已禁用的卡**（原卡与被
+/// 一并禁用的竞争卡），否则对不存在的接口写跃点会整笔失败，让切换陷入无意义的
+/// 重试（2026-11-19：夜间模式禁用竞争卡后复写仍写它们，每夜稳定失败）。
 ///
 /// 顺序的硬约束：跃点必须在原卡下线前写好，原卡重新上线（还原）时默认路由已正确；
 /// 而原卡在整个切换态期间保持禁用，才不会靠自动跃点或 DHCP 重算把默认出口抢回去。
@@ -1316,11 +1331,26 @@ pub(super) fn apply_outbound_switch_with_health(
     } else {
         Vec::new()
     };
+    // 复写批排除全部已下线卡（2026-11-19 实测缺陷）：夜间模式把竞争卡一并禁用后，
+    // 它们的接口行随禁用拆除（IP 栈不存在即不进 GetIpInterfaceTable），复写仍对
+    // 已禁用的竞争卡写跃点 → helper「未找到接口行」→ 整批失败 → 每夜稳定报
+    // 「WLAN 跃点设置失败」进退避循环。旧注释只排除原卡，是"禁用名单仅原卡"
+    // 时代的口径；与 replay 分支②的 offline_guids 跳过同语义。
+    let offline_guids: std::collections::HashSet<String> = offline_targets
+        .iter()
+        .map(|(_, guid)| guid.clone())
+        .collect();
     run_switch_sequence(
         !offline_targets.is_empty(),
         true,
         |include_origin, notify| {
-            let mut suppress = suppress_write.clone();
+            // 首写（include_origin=true）发生在禁用之前，全批在线可写；
+            // 复写发生在禁用之后，只写仍在线的竞争卡。
+            let mut suppress = if include_origin {
+                suppress_write.clone()
+            } else {
+                rewrite_suppress_rows(&suppress_write, &offline_guids)
+            };
             if include_origin {
                 if let Some((guid, fams)) = &origin_suppress {
                     suppress.push((guid.clone(), fams.clone()));
@@ -3020,6 +3050,33 @@ mod tests {
             vec!["write-with-origin", "offline", "rewrite-without-origin"],
             "原卡下线后不能再对它的接口写跃点"
         );
+    }
+
+    /// 复写批过滤：禁用后接口行拆除，已禁用的竞争卡不得留在复写批里（2026-11-19
+    /// 缺陷回归锚：用户夜间切换每夜稳定报「未找到接口行 family=2/23」整批失败，
+    /// 即复写批含被禁用的 USB 竞争卡）。
+    #[test]
+    fn 复写批_排除已禁用的竞争卡() {
+        let suppress_write = vec![
+            ("{G-peer-offline}".to_string(), vec![2u16, 23]),
+            ("{G-peer-online}".to_string(), vec![2u16]),
+            ("{G-origin}".to_string(), vec![2u16]),
+        ];
+        let offline_guids: std::collections::HashSet<String> = [
+            "{G-peer-offline}".to_string(),
+            "{G-origin}".to_string(),
+        ]
+        .into_iter()
+        .collect();
+        let rewritten = rewrite_suppress_rows(&suppress_write, &offline_guids);
+        assert_eq!(
+            rewritten,
+            vec![("{G-peer-online}".to_string(), vec![2u16])],
+            "复写只保留禁用后仍在线的竞争卡",
+        );
+        // 无下线卡（take_offline=false 的调用方）：复写批与首写批一致
+        let rewritten_all = rewrite_suppress_rows(&suppress_write, &Default::default());
+        assert_eq!(rewritten_all.len(), suppress_write.len());
     }
 
     #[test]
