@@ -13,7 +13,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::io::Write;
-use chrono::Timelike;
+use chrono::{Datelike, Timelike};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -42,15 +42,27 @@ fn log_line(msg: &str) {
 }
 
 /// 校园检查静默窗判断：直接复用双端共享单点
-/// [`campus_login_lib::config::schedule::is_campus_check_silent`]
-/// （2026-10-26 前此处是手写副本，注释只能声称"同语义"，规则一改就漂移）。
-fn in_silent_window(now_minutes: u16, start: u16, end: u16) -> bool {
-    campus_login_lib::config::schedule::is_campus_check_silent(now_minutes, start, end)
+/// [`campus_login_lib::config::check_window::is_campus_check_silent_on`]
+/// （2026-10-26 前此处是手写副本，注释只能声称"同语义"，规则一改就漂移；
+/// 2026-11-19 起判定按星期分组，单点一并覆盖分组与单一起止）。
+fn in_silent_window(cfg: &CoreConfig) -> bool {
+    let (weekday, now_minutes) = now_weekday_minutes();
+    campus_login_lib::config::check_window::is_campus_check_silent_on(
+        weekday,
+        now_minutes,
+        cfg.campus_check_start_minutes,
+        cfg.campus_check_end_minutes,
+        &cfg.campus_check_windows,
+    )
 }
 
-fn now_minutes() -> u16 {
+/// 星期（0=周日）与当日分钟数，取自同一时刻（跨零点不错位）
+fn now_weekday_minutes() -> (u32, u16) {
     let t = chrono::Local::now();
-    (t.hour() as u16) * 60 + t.minute() as u16
+    (
+        t.weekday().num_days_from_sunday(),
+        (t.hour() as u16) * 60 + t.minute() as u16,
+    )
 }
 
 fn load_config() -> Result<CoreConfig, String> {
@@ -135,11 +147,7 @@ fn run() -> i32 {
                         ));
                     }
                     Ok(_) => {
-                        if in_silent_window(
-                            now_minutes(),
-                            cfg.campus_check_start_minutes,
-                            cfg.campus_check_end_minutes,
-                        ) {
+                        if in_silent_window(&cfg) {
                             log_line("处于校园检查静默窗，本轮不发起登录");
                             break;
                         }

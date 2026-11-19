@@ -230,6 +230,7 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     }
     config.campus_check_start_minutes = config.campus_check_start_minutes.min(1439);
     config.campus_check_end_minutes = config.campus_check_end_minutes.min(1439);
+    normalize_campus_check_windows(&mut config.campus_check_windows);
     config.campus_exit_start_minutes = config.campus_exit_start_minutes.min(1439);
     config.campus_exit_end_minutes = config.campus_exit_end_minutes.min(1439);
     // 定时动作禁用哨兵 1440（2026-09-20 起 0=真实的 00:00 时刻），clamp 放行
@@ -238,6 +239,31 @@ pub fn validate_config(config: Config) -> Result<Config, String> {
     Ok(config)
 }
 
+/// 按星期分组的检测时段归一（就地）：
+/// - 丢弃空组（没有任何生效星期，无处生效）与非法星期（>= 7）；
+/// - 星期去重排序，保证落盘形状稳定、前端渲染顺序可预期；
+/// - 起止钳到 0..=1439，超界值回退默认起点/终点（手改配置文件的容错口径）。
+///
+/// 归一后仍为空的列表等价「未分组」，判定层据此回落单一组起止。
+fn normalize_campus_check_windows(groups: &mut Vec<crate::config::check_window::CheckWindowGroup>) {
+    groups.retain(|g| {
+        !g.weekdays.iter().all(|d| *d >= 7)
+    });
+    for g in groups.iter_mut() {
+        g.weekdays.retain(|d| *d < 7);
+        g.weekdays.sort_unstable();
+        g.weekdays.dedup();
+        // 超界值回退到单一组起止的当前值：用户既已把时段切成按星期分组，
+        // 组的边界就等于同一份设置的另一种写法，回退到它自己的单值最自然
+        if g.start > 1439 {
+            g.start = 1439;
+        }
+        if g.end > 1439 {
+            g.end = 1439;
+        }
+    }
+    groups.retain(|g| !g.weekdays.is_empty());
+}
 /// 宽松验证：对每个字段独立降级，无效字段回退默认值并记录警告。
 /// 用于加载磁盘配置，避免单个字段无效导致全量配置丢失（F1）。
 /// 保存/导入仍应使用 validate_config（严格版）拒绝非法输入。
@@ -931,6 +957,48 @@ mod tests {
         config.campus_gateway = "not-an-ip".to_string();
         let result = validate_config_lenient(config);
         assert_eq!(result.campus_gateway, Config::default().campus_gateway);
+    }
+
+    // ===== 按星期分组的检测时段归一 =====
+
+    #[test]
+    fn campus_check_windows_drops_empty_and_invalid_weekdays() {
+        use crate::config::check_window::CheckWindowGroup;
+        let mut config = Config::default();
+        config.campus_check_windows = vec![
+            CheckWindowGroup { weekdays: vec![], start: 460, end: 1380 },
+            CheckWindowGroup { weekdays: vec![7, 8], start: 460, end: 1380 },
+            CheckWindowGroup { weekdays: vec![5, 6], start: 470, end: 1410 },
+        ];
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.campus_check_windows.len(), 1, "空组与非法星期整组丢弃");
+        assert_eq!(result.campus_check_windows[0].weekdays, vec![5, 6]);
+    }
+
+    #[test]
+    fn campus_check_windows_dedupes_and_sorts_weekdays() {
+        use crate::config::check_window::CheckWindowGroup;
+        let mut config = Config::default();
+        config.campus_check_windows = vec![CheckWindowGroup { weekdays: vec![6, 1, 6, 0], start: 470, end: 1410 }];
+        let result = validate_config(config).unwrap();
+        assert_eq!(result.campus_check_windows[0].weekdays, vec![0, 1, 6]);
+    }
+
+    #[test]
+    fn campus_check_windows_clamps_out_of_range_minutes() {
+        use crate::config::check_window::CheckWindowGroup;
+        let mut config = Config::default();
+        config.campus_check_windows = vec![CheckWindowGroup { weekdays: vec![1], start: 5000, end: 9999 }];
+        let result = validate_config(config).unwrap();
+        let g = &result.campus_check_windows[0];
+        assert_eq!((g.start, g.end), (1439, 1439));
+    }
+
+    #[test]
+    fn campus_check_windows_absent_stays_empty() {
+        // 存量配置没有该字段：保持空列表，判定层据此沿用单一组起止
+        let result = validate_config(Config::default()).unwrap();
+        assert!(result.campus_check_windows.is_empty());
     }
 
     #[test]

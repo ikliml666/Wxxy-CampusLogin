@@ -417,12 +417,6 @@ pub fn check_campus_network(
     }
 }
 
-/// 校园网检测静默期判定——实现已下沉到双端共享面
-/// [`crate::config::schedule::is_campus_check_silent`]（2026-10-26：此前桌面巡检、
-/// 安卓巡检、安卓开机自启、无头 core 各写一份同语义边界判定，共享 crate 无此函数，
-/// 违反「新增跨平台判定优先放共享面」的约定）。此处仅保留 crate 内转出，
-/// 调用方可继续按 monitor 模块路径引用。
-pub use crate::config::schedule::is_campus_check_silent;
 
 #[cfg(test)]
 mod tests {

@@ -64,6 +64,8 @@ export const DEFAULT_CONFIG: Config = {
   campusCheckStartMinutes: 460,
   // 2026-09-13 起 1380=23:00(旧默认 0=仅开始时间限制),存量配置由 v4→v5 schema 迁移一次性刷新
   campusCheckEndMinutes: 1380,
+  // 空 = 沿用上面单一组起止（存量配置零迁移）
+  campusCheckWindows: [],
   // 2026-09-20 起禁用哨兵 1440(0=真实的 00:00 时刻)
   scheduledLoginMinutes: 1440,
   scheduledLogoutMinutes: 1440,

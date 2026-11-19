@@ -141,6 +141,9 @@ pub struct Settings {
     pub campus_check_start_minutes: u16,
     /// 校园网检测时段终点(当日分钟数,默认 1380=23:00;<= 开始时间时退化为仅开始时间限制),与桌面 campusCheckEndMinutes 同语义
     pub campus_check_end_minutes: u16,
+    /// 按星期分组的检测时段(空=沿用上面单一组起止),未被任何组覆盖的星期整天不检测;
+    /// 判定走共享 crate config::check_window,与桌面单点同一份实现
+    pub campus_check_windows: Vec<campus_login_lib::config::check_window::CheckWindowGroup>,
     /// 每日定时登录时刻(当日分钟数,1440=禁用哨兵、0=真实的 00:00;到点即触发含过点补触发),与桌面 scheduledLoginMinutes 同语义
     pub scheduled_login_minutes: u16,
     /// 每日定时注销时刻(当日分钟数,1440=禁用哨兵;语义同 scheduled_login_minutes),与桌面 scheduledLogoutMinutes 同语义
@@ -255,6 +258,8 @@ impl Default for Settings {
             // 与桌面默认同值(2026-09-13 起 1380=23:00;旧默认 0=仅开始时间限制,
             // 旧配置由 migrate_legacy_defaults 按 schema 版本一次性迁移)
             campus_check_end_minutes: 1380,
+            // 空=沿用上面单一组起止(存量配置零迁移)
+            campus_check_windows: Vec::new(),
             // 每日定时登录/注销默认禁用(0=禁用)
             // 每日定时登录/注销默认禁用(2026-09-20 起禁用哨兵为 1440,0=真实的 00:00 时刻;
             // 存量 0 由 v6→v7 迁移刷为 1440)

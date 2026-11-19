@@ -12,6 +12,13 @@ export interface AccountItem {
   passwordSaved?: boolean
 }
 
+/** 一组按星期生效的检测时段；weekdays 为 0=周日 … 6=周六，起止为当日分钟数 */
+export interface CheckWindowGroup {
+  weekdays: number[]
+  start: number
+  end: number
+}
+
 export interface Config {
   user: string
   password: string
@@ -105,6 +112,8 @@ export interface Config {
   campusCheckStartMinutes: number
   /** 校园网检测时段终点（分钟数，默认 1380=23:00；<= 开始时间时退化为仅开始时间限制） */
   campusCheckEndMinutes: number
+  /** 按星期分组的检测时段：非空时覆盖上面两项单一起止，未被覆盖的星期整天不检测 */
+  campusCheckWindows: CheckWindowGroup[]
   /** 每日定时登录时刻（分钟数，0=禁用；过点补触发） */
   scheduledLoginMinutes: number
   /** 每日定时注销时刻（分钟数，0=禁用；语义同上） */

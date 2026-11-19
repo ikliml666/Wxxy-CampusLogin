@@ -324,6 +324,7 @@ mod tests {
             campus_exit_end_minutes: 1380,
             campus_check_start_minutes: 480,
             campus_check_end_minutes: 0,
+            campus_check_windows: Vec::new(),
             scheduled_login_minutes: 0,
             scheduled_logout_minutes: 0,
             log_retention_days: 7,

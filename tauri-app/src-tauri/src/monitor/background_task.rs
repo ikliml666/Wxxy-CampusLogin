@@ -59,12 +59,8 @@ pub fn start_background_check_inner(app_handle: &AppHandle, state: &AppState) ->
                 let interval_ms = {
                     let s = app_h.state::<AppState>();
                     let cfg = s.config.load();
-                    let now_min = crate::infra::local_now_minutes();
-                    match super::background_check::silent_remaining_ms(
-                        now_min,
-                        cfg.campus_check_start_minutes,
-                        cfg.campus_check_end_minutes,
-                    ) {
+                    let (now_weekday, now_min) = crate::infra::local_now_weekday_minutes();
+                    match super::background_check::silent_remaining_ms(&cfg, now_weekday, now_min) {
                         Some(remaining) => interval_ms.min(remaining.max(1_000)).max(1_000),
                         None => interval_ms,
                     }

@@ -402,13 +402,19 @@ async fn auto_login_on_start(
     // 本就断网，启动即发起探测/认证只会在日志里留一串失败。
     // 2026-10-26：边界判定改调共享单点 campus_login_lib::config::schedule::
     // is_campus_check_silent（此前四份手写展开，见该函数文档）。
-    if respect_silent && settings.campus_check_start_minutes > 0 {
+    // 分组启用后单一起点不再是权威（各组自带起止，起点 0 的含义也不同），
+    // 因此「是否配置了时段」要连同分组一起看，否则分组下 start=0 会被误判为未配置
+    if respect_silent
+        && (!settings.campus_check_windows.is_empty() || settings.campus_check_start_minutes > 0)
+    {
         let now = chrono::Local::now();
         let minutes_now = now.hour() as u16 * 60 + now.minute() as u16;
-        if campus_login_lib::config::schedule::is_campus_check_silent(
+        if campus_login_lib::config::check_window::is_campus_check_silent_on(
+            now.weekday().num_days_from_sunday(),
             minutes_now,
             settings.campus_check_start_minutes,
             settings.campus_check_end_minutes,
+            &settings.campus_check_windows,
         ) {
             ctx.emit_log(
                 "启动检测:校园网检测静默期(非检测时段),跳过校园网判定与自动登录",
@@ -1177,15 +1183,21 @@ pub async fn run_check_once(ctx: &CoreCtx) {
     // 桌面 background_check 同款)。默认还原时刻 07:30 就落在静默期内(检测时段 07:40 起),
     // 不放行就等于让用户干等到静默期结束才恢复登录。放行持续到离开静默期,进入检测时段
     // 即清除标记,不跨日残留。
-    let minutes_now = {
+    let (minutes_now, weekday_now) = {
         let now = chrono::Local::now();
-        now.hour() as u16 * 60 + now.minute() as u16
+        (
+            now.hour() as u16 * 60 + now.minute() as u16,
+            now.weekday().num_days_from_sunday(),
+        )
     };
-    let silent_now = settings.campus_check_start_minutes > 0
-        && campus_login_lib::config::schedule::is_campus_check_silent(
+    let silent_now = (!settings.campus_check_windows.is_empty()
+        || settings.campus_check_start_minutes > 0)
+        && campus_login_lib::config::check_window::is_campus_check_silent_on(
+            weekday_now,
             minutes_now,
             settings.campus_check_start_minutes,
             settings.campus_check_end_minutes,
+            &settings.campus_check_windows,
         );
     let mut restore_pass = RESTORE_SILENT_PASS.load(Ordering::Acquire);
     if restore_pass && !silent_now {

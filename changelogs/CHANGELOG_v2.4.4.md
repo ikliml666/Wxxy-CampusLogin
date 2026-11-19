@@ -1,3 +1,26 @@
+### 行为调整：校园网检测时段支持按星期分组，并可一键对齐夜间切换时刻（双端，2026-11-19）
+
+**为什么**：校园网断网时刻按星期分档——周日~周四 23:00、周五六 23:30（见 `config::night_switch::switch_time_for`）。检测时段却只有一组起止，用户只能取折中值：要么工作日深夜在断网后继续探活（每分钟一轮空转 Portal 请求，有账号锁定风险），要么周末在还能上网的半小时里提前收工。用户要求"按星期设置，并与网络适配器夜间切换的时间对齐"。
+
+**改了什么**
+
+- 新增双端共享纯函数模块 `config/check_window.rs`（跨平台可见面，桌面与安卓 path 依赖同一份实现）：`CheckWindowGroup { weekdays, start, end }`（`0=周日 … 6=周六`）与 `is_campus_check_silent_on(weekday, now, start, end, groups)`、`silent_remaining_ms_on(...)`、`group_for`、`window_label`。**`groups` 为空 = 完全沿用旧的单一 `start`/`end`（存量配置零迁移）**；非空时分组即完整定义，**未被任何组覆盖的星期整天不检测**（与"窗口外即静默"的既有语义一致）。
+- `silent_remaining_ms` 从"当天两分支估算"改为逐日推进，能跨过"周五六 23:30 收工 → 周六 07:50 开检"这类按星期变化的窗口；全无覆盖时返回 `None`，交回普通节奏。
+- 配置字段 `campusCheckWindows`（桌面 `Config` + 安卓 `Settings`，camelCase 同契约）。桌面 `validate.rs` 新增 `normalize_campus_check_windows`：丢弃空组与非法星期、星期去重排序、起止钳到 0..=1439。`Config::campus_check_silent_at(weekday, now)` 成为桌面唯一判定入口。
+- 全部消费点改按星期判定：桌面 `monitor/background_check.rs`（巡检静默期 + 静默剩余裁剪）、`monitor/background_task.rs`、`monitor/auto_auth.rs`（开机自启）、无头 `bin/campus-login-core.rs`；安卓 `core/monitor.rs` 的启动自动登录与 `run_check_once`。`infra/local_now_weekday_minutes()` 让星期与分钟取自同一次 `Local::now()`，避免跨零点用今天的星期套昨天的时刻。
+- 无头核心 `CoreConfig` 与凭据指纹（`v1`→`v2`）纳入分组，改时段会触发 core-config.json 重写。
+- 双端各新增 `monitor/CheckWindowDialog.tsx`（星期设置弹窗）与 `lib/checkWindow.ts`（格式化/摘要/夜切时刻纯函数）：逐天一行「开关 + 起止」，保存时把**相邻且起止相同**的星期合并回组（存储口径跟随使用口径）；三个辅助动作——「用第一个已开启的星期铺满」「对齐夜间切换」（结束时刻按当天设为 23:00 / 23:30）「回到统一时段」（写回空分组 = 恢复旧的单一起止）。监测页「校园网检测时间段」行右侧在分组启用后换成当天摘要 + 「星期」按钮，未分组时仍是原来的两个时间框 + 按钮。
+- i18n：双端 zh/en 各补 15 个键（`monitor.checkWeekday*`、`monitor.weekdayMon..Sun`）。
+
+**验证**
+
+- 后端：`cargo test --lib` 712 passed / 0 failed（新增 `config::check_window` 11 条与 `config::validate` 4 条，覆盖空分组等价旧语义、工作日/周末各自终点、未覆盖星期整天静默、同日多组取靠前者、剩余时间跨星期/跳过整天、越界钳制与星期去重）。
+- 安卓：`cargo check --target aarch64-linux-android --all-targets` 通过（需 NDK 环境变量）。
+- 前端：双端 `npx tsc --noEmit --incremental` 通过；`vitest run src/monitor/CheckWindowDialog.test.tsx` 8 passed（相邻合并、关闭星期截断合并、周六周日序列相邻、缺省星期不参与合并，以及取消勾选/改结束时刻/回到统一时段的写回形状）。
+- 浏览器实测（vite mock，双端各一轮）：桌面开启校园网校验 → 点「星期」→ 弹窗七天默认 07:40–23:00 → 把周六周日结束改 23:30 → 保存 → 行内摘要显示当天时段；再打开确认周六周日仍为 23:30（分组已按「周日~周四」「周五六」两组落盘）。安卓同流程，另测「对齐夜间切换」：周四 23:00、周五六 23:30、周日 23:00 一次到位。窄屏实测发现弹窗底部五个按钮一行放不下、「保存」被挤出可视区，改为 `flex-wrap` + `ml-auto` 换行，复查后按钮全部可见。
+- 未验证：真机 APK 与 Windows 实窗观感；跨零点/跨星期的实际巡检时序（需按周观察一次日志）。
+- 说明：桌面 `vitest run` 全量 135 条里 `DashboardPanel.selfCards` 单跑通过、全量并发跑偶发失败（与本改动无关的时序抖动，单独复跑 4 passed）。
+
 ### 缺陷修复：WiFi 管控时间设置双端不可靠 + 安卓描述截断 + 切换时刻误显 07:30（双端前端，2026-11-19）
 
 **为什么**：恢复时刻的编辑控件是原生 `<input type="time">`，在两端各有一个致命伤：安卓 WebView 压根不弹时间选择器，用户无法设置时间；Windows WebView2 里段编辑常只生效一半（能改时改不了分），且设置行受控 `value` 在 change 事件里立即钳位回写，分钟段的编辑被刷新打断——即用户报告的「只能改部分时间」。另两个问题在实测中一并确认：安卓卡片描述带 `truncate` 单行截断，窄屏显示不全；时序条「断开并切换」节点用 `formatRestoreTime` 格式化，而切换时刻 23:00/23:30 ≥ 恢复上限 1379 被判越界回落成默认 07:30，节点常年显示错误时间。

@@ -67,11 +67,14 @@ pub struct CoreConfig {
     pub adapter2: String,
     #[serde(default)]
     pub dual_adapter: bool,
-    /// 校园检查静默窗（分钟数，0 = 无窗口，语义同 monitor::campus_check::is_campus_check_silent）
+    /// 校园检查静默窗（分钟数，0 = 无窗口，语义同 config::check_window::is_campus_check_silent_on）
     #[serde(default)]
     pub campus_check_start_minutes: u16,
     #[serde(default)]
     pub campus_check_end_minutes: u16,
+    /// 按星期分组的检测时段（空 = 沿用上面单一组起止），判定见 config::check_window
+    #[serde(default)]
+    pub campus_check_windows: Vec<crate::config::check_window::CheckWindowGroup>,
 }
 
 /// 从内存明文配置组装核心配置：密码在此时此刻用机器作用域 DPAPI 加密。
@@ -94,6 +97,7 @@ pub fn build_core_config(cfg: &Config) -> Result<CoreConfig, String> {
         dual_adapter: cfg.dual_adapter,
         campus_check_start_minutes: cfg.campus_check_start_minutes,
         campus_check_end_minutes: cfg.campus_check_end_minutes,
+        campus_check_windows: cfg.campus_check_windows.clone(),
     })
 }
 
@@ -214,8 +218,9 @@ pub fn clear_core_config_marker(app_handle: &tauri::AppHandle) {
 /// 核心配置关键字段指纹（FNV-1a 64）：仅做变更检测，非安全用途。
 /// 密码以明文参与摘要——DPAPI 机器作用域密文每次加密都不同，不能直接比密文。
 fn core_config_fingerprint(cfg: &Config) -> String {
-    let parts: [&str; 10] = [
-        "v1",
+    let windows = serde_json::to_string(&cfg.campus_check_windows).unwrap_or_default();
+    let parts: [&str; 11] = [
+        "v2",
         &cfg.user,
         &cfg.password,
         &cfg.operator,
@@ -225,6 +230,7 @@ fn core_config_fingerprint(cfg: &Config) -> String {
         &format!("{}", cfg.dual_adapter),
         &format!("{}", cfg.campus_check_start_minutes),
         &format!("{}", cfg.campus_check_end_minutes),
+        &windows,
     ];
     let src = parts.join("");
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;

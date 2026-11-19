@@ -100,7 +100,7 @@ pub(crate) fn run_background_check_blocking(
 
     let (a1, a2) = crate::network::find_dual_adapters(&adapters, &config, &adapter1_name, &adapter2_name);
 
-    let now_min = crate::infra::local_now_minutes();
+    let (now_weekday, now_min) = crate::infra::local_now_weekday_minutes();
     // 出站切换态（三份快照任一非空）：巡检整体跳过（portal 检测走热点出站必失败，
     // 会累计触发 MAC 重置提权与整夜告警；见 decisions/night-outbound-switch）。下一拍（30s）恢复。
     let switch_active = crate::config::outbound_switch::outbound_restore_active(
@@ -114,11 +114,7 @@ pub(crate) fn run_background_check_blocking(
         crate::log_debug!("background", "出站切换态，跳过本轮巡检");
         return CheckOutcome::Skipped;
     }
-    let campus_silent = crate::monitor::campus_check::is_campus_check_silent(
-        now_min,
-        config.campus_check_start_minutes,
-        config.campus_check_end_minutes,
-    );
+    let campus_silent = config.campus_check_silent_at(now_weekday, now_min);
     // 还原后静默期放行（持续到本轮静默期结束）：离开静默期即清除标记，放行期到此为止
     let mut forced = RESTORE_SILENT_PASS.load(Ordering::Acquire);
     if forced && !campus_silent {
@@ -729,18 +725,19 @@ impl CheckTrigger {
 static SILENT_EXIT_PENDING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-/// 静默期剩余毫秒（仅处于静默期时返回 Some），用于把下一拍巡检提前到静默期结束时刻。
-pub(crate) fn silent_remaining_ms(now_min: u16, start: u16, end: u16) -> Option<u64> {
-    if !crate::monitor::campus_check::is_campus_check_silent(now_min, start, end) {
-        return None;
-    }
-    let remaining_min = if now_min < start {
-        start - now_min
-    } else {
-        // end>start 且 now>=end：次日 start 才算离开静默
-        1440 - now_min + start
-    };
-    Some(remaining_min as u64 * 60_000)
+/// 静默期剩余毫秒（仅处于静默期时返回 Some），用于把下一拍巡检提前到开检时刻。
+///
+/// 实现下沉到双端共享面 [`crate::config::check_window::silent_remaining_ms_on`]：
+/// 按星期分组的时段下，「下一次开检」可能落在几天之后（当天没有命中组），
+/// 逐日推进的算法必须与判定函数、安卓端共用同一份。
+pub(crate) fn silent_remaining_ms(config: &crate::config::Config, weekday: u32, now_min: u16) -> Option<u64> {
+    crate::config::check_window::silent_remaining_ms_on(
+        weekday,
+        now_min,
+        config.campus_check_start_minutes,
+        config.campus_check_end_minutes,
+        &config.campus_check_windows,
+    )
 }
 
 pub async fn run_background_check_with(
@@ -776,17 +773,19 @@ mod tests {
         CAMPUS_FAIL_EXIT_THRESHOLD,
     };
 
-    /// 静默期剩余只用于把下一拍提前到检测时段起点，语义必须与 is_campus_check_silent 互补
+    /// 静默期剩余只用于把下一拍提前到检测时段起点，语义必须与静默判定互补
     #[test]
     fn 静默剩余_与静默判定互补() {
+        let mut config = crate::config::Config::default();
         // 07:40 起检、23:00 收工：03:00 静默，距 07:40 还有 280 分钟
-        assert_eq!(silent_remaining_ms(180, 460, 1380), Some(280 * 60_000));
+        assert_eq!(silent_remaining_ms(&config, 1, 180), Some(280 * 60_000));
         // 23:30 静默，距次日 07:40 还有 490 分钟
-        assert_eq!(silent_remaining_ms(1410, 460, 1380), Some(490 * 60_000));
+        assert_eq!(silent_remaining_ms(&config, 1, 1410), Some(490 * 60_000));
         // 检测时段内不裁剪
-        assert_eq!(silent_remaining_ms(600, 460, 1380), None);
+        assert_eq!(silent_remaining_ms(&config, 1, 600), None);
         // start=0 为禁用门控：全程不静默
-        assert_eq!(silent_remaining_ms(0, 0, 0), None);
+        config.campus_check_start_minutes = 0;
+        assert_eq!(silent_remaining_ms(&config, 1, 0), None);
     }
 
     /// 手动触发必须绕过静默期门控，但静默期内不得自动登录

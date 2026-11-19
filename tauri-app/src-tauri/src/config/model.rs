@@ -224,6 +224,10 @@ pub struct Config {
     /// 校园网检测时段终点（分钟数，1380=23:00；<= 开始时间时退化为仅开始时间限制）
     #[serde(rename = "campusCheckEndMinutes", default = "default_campus_check_end_minutes")]
     pub campus_check_end_minutes: u16,
+    /// 按星期分组的检测时段：非空时覆盖上面两项单一起止，未被任何组覆盖的星期
+    /// 整天不检测。判定见 config::check_window（双端单点）
+    #[serde(rename = "campusCheckWindows", default)]
+    pub campus_check_windows: Vec<crate::config::check_window::CheckWindowGroup>,
     /// 每日定时登录时刻（分钟数，1440=禁用哨兵、0=真实的 00:00；到点即触发含过点补触发，判定见 config::schedule）
     #[serde(rename = "scheduledLoginMinutes", default)]
     pub scheduled_login_minutes: u16,
@@ -432,6 +436,8 @@ impl Default for Config {
             campus_exit_end_minutes: 1380,
             campus_check_start_minutes: 460,
             campus_check_end_minutes: 1380,
+            // 空 = 沿用上面单一组起止（存量配置零迁移）
+            campus_check_windows: Vec::new(),
             // 每日定时登录/注销默认禁用（2026-09-20 起禁用哨兵为 1440，
             // 0=真实的 00:00 时刻；存量 0 由 v4→v5 迁移刷为 1440）
             scheduled_login_minutes: 1440,
@@ -463,6 +469,19 @@ fn default_outbound_backoff_max_secs() -> u32 { 300 }
 fn default_outbound_night_target() -> String { "WLAN".to_string() }
 
 impl Config {
+    /// 校园网检测静默期判定（按星期分组，双端单点实现见 config::check_window）。
+    ///
+    /// 调用方必须传入同一时刻取到的星期与分钟（`infra::local_now_weekday_minutes`）。
+    pub fn campus_check_silent_at(&self, weekday: u32, now_minutes: u16) -> bool {
+        crate::config::check_window::is_campus_check_silent_on(
+            weekday,
+            now_minutes,
+            self.campus_check_start_minutes,
+            self.campus_check_end_minutes,
+            &self.campus_check_windows,
+        )
+    }
+
     /// 出站掩码（唯一出口约定：所有把 Config 发往前端的路径必须经由本方法，
     /// 不得手工逐字段打码——漏一个字段就是一次明文泄露，account 三命令即前车之鉴）。
     /// 空值保留（未设置语义），非空一律替换为 MASK。

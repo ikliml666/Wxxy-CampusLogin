@@ -6,10 +6,12 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Play, Square, Clock, Radar, Settings2, Rocket, Wifi, RefreshCw, LogIn, LogOut, AlarmClock, HelpCircle, AlertTriangle } from 'lucide-react'
+import { Play, Square, Clock, Radar, Settings2, Rocket, Wifi, RefreshCw, LogIn, LogOut, AlarmClock, HelpCircle, AlertTriangle, CalendarDays } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { campusNameList } from '@/lib/campus'
+import { daySummary, hasGroups } from '@/lib/checkWindow'
+import { CheckWindowDialog } from './CheckWindowDialog'
 import { getRefreshIconClass } from '@/shared/RefreshButton'
 import React, { memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -76,6 +78,12 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
     }
     setIntervalDraft(null)
   }
+
+  // 星期设置弹窗：分组下每天起止可不同，行内两个时间框表达不了，改由弹窗编辑
+  const [checkWindowOpen, setCheckWindowOpen] = useState(false)
+  // 未分组时行内仍按单一起止显示/编辑，兜底值与后端默认对齐
+  const startMinutes = config.campusCheckStartMinutes ?? 460
+  const endMinutes = config.campusCheckEndMinutes ?? 1380
 
   return (
     <div className="space-y-4">
@@ -273,7 +281,8 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                   </div>
                 </div>
                 {/* 检测时间段:安卓后端 run_check_once 同样消费 campusCheckStart/EndMinutes,两平台均显示 */}
-                {/* 右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠 */}
+                {/* 未分组时右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠;
+                    启用按星期分组后右侧换成当天摘要 + 星期按钮,不再有两个时间框的宽度问题 */}
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center shrink-0">
@@ -283,40 +292,56 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                       <Label htmlFor="campus-check-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusCheckTimeRange')}</Label>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <Input
-                      id="campus-check-start-time"
-                      type="time"
-                      value={(() => {
-                        const m = config.campusCheckStartMinutes ?? 460
-                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                      })()}
-                      onChange={e => {
-                        const [h, min] = e.target.value.split(':').map(Number)
-                        if (!isNaN(h) && !isNaN(min)) {
-                          onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                        }
-                      }}
-                      className="w-32 h-7 text-sm font-mono"
-                    />
-                    <span className="text-xs text-muted-foreground">–</span>
-                    <Input
-                      type="time"
-                      aria-label={t('monitor.campusCheckWindowEnd')}
-                      value={(() => {
-                        // 兜底值与后端 Settings::default / DEFAULT_CONFIG 对齐(1380=23:00),避免字段缺失时 UI 显示 00:00 而后端按 23:00 判定
-                        const m = config.campusCheckEndMinutes ?? 1380
-                        return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
-                      })()}
-                      onChange={e => {
-                        const [h, min] = e.target.value.split(':').map(Number)
-                        if (!isNaN(h) && !isNaN(min)) {
-                          onUpdateConfig({ campusCheckEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
-                        }
-                      }}
-                      className="w-32 h-7 text-sm font-mono"
-                    />
-                  </div>
+                  {hasGroups(config.campusCheckWindows) ? (
+                    <span className="text-sm font-mono tabular-nums text-muted-foreground shrink-0">
+                      {daySummary(new Date().getDay(), config.campusCheckWindows, startMinutes, endMinutes, { allDayOff: t('monitor.checkWeekdayAllDayOff') })}
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Input
+                        id="campus-check-start-time"
+                        type="time"
+                        value={(() => {
+                          const m = config.campusCheckStartMinutes ?? 460
+                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                        })()}
+                        onChange={e => {
+                          const [h, min] = e.target.value.split(':').map(Number)
+                          if (!isNaN(h) && !isNaN(min)) {
+                            onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                          }
+                        }}
+                        className="w-32 h-7 text-sm font-mono"
+                      />
+                      <span className="text-xs text-muted-foreground">–</span>
+                      <Input
+                        type="time"
+                        aria-label={t('monitor.campusCheckWindowEnd')}
+                        value={(() => {
+                          // 兜底值与后端 Settings::default / DEFAULT_CONFIG 对齐(1380=23:00),避免字段缺失时 UI 显示 00:00 而后端按 23:00 判定
+                          const m = config.campusCheckEndMinutes ?? 1380
+                          return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+                        })()}
+                        onChange={e => {
+                          const [h, min] = e.target.value.split(':').map(Number)
+                          if (!isNaN(h) && !isNaN(min)) {
+                            onUpdateConfig({ campusCheckEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
+                          }
+                        }}
+                        className="w-32 h-7 text-sm font-mono"
+                      />
+                    </div>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1 text-[11px] shrink-0"
+                    onClick={() => setCheckWindowOpen(true)}
+                    title={t('monitor.checkWeekdayTitle')}
+                  >
+                    <CalendarDays className="h-3 w-3" />
+                    {t('monitor.checkWeekdayButton')}
+                  </Button>
                 </div>
                 {/* 定时登录/定时注销(P2-32):安卓 monitor_loop 每拍判定,与桌面同语义 */}
                 {/* 窄屏右侧 time input 会把左侧描述挤成竖排,同时间段行:窄屏纵向堆叠 */}
@@ -423,6 +448,14 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
           </CardContent>
         </AnimatedCard>
       </div>
+      <CheckWindowDialog
+        open={checkWindowOpen}
+        onOpenChange={setCheckWindowOpen}
+        groups={config.campusCheckWindows ?? []}
+        startMinutes={startMinutes}
+        endMinutes={endMinutes}
+        onChange={groups => onUpdateConfig({ campusCheckWindows: groups })}
+      />
     </div>
   )
 })

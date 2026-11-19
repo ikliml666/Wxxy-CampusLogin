@@ -1,3 +1,4 @@
+pub mod check_window;
 pub mod model;
 pub mod night_switch;
 pub mod outbound_switch;

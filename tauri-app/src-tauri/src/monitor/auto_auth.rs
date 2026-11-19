@@ -474,19 +474,22 @@ pub fn run_auto_login_on_start(app_handle: &AppHandle) {
         let (adapter1_name, adapter2_name) = crate::network::resolve_adapter_names(&adapters, &config);
 
         if config.enable_network_name_check {
-            let now_min = crate::infra::local_now_minutes();
-            let skip_campus = crate::monitor::campus_check::is_campus_check_silent(now_min, config.campus_check_start_minutes, config.campus_check_end_minutes);
+            let (now_weekday, now_min) = crate::infra::local_now_weekday_minutes();
+            let skip_campus = config.campus_check_silent_at(now_weekday, now_min);
 
             if skip_campus {
-                let hour = config.campus_check_start_minutes / 60;
-                let minute = config.campus_check_start_minutes % 60;
                 // 静默期（检测时段外）连自动登录一并跳过：与后台巡检同口径
                 // （2026-10-25 修复，见 background_check.rs 同名注释）——开机自启若仍在
                 // 静默期发起 Portal 检测/登录，会与巡检形成两条整夜空转的认证请求源。
                 crate::log_info!(
                     "auto_login",
-                    "开机自启: 校园网检测静默期（不在 {:02}:{:02} 起的检测时段内），跳过校园网环境验证与自动登录",
-                    hour, minute
+                    "开机自启: 校园网检测静默期（今日检测时段 {}），跳过校园网环境验证与自动登录",
+                    crate::config::check_window::window_label(
+                        now_weekday,
+                        config.campus_check_start_minutes,
+                        config.campus_check_end_minutes,
+                        &config.campus_check_windows,
+                    )
                 );
                 s.network.update(|s| s.on_campus_network = true);
                 return;
