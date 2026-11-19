@@ -68,6 +68,9 @@ fn get_wireless_ssid_uncached() -> Result<Option<String>, String> {
         // 免定位兜底，按优先级：NLA COM（实时连接状态）→ WLAN 事件日志（最近事件推断）。
         // 2026-11-18 本机实测：netsh 被拒的同一台机器上两者均给出真实 SSID；
         // NLA 反映实时状态无事件日志的陈旧读数缺陷，故优先。
+        // NLA COM 依赖 windows crate（定义处 cfg(windows)）；安卓交叉编译时跳过，
+        // 该分支本就只在 netsh 输出含位置权限提示（Windows 行为）时可达。
+        #[cfg(target_os = "windows")]
         if let Ok(v) = ssid_from_nla() {
             return Ok(v);
         }
@@ -420,6 +423,7 @@ mod tests {
 
     /// 真机验证（本机 Win11 位置服务关闭 + WiFi 连接中）：
     /// NLA COM 通道应给出与实际一致的 SSID。
+    #[cfg(target_os = "windows")]
     #[test]
     #[ignore = "需真实 Windows 环境（无线连接中）"]
     fn nla通道_位置关闭时返回真实ssid() {

@@ -1,3 +1,17 @@
+### 缺陷修复：安卓一键出包因 NLA 兜底调用缺 cfg 门控而 E0425 失败（2026-11-19）
+
+**为什么**：`network/subnet.rs` 的 SSID 免定位兜底链新增 `ssid_from_nla()`（NLA COM，定义处已 `#[cfg(target_os = "windows")]`），但 `get_wireless_ssid_uncached` 里的调用点未同步门控。安卓 crate 经 Cargo path 依赖桌面协议核心 crate，交叉编译 aarch64-linux-android 时编到该调用点报 `error[E0425]: cannot find function ssid_from_nla in this scope`，`build-apk.ps1` 在 tauri android build 一步中断，无法出包。
+
+**改了什么**（`tauri-app/src-tauri/src/network/subnet.rs`，协议核心单点，安卓自动继承）
+
+- `ssid_from_nla()` 调用块补 `#[cfg(target_os = "windows")]`，与定义处一致；该分支只在 netsh 输出含位置权限提示（Windows 行为）时可达，非 Windows 编译期直接裁掉，运行行为零变化。
+- 同名真机测试 `nla通道_位置关闭时返回真实ssid` 同步补 `#[cfg(target_os = "windows")]`（`--all-targets` 在非 Windows 目标下同样会因引用 windows-only 函数而 E0425）。
+
+**验证**
+
+- `cargo test`（桌面 Windows host）exit 0 全绿（基线 lib 693 + 集成 6）。
+- `pwsh android/build-apk.ps1` 完整重跑成功：Rust 交叉编译 2m08s 通过，出包 `Wxxy-CampusLogin_2.4.3.apk`（22.74 MB），gradle release signingConfig 签名校验通过。
+
 ### 前端优化：新手指引卡堆取消统一卡高，绑定运营商步骤重排（双端，2026-11-19）
 
 **为什么**：卡堆原先让所有卡取「内容最多的那步」的高度（绑定运营商步），再整体卡在 `min(630/664px, 视口-120px)` 上限。代价是一边给欢迎/完成步留出大片底部空白，一边**绑定步本身仍装不下**——状态胶囊 + 运营商下拉两套重复的运营商入口、大字号选中提示、下拉字段把内容顶出卡片，绑定按钮掉到折叠线下，用户必须先滚动才看得到主操作。
