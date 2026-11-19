@@ -54,9 +54,14 @@ pub fn get_log_retention_days() -> u32 {
     campus_login_lib::infra::logger::get_log_retention_days()
 }
 
+/// 设置日志保留天数并持久化:先落盘再生效(与 set_log_level 同语义)。
+/// 此前只写内存,UI 进程重启后回落默认 7 天
 #[tauri::command]
-pub fn set_log_retention_days(days: u32) {
+pub async fn set_log_retention_days(app: tauri::AppHandle, days: u32) -> Result<(), String> {
+    let persisted = days;
+    crate::config_state::update(&app, move |s| s.log_retention_days = persisted).await?;
     campus_login_lib::infra::logger::set_log_retention_days(days);
+    Ok(())
 }
 
 /// 切换日志等级并持久化:先落盘再生效(与桌面 set_log_level 同语义)。

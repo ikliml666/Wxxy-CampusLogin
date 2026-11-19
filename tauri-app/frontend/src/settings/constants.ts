@@ -101,6 +101,17 @@ export const operatorLabelKey = (suffix: string | null | undefined): string | un
     ? undefined
     : ISP_OPTIONS.find((o) => o.value === (suffix === '' ? '__default__' : suffix))?.labelKey
 
+/** query_bind_status 返回的三家运营商键 */
+export type OperatorStatusKey = 'telecom' | 'unicom' | 'cmcc'
+/** 绑定状态展示/检测顺序（ISP_OPTIONS 剔除学校默认项后的顺序） */
+export const OPERATOR_STATUS_ORDER: OperatorStatusKey[] = ['telecom', 'unicom', 'cmcc']
+/** 绑定状态键反查回 ISP 后缀值 */
+export const OPERATOR_VALUE_BY_KEY: Record<OperatorStatusKey, string> = {
+  telecom: '@telecom',
+  unicom: '@unicom',
+  cmcc: '@cmcc',
+}
+
 export const THEME_OPTIONS = [
   { id: 'default' as ThemeName, label: '默认蓝', labelKey: 'settings.defaultBlue', color: '#3b82f6' },
   { id: 'vibrant' as ThemeName, label: '活力紫', labelKey: 'settings.vibrantPurple', color: '#a855f7' },

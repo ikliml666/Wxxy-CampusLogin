@@ -24,6 +24,7 @@ import gsap from 'gsap'
 import { m, AnimatePresence } from 'framer-motion'
 import { createLogEntryVariants } from '@/lib/animations'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
+import { useConfigStore } from '@/hooks/useConfigStore'
 
 interface LogPanelProps {
   api: {
@@ -178,6 +179,9 @@ export const LogPanel = memo(function LogPanel({ api, initialLogLevel, initialLo
       const applied = await api.setLogLevel(level)
       if (!mountedRef.current) return
       setLogLevel(applied || level)
+      // 回写 store：LogPanel 卸载后重挂载（切换标签页）从 initialLogLevel 取值，
+      // 不回写会回落到 App 启动时的等级快照（历史缺陷：重进标签页恢复成 warning）
+      useConfigStore.setState({ initLogLevel: applied || level })
       addToast(t('log.levelChanged', { level: t(`log.level.${applied || level}`) }), 'info')
       fetchLogs(true)
     } catch (e: unknown) {
@@ -192,6 +196,9 @@ export const LogPanel = memo(function LogPanel({ api, initialLogLevel, initialLo
     setRetentionDays(days)
     try {
       await api.setLogRetentionDays?.(days)
+      if (!mountedRef.current) return
+      // 同 logLevel：回写 store，防止重挂载回落启动快照
+      useConfigStore.setState({ initLogRetentionDays: days })
     } catch (e: unknown) {
       // 乐观更新失败：回滚本地值并提示
       if (!mountedRef.current) return

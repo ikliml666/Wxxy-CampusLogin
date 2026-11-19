@@ -855,6 +855,19 @@
       "accountSecondary": "副适配器在线账号 {{account}}"
     }
   },
+  "operatorMismatch": {
+    "title": "登录运营商可能错误",
+    "detected": "监测到当前以「无锡学院（校园网默认线路）」在线，与您配置的登录线路「{{configured}}」不符，可能登录错误。",
+    "boundQuerying": "正在查询账户绑定的运营商…",
+    "bound": "已查询到您的账户绑定运营商：{{bound}}",
+    "boundNone": "未查询到账户绑定的运营商，请先在自助服务确认绑定状态。",
+    "boundFailed": "绑定运营商查询失败：{{msg}}",
+    "acknowledge": "了解",
+    "fix": "改为{{bound}}并重新登录",
+    "fixStarted": "已切换为「{{bound}}」，正在注销并重新登录",
+    "fixFailed": "切换运营商重新登录未完成：{{msg}}",
+    "logoutIgnored": "注销未成功（{{msg}}），继续尝试全新登录"
+  },
   "dashboard": {
     "quickActions": "快捷操作",
     "dhcpRenew": "DHCP续租",
