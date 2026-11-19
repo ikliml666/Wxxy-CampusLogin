@@ -3,17 +3,16 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "4be056c53c04af4a916a613797975b5127d15687",
-    "headCommit": "8739849b586cf749c8516d8dbe203044c8aa135f"
+    "headCommit": "5bf8489e015685af967ce0b3ac0f7da9571edc08"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "4be056c53c04af4a916a613797975b5127d15687",
-    "headCommit": "8739849b586cf749c8516d8dbe203044c8aa135f",
+    "headCommit": "5bf8489e015685af967ce0b3ac0f7da9571edc08",
     "committed": [],
     "staged": [],
     "unstaged": [
       "android/frontend/src/settings/OnboardingWizard.tsx",
-      "android/frontend/tauri-mock.js",
       "changelogs/CHANGELOG_v2.4.4.md",
       "tauri-app/frontend/src/settings/OnboardingWizard.tsx"
     ],
@@ -24,7 +23,6 @@
   },
   "unconsumed": [
     "android/frontend/src/settings/OnboardingWizard.tsx",
-    "android/frontend/tauri-mock.js",
     "changelogs/CHANGELOG_v2.4.4.md",
     "tauri-app/frontend/src/settings/OnboardingWizard.tsx"
   ],
@@ -35,10 +33,10 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 d0f3566 与本次 cw 基线 4be056c 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "工作区未提交改动已合成临时 commit 3a42571dc76b（4 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwnfek3y-0-native（66 个文件）",
-    "本轮把 4 个未提交源码改动一并写进产物（快照 3a42571dc76b）：android/frontend/src/settings/OnboardingWizard.tsx、android/frontend/tauri-mock.js、changelogs/CHANGELOG_v2.4.4.md、tauri-app/frontend/src/settings/OnboardingWizard.tsx"
+    "丢弃 1 条已不存在且从未提交的旧账（android/frontend/tauri-mock.js）——只有 committed 才算消化的规则会让它们被永久携带，白跑整轮",
+    "工作区未提交改动已合成临时 commit cbcf1fb35556（3 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwngh58f-1-native（66 个文件）",
+    "本轮把 1 个未提交源码改动一并写进产物（快照 cbcf1fb35556）：android/frontend/src/settings/OnboardingWizard.tsx"
   ],
-  "updatedAt": "2026-11-19T10:55:00.151Z"
+  "updatedAt": "2026-11-19T11:26:54.750Z"
 }
