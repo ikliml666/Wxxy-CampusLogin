@@ -3,13 +3,14 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "812e45f2b5c6d56c76aec956da06f444af82bff3",
-    "headCommit": "f285609b878a05039e626ec3121932d3e1468219"
+    "headCommit": "100c1e1e778dc3071fca344feee40236acce29ee"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "812e45f2b5c6d56c76aec956da06f444af82bff3",
-    "headCommit": "f285609b878a05039e626ec3121932d3e1468219",
+    "headCommit": "100c1e1e778dc3071fca344feee40236acce29ee",
     "committed": [
+      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/WifiCurfewRunner.kt",
       "changelogs/CHANGELOG_v2.4.4.md",
       "tauri-app/src-tauri/src/monitor/wifi_curfew.rs"
     ],
@@ -28,8 +29,7 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 10c9858 与本次 cw 基线 812e45f 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwmv2g4d-1-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwmvnx8r-2-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-19T01:18:42.174Z"
+  "updatedAt": "2026-11-19T01:35:20.209Z"
 }
