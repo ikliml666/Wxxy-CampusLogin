@@ -16,6 +16,22 @@
 - 双端 `npx tsc --noEmit --incremental` 通过；mock 注入已完整还原（index.html git diff 干净）。
 - 未验证：真机 APK 与 Windows 实窗观感。
 
+### 缺陷修复：就寝守则放行网络连不上时整夜静默无感，补每日一次用户通知（桌面，2026-11-19）
+
+**为什么**：11-18 晚实测：位置服务关闭使准备窗口连不上放行热点（v2.4.3 每 30s 一条失败 WARN 共 67 条），全候选失败后转入静默期只有 debug 日志——用户次日只看到"夜间没切过去"，却没有任何系统通知指出原因。更关键的是本机 NLA 实测发现放行名单配的是 profile 名 `Realme GT 8 Pro`、热点实际 SSID 已漂移为 `Realme GT 8 Pro 103`（profile 按旧 SSID 找网必连不上，`ssid_allowed` 按 SSID 匹配名单也永不认账）——这类配置漂移此前完全无感。
+
+**改了什么**（`tauri-app/src-tauri/src/monitor/wifi_curfew.rs`，单文件，桌面执行器行为）
+
+- 新增 `notify_curfew_issue_once_per_day`（swap 当日去重，与出站切换的 `notify_outbound_issue_once_per_day` 同模式）：
+- 全候选失败进入静默期时发一次系统通知，文案明确三种可能原因（热点改名/不在范围/凭据失效）与自救动作（系统 WLAN 设置重新连接一次以更新配置）；
+- 「放行名单里的网络在本机都没有保存过」分支此前每 30s 一条 WARN 刷屏且无通知，改为日志保留 + 每日一次系统通知（先在系统里连一次）。
+
+**验证**
+
+- 位置服务关闭下的直调路径本机实测：`WlanOpenHandle`/`WlanEnumInterfaces` OK，`WlanConnect`（profile 模式，幂等连接当前网络）返回 0——不依赖位置服务的连接路线成立（配合 main 已有的 NLA SSID 读取与失败抑制机制）；`WlanQueryInterface`/`netsh show interfaces` 确认被位置管控拦截（错误 5）。
+- 桌面 `cargo test` 全绿（0 failed），安卓 `cargo check --target aarch64-linux-android --all-targets` 通过。
+- 未验证：真实窗口期的通知触发（需夜间窗口观察一次）。
+
 ### 缺陷修复：夜间切换复写批包含已禁用竞争卡，每夜稳定报「跃点设置失败」（桌面后端，2026-11-19）
 
 **为什么**：夜间切换的事务顺序是「首写跃点 → 禁用名单卡 → 复写」。2026-11-17 把切换语义改为「禁用除目标卡外所有在线网卡」后，**竞争卡也进入下线名单**；但复写批的旧口径只排除原出口卡（注释原话「复写不包含已禁用的原卡」）。Windows 机制上，禁用即拆除接口的 IP 栈，接口行随之从 GetIpInterfaceTable 消失——复写仍对已禁用的竞争卡编码跃点条目，helper 枚举不到接口行 → 「未找到接口行 family=2/23」→ 整批失败。用户现场：每夜稳定报「WLAN 跃点设置失败（2 条失败）： guid={0ACD22E8…}（实为竞争卡 USB 以太网 2）」，随后 60s 退避重试循环。
