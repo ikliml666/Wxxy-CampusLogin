@@ -171,11 +171,12 @@ static CONNECT_FAILED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec
 /// 并记入 [CONNECT_FAILED]。
 static CONNECT_PENDING: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-/// 从候选里剔除本窗口已失败的网络（大小写不敏感）
+/// 从候选里剔除本窗口已失败的网络（失败记录按 to_lowercase 存储与比对，
+/// Unicode 折叠一致，非 ASCII 的 SSID 也能正确剔除）
 fn filter_failed(candidates: Vec<String>, failed: &[String]) -> Vec<String> {
     candidates
         .into_iter()
-        .filter(|c| !failed.iter().any(|f| f.eq_ignore_ascii_case(c)))
+        .filter(|c| !failed.contains(&c.to_lowercase()))
         .collect()
 }
 
@@ -186,22 +187,26 @@ fn connect_failed_snapshot() -> Vec<String> {
         .unwrap_or_else(|e| e.into_inner().clone())
 }
 
-fn set_pending(ssid: &str) {
-    if let Ok(mut p) = CONNECT_PENDING.lock() {
-        *p = Some(ssid.to_string());
+/// 计入失败候选（小写存储去重）。锁中毒时沿用仓库惯例 recover 毒锁而不是
+/// 静默跳过——抑制状态丢失会让失败候选重新进入每拍重试，等于抑制失效
+fn push_failed(ssid: &str) {
+    let lower = ssid.to_lowercase();
+    let mut failed = CONNECT_FAILED.lock().unwrap_or_else(|e| e.into_inner());
+    if !failed.contains(&lower) {
+        failed.push(lower);
     }
+}
+
+fn set_pending(ssid: &str) {
+    *CONNECT_PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some(ssid.to_string());
 }
 
 /// 命令本身报错：直接计入失败并清掉对应 pending
 fn mark_failed(ssid: &str) {
-    let mut failed = CONNECT_FAILED.lock().unwrap_or_else(|e| e.into_inner());
-    if !failed.iter().any(|f| f.eq_ignore_ascii_case(ssid)) {
-        failed.push(ssid.to_lowercase());
-    }
-    if let Ok(mut p) = CONNECT_PENDING.lock() {
-        if p.as_deref() == Some(ssid) {
-            *p = None;
-        }
+    push_failed(ssid);
+    let mut pending = CONNECT_PENDING.lock().unwrap_or_else(|e| e.into_inner());
+    if pending.as_deref() == Some(ssid) {
+        *pending = None;
     }
 }
 
@@ -212,24 +217,18 @@ fn take_pending_and_mark_failed() {
         .unwrap_or_else(|e| e.into_inner())
         .take();
     if let Some(ssid) = pending {
-        let mut failed = CONNECT_FAILED.lock().unwrap_or_else(|e| e.into_inner());
-        if !failed.iter().any(|f| f.eq_ignore_ascii_case(&ssid)) {
-            failed.push(ssid.to_lowercase());
-        }
+        push_failed(&ssid);
     }
 }
 
 /// 连上放行网络或出窗：轮转下标、失败记录、待确认候选全部归零
 fn reset_connect_state() {
-    if let Ok(mut cursor) = CONNECT_CURSOR.lock() {
-        *cursor = 0;
-    }
-    if let Ok(mut failed) = CONNECT_FAILED.lock() {
-        failed.clear();
-    }
-    if let Ok(mut pending) = CONNECT_PENDING.lock() {
-        *pending = None;
-    }
+    *CONNECT_CURSOR.lock().unwrap_or_else(|e| e.into_inner()) = 0;
+    CONNECT_FAILED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+    *CONNECT_PENDING.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 /// 放行名单里那些「系统已保存、可以直接连」的候选，保持名单顺序。
@@ -393,8 +392,9 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
     let candidates = filter_failed(saved_candidates, &connect_failed_snapshot());
     if candidates.is_empty() {
         // 都试过且没连上：继续重试只会把用户正在用的网络反复踢断，停手；
-        // 连上放行网络或出窗时失败记录自动重置
-        crate::log_info!(
+        // 连上放行网络或出窗时失败记录自动重置。静息状态（无动作发生）用
+        // debug，避免整夜每 30s 一条 info 刷屏
+        crate::log_debug!(
             "wifi_curfew",
             "放行网络本窗口内都已尝试且未连上，暂停切换尝试（出窗自动重置）"
         );
@@ -481,6 +481,18 @@ mod tests {
         // 已失败的剔除（大小写不敏感），没失败的保留顺序
         assert_eq!(filter_failed(candidates, &failed), vec!["campus".to_string()]);
         assert!(filter_failed(vec!["campus".to_string()], &failed).len() == 1);
+    }
+
+    #[test]
+    fn filter_failed_matches_non_ascii_ssids() {
+        // 非 ASCII SSID：to_lowercase 折叠全角字母，eq_ignore_ascii_case 不折，
+        // 比对必须走小写路径否则中文/全角 SSID 的失败记录剔除失效
+        let failed = vec!["网络ａ".to_string()];
+        assert!(filter_failed(vec!["网络Ａ".to_string()], &failed).is_empty());
+        assert_eq!(
+            filter_failed(vec!["网络Ｂ".to_string()], &failed),
+            vec!["网络Ｂ".to_string()]
+        );
     }
 
     #[test]

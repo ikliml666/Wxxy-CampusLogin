@@ -1,3 +1,15 @@
+**评审修订（2026-11-19）**：双轴代码审查（Standards/Spec 独立子代理）产出 11 条发现，主 agent 逐条核实后修复 7 条实质项：
+① 评测基线欠账：`cargo test` 全绿基线自 2026-10-25（548）后未按口径维护，本轮按实测校准为 **699（lib 693 + 集成 6）**并写入 `decisions/verification-baseline`；前文「692 passed」按该口径应理解为 lib 单目标数；
+② Windows 失败抑制的毒锁处理自相矛盾（部分 `if let Ok` 静默跳过、部分 into_inner）→ 统一 recover 毒锁，抑制状态不因锁毒丢失；
+③ Windows 失败比对 `eq_ignore_ascii_case` 与存储 `to_lowercase` 口径不一致，非 ASCII（中文/全角）SSID 剔除失效 → 统一小写存储与比对，新增单测 `filter_failed_matches_non_ascii_ssids`（全角字母样例）锁定；
+④ Windows `mark_failed`/`take_pending_and_mark_failed` 重复「不存在则小写追加」→ 抽 `push_failed` 单点；
+⑤ Windows 「暂停切换尝试」日志每 30s 一条 info 整夜刷屏 → 降 debug（静息无动作不违背可追溯）；
+⑥ 安卓快照差集错误：排除「放行名单全部 SSID 的 netIds」，但 disableOthers 实际只保留受理的那个 netId——放行 SSID 的其它安全模式配置行（wpa2/wpa3 双行）被禁却不在恢复集，出窗永不恢复 → 改全量快照 + 受理成功的 netId 逐个移出（`snapshotAllNetIds`/`removeSwitchDisabled`）；
+⑦ 安卓 dryRun 非零副作用：试运行会持久化快照且不回滚 → 快照/守卫/失败记录全部 `!dryRun` 包裹。
+另补双端行为对称性：安卓切换此前无失败抑制（放行不可达时每拍重试=每拍禁/放回用户网络），与桌面 `CONNECT_FAILED` 同语义补 `switch_failed_targets`（连上放行网络或出窗清空）。
+未修（判断题/已知边界）：安卓恢复 `enableNetwork(id, false)` 无法区分「本程序禁的」与「用户自禁的」，全量恢复会把用户自禁网络一并解禁（快照机制固有，出窗一次性发生，用户可再手动禁）；Windows PENDING 单槽在「连接成功但 SSID 查询连续失败两拍」时会误记失败（该候选整窗口放弃，误判窗口极小）。
+验证：桌面 `cargo test` **lib 693 + 集成 6 全绿（0 failed）**；安卓插件 `gradlew :tauri-plugin-campus-monitor-service:compileDebugKotlin` BUILD SUCCESSFUL（junction 短路径编译，基线同前）。
+
 ### 缺陷修复：桌面 WiFi 管控把名单外网络一律断开（2026-11-19，Windows）
 
 **为什么**：用户实测（Windows 版）：开启 WiFi 管控后，连接着的热点自己断开。根因在 `monitor/wifi_curfew.rs` 断开判据用错维度：断开动作只检查「当前网络不在放行名单」（`!already_allowed`）就执行 `netsh wlan disconnect`，**没检查它是否真的命中断开名单**（`ssid_blocked`）——而同一函数 25 行之上的 manual 化循环用的恰是 `ssid_blocked`，两处判据不一致就是 bug 的形状。后果（守则窗口/准备窗内开启管控时）：

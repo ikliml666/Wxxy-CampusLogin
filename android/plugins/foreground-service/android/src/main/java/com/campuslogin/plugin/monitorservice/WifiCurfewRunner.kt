@@ -17,9 +17,11 @@ import java.util.Calendar
  *    `IWifiManager#enableNetwork(netId, true)` 主动切过去，**走系统已存凭据，不需要
  *    明文密码**（`cmd wifi connect-network` 对 wpa2/wpa3/wep 强制要显式密码，拿不到系统
  *    加密凭据，是我方旧实现切不动加密网络的根因）。disableOthers=true 的系统副作用是
- *    **把目标以外的已存网络全部持久禁用**——切换前快照这批 netId，失败立即放回、成功
- *    保留到出窗恢复（2026-11-18 修复：此前副作用无人撤销，用户连着的热点被禁且系统
- *    不会自动连回，表现为「开启管控后连接热点自己断开」）；
+ *    **把目标以外的已存网络全部持久禁用**——切换前全量快照 netIds（受理过的目标
+ *    netId 逐个移出），失败立即放回、成功保留到出窗恢复（2026-11-18 修复：此前
+ *    副作用无人撤销，用户连着的热点被禁且系统不会自动连回，表现为「开启管控后
+ *    连接热点自己断开」）；尝试失败的放行目标本窗口内不再重试（连上放行网络或
+ *    出窗清空），避免每拍把用户正连着的网络禁掉再放回；
  * 2. 放行目标连不上，且当前网络命中断开名单 → `cmd wifi set-wifi-enabled disabled`
  *    关掉 WiFi 走流量，次日恢复时刻 `enabled` 打开；未连接或当前网络不在名单里则保持原样。
  *
@@ -45,6 +47,10 @@ class WifiCurfewRunner(private val context: Context) {
         /** 切换动作（enableNetwork disableOthers=true）连带禁用的 netId 集合：
          *  切换失败立即恢复；成功保留到出窗 restore 放回 */
         private const val KEY_SWITCH_DISABLED = "switch_disabled_ids"
+        /** 本窗口内已尝试且未连上的放行 SSID：不再重试。disableOthers 副作用 +
+         *  awaitSsid 等待意味着每拍重试都会禁掉再放回用户正连着的网络；
+         *  出窗或连上放行网络时清空（与桌面端 CONNECT_FAILED 同语义） */
+        private const val KEY_SWITCH_FAILED_TARGETS = "switch_failed_targets"
         private const val KEY_WEAK_AT = "weak_disabled_at"
         /** 弱信号关掉后隔这么久复探一次：WiFi 关着读不到 RSSI，只能开回来再判 */
         private const val WEAK_PROBE_MS = 5 * 60 * 1000L
@@ -102,8 +108,10 @@ class WifiCurfewRunner(private val context: Context) {
         }
 
         val current = currentSsid()
-        // 已连放行网络：不动（放行优先于断开名单）
+        // 已连放行网络：不动（放行优先于断开名单）。窗口目标达成，切换失败
+        // 记录归零——之后网络掉线再进来，每个目标都还有完整的尝试机会
         if (current.isNotEmpty() && allowed.any { it.equals(current, ignoreCase = true) }) {
+            if (!dryRun) prefs.edit().remove(KEY_SWITCH_FAILED_TARGETS).apply()
             val action = if (dryRun) "would-keep" else "keep"
             return result(action).put("channel", channel).put("currentSsid", current).toString()
         }
@@ -117,15 +125,23 @@ class WifiCurfewRunner(private val context: Context) {
         if (allowed.isNotEmpty()) {
             val saved = shellExec("cmd wifi list-networks")?.let { parseNetworks(it) }.orEmpty()
             val useShizuku = CurfewChannel.shizukuReady()
-            if (useShizuku) {
+            val failedTargets = prefs.getStringSet(KEY_SWITCH_FAILED_TARGETS, emptySet()).orEmpty()
+            if (!dryRun && useShizuku) {
                 // 残留守卫：上一拍切换失败后恢复没跑完（进程被杀/通道中断），先把被禁的
-                // 网络放回去再重新尝试——否则下面的快照覆盖会让那批 netId 永远无人恢复
+                // 网络放回去再重新尝试——否则下面的全量快照覆盖会让那批 netId 无人恢复
                 recoverSwitchDisabled()?.let { tried.add(it) }
-                // disableOthers=true 会把目标以外的已存网络全部持久禁用：切换前快照，
-                // 失败后统一放回；cmd wifi connect-network 路径没有这个副作用，不用记
-                snapshotOthersForSwitch(saved, allowed)
+                // 全量快照：disableOthers 禁的是「除本次 enable 的 netId 以外全部已存
+                // 网络」，含放行 SSID 的其它安全模式配置行——恢复集必须覆盖它们；
+                // 实际受理过连接的 netId 在尝试时逐个从快照移除。
+                // cmd wifi connect-network 路径没有这个副作用，不记。
+                // dryRun 必须零副作用，试运行不写 prefs
+                snapshotAllNetIds(saved)
             }
             for (target in allowed) {
+                if (failedTargets.any { it.equals(target, ignoreCase = true) }) {
+                    tried.add("「" + target + "」本窗口内已尝试且未连上，不再重试")
+                    continue
+                }
                 val entry = saved.firstOrNull { it.ssid.equals(target, ignoreCase = true) }
                 if (entry == null) {
                     tried.add("「" + target + "」系统里没有保存过该网络，无法切换")
@@ -147,9 +163,14 @@ class WifiCurfewRunner(private val context: Context) {
                             tried.add("「" + target + "」通道没有返回结果")
                             continue
                         }
-                        if (out == "ok" && awaitSsid(target)) {
-                            connected = true
-                            break
+                        if (out == "ok") {
+                            // 受理成功的 netId 是 enable 目标（本就处于启用状态），
+                            // 从恢复快照移除；未受理的没有产生禁用副作用，留在快照里
+                            if (!dryRun) removeSwitchDisabled(id)
+                            if (awaitSsid(target)) {
+                                connected = true
+                                break
+                            }
                         }
                         tried.add("「" + target + "」netId=" + id + " 未连上（" + out + "）")
                     }
@@ -170,11 +191,14 @@ class WifiCurfewRunner(private val context: Context) {
                     return result("connect").put("channel", channel).put("target", target)
                         .put("currentSsid", current).toString()
                 }
+                // 该目标全部 netId 都没连上：本窗口内不再重试（连上放行网络或
+                // 出窗时清空），下一拍直接跳过它
+                if (!dryRun) addSwitchFailedTarget(target)
             }
             // 放行目标全部没连上：把被 disableOthers 禁掉的网络立刻放回去，系统按
             // autojoin 连回原网络（通常是用户正连着的热点），之后才轮到断开名单判定。
             // 切换成功不经过这里——记录保留到出窗 restore 统一恢复
-            if (useShizuku) recoverSwitchDisabled()?.let { tried.add(it) }
+            if (!dryRun && useShizuku) recoverSwitchDisabled()?.let { tried.add(it) }
         }
         // 2) 放行目标都连不上：只有当前网络命中断开名单才关 WiFi；
         //    未连接或连着不在名单里的网络保持原样（tried 带回切换失败的原因）
@@ -212,6 +236,8 @@ class WifiCurfewRunner(private val context: Context) {
         // 出窗还欠一笔：窗口内切换成功时被 disableOthers 连带禁掉的网络，此刻放回，
         // 否则用户白天连任何非放行网络都会发现「配置还在却怎么都连不上」
         recoverSwitchDisabled()?.let { parts.append(" | ").append(it) }
+        // 出窗同时清空切换失败记录：下一晚每个放行目标重新拥有完整尝试机会
+        prefs.edit().remove(KEY_SWITCH_FAILED_TARGETS).apply()
         if (hadDisabled) {
             if (parts.isNotEmpty()) parts.append(" | ")
             val trace = setWifiEnabled(true)
@@ -220,7 +246,7 @@ class WifiCurfewRunner(private val context: Context) {
                 return result("restore-failed").put("channel", channel).put("trace", parts.toString()).toString()
             }
         }
-        if (!hadDisabled && reEnabled == null && parts.isEmpty()) {
+        if (!hadDisabled && parts.isEmpty()) {
             return result("idle").put("channel", channel).toString()
         }
         prefs.edit().putBoolean(KEY_DISABLED, false).apply()
@@ -392,20 +418,26 @@ class WifiCurfewRunner(private val context: Context) {
     }
 
     /**
-     * 切换前快照：把将被 enableNetwork(netId, true) 连带禁用的「目标以外全部已存网络」
-     * 记入 prefs。目标 = 放行名单所有 SSID 的全部 netIds（同一 SSID 在 Android 15 会按
-     * 安全模式拆成多条配置行）。空名单集合表示没有可被禁的网络，恢复时按无事处理。
+     * 切换前全量快照：把系统已保存的全部 netIds 记入 prefs。disableOthers 禁的是
+     * 「除本次 enable 的 netId 以外全部」，含放行 SSID 的其它安全模式配置行——
+     * 恢复集必须全量覆盖；实际受理过连接的 netId 由 [removeSwitchDisabled] 逐个移除。
      */
-    private fun snapshotOthersForSwitch(saved: List<SavedNetwork>, allowed: List<String>) {
-        val targetIds = saved
-            .filter { entry -> allowed.any { it.equals(entry.ssid, ignoreCase = true) } }
-            .flatMap { it.netIds }
-            .toSet()
-        val others = saved.flatMap { it.netIds }
-            .filter { it !in targetIds }
-            .map(Int::toString)
-            .toSet()
-        prefs.edit().putStringSet(KEY_SWITCH_DISABLED, others).apply()
+    private fun snapshotAllNetIds(saved: List<SavedNetwork>) {
+        val ids = saved.flatMap { it.netIds }.map(Int::toString).toSet()
+        prefs.edit().putStringSet(KEY_SWITCH_DISABLED, ids).apply()
+    }
+
+    /** 本次 enable 的目标 netId（受理成功）：它本来就启用着，无需恢复，移出快照 */
+    private fun removeSwitchDisabled(netId: Int) {
+        val ids = prefs.getStringSet(KEY_SWITCH_DISABLED, emptySet()).orEmpty()
+        if (netId.toString() !in ids) return
+        prefs.edit().putStringSet(KEY_SWITCH_DISABLED, ids - netId.toString()).apply()
+    }
+
+    /** 记一个本窗口内尝试失败的放行 SSID（去重；出窗或连上放行网络时清空） */
+    private fun addSwitchFailedTarget(ssid: String) {
+        val current = prefs.getStringSet(KEY_SWITCH_FAILED_TARGETS, emptySet()).orEmpty()
+        prefs.edit().putStringSet(KEY_SWITCH_FAILED_TARGETS, current + ssid).apply()
     }
 
     /**
@@ -418,8 +450,9 @@ class WifiCurfewRunner(private val context: Context) {
         if (ids.isEmpty()) return null
         val parts = mutableListOf<String>()
         var allOk = true
+        // 集合由 snapshotAllNetIds 以 Int::toString 写入，格式自持，直接解析
         for (raw in ids) {
-            val id = raw.toIntOrNull() ?: continue
+            val id = raw.toInt()
             val out = CurfewShell.enableSavedNetwork(context, id, false)
             parts.add("reenable($id)=>" + brief(out))
             if (out == null || !out.startsWith("ok")) allOk = false
