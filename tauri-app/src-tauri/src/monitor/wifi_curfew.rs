@@ -9,6 +9,12 @@
 //! 把这个 SSID 的连接模式改成手动后系统不再自动连，恢复时段再设回——用户名下
 //! 其余 WiFi 的配置一概不碰。
 //!
+//! 断开的判据与 manual 化一致，都是 `ssid_blocked`（命中断开名单且不在放行
+//! 名单）——只看「不在放行名单」就断会误伤一切未入名单的网络（2026-11-19
+//! 修复：名单为空时用户连着的热点被每拍踢一次）。切换到放行网络附带失败
+//! 抑制：`netsh wlan connect` 对不可达目标同样会断开当前连接去尝试，每个
+//! 候选本窗口只试一次，全部失败即停，连上放行网络或出窗自动重置。
+//!
 //! 快照存在配置里（`wifiCurfewProfileRestore`）：程序退出/重启后仍能还原，
 //! 与夜切的跃点快照同一模式（只记本功能亲手改过的 SSID，不按当前状态推断）。
 
@@ -155,6 +161,77 @@ fn connect_profile(ssid: &str) -> Result<(), String> {
 /// 每拍前进一格，窗口结束时归零。
 static CONNECT_CURSOR: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 
+/// 本窗口内切换失败过的放行网络（SSID 小写）。连不上的目标（不在范围内/
+/// 凭据失效）同样会让系统断开当前连接去尝试，失败后才重连回来——不记失败
+/// 的话每拍重试一次等于每拍把用户正在用的网络踢一次。连上放行网络（目标
+/// 达成）与出窗时清空，用户中途把路由器开机后仍有机会重新尝试。
+static CONNECT_FAILED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// 上一拍发出连接请求的候选：本拍开头若仍未连上放行网络，即判定它失败
+/// 并记入 [CONNECT_FAILED]。
+static CONNECT_PENDING: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// 从候选里剔除本窗口已失败的网络（大小写不敏感）
+fn filter_failed(candidates: Vec<String>, failed: &[String]) -> Vec<String> {
+    candidates
+        .into_iter()
+        .filter(|c| !failed.iter().any(|f| f.eq_ignore_ascii_case(c)))
+        .collect()
+}
+
+fn connect_failed_snapshot() -> Vec<String> {
+    CONNECT_FAILED
+        .lock()
+        .map(|s| s.clone())
+        .unwrap_or_else(|e| e.into_inner().clone())
+}
+
+fn set_pending(ssid: &str) {
+    if let Ok(mut p) = CONNECT_PENDING.lock() {
+        *p = Some(ssid.to_string());
+    }
+}
+
+/// 命令本身报错：直接计入失败并清掉对应 pending
+fn mark_failed(ssid: &str) {
+    let mut failed = CONNECT_FAILED.lock().unwrap_or_else(|e| e.into_inner());
+    if !failed.iter().any(|f| f.eq_ignore_ascii_case(ssid)) {
+        failed.push(ssid.to_lowercase());
+    }
+    if let Ok(mut p) = CONNECT_PENDING.lock() {
+        if p.as_deref() == Some(ssid) {
+            *p = None;
+        }
+    }
+}
+
+/// 上一拍发过连接请求：本拍没连上放行网络即失败，本窗口不再试它
+fn take_pending_and_mark_failed() {
+    let pending = CONNECT_PENDING
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take();
+    if let Some(ssid) = pending {
+        let mut failed = CONNECT_FAILED.lock().unwrap_or_else(|e| e.into_inner());
+        if !failed.iter().any(|f| f.eq_ignore_ascii_case(&ssid)) {
+            failed.push(ssid.to_lowercase());
+        }
+    }
+}
+
+/// 连上放行网络或出窗：轮转下标、失败记录、待确认候选全部归零
+fn reset_connect_state() {
+    if let Ok(mut cursor) = CONNECT_CURSOR.lock() {
+        *cursor = 0;
+    }
+    if let Ok(mut failed) = CONNECT_FAILED.lock() {
+        failed.clear();
+    }
+    if let Ok(mut pending) = CONNECT_PENDING.lock() {
+        *pending = None;
+    }
+}
+
 /// 放行名单里那些「系统已保存、可以直接连」的候选，保持名单顺序。
 fn connect_candidates(saved: &[String], allowed: &[String]) -> Vec<String> {
     allowed
@@ -205,10 +282,8 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
     let mut snapshot = parse_snapshot(&config.wifi_curfew_profile_restore);
 
     if !active {
-        // 出窗：轮转下标归零，下一晚从名单第一个重新试
-        if let Ok(mut cursor) = CONNECT_CURSOR.lock() {
-            *cursor = 0;
-        }
+        // 出窗：切换轮转与失败记录归零，下一晚从名单第一个重新试
+        reset_connect_state();
         if snapshot.is_empty() {
             return;
         }
@@ -263,9 +338,10 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
         persist_snapshot(app_handle, &snapshot);
     }
 
-    // 断开并切到放行名单：断开被阻断的当前连接，再主动连一个放行的网络。
-    // 只断开不连接的话，机器整晚没有无线可用（校园网一断，放行名单里那台
-    // 宿舍路由器本来是用户在用的，得替他连回去）。
+    // 断开的判据与上面 manual 化循环一致（ssid_blocked：命中断开名单且不在
+    // 放行名单）。此前这里只看「不在放行名单」就断——名单都空或只配放行时，
+    // 用户连着的热点每拍被踢一次、再被系统按 auto 配置重连，表现为「开启管控
+    // 后连着的热点自己断开」（2026-11-19 修复）。
     let current = match crate::network::subnet::get_wireless_ssid() {
         Ok(v) => v,
         Err(e) => {
@@ -277,21 +353,34 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
     let already_allowed = current
         .as_deref()
         .is_some_and(|s| crate::config::wifi_curfew::ssid_allowed(&config.wifi_curfew_allowed, s));
+    if already_allowed {
+        // 已连放行网络：窗口目标达成，切换轮转与失败记录归零——之后网络掉线
+        // 再进来，每个候选都还有完整的尝试机会
+        reset_connect_state();
+        return;
+    }
+    // 上一拍发过连接请求却仍没连上放行网络：那个候选本窗口内不再试
+    take_pending_and_mark_failed();
 
-    if let Some(ssid) = current.as_deref().filter(|_| !already_allowed) {
+    let blocked = current.as_deref().is_some_and(|s| {
+        crate::config::wifi_curfew::ssid_blocked(
+            &config.wifi_curfew_excluded,
+            &config.wifi_curfew_allowed,
+            s,
+        )
+    });
+    if let Some(ssid) = current.as_deref().filter(|_| blocked) {
         match disconnect_current() {
             Ok(()) => crate::log_info!("wifi_curfew", "就寝守则: 已断开 {ssid}"),
             Err(e) => crate::log_warn!("wifi_curfew", "断开 {ssid} 失败: {e}"),
         }
     }
 
-    if already_allowed {
-        return;
-    }
-    let candidates = connect_candidates(&profiles, &config.wifi_curfew_allowed);
-    if candidates.is_empty() {
-        // 没有可连的放行网络：只断不切。名单里的网络必须先在系统里连过一次
-        // （有 profile），否则 netsh 连不上，这一点靠日志说清
+    // 切到放行名单：只断开不连接的话，机器整晚没有无线可用（校园网一断，
+    // 放行名单里那台宿舍路由器本来是用户在用的，得替他连回去）。名单里的
+    // 网络必须先在系统里连过一次（有 profile），否则 netsh 连不上。
+    let saved_candidates = connect_candidates(&profiles, &config.wifi_curfew_allowed);
+    if saved_candidates.is_empty() {
         if !config.wifi_curfew_allowed.is_empty() {
             crate::log_warn!(
                 "wifi_curfew",
@@ -299,6 +388,16 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
                 config.wifi_curfew_allowed
             );
         }
+        return;
+    }
+    let candidates = filter_failed(saved_candidates, &connect_failed_snapshot());
+    if candidates.is_empty() {
+        // 都试过且没连上：继续重试只会把用户正在用的网络反复踢断，停手；
+        // 连上放行网络或出窗时失败记录自动重置
+        crate::log_info!(
+            "wifi_curfew",
+            "放行网络本窗口内都已尝试且未连上，暂停切换尝试（出窗自动重置）"
+        );
         return;
     }
     let index = {
@@ -309,8 +408,15 @@ pub fn tick(app_handle: &AppHandle, config: &Config, weekday: u32, now_minutes: 
     };
     let target = &candidates[index];
     match connect_profile(target) {
-        Ok(()) => crate::log_info!("wifi_curfew", "就寝守则: 已请求连接放行网络 {target}"),
-        Err(e) => crate::log_warn!("wifi_curfew", "连接放行网络 {target} 失败: {e}"),
+        Ok(()) => {
+            // 请求已受理：下一拍开头若仍未连上放行网络，该候选计入失败
+            set_pending(target);
+            crate::log_info!("wifi_curfew", "就寝守则: 已请求连接放行网络 {target}");
+        }
+        Err(e) => {
+            mark_failed(target);
+            crate::log_warn!("wifi_curfew", "连接放行网络 {target} 失败: {e}");
+        }
     }
 }
 
@@ -366,6 +472,15 @@ mod tests {
         // 没保存过的连不上、`*` 不是网络名：都跳过，顺序按放行名单
         assert_eq!(connect_candidates(&saved, &allowed), vec!["dorm-5g".to_string(), "campus".to_string()]);
         assert!(connect_candidates(&saved, &[]).is_empty());
+    }
+
+    #[test]
+    fn filter_failed_drops_failed_candidates_case_insensitively() {
+        let candidates = vec!["Dorm-5G".to_string(), "campus".to_string()];
+        let failed = vec!["dorm-5g".to_string()];
+        // 已失败的剔除（大小写不敏感），没失败的保留顺序
+        assert_eq!(filter_failed(candidates, &failed), vec!["campus".to_string()]);
+        assert!(filter_failed(vec!["campus".to_string()], &failed).len() == 1);
     }
 
     #[test]
