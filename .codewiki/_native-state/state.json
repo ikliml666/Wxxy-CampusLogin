@@ -2,41 +2,36 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "446a13f79c51d02a16815b8d130f7608e3f827cf",
-    "headCommit": "5f3ebdf7bc47541d3e1f7dfe0e38d84cc0870d39"
+    "baseCommit": "5f3ebdf7bc47541d3e1f7dfe0e38d84cc0870d39",
+    "headCommit": "ca3b49682b97be89699c717b8d23cbcc272b8929"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "446a13f79c51d02a16815b8d130f7608e3f827cf",
-    "headCommit": "5f3ebdf7bc47541d3e1f7dfe0e38d84cc0870d39",
-    "committed": [
-      "android/frontend/src/i18n/locales/en.json",
-      "android/frontend/src/i18n/locales/zh.json",
-      "android/frontend/src/settings/OnboardingWizard.tsx",
-      "changelogs/CHANGELOG_v2.4.4.md",
-      "tauri-app/frontend/src/i18n/locales/en.json",
-      "tauri-app/frontend/src/i18n/locales/zh.json",
-      "tauri-app/frontend/src/settings/OnboardingWizard.autoOperator.test.tsx",
-      "tauri-app/frontend/src/settings/OnboardingWizard.tsx",
-      "tauri-app/src-tauri/Cargo.toml",
-      "tauri-app/src-tauri/src/monitor/wifi_curfew.rs"
-    ],
+    "baseCommit": "5f3ebdf7bc47541d3e1f7dfe0e38d84cc0870d39",
+    "headCommit": "ca3b49682b97be89699c717b8d23cbcc272b8929",
+    "committed": [],
     "staged": [],
-    "unstaged": [],
+    "unstaged": [
+      "tauri-app/src-tauri/src/network/subnet.rs"
+    ],
     "untracked": [],
     "deleted": [],
     "renamed": [],
     "reason": ""
   },
-  "unconsumed": [],
+  "unconsumed": [
+    "tauri-app/src-tauri/src/network/subnet.rs"
+  ],
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwmyx0je-a-native（66 个文件）"
+    "持久化基线 446a13f 与本次 cw 基线 5f3ebdf 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "工作区未提交改动已合成临时 commit c5ad43d3599f（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwn143vu-0-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-19T03:06:37.426Z"
+  "updatedAt": "2026-11-19T04:07:57.946Z"
 }
