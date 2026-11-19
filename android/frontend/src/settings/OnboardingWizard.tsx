@@ -42,14 +42,15 @@ interface OnboardingWizardProps {
 const STEP_TITLE_KEYS = ['onboarding.welcome', 'onboarding.accountInfo', 'onboarding.bindOperatorTitle', 'onboarding.setupComplete'] as const
 const STEP_COUNT = STEP_TITLE_KEYS.length
 
-// 卡片堆层位姿（与桌面端、参考实现一致）：当前卡最大且最靠下（scale 1.05 / +15px），
-// 越往后的卡上移并缩小，第 4 层起共用最深一档。所有卡以容器中心对齐，
-// 故 transform 统一是 translate(-50%, calc(-50% + y))。
+// 卡片堆层位姿：当前卡最大且最靠下（scale 1.05 / +15px），越往后的卡上移并轻微缩小，
+// 第 4 层起共用最深一档。缩放只留 1%~3%——队尾卡与顶卡近乎同宽，
+// 露出来的是顶部等宽的一条卡边（配上圆角），而不是一圈忽宽忽窄的白边。
+// 所有卡以容器中心对齐，故 transform 统一是 translate(-50%, calc(-50% + y))。
 const STACK_LAYERS = [
   { y: 15, scale: 1.05, z: 10 },
-  { y: 0, scale: 1, z: 9 },
-  { y: -15, scale: 0.95, z: 8 },
-  { y: -30, scale: 0.9, z: 7 },
+  { y: 0, scale: 0.99, z: 9 },
+  { y: -15, scale: 0.98, z: 8 },
+  { y: -30, scale: 0.97, z: 7 },
 ] as const
 // 出场：先竖直飞起并微旋（swap 的 50% 帧），260ms 后清标记并切步，
 // 同一批次里它的层位变成队尾档，transition 让它从上方平滑落回队尾
@@ -228,6 +229,9 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
             const isTop = pos === 0
             const isExiting = exitingStep === i
             const isEntering = enteringStep === i
+            // 只有顶卡与正在飞出的卡渲染内容：队尾卡只留一张同尺寸的卡壳，
+            // 否则各步卡高不同，背面卡会从顶卡上下露出别的步骤的标签与文字
+            const isTopContent = isTop || isExiting
             const StepIcon = STEP_ICONS[i] ?? Sparkles
             return (
               <div
@@ -247,18 +251,21 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                   // 背景与圆角走内联：全局 `.bg-card` 规则带 !important，会把圆角压回 16px
                   background: 'hsl(var(--card))',
                   borderRadius: '2rem',
-                  // 卡高由本步内容决定，超过视口上限才在内容区滚动
-                  height: 'auto',
-                  maxHeight: CARD_MAX_HEIGHT,
+                  // 顶卡按本步内容撑高（超视口上限才在内容区滚动）；
+                  // 队尾卡是同尺寸空壳，缩放后从顶卡四周露出等宽的边
+                  height: isTopContent ? 'auto' : (deckHeight || 0),
+                  maxHeight: isTopContent ? CARD_MAX_HEIGHT : undefined,
                   transform: isExiting
                     ? EXIT_UP_TRANSFORM
                     : isEntering ? ENTER_FROM_TRANSFORM : deckTransform(layer.y, layer.scale),
                   opacity: isEntering ? 0.55 : 1,
                   transformOrigin: 'center center',
                   zIndex: isExiting ? 11 : layer.z,
-                  transition: STACK_TRANSITION_WITH_FADE,
+                  transition: `${STACK_TRANSITION_WITH_FADE}, height .28s ease`,
                 }}
               >
+                {isTopContent && (
+                  <>
                   {/* 分类标签胶囊 */}
                   <div className="self-start rounded-full bg-primary/15 px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[0.08em] text-primary">
                     {t(STEP_TITLE_KEYS[i])}
@@ -266,7 +273,7 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
 
                   {/* 步骤内容（表单可能超长，卡内独立滚动） */}
                   <div
-                    className="mt-3 flex-1 min-h-0 overflow-y-auto pr-1 [scrollbar-gutter:stable] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent">
+                    className="mt-3 flex-1 min-h-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                     {i === 0 && (
                       <div className="flex flex-col items-center justify-center space-y-4 text-center">
                         <MascotFigure variant="welcome" size="md" />
@@ -610,6 +617,8 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                     {/* 右侧空列：宽屏三列网格里把导航钉在正中 */}
                     <div className="hidden min-[520px]:block" />
                   </div>
+                  </>
+                )}
 
                 </div>
               )

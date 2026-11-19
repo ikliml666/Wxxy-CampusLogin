@@ -1,3 +1,20 @@
+### 缺陷修复：新手指引队尾卡露出别的步骤内容、卡内滚动条显脏（双端，2026-11-19）
+
+**为什么**：真机反馈——卡高改为逐步自适应后，队尾卡仍按**各自内容**撑高，即使缩放 5%~10% 也会从顶卡上下探出，把「绑定运营商账号」「账号信息」这类别的步骤的标签顶到最上面，卡堆看起来错位、像没对齐；同时卡内内容区保留细滚动条与 `scrollbar-gutter` 预留，手机上观感脏。
+
+**改了什么**（`android/frontend/src/settings/OnboardingWizard.tsx`、`tauri-app/frontend/src/settings/OnboardingWizard.tsx`，双端同构）
+
+- **队尾卡只留卡壳**：新增 `isTopContent = isTop || isExiting`——只有顶卡与正在飞出的卡渲染标签/内容/卡底，其余卡渲染同尺寸空壳（`height: deckHeight`），所以任何步骤背后露出的都只是一张白卡边，不会出现别的步骤的文字。
+- **层位收敛**：`STACK_LAYERS` 缩放从 1/0.95/0.9 收到 0.99/0.98/0.97，队尾卡与顶卡近乎同宽，露出的是一条等宽卡边（配合 2rem 圆角），而不是忽宽忽窄的一圈白边。
+- **滚动条彻底隐藏**：内容区去掉 `scrollbar-gutter:stable`、`pr-1` 与细滚动条样式，改为 `[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden`——需要滚动时仍能滚动，只是不再显示条。
+
+**验证**
+
+- 双端 `npx tsc --noEmit --incremental` 干净。
+- 真机 RMX3300（Android 15，1440×3216）安装新包：设置 → 打开新手指引，四步卡堆顶部只露一层等宽卡边，无任何其他步骤的标签或文字；触发方式为 adb `input keyevent TAB/ENTER`（该机 release WebView 对注入的`input tap`在 Dialog 内不响应，真实触摸正常）。
+- 浏览器 mock 复核 480×1072（≈1440×3216@3x）、360×640、1000×1000：绑定页三列运营商块完整、绑定按钮粘底可见且无滚动条，桌面端顶部卡边同样等宽。
+- 已知：360×640 短屏绑定页仍需在卡内滚动（内容 404 > 可视 374），滚动条已隐藏、按钮粘底可见。
+
 ### 缺陷修复：安卓一键出包因 NLA 兜底调用缺 cfg 门控而 E0425 失败（2026-11-19）
 
 **为什么**：`network/subnet.rs` 的 SSID 免定位兜底链新增 `ssid_from_nla()`（NLA COM，定义处已 `#[cfg(target_os = "windows")]`），但 `get_wireless_ssid_uncached` 里的调用点未同步门控。安卓 crate 经 Cargo path 依赖桌面协议核心 crate，交叉编译 aarch64-linux-android 时编到该调用点报 `error[E0425]: cannot find function ssid_from_nla in this scope`，`build-apk.ps1` 在 tauri android build 一步中断，无法出包。
