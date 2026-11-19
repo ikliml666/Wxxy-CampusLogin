@@ -220,7 +220,7 @@ describe('OnboardingWizard 账号步自动识别运营商', () => {
     fireEvent.click(screen.getByText('settings.isp.telecom').closest('button')!)
     fireEvent.change(screen.getByPlaceholderText('onboarding.bindPhonePlaceholder'), { target: { value: '18912345678' } })
     fireEvent.change(screen.getByPlaceholderText('onboarding.bindSmsPasswordPlaceholder'), { target: { value: 'sms-pass' } })
-    fireEvent.click(screen.getByText('onboarding.bindAction'))
+    fireEvent.click(screen.getByRole('button', { name: /onboarding\.bindAction/ }))
 
     await waitFor(() => expect(bindOperator).toHaveBeenCalled())
     await waitFor(() => {

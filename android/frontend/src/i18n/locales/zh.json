@@ -777,6 +777,7 @@
     "bindSmsPasswordPlaceholder": "运营商发送的账户密码",
     "bindSmsHint": "运营商账户密码在您办理校园网套餐时由短信下发，如遗失可咨询运营商客服",
     "bindAction": "绑定",
+    "bindSelectOperator": "选择运营商",
     "binding": "绑定中...",
     "bindSuccess": "绑定成功！",
     "bindFailed": "绑定失败",

@@ -190,6 +190,10 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
   }
 
   const focusedOperatorKey = OPERATOR_KEY_BY_VALUE[bindOperatorValue] ?? null
+  // 选中的运营商（按钮文案要说出「绑定哪一家」，未选时就提示去选）
+  const focusedOperatorLabelKey = focusedOperatorKey
+    ? ISP_OPTIONS.find(o => o.value === OPERATOR_VALUE_BY_KEY[focusedOperatorKey])?.labelKey
+    : undefined
   const canQueryBindStatus = canProceedAccount
 
   return (
@@ -435,12 +439,14 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                                       <span className={cn('w-full text-[13px] font-semibold leading-tight', focused ? 'text-primary' : 'text-foreground')}>
                                         {t(labelKey)}
                                       </span>
-                                      {info && (
-                                        <span className="flex w-full items-center justify-center gap-0.5 truncate text-[10px] leading-none text-emerald-600 dark:text-emerald-400">
-                                          <Check className="h-2.5 w-2.5 shrink-0" />
-                                          <span className="truncate font-mono">{info.account}</span>
-                                        </span>
-                                      )}
+                                      <span className={cn(
+                                        'flex w-full items-center justify-center gap-0.5 truncate text-[10px] leading-none',
+                                        info ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
+                                      )}>
+                                        {info ? (
+                                          <><Check className="h-2.5 w-2.5 shrink-0" /><span className="truncate font-mono">{info.account}</span></>
+                                        ) : statusQuerying && !bindStatuses ? '…' : t('onboarding.bindStatusUnbound')}
+                                      </span>
                                     </button>
                                   )
                                 })}
@@ -489,8 +495,10 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                                 <><Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.binding')}</>
                               ) : bindState === 'success' ? (
                                 <><Check className="h-4 w-4" /> {t('onboarding.bindSuccess')}</>
+                              ) : focusedOperatorLabelKey ? (
+                                <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')} · {t(focusedOperatorLabelKey)}</>
                               ) : (
-                                <><Link2 className="h-4 w-4" /> {t('onboarding.bindAction')}</>
+                                <><Link2 className="h-4 w-4" /> {t('onboarding.bindSelectOperator')}</>
                               )}
                             </Button>
                           </div>

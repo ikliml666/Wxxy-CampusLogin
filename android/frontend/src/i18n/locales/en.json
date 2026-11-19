@@ -777,6 +777,7 @@
     "bindSmsPasswordPlaceholder": "Account password sent by your operator",
     "bindSmsHint": "The operator account password was sent by SMS when you purchased the campus plan; contact the operator if lost",
     "bindAction": "Bind",
+    "bindSelectOperator": "Choose an operator",
     "binding": "Binding...",
     "bindSuccess": "Bound successfully!",
     "bindFailed": "Bind failed",
