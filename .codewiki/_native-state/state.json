@@ -2,34 +2,42 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "812e45f2b5c6d56c76aec956da06f444af82bff3",
-    "headCommit": "446a13f79c51d02a16815b8d130f7608e3f827cf"
+    "baseCommit": "446a13f79c51d02a16815b8d130f7608e3f827cf",
+    "headCommit": "73d8f0a96c9d0df187ee0a596c4aa6e7f775b7d6"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "812e45f2b5c6d56c76aec956da06f444af82bff3",
-    "headCommit": "446a13f79c51d02a16815b8d130f7608e3f827cf",
+    "baseCommit": "446a13f79c51d02a16815b8d130f7608e3f827cf",
+    "headCommit": "73d8f0a96c9d0df187ee0a596c4aa6e7f775b7d6",
     "committed": [
-      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/WifiCurfewRunner.kt",
       "changelogs/CHANGELOG_v2.4.4.md",
+      "tauri-app/src-tauri/Cargo.toml",
       "tauri-app/src-tauri/src/monitor/wifi_curfew.rs"
     ],
     "staged": [],
-    "unstaged": [],
+    "unstaged": [
+      "android/frontend/src/settings/OnboardingWizard.tsx",
+      "android/frontend/tauri-mock.js"
+    ],
     "untracked": [],
     "deleted": [],
     "renamed": [],
     "reason": ""
   },
-  "unconsumed": [],
+  "unconsumed": [
+    "android/frontend/src/settings/OnboardingWizard.tsx",
+    "android/frontend/tauri-mock.js"
+  ],
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwmvp2tt-3-native（66 个文件）"
+    "持久化基线 812e45f 与本次 cw 基线 446a13f 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "工作区未提交改动已合成临时 commit 9462b94b7a49（2 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwmxbq9w-6-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-19T01:36:15.046Z"
+  "updatedAt": "2026-11-19T02:21:54.315Z"
 }
