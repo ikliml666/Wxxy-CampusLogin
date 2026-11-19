@@ -1,3 +1,24 @@
+### 行为调整：WiFi 管控切换改走 WlanConnect 直调，位置服务关闭的机器上恢复可用（2026-11-19，Windows）
+
+**为什么**：对「开启管控断热点」修复做 Windows 机制调研（微软官方 wi-fi-access-location-changes 文档 + 本机实测）发现新边界：**位置服务关闭时 `netsh wlan connect` 整条被位置隐私管控拦截**——该命令内部先调 `WlanGetAvailableNetworkList` 找目标，微软文档明列该 API（连同 WlanScan / WlanQueryInterface(current_connection)）在无位置授权时返回 ERROR_ACCESS_DENIED，用户级许可、管理员提升不豁免；本机实测两度复现（exit 1 + 中文提示）。意味着此前修复在位置关闭的机器（本机长期如此）上只完成了「不再误断热点」，**切换到放行网络仍不可用**。
+
+同轮实测核实的其余机制（修复依赖全部成立）：
+- `netsh wlan show profiles` / `show profile name=` / `disconnect` **不受位置管控**（本机实测正常）；
+- 对不可达 profile 发 `connect`：命令**同步受理成功**（「已成功完成连接请求」exit=0）且不留下断网状态——PENDING/FAILED 失败判定路径设计与实际语义吻合；
+- auto profile 被 `disconnect` 后**会自动重连，但延迟数十秒**（16s 内未重连、约 30-60s 恢复）——原模块头注释「立刻自动重连」时序不准（循环踢机理成立，已修正表述）；
+- `connectionmode=auto|manual` 是 `set profileparameter` 官方参数（MS Learn）。
+
+**改了什么**（`tauri-app/src-tauri`，桌面专属）
+
+- `Cargo.toml`：windows crate 补 `Win32_NetworkManagement_WiFi` feature。
+- `monitor/wifi_curfew.rs`：`connect_profile` 改为先走 Win32 `WlanConnect`（profile 模式、不扫描，**不在位置管控清单**）直调，FFI 层失败回落 netsh（位置开启机器两路等价）；异步受理语义与 netsh 一致，PENDING/FAILED 状态机无需改动。模块头注释补位置管控边界与修正重连时序表述。
+
+**验证**
+
+- `cargo test`：**lib 693 + 集成 6 全绿（0 failed）**，ignored 6（新增真机用例 `wlan_connect_api_works_without_location`）。
+- 真机实测（本机，位置服务关闭）：`cargo test -- --ignored` 真机用例 **passed**——WlanConnect 直调对已保存 profile 成功受理，网络状态无恙（NLA 确认 WLAN Internet）；对照组 `netsh wlan connect` 同机被位置权限拒绝 exit 1。
+- 未验证：放行网络真实可达时的完整切换链路（需守则窗口 + 宿舍路由器在位）。
+
 **评审修订（2026-11-19）**：双轴代码审查（Standards/Spec 独立子代理）产出 11 条发现，主 agent 逐条核实后修复 7 条实质项：
 ① 评测基线欠账：`cargo test` 全绿基线自 2026-10-25（548）后未按口径维护，本轮按实测校准为 **699（lib 693 + 集成 6）**并写入 `decisions/verification-baseline`；前文「692 passed」按该口径应理解为 lib 单目标数；
 ② Windows 失败抑制的毒锁处理自相矛盾（部分 `if let Ok` 静默跳过、部分 into_inner）→ 统一 recover 毒锁，抑制状态不因锁毒丢失；
