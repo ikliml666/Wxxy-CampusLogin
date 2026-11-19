@@ -3,13 +3,17 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "4be056c53c04af4a916a613797975b5127d15687",
-    "headCommit": "5bf8489e015685af967ce0b3ac0f7da9571edc08"
+    "headCommit": "054c8c3b6980d54e4c0341720332b7096399dbc9"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "4be056c53c04af4a916a613797975b5127d15687",
-    "headCommit": "5bf8489e015685af967ce0b3ac0f7da9571edc08",
-    "committed": [],
+    "headCommit": "054c8c3b6980d54e4c0341720332b7096399dbc9",
+    "committed": [
+      "android/frontend/src/settings/OnboardingWizard.tsx",
+      "changelogs/CHANGELOG_v2.4.4.md",
+      "tauri-app/frontend/src/settings/OnboardingWizard.tsx"
+    ],
     "staged": [],
     "unstaged": [
       "android/frontend/src/settings/OnboardingWizard.tsx",
@@ -33,10 +37,9 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "丢弃 1 条已不存在且从未提交的旧账（android/frontend/tauri-mock.js）——只有 committed 才算消化的规则会让它们被永久携带，白跑整轮",
-    "工作区未提交改动已合成临时 commit cbcf1fb35556（3 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwngh58f-1-native（66 个文件）",
-    "本轮把 1 个未提交源码改动一并写进产物（快照 cbcf1fb35556）：android/frontend/src/settings/OnboardingWizard.tsx"
+    "工作区未提交改动已合成临时 commit 7d3fb69c4984（3 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwnhjqga-2-native（66 个文件）",
+    "本轮把 3 个未提交源码改动一并写进产物（快照 7d3fb69c4984）：android/frontend/src/settings/OnboardingWizard.tsx、changelogs/CHANGELOG_v2.4.4.md、tauri-app/frontend/src/settings/OnboardingWizard.tsx"
   ],
-  "updatedAt": "2026-11-19T11:26:54.750Z"
+  "updatedAt": "2026-11-19T11:50:32.204Z"
 }
