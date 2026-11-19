@@ -17,7 +17,7 @@ import { Switch } from '@/components/ui/switch'
 import {
   Check, ChevronLeft, ChevronRight, X, Wifi, Cable, Shield, Zap,
   Eye, EyeOff, Loader2, UserCircle, KeyRound, Languages, Network, Smartphone, Link2,
-  RefreshCw, Sparkles, AlertCircle,
+  Sparkles, AlertCircle,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
@@ -747,42 +747,39 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                     )}
 
                     {i === 2 && (
-                      <div className="flex flex-col gap-3.5">
-                        <p className="text-[13px] leading-snug text-muted-foreground min-[520px]:text-sm">{t('onboarding.bindOperatorDesc')}</p>
-
-                        {/* 运营商三列状态块：既是绑定状态展示，也是本步唯一的选择器。
-                            原先「状态胶囊 + 运营商下拉」是两套重复入口，卡内被挤到必须滚动。 */}
-                        <div className="rounded-xl bg-muted/50 p-3">
-                          <div className="flex items-center justify-between">
-                            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{t('onboarding.bindIsp')}</p>
-                            <button
-                              type="button"
-                              onClick={() => setBindRefreshTick(v => v + 1)}
-                              disabled={!canQueryBindStatus || statusQuerying}
-                              className="flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground transition-colors enabled:hover:bg-accent enabled:hover:text-foreground disabled:opacity-40"
-                            >
-                              <RefreshCw className={cn('h-3 w-3', statusQuerying && 'animate-spin')} />
-                              {t('onboarding.bindStatusRetry')}
-                            </button>
-                          </div>
-
+                      <div className="flex flex-col gap-4">
+                        {/* 运营商三块：名字是选项，账号占位表达「已绑定」——
+                            不再加区块标题、选中说明与「未绑定」字样，让三块与表单本身说明流程 */}
+                        <div className="relative rounded-xl bg-muted/50 p-2.5">
+                          {/* 只在查询中挂一个角标 spinner：正常态三块里没有任何多余图标 */}
+                          {statusQuerying && !bindStatuses && (
+                            <Loader2 className="pointer-events-none absolute right-2 top-2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                          )}
                           {!canQueryBindStatus ? (
-                            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t('onboarding.bindStatusNeedAccount')}</p>
+                            <p className="px-1 pb-1 text-xs leading-relaxed text-muted-foreground">{t('onboarding.bindStatusNeedAccount')}</p>
                           ) : (
-                            <div className="mt-2 space-y-2">
-                              {/* 检测中/失败时仍渲染三块：否则查询失败就没有选择运营商的入口，
-                                  绑定流程会被卡死；失败原因单独一行提示 */}
+                            <>
+                              {/* 检测失败仍渲染三块：否则查询失败就没有选择运营商的入口。
+                                  失败时把重试入口放在错误行里，正常态不出现任何图标 */}
                               {statusError && (
-                                <p className="flex items-start gap-1.5 text-xs leading-relaxed text-destructive">
+                                <div className="mb-2 flex items-start gap-1.5 px-1 text-xs leading-relaxed text-destructive">
                                   <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                  {statusError}
-                                </p>
+                                  <span className="flex-1">{statusError}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setBindRefreshTick(v => v + 1)}
+                                    disabled={statusQuerying}
+                                    className="shrink-0 font-medium underline underline-offset-2 disabled:opacity-40"
+                                  >
+                                    {t('onboarding.bindStatusRetry')}
+                                  </button>
+                                </div>
                               )}
                               <div className="grid grid-cols-3 gap-1.5">
                                 {OPERATOR_STATUS_ORDER.map((key) => {
                                   const info = bindStatuses?.[key] ?? null
                                   const focused = focusedOperatorKey === key
-                                  const pending = statusQuerying && !bindStatuses
+                                  const labelKey = ISP_OPTIONS.find(o => o.value === OPERATOR_VALUE_BY_KEY[key])?.labelKey ?? key
                                   return (
                                     <button
                                       key={key}
@@ -791,81 +788,60 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                                       title={info ? `${t('onboarding.bindStatusBound')} · ${info.account}` : t('onboarding.bindStatusUnbound')}
                                       onClick={() => setBindOperatorValue(OPERATOR_VALUE_BY_KEY[key])}
                                       className={cn(
-                                        'flex flex-col items-center gap-1 rounded-lg border px-1.5 py-1.5 text-center transition-colors',
+                                        'flex h-full flex-col items-center justify-center gap-1 rounded-lg border px-1.5 py-2 text-center transition-colors',
                                         focused
                                           ? 'border-primary/60 bg-primary/[0.12]'
                                           : 'border-transparent bg-card hover:bg-accent/70',
                                       )}
                                     >
-                                      <span className={cn('w-full text-[12.5px] font-semibold leading-tight', focused ? 'text-primary' : 'text-foreground')}>
-                                        {t(`settings.isp.${key}`)}
+                                      <span className={cn('w-full text-[13px] font-semibold leading-tight', focused ? 'text-primary' : 'text-foreground')}>
+                                        {t(labelKey)}
                                       </span>
-                                      <span className={cn(
-                                        'flex w-full items-center justify-center gap-0.5 truncate text-[10px] leading-none',
-                                        info ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
-                                      )}>
-                                        {info
-                                          ? <><Check className="h-2.5 w-2.5 shrink-0" /><span className="truncate font-mono">{info.account}</span></>
-                                          : pending ? '…' : t('onboarding.bindStatusUnbound')}
-                                      </span>
+                                      {info && (
+                                        <span className="flex w-full items-center justify-center gap-0.5 truncate text-[10px] leading-none text-emerald-600 dark:text-emerald-400">
+                                          <Check className="h-2.5 w-2.5 shrink-0" />
+                                          <span className="truncate font-mono">{info.account}</span>
+                                        </span>
+                                      )}
                                     </button>
                                   )
                                 })}
                               </div>
-                              {/* 选中运营商的状态一句话：已绑定可直接下一步，未绑定填下方表单 */}
-                              {focusedOperatorKey && (
-                                <p className={cn(
-                                  'flex items-center gap-1.5 text-xs font-medium leading-snug',
-                                  bindStatuses?.[focusedOperatorKey]
-                                    ? 'text-emerald-600 dark:text-emerald-400'
-                                    : 'text-amber-600 dark:text-amber-400',
-                                )}>
-                                  {bindStatuses?.[focusedOperatorKey] ? (
-                                    <><Check className="h-3.5 w-3.5 shrink-0" />{t('onboarding.bindStatusBoundDesc')}</>
-                                  ) : (
-                                    <><AlertCircle className="h-3.5 w-3.5 shrink-0" />{t('onboarding.bindStatusUnboundDesc')}</>
-                                  )}
-                                </p>
-                              )}
-                            </div>
+                            </>
                           )}
                         </div>
 
                         <div className="space-y-2.5">
-                          <div className="space-y-1.5">
-                            <Label className="text-xs font-medium">{t('onboarding.bindPhone')}</Label>
-                            <Input
-                              value={phone}
-                              onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                              placeholder={t('onboarding.bindPhonePlaceholder')}
-                              icon={<Smartphone className="h-4 w-4" />}
-                              inputMode="numeric"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-xs font-medium">{t('onboarding.bindSmsPassword')}</Label>
-                            <Input
-                              type="password"
-                              value={smsPassword}
-                              onChange={e => setSmsPassword(e.target.value)}
-                              placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
-                              icon={<KeyRound className="h-4 w-4" />}
-                            />
-                            <p className="text-[11px] leading-relaxed text-muted-foreground">{t('onboarding.bindSmsHint')}</p>
-                          </div>
+                          <Input
+                            id="bind-phone"
+                            type="tel"
+                            maxLength={11}
+                            aria-label={t('onboarding.bindPhone')}
+                            value={phone}
+                            onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
+                            placeholder={t('onboarding.bindPhonePlaceholder')}
+                            icon={<Smartphone className="h-4 w-4" />}
+                          />
+                          <Input
+                            id="bind-sms-password"
+                            type="password"
+                            aria-label={t('onboarding.bindSmsPassword')}
+                            value={smsPassword}
+                            onChange={e => setSmsPassword(e.target.value)}
+                            placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
+                            icon={<KeyRound className="h-4 w-4" />}
+                          />
 
-                          {/* 主操作与错误提示钉在滚动态底部：短屏（≤640dp）内容区要滚动时
-                              绑定按钮仍然可见，不会藏在折叠线下面 */}
-                          <div className="sticky bottom-0 z-10 space-y-2 bg-card pt-2 relative">
-                            {/* 滚动到底前的渐隐遮罩：被按钮压住的提示文字淡出，不像是被裁断 */}
+                          {bindError && (
+                            <p className="flex items-start gap-1.5 rounded-lg bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
+                              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                              {bindError}
+                            </p>
+                          )}
+
+                          {/* 主操作钉在滚动态底部：短屏内容区要滚动时绑定按钮仍然可见 */}
+                          <div className="sticky bottom-0 z-10 bg-card pt-2 relative">
                             <div className="pointer-events-none absolute inset-x-0 -top-7 h-7 bg-gradient-to-t from-card to-transparent" />
-                            {bindError && (
-                              <p className="flex items-start gap-1.5 rounded-lg bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
-                                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                {bindError}
-                              </p>
-                            )}
-
                             <Button
                               onClick={handleBind}
                               disabled={!canBind || bindState === 'loading' || bindState === 'success'}
