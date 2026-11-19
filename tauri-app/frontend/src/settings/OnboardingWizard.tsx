@@ -208,8 +208,15 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
       if (needed > max) max = needed
     }
     if (max > 0) {
-      const next = Math.min(max, Math.max(420, window.innerHeight - 150))
-      setDeckCardHeight((prev) => (Math.abs(prev - next) < 1 ? prev : next))
+      // 视口上限：窗口变小时卡必须跟着收，否则整堆会溢出屏幕
+      const cap = Math.max(420, window.innerHeight - 150)
+      const want = Math.min(max, cap)
+      // 上限之内只增不减：绑定状态、适配器列表都是异步来的，早测到的偏矮值一旦定住
+      // 就会让后面的步骤被裁掉；取历史最大值，卡高在整轮向导里只涨一次、之后恒定
+      setDeckCardHeight((prev) => {
+        const target = Math.min(Math.max(prev, want), cap)
+        return Math.abs(target - prev) < 1 ? prev : target
+      })
     }
   }, [])
 
@@ -219,8 +226,20 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
     if (!open) return
     measureDeck()
     const raf = requestAnimationFrame(measureDeck)
-    return () => cancelAnimationFrame(raf)
+    // 绑定状态、适配器列表在打开后才异步落地，落地时再补测两次，卡高这才定稿
+    const t1 = setTimeout(measureDeck, 300)
+    const t2 = setTimeout(measureDeck, 1200)
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
   }, [open, step, measureDeck, bindStatuses, statusQuerying, statusError, detectState, language, password, dualAdapter, operator, adapters.length])
+
+  // 关闭后清零：下次打开重新按当前内容量一次
+  useEffect(() => {
+    if (!open) setDeckCardHeight(0)
+  }, [open])
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
@@ -769,9 +788,10 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
 
                     {i === 2 && (
                       <div className="my-auto flex flex-col gap-4">
-                        {/* 运营商三块：名字是选项，账号占位表达「已绑定」——
-                            不再加区块标题、选中说明与「未绑定」字样，让三块与表单本身说明流程 */}
-                        <div className="relative rounded-xl bg-muted/50 p-2.5">
+                        {/* 运营商：标题 + 竖排三行；行紧凑些给标题腾出高度 */}
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">{t('onboarding.bindIsp')}</Label>
+                          <div className="relative rounded-xl bg-muted/50 p-2">
                           {/* 只在查询中挂一个角标 spinner：正常态三块里没有任何多余图标 */}
                           {statusQuerying && !bindStatuses && (
                             <Loader2 className="pointer-events-none absolute right-2 top-2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
@@ -811,13 +831,13 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                                       title={info ? `${t('onboarding.bindStatusBound')} · ${info.account}` : t('onboarding.bindStatusUnbound')}
                                       onClick={() => setBindOperatorValue(OPERATOR_VALUE_BY_KEY[key])}
                                       className={cn(
-                                        'flex w-full items-center gap-2 rounded-lg border px-3 py-3 text-left transition-colors',
+                                        'flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
                                         focused
                                           ? 'border-primary/60 bg-primary/[0.12]'
                                           : 'border-transparent bg-card hover:bg-accent/70',
                                       )}
                                     >
-                                      <span className={cn('text-[14px] font-semibold leading-tight', focused ? 'text-primary' : 'text-foreground')}>
+                                      <span className={cn('text-[13px] font-semibold leading-tight', focused ? 'text-primary' : 'text-foreground')}>
                                         {t(labelKey)}
                                       </span>
                                       <span className={cn(
@@ -834,27 +854,34 @@ export function OnboardingWizard({ open, onClose, adapters, onUpdateConfig, onLo
                             </>
                           )}
                         </div>
+                          </div>
 
                         <div className="space-y-2.5">
-                          <Input
-                            id="bind-phone"
-                            type="tel"
-                            maxLength={11}
-                            aria-label={t('onboarding.bindPhone')}
-                            value={phone}
-                            onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
-                            placeholder={t('onboarding.bindPhonePlaceholder')}
-                            icon={<Smartphone className="h-4 w-4" />}
-                          />
-                          <Input
-                            id="bind-sms-password"
-                            type="password"
-                            aria-label={t('onboarding.bindSmsPassword')}
-                            value={smsPassword}
-                            onChange={e => setSmsPassword(e.target.value)}
-                            placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
-                            icon={<KeyRound className="h-4 w-4" />}
-                          />
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-medium">{t('onboarding.bindPhone')}</Label>
+                            <Input
+                              id="bind-phone"
+                              type="tel"
+                              maxLength={11}
+                              aria-label={t('onboarding.bindPhone')}
+                              value={phone}
+                              onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
+                              placeholder={t('onboarding.bindPhonePlaceholder')}
+                              icon={<Smartphone className="h-4 w-4" />}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-medium">{t('onboarding.bindSmsPassword')}</Label>
+                            <Input
+                              id="bind-sms-password"
+                              type="password"
+                              aria-label={t('onboarding.bindSmsPassword')}
+                              value={smsPassword}
+                              onChange={e => setSmsPassword(e.target.value)}
+                              placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
+                              icon={<KeyRound className="h-4 w-4" />}
+                            />
+                          </div>
 
                           {bindError && (
                             <p className="flex items-start gap-1.5 rounded-lg bg-destructive/10 px-2.5 py-2 text-xs text-destructive">

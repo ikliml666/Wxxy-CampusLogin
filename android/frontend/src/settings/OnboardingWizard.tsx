@@ -406,9 +406,10 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
 
                     {i === 2 && (
                       <div className="my-auto flex flex-col gap-4">
-                        {/* 运营商三块：名字是选项，账号占位表达「已绑定」——
-                            不再加区块标题、选中说明与「未绑定」字样，让三块与表单本身说明流程 */}
-                        <div className="relative rounded-xl bg-muted/50 p-2.5">
+                        {/* 运营商：标题 + 竖排三行；行紧凑些给标题腾出高度 */}
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">{t('onboarding.bindIsp')}</Label>
+                          <div className="relative rounded-xl bg-muted/50 p-2">
                           {/* 只在查询中挂一个角标 spinner：正常态三块里没有任何多余图标 */}
                           {statusQuerying && !bindStatuses && (
                             <Loader2 className="pointer-events-none absolute right-2 top-2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
@@ -448,13 +449,13 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                                       title={info ? `${t('onboarding.bindStatusBound')} · ${info.account}` : t('onboarding.bindStatusUnbound')}
                                       onClick={() => setBindOperatorValue(OPERATOR_VALUE_BY_KEY[key])}
                                       className={cn(
-                                        'flex w-full items-center gap-2 rounded-lg border px-3 py-3 text-left transition-colors',
+                                        'flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
                                         focused
                                           ? 'border-primary/60 bg-primary/[0.12]'
                                           : 'border-transparent bg-card hover:bg-accent/70',
                                       )}
                                     >
-                                      <span className={cn('text-[14px] font-semibold leading-tight', focused ? 'text-primary' : 'text-foreground')}>
+                                      <span className={cn('text-[13px] font-semibold leading-tight', focused ? 'text-primary' : 'text-foreground')}>
                                         {t(labelKey)}
                                       </span>
                                       <span className={cn(
@@ -471,27 +472,34 @@ export function OnboardingWizard({ open, onClose, onUpdateConfig, onLogin, isLog
                             </>
                           )}
                         </div>
+                          </div>
 
                         <div className="space-y-2.5">
-                          <Input
-                            id="bind-phone"
-                            type="tel"
-                            maxLength={11}
-                            aria-label={t('onboarding.bindPhone')}
-                            value={phone}
-                            onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
-                            placeholder={t('onboarding.bindPhonePlaceholder')}
-                            icon={<Smartphone className="h-4 w-4" />}
-                          />
-                          <Input
-                            id="bind-sms-password"
-                            type="password"
-                            aria-label={t('onboarding.bindSmsPassword')}
-                            value={smsPassword}
-                            onChange={e => setSmsPassword(e.target.value)}
-                            placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
-                            icon={<KeyRound className="h-4 w-4" />}
-                          />
+                          <div className="space-y-1.5">
+                            <Label htmlFor="bind-phone" className="text-xs font-medium">{t('onboarding.bindPhone')}</Label>
+                            <Input
+                              id="bind-phone"
+                              type="tel"
+                              maxLength={11}
+                              aria-label={t('onboarding.bindPhone')}
+                              value={phone}
+                              onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
+                              placeholder={t('onboarding.bindPhonePlaceholder')}
+                              icon={<Smartphone className="h-4 w-4" />}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="bind-sms-password" className="text-xs font-medium">{t('onboarding.bindSmsPassword')}</Label>
+                            <Input
+                              id="bind-sms-password"
+                              type="password"
+                              aria-label={t('onboarding.bindSmsPassword')}
+                              value={smsPassword}
+                              onChange={e => setSmsPassword(e.target.value)}
+                              placeholder={t('onboarding.bindSmsPasswordPlaceholder')}
+                              icon={<KeyRound className="h-4 w-4" />}
+                            />
+                          </div>
 
                           {bindError && (
                             <p className="flex items-start gap-1.5 rounded-lg bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
