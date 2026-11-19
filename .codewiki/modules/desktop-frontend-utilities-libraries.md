@@ -113,6 +113,9 @@ source_files:
   - tauri-app/frontend/src/network/useAdapterTraffic.ts
   - tauri-app/frontend/src/network/useInternetStatus.ts
   - tauri-app/frontend/src/monitor/OperatorMismatchDialog.tsx
+  - tauri-app/frontend/src/lib/checkWindow.ts
+  - tauri-app/frontend/src/monitor/CheckWindowDialog.tsx
+  - tauri-app/frontend/src/monitor/CheckWindowDialog.test.tsx
 tags: []
 generated_by: fsoft-native
 fsoft_page: desktop_frontend_utilities_libraries.md

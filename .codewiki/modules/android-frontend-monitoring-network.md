@@ -18,6 +18,7 @@ source_files:
   - android/frontend/src/network/AccessCard.tsx
   - android/frontend/src/network/curfewMock.ts
   - android/frontend/src/monitor/OperatorMismatchDialog.tsx
+  - android/frontend/src/monitor/CheckWindowDialog.tsx
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_frontend_monitoring_network.md

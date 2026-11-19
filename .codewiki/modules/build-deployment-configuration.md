@@ -61,6 +61,7 @@ source_files:
   - tauri-app/src-tauri/src/account/identity.rs
   - tauri-app/src-tauri/src/config/wifi_curfew.rs
   - tauri-app/src-tauri/src/version.rs
+  - tauri-app/src-tauri/src/config/check_window.rs
 tags: []
 generated_by: fsoft-native
 fsoft_page: build_deployment_configuration.md
