@@ -286,7 +286,7 @@ flowchart LR
 
 ### 5.3 `OnboardingWizard`
 
-五步卡片堆引导（`STEP_TITLE_KEYS`：welcome → accountInfo → bindOperator → selectNetworkAdapter → setupComplete），实现「Apple 卡片堆」观感：`STACK_LAYERS` 定义四档 `y/scale/z`，第 4 层起共用最深档；前进时顶卡先竖直飞起并微旋（`EXIT_UP_MS = 240`）再落回队尾，后退时直接平滑归位。
+五步卡片堆引导（`STEP_TITLE_KEYS`：welcome → accountInfo → bindOperator → selectNetworkAdapter → setupComplete），实现「Apple 卡片堆」观感：`STACK_LAYERS` 由 `STACK_STEP_Y = 8` 按 `STEP_COUNT` 用 `Array.from` 生成（`y = ((STEP_COUNT - 1) * STACK_STEP_Y) / 2 - i * STACK_STEP_Y`、`z = 10 - i`）：各卡尺寸完全相同、不再做 `scale` 缩放，只沿纵向等步长上移，露出的只剩顶部一条等高卡边、左右与底部完全重合；前进时顶卡先竖直飞起并微旋（`EXIT_UP_MS = 240`）再落回队尾，后退时直接平滑归位。
 
 ```mermaid
 stateDiagram-v2
@@ -311,7 +311,7 @@ stateDiagram-v2
 
 关键约束与踩坑记录：
 
-- **卡高统一**：四卡等高取各步内容自然高度的最大值——`measureDeck()` 遍历四张卡，临时把卡高置为 `auto`，读卡自身 `scrollHeight` 与内层 `offsetHeight` 的较大值后立刻还原，取各卡最大值 `max`；视口上限 `cap = Math.max(420, window.innerHeight - 150)`（窗口变小时卡必须跟着收，否则整堆溢出屏幕），期望值 `want = Math.min(max, cap)`，写回值 `target = Math.min(Math.max(prev, want), cap)`——上限之内只增不减（绑定状态、适配器列表都是异步来的，早测到的偏矮值一旦定住就会让后面的步骤被裁掉，故取历史最大值，卡高在整轮向导里只涨一次、之后恒定），窗口收窄时随 `cap` 回落，差值小于 1px 则不变；队尾卡内容用 `visibility: hidden` 隐藏但仍参与布局，因此每页真实高度都能量到。短内容步在卡内垂直居中，超出上限时在内容区滚动（绑定按钮粘底）。内容规模随步骤状态变化（绑定状态、错误提示、语言切换、密码、双适配器、运营商、适配器数等）时由 `useLayoutEffect` 在绘制前重测（外加一帧 `requestAnimationFrame` 复测），不闪旧尺寸；绑定状态、适配器列表在打开后才异步落地，故再挂 `setTimeout` 于 300ms / 1200ms 各补测一次，卡高这才定稿（清理时一并 `cancelAnimationFrame` 与 `clearTimeout`）。关闭后另有 `useEffect` 把 `deckCardHeight` 清零，下次打开按当前内容重新量一次。首帧测量完成前用回退值 `CARD_HEIGHT_FALLBACK = 'min(680px, calc(100vh - 140px))'` 顶住；卡高取 `deckCardHeight || CARD_HEIGHT_FALLBACK`，堆容器高度取 `deckCardHeight ? deckCardHeight * 1.05 + 64 : 'calc(min(680px, 100vh - 140px) * 1.05 + 64px)'`，切步时四卡仍严格等高、不跳。
+- **卡高统一**：四卡等高取各步内容自然高度的最大值——`measureDeck()` 遍历四张卡，临时把卡高置为 `auto`，读卡自身 `scrollHeight` 与内层 `offsetHeight` 的较大值后立刻还原，取各卡最大值 `max`；视口上限 `cap = Math.max(420, window.innerHeight - 150)`（窗口变小时卡必须跟着收，否则整堆溢出屏幕），期望值 `want = Math.min(max, cap)`，写回值 `target = Math.min(Math.max(prev, want), cap)`——上限之内只增不减（绑定状态、适配器列表都是异步来的，早测到的偏矮值一旦定住就会让后面的步骤被裁掉，故取历史最大值，卡高在整轮向导里只涨一次、之后恒定），窗口收窄时随 `cap` 回落，差值小于 1px 则不变；队尾卡内容用 `visibility: hidden` 隐藏但仍参与布局，因此每页真实高度都能量到。短内容步在卡内垂直居中，超出上限时在内容区滚动（绑定按钮粘底）。内容规模随步骤状态变化（绑定状态、错误提示、语言切换、密码、双适配器、运营商、适配器数等）时由 `useLayoutEffect` 在绘制前重测（外加一帧 `requestAnimationFrame` 复测），不闪旧尺寸；绑定状态、适配器列表在打开后才异步落地，故再挂 `setTimeout` 于 300ms / 1200ms 各补测一次，卡高这才定稿（清理时一并 `cancelAnimationFrame` 与 `clearTimeout`）。关闭后另有 `useEffect` 把 `deckCardHeight` 清零，下次打开按当前内容重新量一次。首帧测量完成前用回退值 `CARD_HEIGHT_FALLBACK = 'min(680px, calc(100vh - 140px))'` 顶住；卡高取 `deckCardHeight || CARD_HEIGHT_FALLBACK`，堆容器高度取 `deckCardHeight ? deckCardHeight + (STEP_COUNT - 1) * STACK_STEP_Y + 64 : 'calc(min(680px, 100vh - 140px) + 32px + 64px)'`（即卡高 + 纵向堆叠总步长 + 64px，不再有 `1.05` 缩放留白），切步时四卡仍严格等高、不跳。
 - **不可见的卡仍会参与 Tab**：被盖住的卡仍在 DOM 里，仅 `pointer-events-none` 挡不住聚焦，因此用 `inert` 属性表达「整棵子树不可交互」。
 - **宽度不能用 `w-[760px] max-w-[calc(100vw-32px)]`**：`100vw` 在 WebView2 高 DPI/缩放下与真实布局宽不一致，会让固定宽溢出后被 `html{overflow:hidden}` 裁掉（曾表现为「引导卡左边框被截断」）；改为 `w-full + max-w` 从 flex 父容器取上限。
 - **绑定步的 Hello 门**：`useHelloGate()`（来自 [desktop_frontend_account_management](desktop-frontend-account-management.md) 的 `account/selfServiceState.ts`）在 `handleBind` 前先行验证，与后端验证门 TTL 对齐，保证一次通过；而进入步骤自动执行的 `query_bind_status` **不挂门**，避免刚进步骤就弹 Hello 打断引导。
