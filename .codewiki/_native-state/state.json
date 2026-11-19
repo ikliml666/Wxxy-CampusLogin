@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "009ce594ecf4ac9083fd16e3ea27ffdf12fd491c",
-    "headCommit": "72d80fbc98a807cebebe9c09fedb62f12acfa5c1"
+    "headCommit": "d0f3566eedac66b33e9b7a9be7b0eae62889929b"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "009ce594ecf4ac9083fd16e3ea27ffdf12fd491c",
-    "headCommit": "72d80fbc98a807cebebe9c09fedb62f12acfa5c1",
+    "headCommit": "d0f3566eedac66b33e9b7a9be7b0eae62889929b",
     "committed": [
       "android/frontend/src/settings/OnboardingWizard.tsx",
       "changelogs/CHANGELOG_v2.4.4.md",
@@ -26,11 +26,11 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwn4o16o-9-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwn5eg1k-a-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-19T05:47:19.751Z"
+  "updatedAt": "2026-11-19T06:07:49.040Z"
 }
