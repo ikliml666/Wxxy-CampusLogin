@@ -3,15 +3,19 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "4be056c53c04af4a916a613797975b5127d15687",
-    "headCommit": "1d33c572bf42344ee6e43dacbb02826416704962"
+    "headCommit": "92ec477f98c5d3a9d55568e53a66e74b2aed625a"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "4be056c53c04af4a916a613797975b5127d15687",
-    "headCommit": "1d33c572bf42344ee6e43dacbb02826416704962",
+    "headCommit": "92ec477f98c5d3a9d55568e53a66e74b2aed625a",
     "committed": [
+      "android/frontend/src/i18n/locales/en.json",
+      "android/frontend/src/i18n/locales/zh.json",
+      "android/frontend/src/network/NetworkPanel.tsx",
       "android/frontend/src/settings/OnboardingWizard.tsx",
       "changelogs/CHANGELOG_v2.4.4.md",
+      "tauri-app/frontend/src/network/NetworkPanel.tsx",
       "tauri-app/frontend/src/settings/OnboardingWizard.tsx",
       "tauri-app/src-tauri/src/monitor/outbound_night.rs"
     ],
@@ -30,7 +34,7 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwnjowj4-5-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwnkq50g-6-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-19T12:53:00.157Z"
+  "updatedAt": "2026-11-19T13:33:08.664Z"
 }

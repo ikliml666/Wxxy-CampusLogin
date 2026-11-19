@@ -138,7 +138,8 @@ flowchart TB
 
 **WiFi 就寝守则卡**——总开关 `enableWifiCurfew`、恢复时刻 `nightRestoreMinutes`、断开名单 `wifiCurfewExcluded`、放行名单 `wifiCurfewAllowed`、弱信号阈值 `wifiCurfewWeakRssi`（执行通道 `wifiCurfewChannel` 的选择已上移到 `AccessCard`）。
 
-- **恢复时刻**：`<input type="time">` 限 05:00–22:59；`0` / 越界一律按默认 07:30 显示，与后端 `restore_start_minutes` 的归一化同口径（上限必须早于 23:00，否则恢复窗为空、永不还原）。
+- **恢复时刻**：改用自绘的 `InlineTimeEdit`——静态时是可点的时间文本，点击展开「时 : 分」两个数字输入，焦点离开编辑区或 Enter 提交（钳到 `[minMinutes, maxMinutes]`），Escape 还原；不再用原生 `<input type="time">`（安卓 WebView 不弹时间选择器、WebView2 段编辑常只生效一半）。可编辑范围 05:00–22:59，`0` / 越界一律按默认 07:30 显示，与后端 `restore_start_minutes` 的归一化同口径（上限必须早于 23:00，否则恢复窗为空、永不还原）。
+- **切换时刻展示**：今日切换节点（周五六 23:30 / 其余 23:00，即 1410 / 1380 分钟）直接按 `HH:MM` 拼出，**不再走 `formatRestoreTime`**——恢复上限 1379 会把 1380/1410 判越界并回落成默认 07:30。
 - **弱信号阈值**：开关关闭时写 `0`，开启时默认 `-80 dBm`，可选档 `-70 / -75 / -80 / -85 dBm`。
 - **执行通道**：`auto` 自动回落 / `adb` / `root`，选择入口在顶部 `AccessCard`（写回 `wifiCurfewChannel`）；`getCurfewChannel()` 返回的通道就绪度与自检串（`probe` 以 `exit=0` 开头视为通过）决定权限卡上的状态行是「已就绪」还是「无权限」，后者提供 `requestCurfewPermission()` 授权按钮（调用会挂到用户在授权框操作完）。
 - **调试入口**：`testWifiCurfew(payload, force)` 立即按当前配置跑一次守则（含 dry-run 变体），`testWifiSwitch(enable)` 直接开关 WiFi；结果经 `describeCurfewResult` 译成中文标题/详情后以 15s 长 toast 展示（临时调试面板，文案刻意不走 i18n）。
@@ -152,6 +153,7 @@ flowchart TB
 | 组件 / 状态 | 说明 |
 | --- | --- | --- |
 | `SavedNetworkPicker` | 断开/放行名单共用的选择器（弹窗 + 已选胶囊），含系统已保存网络读取、互斥标记与兜底手输 |
+| `InlineTimeEdit` | 恢复时刻的行内时间编辑：静态为可点文本，点击展开「时 : 分」两个数字输入，Enter / 失焦提交并钳到 `[minMinutes, maxMinutes]`，Escape 还原；替代原生 `<input type="time">` |
 | `dotStatus` / `dotHost` | 私人 DNS 当前状态与主机名草稿；`refreshDot()` 在挂载与每次写入后重新拉取 |
 | `savedNetworks` / `savedNetworksError` | 系统已保存网络列表（`null` = 读取中）与读取失败标记；`refreshSavedNetworks()` 负责重试 |
 | `curfewChannel` | 执行通道就绪度（Shizuku / root / 自检串）；`refreshCurfewChannel()` 在授权后刷新 |
