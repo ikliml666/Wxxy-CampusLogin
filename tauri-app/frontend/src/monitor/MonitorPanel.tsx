@@ -351,8 +351,12 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                   icon={<AlarmClock className="h-4 w-4 text-sky-500" />}
                   label={t('monitor.campusCheckTimeRange')}
                 >
+                  {/* 分组启用后右侧改为「当天生效时段」展示胶囊（不可编辑，与时间胶囊同族） */}
                   {hasGroups(config.campusCheckWindows) ? (
-                    <span className="text-sm font-mono tabular-nums text-muted-foreground">
+                    <span
+                      className="h-7 inline-flex items-center px-2.5 rounded-lg border border-input bg-card text-xs font-mono tabular-nums text-foreground/80"
+                      title={t('monitor.checkWeekdayTodayHint')}
+                    >
                       {daySummary(new Date().getDay(), config.campusCheckWindows, startMinutes, endMinutes, { allDayOff: t('monitor.checkWeekdayAllDayOff') })}
                     </span>
                   ) : (
@@ -370,7 +374,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                             onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
                           }
                         }}
-                        className="w-24 h-7 text-sm font-mono"
+                        className="w-24 h-7 text-xs font-mono tabular-nums"
                       />
                       <span className="text-xs text-muted-foreground">–</span>
                       <Input
@@ -387,20 +391,29 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                             onUpdateConfig({ campusCheckEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
                           }
                         }}
-                        className="w-24 h-7 text-sm font-mono"
+                        className="w-24 h-7 text-xs font-mono tabular-nums"
                       />
                     </>
                   )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 gap-1 text-[11px]"
+                  {/* 星期入口做成与时间框同族的小胶囊（同高 h-7、同圆角、同描边、同字号）：
+                      此前是 bg-muted 灰底贴片，和两侧白底时间框不在一个体系里，显得孤立突兀。
+                      已启用分组时转为强调色，一眼看出这一行有按星期配置。 */}
+                  <button
+                    type="button"
                     onClick={() => setCheckWindowOpen(true)}
                     title={t('monitor.checkWeekdayTitle')}
+                    aria-label={t('monitor.checkWeekdayTitle')}
+                    className={cn(
+                      'h-7 inline-flex shrink-0 items-center gap-1 rounded-lg border px-2 text-xs transition-colors duration-150',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                      hasGroups(config.campusCheckWindows)
+                        ? 'border-sky-500/40 bg-sky-500/10 text-sky-600 hover:bg-sky-500/15 dark:text-sky-400'
+                        : 'border-input bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+                    )}
                   >
-                    <CalendarDays className="h-3 w-3" />
+                    <CalendarDays className="h-3.5 w-3.5" />
                     {t('monitor.checkWeekdayButton')}
-                  </Button>
+                  </button>
                 </SettingRow>
                 {/* 每日定时登录(P2-32):SettingRow 横排,开关+time 同一右侧组(children 容器自带 shrink-0) */}
                 <SettingRow

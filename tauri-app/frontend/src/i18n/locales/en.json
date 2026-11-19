@@ -511,6 +511,7 @@
     "checkWeekdayButton": "Weekdays",
     "checkWeekdayTitle": "Per-weekday check window",
     "checkWeekdayDesc": "Set the check window for each day; a day left off is not checked at all. Adjacent days with the same window are merged into one group.",
+    "checkWeekdayTodayHint": "Today's actual check window (edit other days under Weekdays)",
     "checkWeekdayAllDayOff": "Not checked today",
     "checkWeekdayAlignSwitch": "Match night switch",
     "checkWeekdayCopyFirst": "Copy the first enabled day to all",

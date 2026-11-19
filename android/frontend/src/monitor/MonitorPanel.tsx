@@ -281,10 +281,11 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                   </div>
                 </div>
                 {/* 检测时间段:安卓后端 run_check_once 同样消费 campusCheckStart/EndMinutes,两平台均显示 */}
-                {/* 未分组时右侧两个 time input 合计约 200px 不可压缩,窄屏同行会把左侧标题挤成竖排,故窄屏纵向堆叠;
-                    启用按星期分组后右侧换成当天摘要 + 星期按钮,不再有两个时间框的宽度问题 */}
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-center gap-2.5 min-w-0">
+                {/* 右侧控件（两个 time input 或摘要+星期按钮）合计 300px 以上不可压缩，行宽不够时
+                    会把左侧标题挤成竖排。这里用 flex-wrap 按「实际可用宽度」换行：
+                    不能用 sm: 断点——它看的是视口宽度，手机视口足够宽而卡片列只有 ~370px 时判断是错的 */}
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+                  <div className="flex shrink-0 items-center gap-2.5 min-w-0">
                     <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center shrink-0">
                       <AlarmClock className="h-3.5 w-3.5 text-sky-500" />
                     </div>
@@ -292,8 +293,14 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                       <Label htmlFor="campus-check-start-time" className="text-sm font-medium cursor-pointer">{t('monitor.campusCheckTimeRange')}</Label>
                     </div>
                   </div>
+                  {/* 右侧控件组整体作为一个不可拆的换行单元：窄屏时「时间框 + 星期」一起落到下一行，
+                      避免星期按钮被单独挤走、与它控制的时间框分离 */}
+                  <div className="flex items-center justify-end gap-1.5">
                   {hasGroups(config.campusCheckWindows) ? (
-                    <span className="text-sm font-mono tabular-nums text-muted-foreground shrink-0">
+                    <span
+                      className="h-7 inline-flex shrink-0 items-center px-2.5 rounded-lg border border-input bg-card text-xs font-mono tabular-nums text-foreground/80"
+                      title={t('monitor.checkWeekdayTodayHint')}
+                    >
                       {daySummary(new Date().getDay(), config.campusCheckWindows, startMinutes, endMinutes, { allDayOff: t('monitor.checkWeekdayAllDayOff') })}
                     </span>
                   ) : (
@@ -311,7 +318,7 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                             onUpdateConfig({ campusCheckStartMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
                           }
                         }}
-                        className="w-32 h-7 text-sm font-mono"
+                        className="w-[104px] h-7 text-xs font-mono tabular-nums"
                       />
                       <span className="text-xs text-muted-foreground">–</span>
                       <Input
@@ -328,20 +335,30 @@ export const MonitorPanel = memo(function MonitorPanel({ onUpdateConfig, onToggl
                             onUpdateConfig({ campusCheckEndMinutes: Math.min(1439, Math.max(0, h * 60 + min)) })
                           }
                         }}
-                        className="w-32 h-7 text-sm font-mono"
+                        className="w-[104px] h-7 text-xs font-mono tabular-nums"
                       />
                     </div>
                   )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 gap-1 text-[11px] shrink-0"
+                  {/* 星期入口做成与时间框同族的小胶囊（同高 h-7、同圆角、同描边、同字号）：
+                      此前是默认灰底按钮，和两侧白底时间框不在一个体系里，显得孤立突兀。
+                      已启用分组时转为强调色，一眼看出这一行有按星期配置。 */}
+                  <button
+                    type="button"
                     onClick={() => setCheckWindowOpen(true)}
                     title={t('monitor.checkWeekdayTitle')}
+                    aria-label={t('monitor.checkWeekdayTitle')}
+                    className={cn(
+                      'h-7 inline-flex shrink-0 items-center gap-1 rounded-lg border px-2 text-xs transition-colors duration-150',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                      hasGroups(config.campusCheckWindows)
+                        ? 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400'
+                        : 'border-input bg-card text-muted-foreground',
+                    )}
                   >
-                    <CalendarDays className="h-3 w-3" />
+                    <CalendarDays className="h-3.5 w-3.5" />
                     {t('monitor.checkWeekdayButton')}
-                  </Button>
+                  </button>
+                  </div>
                 </div>
                 {/* 定时登录/定时注销(P2-32):安卓 monitor_loop 每拍判定,与桌面同语义 */}
                 {/* 窄屏右侧 time input 会把左侧描述挤成竖排,同时间段行:窄屏纵向堆叠 */}

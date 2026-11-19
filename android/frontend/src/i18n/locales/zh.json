@@ -485,6 +485,7 @@
     "checkWeekdayButton": "星期",
     "checkWeekdayTitle": "按星期设置检测时段",
     "checkWeekdayDesc": "每天单独设置检测时段；未开启的星期整天不检测。相邻且起止相同的星期会合并为一组。",
+    "checkWeekdayTodayHint": "今天实际生效的检测时段（其它星期在「星期」里设置）",
     "checkWeekdayAllDayOff": "今天不检测",
     "checkWeekdayAlignSwitch": "对齐夜间切换",
     "checkWeekdayCopyFirst": "用第一个已开启的星期铺满",
