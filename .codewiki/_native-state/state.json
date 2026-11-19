@@ -2,13 +2,13 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "8bde4f88a3ed6352284b59fd9eb022160e4071d3",
-    "headCommit": "009ce594ecf4ac9083fd16e3ea27ffdf12fd491c"
+    "baseCommit": "009ce594ecf4ac9083fd16e3ea27ffdf12fd491c",
+    "headCommit": "00ac0deb7a1c391eafbf3c82771b9939fad1f54e"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "8bde4f88a3ed6352284b59fd9eb022160e4071d3",
-    "headCommit": "009ce594ecf4ac9083fd16e3ea27ffdf12fd491c",
+    "baseCommit": "009ce594ecf4ac9083fd16e3ea27ffdf12fd491c",
+    "headCommit": "00ac0deb7a1c391eafbf3c82771b9939fad1f54e",
     "committed": [
       "android/frontend/src/settings/OnboardingWizard.tsx",
       "changelogs/CHANGELOG_v2.4.4.md",
@@ -25,12 +25,12 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "丢弃 1 条已不存在且从未提交的旧账（android/frontend/tauri-mock.js）——只有 committed 才算消化的规则会让它们被永久携带，白跑整轮",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwn3ot9c-6-native（66 个文件）"
+    "持久化基线 8bde4f8 与本次 cw 基线 009ce59 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwn4bus8-7-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-19T05:19:55.056Z"
+  "updatedAt": "2026-11-19T05:37:52.566Z"
 }
