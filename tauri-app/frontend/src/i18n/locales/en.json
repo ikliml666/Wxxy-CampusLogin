@@ -903,6 +903,19 @@
       "accountSecondary": "Secondary adapter online account {{account}}"
     }
   },
+  "operatorMismatch": {
+    "title": "Possible wrong operator login",
+    "detected": "You are online via the campus default line (Wuxi University), which does not match your configured line \"{{configured}}\". You may have logged in with the wrong operator.",
+    "boundQuerying": "Querying the operator bound to your account…",
+    "bound": "Your account is bound to: {{bound}}",
+    "boundNone": "No bound operator was found. Please check the binding status in self-service first.",
+    "boundFailed": "Failed to query bound operator: {{msg}}",
+    "acknowledge": "Got it",
+    "fix": "Switch to {{bound}} and re-login",
+    "fixStarted": "Switched to \"{{bound}}\", logging out and re-logging in",
+    "fixFailed": "Operator switch and re-login did not finish: {{msg}}",
+    "logoutIgnored": "Logout did not succeed ({{msg}}), continuing with a fresh login"
+  },
   "dashboard": {
     "quickActions": "Quick Actions",
     "dhcpRenew": "DHCP Renew",

@@ -290,8 +290,20 @@ pub fn render_heartbeat(state: State<'_, AppState>) -> Result<serde_json::Value,
     }))
 }
 
+/// 设置日志保留天数并持久化。先落盘再生效（与 set_log_level 同语义）：磁盘写失败时
+/// 命令返回 Err、运行期保留天数保持不变——此前只写内存，重启后回落默认 7 天。
 #[tauri::command]
-pub fn set_log_retention_days(days: u32) -> Result<(), String> {
+pub async fn set_log_retention_days(app_handle: AppHandle, days: u32) -> Result<(), String> {
+    let app_h = app_handle.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let st = app_h.state::<AppState>();
+        super::config_cmd::mutate_config_and_save(&app_h, &st, move |fresh| {
+            fresh.log_retention_days = days;
+            Ok(())
+        })
+    })
+    .await
+    .map_err(|e| format!("日志保留天数落盘任务失败: {e}"))??;
     crate::infra::logger::set_log_retention_days(days);
     Ok(())
 }

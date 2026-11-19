@@ -33,6 +33,7 @@ import { AccountPanel } from '@/account/AccountPanel'
 import { SelfServicePanel } from '@/account/SelfServicePanel'
 import { NetworkPanel } from '@/network/NetworkPanel'
 import { MonitorPanel } from '@/monitor/MonitorPanel'
+import { OperatorMismatchDialog } from '@/monitor/OperatorMismatchDialog'
 import { QualityPanel } from '@/monitor/QualityPanel'
 import { SettingsPanel } from '@/settings/SettingsPanel'
 import { createPanelAppleVariants } from '@/lib/animations'
@@ -547,6 +548,9 @@ function AppInner() {
           onSetCustomColor={(hex) => updateConfig({ customThemeColor: hex })}
         />
       </Suspense>
+
+      {/* 监测中运营商不符提醒（自订阅 bgStatus/config，无 props） */}
+      <OperatorMismatchDialog />
 
       <ConfirmDialog
         open={confirmDelete.open}

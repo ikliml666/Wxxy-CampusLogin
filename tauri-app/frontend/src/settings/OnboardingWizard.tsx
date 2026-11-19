@@ -22,7 +22,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useShallow } from 'zustand/react/shallow'
-import { ISP_OPTIONS } from '@/settings/constants'
+import { ISP_OPTIONS, OPERATOR_STATUS_ORDER, OPERATOR_VALUE_BY_KEY } from '@/settings/constants'
 import { APP_NAME, PASSWORD_MASK } from '@/shared/ui-constants'
 import { MascotFigure } from '@/shared/MascotFigure'
 import { AUTO_DETECT_ADAPTER } from '@/network/adapters'
@@ -62,14 +62,7 @@ const OPERATOR_KEY_BY_VALUE: Record<string, OperatorKey> = {
   '@unicom': 'unicom',
   '@cmcc': 'cmcc',
 }
-// 展示顺序与运营商下拉保持一致（ISP_OPTIONS 剔除学校默认项后的顺序）
-const OPERATOR_STATUS_ORDER: OperatorKey[] = ['telecom', 'unicom', 'cmcc']
-// 状态胶囊点选时反查回 ISP 值
-const OPERATOR_VALUE_BY_KEY: Record<OperatorKey, string> = {
-  telecom: '@telecom',
-  unicom: '@unicom',
-  cmcc: '@cmcc',
-}
+// OPERATOR_STATUS_ORDER / OPERATOR_VALUE_BY_KEY 自 settings/constants 导入（2026-11-19 起与运营商不符弹窗共用）
 
 interface OperatorBindingInfo {
   account: string

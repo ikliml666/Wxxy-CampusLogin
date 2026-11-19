@@ -27,6 +27,7 @@ import { SponsorCard } from '@/shared/SponsorCard'
 import { ErrorBoundary } from '@/shared/ErrorBoundary'
 import { ToastContainer } from '@/shared/ToastContainer'
 import { ConfirmDialog } from '@/shared/ConfirmDialog'
+import { OperatorMismatchDialog } from '@/monitor/OperatorMismatchDialog'
 import { UpdateAvailableDialog } from '@/shared/UpdateAvailableDialog'
 import { useTranslation } from 'react-i18next'
 import { BottomNav, type MobileTab } from '@/components/layout/BottomNav'
@@ -311,6 +312,9 @@ function AppInner() {
       </Suspense>
 
       <UpdateAvailableDialog onGoUpdate={() => setAboutOpen(true)} />
+
+      {/* 监测中运营商不符提醒（自订阅 bgStatus/config，无 props） */}
+      <OperatorMismatchDialog />
 
       <Suspense fallback={null}>
         <ThemeDialog

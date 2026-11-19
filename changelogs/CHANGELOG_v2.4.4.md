@@ -2655,3 +2655,41 @@ cmd wifi status → Wifi is enabled   ← 保持连接，未制造断网
 
 
 
+
+
+### 新增功能：监测中运营商不符提醒弹窗，一键切回账户绑定的运营商（双端，2026-11-19）
+
+**为什么**：用户配置的登录运营商是电信/移动/联通时，若实际以「无锡学院（校园网默认线路）」在线（如夜切未恢复、手动改错配置、别处误登录），登录计费走错线路且难以察觉。需要在监测发现该状态时主动提醒，并给出一键纠正。
+
+**改了什么**
+
+- 新组件 `OperatorMismatchDialog`（`tauri-app/frontend/src/monitor/OperatorMismatchDialog.tsx`、`android/frontend/src/monitor/OperatorMismatchDialog.tsx`，双端同构），由 App 挂载、自订阅 `bgStatus` 与 config store，无 props。
+- 触发口径：监测运行中（`isRunning`）∧ 在线 ∧ `onlineOperator === ''`（Portal uid 无运营商后缀=无锡学院线路）∧ `config.operator` 非空。与夜切切换态（operator 已被置空）和出站切换态（校园 Portal 不在线）天然互斥，无需额外排除分支。
+- 弹窗打开即调 `query_bind_status` 查询账户绑定运营商（密码掩码时传空由后端回退已保存值）；查询四态渲染（查询中/已绑定/未绑定/失败）。
+- 按钮「了解」：关闭弹窗，本轮错误态只提醒一次，状态离开（自动重登切回运营商线路/离线/停止监测/operator 配置变化）后重新武装。
+- 按钮「改为{绑定运营商}并重新登录」：`saveConfigDirect({operator})` 先落盘（`do_login` 读后端内存配置）→ `doLogout` → `doLogin` 全新登录；注销失败不阻断登录（记 warning 日志）。
+- 运营商绑定常量 `OPERATOR_STATUS_ORDER`/`OPERATOR_VALUE_BY_KEY`/`OperatorStatusKey` 从 OnboardingWizard 私有提升至 `tauri-app/frontend/src/settings/constants.ts`（OnboardingWizard 改为导入，行为不变；安卓端复用既有 `useOnboardingFlow` 导出）。
+- i18n：双端 zh/en 各新增 `operatorMismatch` 段（11 键）。
+
+**验证**
+
+- 桌面/安卓前端 `npx tsc --noEmit` 均 0 错；i18n 四个 JSON parse 有效。
+- `cargo test` 698 通过 / 0 失败；安卓 `cargo check --target aarch64-linux-android --all-targets` 通过。
+- 受影响既有测试 vitest（OnboardingWizard.autoOperator + StatusBar.onlineOperator）11 项全过。
+- 未验证：真机/浏览器实测弹窗交互（需构造「在线 uid 无后缀 + operator 非空」的现场）。
+
+### 缺陷修复：日志面板等级与保留天数改动不回写 store、保留天数不落盘（双端，2026-11-19）
+
+**为什么**：两个同源缺陷。① 桌面 `LogPanel` 的等级下拉成功后只更新组件本地 state，不回写 `useConfigStore.initLogLevel`；标签页切换使 LogPanel 卸载，重挂载时从 App 启动时的 `initLogLevel` 快照取值——表现为「设置成其他等级后重进标签页又恢复成警告」。保留天数（`initLogRetentionDays`）同病。② 双端后端 `set_log_retention_days` 只写内存 AtomicU32，不落盘 config（`logRetentionDays` 字段形同虚设）——重启后保留天数回落默认 7 天，旧日志按错误天数清理。
+
+**改了什么**
+
+- `tauri-app/frontend/src/shared/LogPanel.tsx`：`handleLevelChange`/`handleRetentionChange` 成功分支回写 `useConfigStore.setState({initLogLevel} / {initLogRetentionDays})`，重挂载不再回落启动快照；失败回滚路径不变。
+- `tauri-app/src-tauri/src/commands/system.rs`：`set_log_retention_days` 改为先经 `mutate_config_and_save` 落盘再生效（与 `set_log_level` 同语义：落盘失败返回 Err、运行期保持不变）。
+- `android/src-tauri/src/system_cmds.rs`：同语义改经 `config_state::update` 落盘。
+- 安卓前端 LogPanel 无此回落缺陷（挂载即 `getConfig` 拉落盘值），未改动。
+
+**验证**
+
+- 桌面/安卓前端 `npx tsc --noEmit` 均 0 错；`cargo test` 698 通过 / 0 失败；安卓 `cargo check --target aarch64-linux-android --all-targets` 通过。
+- 未验证：浏览器实测「改等级→切标签页→切回」的显示保持（逻辑上 state 回写已闭环）。
