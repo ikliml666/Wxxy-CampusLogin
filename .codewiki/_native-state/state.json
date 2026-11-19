@@ -3,21 +3,33 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "4be056c53c04af4a916a613797975b5127d15687",
-    "headCommit": "92ec477f98c5d3a9d55568e53a66e74b2aed625a"
+    "headCommit": "69005fbee4e642d3e5254821db2acf9fd1763ff5"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "4be056c53c04af4a916a613797975b5127d15687",
-    "headCommit": "92ec477f98c5d3a9d55568e53a66e74b2aed625a",
+    "headCommit": "69005fbee4e642d3e5254821db2acf9fd1763ff5",
     "committed": [
+      "android/frontend/src/App.tsx",
       "android/frontend/src/i18n/locales/en.json",
       "android/frontend/src/i18n/locales/zh.json",
+      "android/frontend/src/monitor/OperatorMismatchDialog.tsx",
       "android/frontend/src/network/NetworkPanel.tsx",
       "android/frontend/src/settings/OnboardingWizard.tsx",
+      "android/src-tauri/src/system_cmds.rs",
       "changelogs/CHANGELOG_v2.4.4.md",
+      "tauri-app/frontend/src/App.tsx",
+      "tauri-app/frontend/src/i18n/locales/en.json",
+      "tauri-app/frontend/src/i18n/locales/zh.json",
+      "tauri-app/frontend/src/monitor/OperatorMismatchDialog.tsx",
+      "tauri-app/frontend/src/monitor/index.ts",
       "tauri-app/frontend/src/network/NetworkPanel.tsx",
       "tauri-app/frontend/src/settings/OnboardingWizard.tsx",
-      "tauri-app/src-tauri/src/monitor/outbound_night.rs"
+      "tauri-app/frontend/src/settings/constants.ts",
+      "tauri-app/frontend/src/shared/LogPanel.tsx",
+      "tauri-app/src-tauri/src/commands/system.rs",
+      "tauri-app/src-tauri/src/monitor/outbound_night.rs",
+      "tauri-app/src-tauri/src/monitor/wifi_curfew.rs"
     ],
     "staged": [],
     "unstaged": [],
@@ -34,7 +46,7 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwnkq50g-6-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwnlu2uk-7-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-19T13:33:08.664Z"
+  "updatedAt": "2026-11-19T13:48:05.965Z"
 }
