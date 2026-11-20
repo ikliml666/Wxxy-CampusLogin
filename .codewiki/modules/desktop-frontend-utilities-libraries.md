@@ -279,26 +279,41 @@ sequenceDiagram
     participant Hyalite as window.Hyalite
     participant CSS as CSS 样式层
 
-    alt off / standard / 引擎不支持
-        Effect->>Effect: remove() 后不挂滤镜，直接置 data-glass-ready 并返回
-        Note over CSS: standard 用纯 CSS（blur(8px) + saturate(2.08) + tint 54%）呈现，观感与折射版一致
-    else ultra 档
-        Effect->>Hyalite: attach(el, GLASS_DOCK_OPTS[level])
-        Note over Effect,CSS: ① 立即挂滤镜（此时整条 opacity:0 不可见）
-        loop rAF 轮询
-            Effect->>Effect: backdropReady()?<br/>(祖先链 opacity=1 且无 transform/will-change)
-        end
-        Effect->>Effect: goLive(): 等 LIVE_FRAMES=2 帧
-        Effect->>CSS: el.classList.add('glass-live')
-        Note over CSS: ② 放开半透明：实底淡成玻璃
-        Effect->>CSS: el.classList.add('glass-ready')
-        Note over CSS: ③ 兜底：MAX_WAIT_MS=2500ms 等不到则实底出现
+    Note over Effect: effect 顶层声明 liveRaf / pollRaf / waitRaf 三条链与 disposed 标志
+    loop waitForHyalite 按帧等 Hyalite 挂载（最多 WAIT_HYALITE_FRAMES≈1s）
+        Effect->>Effect: 检查 window.Hyalite 是否已出现
     end
+    alt 超时仍无 window.Hyalite
+        Effect->>CSS: 置 data-glass-ready，退回实底可见
+    else Hyalite 就绪，进入 run()
+        opt off / standard / 引擎不支持
+            Effect->>Effect: remove() 后不挂滤镜，直接置 data-glass-ready 并返回
+            Note over CSS: standard 用纯 CSS（blur(8px) + saturate(2.08) + tint 54%）呈现，观感与折射版一致
+        end
+        opt ultra 档
+            Effect->>Hyalite: attach(el, GLASS_DOCK_OPTS[level])
+            Note over Effect,CSS: ① 立即挂滤镜（此时整条 opacity:0 不可见）
+            loop rAF 轮询 backdropReady 直到就绪或 GIVE_UP_MS
+                Effect->>Effect: backdropReady()?<br/>(祖先链 opacity=1 且无 transform/will-change)
+                Effect->>CSS: 等满 MAX_WAIT_MS=2500ms 仍不就绪则置 data-glass-ready 兜底可见，但轮询继续
+            end
+            Effect->>Effect: goLive(): 删除 data-glass-ready，等 LIVE_FRAMES=2 帧
+            Effect->>CSS: 置 data-glass-live
+            Note over CSS: ② 放开半透明：实底淡成玻璃，真玻璃就绪后不再被实底钉住
+            Note over CSS: ③ GIVE_UP_MS 绝对上限：污染常驻时停轮询，保持实底可见
+        end
+    end
+    Note over Effect: cleanup 置 disposed=true 并取消三条 rAF 链，删除 data-glass-live / data-glass-ready
 ```
 
 **为什么用 Hyalite 而非 `backdrop-filter: blur()`**：纯模糊只能把背板糊成色块，而玻璃是**弯折**光——边缘把背后世界向内拉扯。Hyalite 按元素真实尺寸与圆角算位移图（R/G=偏移、B=带符号边缘明暗），喂给 SVG 滤镜。
 
 **只有 `ultra` 档挂折射滤镜**（源码注释中的实测结论）：`off` / `standard` 档以及引擎不支持时，`remove()` 后直接置 `data-glass-ready` 返回，不进入挂滤镜与 rAF 等待分支——此时 CSS 本就不藏悬浮栏，这条赋值是防止「引擎不支持但 `data-glass` 仍是 standard/ultra」把悬浮栏永久藏住。`standard` 档不挂 Hyalite 的理由是：1280×800 mock 截图（高对比条纹 backdrop）下 standard 与 ultra 像素差均值仅 4.70、差值 >8 仅 0.2%，折射在 standard 上几乎不可见；砍掉整条 SVG 滤镜链（21 图元 × DPR 3.25，安卓真机 6ms/帧）后，纯 CSS `blur(8px)` + `saturate(2.08)` + tint 54% 的观感与折射版一致，边缘光/阴影完全保留。
+
+**启动期等待与实底兜底（源码注释中的实测结论）**：
+- **先等 Hyalite 挂到 window**：`vendor/hyalite.js` 是 UMD 副作用导入，它把 API 挂到 `window.Hyalite` 的时机与 React effect 之间没有顺序保证。真机（Android 15 / RMX3300 / dpr 4）实测 effect 里 `window.Hyalite` 还是 undefined，原先的 `if (!el || !hyalite) return` 会让滤镜从未 attach、`data-glass-live` 从未补上，ultra 档永久停在实底。现由 `waitForHyalite(WAIT_HYALITE_FRAMES)` 按帧等它出现，最多约 1s；仍等不到才退实底可见。
+- **兜底不停止轮询**：`backdropReady()` 等不到祖先链落干净时，等满 `MAX_WAIT_MS=2500ms` 就置 `data-glass-ready` 让实底出现，但**不 return**，继续轮询——祖先链的入场补间/转场 transform 是暂时的，落干净后必须升级成真玻璃；此前一旦超时就直接 return，真机上整条会永久停在实底。轮询另设 `GIVE_UP_MS` 绝对上限，污染真常驻时停链避免每帧空转。
+- **真玻璃就绪即撤实底**：`goLive()`（以及换档位的快速分支）会先 `delete el.dataset.glassReady`，避免真玻璃仍被 `--glass-tint 100%` 钉在实底；三条 rAF 链句柄（liveRaf/pollRaf/waitRaf）与 `disposed` 标志都在 effect 顶层声明，cleanup 统一取消并清除兜底标记。
 
 **硬约束（源码注释中的实测结论）**：
 - `rim: 0`：Hyalite 自带 Fresnel 亮边会与 CSS 伪元素亮环叠加成「白色外框」

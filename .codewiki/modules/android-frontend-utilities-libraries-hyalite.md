@@ -126,6 +126,8 @@ flowchart LR
 
 React 封装层，负责把 Hyalite 引擎的命令式 API 接入 React 生命周期。**只有 `ultra` 档会真正调用 `hyalite.attach`**：`off`、`standard` 与引擎不支持时走同一条提前返回分支——摘掉滤镜并立刻补 `.glass-ready` 让悬浮栏可见。`standard` 档不再挂 SVG 折射滤镜，玻璃观感由纯 CSS（`blur(8px)` + `saturate(2.08)` + tint 54%）提供：实测 standard 与 ultra 在高对比条纹背板上像素差均值仅 4.70、>8 的差异仅 0.2%，折射几乎不可见，而 21 图元 × DPR 3.25 的滤镜链在安卓真机约 6ms/帧，收益不抵开销。因此下面的挂载时序仅适用于 `ultra` 档。
 
+实现把整段逻辑包进 `run()`，并在 effect 里先用 `waitForHyalite()` 逐帧等 `window.Hyalite` 就绪（`vendor/hyalite.js` 是 UMD 副作用导入，挂到 `window` 的时机与 React effect 无顺序保证）；旧版在 effect 顶部 `if (!hyalite) return`，真机（Android 15 / RMX3300 / dpr 4）上 `window.Hyalite` 还是 `undefined` 就直接退出，滤镜从未 attach、`.glass-live` 从未补上，`ultra` 档永久停在实底（实色栏）。现在最多等约 1s（`WAIT_HYALITE_FRAMES` 帧），仍等不到才补 `.glass-ready` 退回实底可见。
+
 #### 挂载三阶段流程（仅 `ultra` 档）
 
 ```mermaid
@@ -136,24 +138,33 @@ sequenceDiagram
     participant DOM as DOM / CSS
 
     C->>H: useEffect(ref, level)
-    alt level === 'off' / standard 或引擎不支持
-        Note over H: 不挂 Hyalite；standard 用纯 CSS<br/>blur(8px) + saturate(2.08) + tint 54%
-        H->>DOM: classList.add('glass-ready')
-        H-->>C: return cleanup
+    loop 逐帧等 window.Hyalite（最多约 1s / WAIT_HYALITE_FRAMES 帧）
+        H->>H: 若 window.Hyalite 未挂载则下一帧再试
     end
-    H->>E: hyalite.attach(el, GLASS_DOCK_OPTS[level])
-    Note over H: ① 立即挂滤镜<br/>(此时整条 opacity:0，挂不挂画面相同)
-    H->>H: 轮询祖先链 backdropReady()
-    loop rAF 轮询
-        H->>DOM: 检查父级 opacity/transform/will-change
-    end
-    alt 祖先链落干净
-        H->>H: goLive() — 等 LIVE_FRAMES=2 帧
-        H->>DOM: classList.add('glass-live')
-        Note over H: ② 放开半透明<br/>③ 悬浮栏淡入可见
-    else 超时 MAX_WAIT_MS=2500
+    alt 超时仍无 Hyalite
         H->>DOM: classList.add('glass-ready')
-        Note over H: 兜底：实底出现<br/>不丢导航栏
+        Note over H: 退回实底可见，不挂滤镜
+    else Hyalite 就绪 → run()
+        alt level === 'off' / standard 或引擎不支持
+            Note over H: 不挂 Hyalite；standard 用纯 CSS<br/>blur(8px) + saturate(2.08) + tint 54%
+            H->>DOM: classList.add('glass-ready')
+        else ultra 档且支持
+            H->>E: hyalite.attach(el, GLASS_DOCK_OPTS[level])
+            Note over H: ① 立即挂滤镜<br/>(此时整条 opacity:0，挂不挂画面相同)
+            H->>H: 轮询祖先链 backdropReady()
+            loop rAF 轮询（超时也不停止）
+                H->>DOM: 检查父级 opacity/transform/will-change
+            end
+            alt 祖先链落干净
+                H->>DOM: 删 glass-ready（真玻璃就绪，不再被实底钉住）
+                H->>H: goLive() — 等 LIVE_FRAMES=2 帧
+                H->>DOM: classList.add('glass-live')
+                Note over H: ② 放开半透明<br/>③ 悬浮栏淡入可见
+            else 超时 MAX_WAIT_MS=2500（继续轮询）
+                H->>DOM: classList.add('glass-ready')
+                Note over H: 兜底：先以实底出现，不丢导航栏<br/>落干净后仍升级成真玻璃
+            end
+        end
     end
 ```
 
@@ -162,13 +173,17 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> Unmounted
-    Unmounted --> Attaching: level = ultra & 支持
+    Unmounted --> WaitingHyalite: 逐帧等 window.Hyalite（约 1s）
+    WaitingHyalite --> Degraded: 超时仍无 Hyalite
+    WaitingHyalite --> Attaching: Hyalite 就绪且 level = ultra & 支持
     Attaching --> WaitingBackdrop: hyalite.attach()
-    WaitingBackdrop --> Live: 祖先链干净 + 2帧后
-    WaitingBackdrop --> Fallback: 超时 2500ms
-    Live --> Live: 换档位直接重挂
-    Fallback --> Live: （半透仍由 glass-live 控制）
-    Attaching --> [*]: level = off / standard 或不支持
+    WaitingBackdrop --> Live: 祖先链干净 + 2帧后（删 glass-ready）
+    WaitingBackdrop --> Fallback: 超时 2500ms（补 glass-ready）
+    Fallback --> WaitingBackdrop: 不停止轮询，落干净后升级
+    WaitingBackdrop --> Degraded: GIVE_UP_MS 绝对上限
+    Live --> Live: 换档位直接重挂（删 glass-ready）
+    Attaching --> Degraded: level = off / standard 或不支持
+    Degraded --> [*]: useEffect cleanup 或降级实底
     Live --> [*]: useEffect cleanup
     Fallback --> [*]: useEffect cleanup
 ```
@@ -176,6 +191,10 @@ stateDiagram-v2
 #### 为什么要等待祖先链？
 
 Chromium 中，若某祖先层存在 `opacity < 1`、`transform`、独立变换属性（`translate`/`scale`/`rotate`）或 `will-change`，该层会被当作 **backdrop root**。backdrop-filter 在 root 内采样不到页面内容，被填成黑色——即「整条发黑」现象。因此 hook 必须等祖先链全部落回「不透明 + 无变换」之后，才给元素加 `.glass-live` 放开半透明。
+
+祖先链污染（入场补间 / 转场 transform）通常是暂时的，所以到达 `MAX_WAIT_MS=2500ms` 只补 `.glass-ready` 让实底先可见，**不停止轮询**；落干净后必须升级成真玻璃，并在 `goLive()` 里**删掉** `.glass-ready`（否则实底被 `--glass-tint 100%` 钉住，真玻璃永远不会显现）。旧版超时后直接 return，Android 15 真机启动期一旦超时，整条永久停在实底。另设 `GIVE_UP_MS` 绝对上限防止污染常驻时 rAF 链永远跑下去。换档位走 `pastStartup` 分支时也删 `.glass-ready` 并直接补 `.glass-live`。
+
+effect 顶层还声明了三条 rAF 链的句柄（`liveRaf`/`pollRaf`/`waitRaf`）与 `disposed` 标志：cleanup 时一并 cancel 并置 `disposed`，`waitForHyalite` 据此在卸载后停止。
 
 ---
 
