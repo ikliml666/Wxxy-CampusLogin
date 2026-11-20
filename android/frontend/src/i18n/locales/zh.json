@@ -3,7 +3,7 @@
     "autoLoginSuccess": "自动登录成功",
     "weakSignalSwitched": "信号过弱，已断开 WiFi 连接走移动数据",
     "weakSignalNoCellular": "信号过弱但没有可用移动数据，已保持 WiFi",
-    "weakSignalNoDisconnect": "信号过弱但断开连接需要 Shizuku 通道，已保持 WiFi",
+    "weakSignalNoDisconnect": "信号过弱但断开连接需要 Shizuku/root 执行通道，已保持 WiFi",
     "autoLoginFailed": "自动登录失败",
     "autoLoginFailedLog": "自动登录失败: {{msg}}",
     "autoExitSoon": "即将自动退出",

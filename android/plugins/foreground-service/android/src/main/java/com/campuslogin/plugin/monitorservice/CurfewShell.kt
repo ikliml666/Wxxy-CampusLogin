@@ -64,17 +64,23 @@ object CurfewShell {
      *
      * [disableOthers] 透传给 `IWifiManager#enableNetwork`：true 是系统受理连接请求
      * 的开关，副作用是把其它已存网络全部持久禁用（调用方必须快照并负责放回）；
-     * false 只解除该网络的禁用状态。没有 Shizuku 通道返回 null，由调用方如实回报。
+     * false 只解除该网络的禁用状态。Shizuku 优先，没有时回落 root helper；
+     * 两条通道都没有返回 null，由调用方如实回报。
      */
     fun enableSavedNetwork(context: Context, netId: Int, disableOthers: Boolean): String? {
-        val remote = shellChannel(context) ?: return null
-        return try {
-            remote.enableSavedNetwork(netId, disableOthers)
-        } catch (e: Throwable) {
-            Log.w(TAG, "enableSavedNetwork(" + netId + ", " + disableOthers + ") 调用失败", e)
-            dropChannel()
-            null
+        val remote = shellChannel(context)
+        if (remote != null) {
+            return try {
+                remote.enableSavedNetwork(netId, disableOthers)
+            } catch (e: Throwable) {
+                Log.w(TAG, "enableSavedNetwork(" + netId + ", " + disableOthers + ") 调用失败", e)
+                dropChannel()
+                null
+            }
         }
+        return rootWifiAction(
+            context, "enable", netId.toString(), if (disableOthers) "1" else "0"
+        )
     }
 
     /**
@@ -100,28 +106,35 @@ object CurfewShell {
         return withRootCapture(context, command)
     }
 
-    /** 断开当前 WiFi 连接（WiFi 开关与已存配置都保留）；无通道返回 null */
+    /** 断开当前 WiFi 连接（WiFi 开关与已存配置都保留）；Shizuku 断了回落 root helper，都没有返回 null */
     fun disconnectWifi(context: Context): String? {
-        val remote = shellChannel(context) ?: return null
-        return try {
-            remote.disconnectWifi()
-        } catch (e: Throwable) {
-            Log.w(TAG, "disconnectWifi 调用失败", e)
-            dropChannel()
-            null
+        val remote = shellChannel(context)
+        if (remote != null) {
+            return try {
+                remote.disconnectWifi()
+            } catch (e: Throwable) {
+                Log.w(TAG, "disconnectWifi 调用失败", e)
+                dropChannel()
+                null
+            }
         }
+        // cmd wifi 没有 disconnect 子命令，root 下走 app_process 反射 helper
+        return rootWifiAction(context, "disconnect")
     }
 
-    /** 把已保存网络标记为不自动连接（配置保留）；无通道返回 null */
+    /** 把已保存网络标记为不自动连接（配置保留）；Shizuku 断了回落 root helper，都没有返回 null */
     fun disableSavedNetwork(context: Context, netId: Int): String? {
-        val remote = shellChannel(context) ?: return null
-        return try {
-            remote.disableSavedNetwork(netId)
-        } catch (e: Throwable) {
-            Log.w(TAG, "disableSavedNetwork(" + netId + ") 调用失败", e)
-            dropChannel()
-            null
+        val remote = shellChannel(context)
+        if (remote != null) {
+            return try {
+                remote.disableSavedNetwork(netId)
+            } catch (e: Throwable) {
+                Log.w(TAG, "disableSavedNetwork(" + netId + ") 调用失败", e)
+                dropChannel()
+                null
+            }
         }
+        return rootWifiAction(context, "disable", netId.toString())
     }
 
     /**
@@ -142,9 +155,9 @@ object CurfewShell {
                 .daemon(true)
                 .processNameSuffix("shell")
                 .debuggable(false)
-                // enableSavedNetwork 增加了 disableOthers 参数：版本号必须随之 bump，
-                // Shizuku 才会销毁旧 UserService 进程并加载新实现，否则跨进程调用旧签名直接失败
-                .version(4)
+                // 版本号必须随 UserService 字节码变化 bump（13 版加 disableOthers、
+                // 本轮抽共享 WifiServiceOps），Shizuku 才会销毁旧进程并加载新实现
+                .version(5)
             val latch = CountDownLatch(1)
             var bound: IRemoteShell? = null
             val conn = object : ServiceConnection {
@@ -175,6 +188,25 @@ object CurfewShell {
     /** binder 失效时丢掉旧连接，下次调用重新绑定 */
     private fun dropChannel() {
         channel = null
+    }
+
+    /**
+     * root 通道的 wifi 服务动作：app_process 以 root 起一次性进程跑 [RootShellMain]，
+     * 加载主 APK 的 dex 反射调 IWifiManager（cmd wifi 没有这类子命令）。
+     * 输出协议与 UserService 一致（ok / fail / error:...）；su 不可用返回 null。
+     */
+    private fun rootWifiAction(context: Context, vararg args: String): String? {
+        val cmd = "CLASSPATH='" + context.getPackageCodePath() + "' app_process / " +
+            RootShellMain::class.java.name + " " + args.joinToString(" ")
+        return try {
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
+            val out = process.inputStream.bufferedReader().readText().trim()
+            process.waitFor()
+            if (out.isEmpty()) null else out.lineSequence().lastOrNull { it.isNotEmpty() }
+        } catch (e: Throwable) {
+            Log.w(TAG, "rootWifiAction(" + args.joinToString(" ") + ") 失败", e)
+            null
+        }
     }
 
     private fun withRoot(context: Context, command: String): String? = try {

@@ -28,10 +28,11 @@ import java.util.Calendar
  * 刻意**不用 `forget-network`**：那会删掉系统里的网络配置，加密网络恢复时还得
  * 重新输密码，代价不可接受。
  *
- * 断开的实现走 Shizuku UserService 的 `IWifiManager#disconnect` + `disableNetwork`
- * （Android 10 起应用侧 API 已失效，反射调服务端接口；详见 [blockWifi]）。
- * 就寝守则在断开不可用时回落关 WiFi；弱信号**绝不回落**——用户要的是断开连接
- * 而不是关开关（2026-11-20 修正）。
+ * 断开的实现走 `IWifiManager#disconnect` + `disableNetwork` 反射（Android 10 起
+ * 应用侧 API 已失效，反射调服务端接口）——Shizuku UserService（shell 身份）与
+ * root 的 app_process helper（[RootShellMain]）双通道同一套实现（[WifiServiceOps]）。
+ * 就寝守则在两条通道都不可用时回落关 WiFi；弱信号**绝不回落**——用户要的是断开
+ * 连接而不是关开关（2026-11-20 修正）。
  */
 class WifiCurfewRunner(private val context: Context) {
 
@@ -129,9 +130,11 @@ class WifiCurfewRunner(private val context: Context) {
         val tried = mutableListOf<String>()
         if (allowed.isNotEmpty()) {
             val saved = shellExec("cmd wifi list-networks")?.let { parseNetworks(it) }.orEmpty()
-            val useShizuku = CurfewChannel.shizukuReady()
+            // enableNetwork 反射现在双通道都有（Shizuku UserService / root 的 app_process
+            // helper）：任一可用就走系统已存凭据切换，加密网络不再需要明文密码
+            val canEnable = CurfewShell.ready(context)
             val failedTargets = prefs.getStringSet(KEY_SWITCH_FAILED_TARGETS, emptySet()).orEmpty()
-            if (!dryRun && useShizuku) {
+            if (!dryRun && canEnable) {
                 // 残留守卫：上一拍切换失败后恢复没跑完（进程被杀/通道中断），先把被禁的
                 // 网络放回去再重新尝试——否则下面的全量快照覆盖会让那批 netId 无人恢复
                 recoverSwitchDisabled()?.let { tried.add(it) }
@@ -158,10 +161,10 @@ class WifiCurfewRunner(private val context: Context) {
                 }
                 // 按 networkId 走系统接口发起连接（用已存凭据、不要密码；副作用是
                 // 禁掉目标以外的全部已存网络——已在循环前快照，全部失败后统一放回）；
-                // 没有 Shizuku 时回落 cmd wifi 对 open/owe 的免密连接——加密网络在 root 下
-                // 拿不到明文密码，如实回报原因而不是假装切过
+                // 双通道都不可用时回落 cmd wifi 对 open/owe 的免密连接——加密网络没有
+                // 系统接口可用，如实回报原因而不是假装切过
                 var connected = false
-                if (useShizuku && entry.netIds.isNotEmpty()) {
+                if (canEnable && entry.netIds.isNotEmpty()) {
                     for (id in entry.netIds) {
                         val out = enableSavedNetwork(id)
                         if (out == null) {
@@ -182,7 +185,7 @@ class WifiCurfewRunner(private val context: Context) {
                 } else {
                     val security = openSecurity(entry.security)
                     if (security == null) {
-                        tried.add("「" + target + "」是加密网络，免密切换需要 Shizuku 通道")
+                        tried.add("「" + target + "」是加密网络，免密切换需要 Shizuku 或 root 执行通道")
                     } else {
                         val out = shellExec("cmd wifi connect-network \"" + target + "\" " + security)
                         if (out != null && out.contains("exit=0") && awaitSsid(target)) {
@@ -203,7 +206,7 @@ class WifiCurfewRunner(private val context: Context) {
             // 放行目标全部没连上：把被 disableOthers 禁掉的网络立刻放回去，系统按
             // autojoin 连回原网络（通常是用户正连着的热点），之后才轮到断开名单判定。
             // 切换成功不经过这里——记录保留到出窗 restore 统一恢复
-            if (!dryRun && useShizuku) recoverSwitchDisabled()?.let { tried.add(it) }
+            if (!dryRun && canEnable) recoverSwitchDisabled()?.let { tried.add(it) }
         }
         // 2) 放行目标都连不上：只有当前网络命中断开名单才关 WiFi；
         //    未连接或连着不在名单里的网络保持原样（tried 带回切换失败的原因）

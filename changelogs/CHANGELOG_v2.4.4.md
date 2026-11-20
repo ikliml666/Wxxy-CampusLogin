@@ -1,3 +1,22 @@
+### 行为调整：WiFi 断开/切换能力补全到全部执行通道（root 与 Shizuku 同能力，2026-11-20）
+
+**为什么**：守则与弱信号的断开连接（`IWifiManager#disconnect` + `disableNetwork` 反射）此前只在 Shizuku UserService（shell 身份）里实现——`CurfewShell.disconnectWifi` 等三个方法无 Shizuku 时直接返回 null，纯 root 环境只能回落关 WiFi 开关；放行网络切换同理，root 下加密网络因 `cmd wifi connect-network` 强制要明文密码而完全切不动。已核对 AOSP `WifiShellCommand`（android-13/15/main）：`cmd wifi` 没有 disconnect / 网络启停子命令，root 下唯一路径是和 Shizuku 同一套服务端反射。
+
+**改了什么**（`android/plugins/foreground-service/.../monitorservice`）
+
+- 新增 `WifiServiceOps`：`IWifiManager` 的 disconnect / disableNetwork / enableNetwork 反射从 `RemoteShellService` 抽成共享实现（新旧服务端签名按参数类型精确匹配、`error:` 前缀如实回报），两条通道行为一字不差。
+- 新增 `RootShellMain`：root 通道的一次性 helper，主进程经 `su -c "CLASSPATH=<apk> app_process / RootShellMain <action> [args]"` 以 root 身份起 ART 进程加载主 APK dex 执行同一套反射（root uid 豁免非 SDK 接口限制，`NETWORK_SETTINGS` 归因用 android 包名）。stdout 输出 ok/fail/error: 协议，与 UserService 一致。这是 root 工具的标准机制（Shizuku root 启动模式同原理）。
+- `CurfewShell`：`disconnectWifi` / `disableSavedNetwork` / `enableSavedNetwork` 在无 Shizuku 通道时回落 root helper（与 `exec` 既有的 Shizuku→root 回落模式一致）；UserService version 4→5（字节码变化，Shizuku 需销毁旧进程加载新 dex）。
+- `WifiCurfewRunner` 切换分支：`useShizuku` 改为 `canEnable`（任一通道可用即走 `enableNetwork` 系统已存凭据切换）——root 用户从此也能免密切换加密放行网络，不再受 `connect-network` 明文密码限制；切换失败文案同步为「需要 Shizuku 或 root 执行通道」。
+- i18n：`weakSignalNoDisconnect` 文案改「需要 Shizuku/root 执行通道」（zh/en）。
+
+至此三条通道的能力矩阵：Shizuku(shell) 全能力；root(su) 全能力（断开/切换/开关/读状态）；无通道（none）断开类动作如实回报 `weak-no-disconnect`，弱信号绝不关 WiFi 开关（上一条目已修正）。
+
+**验证**
+
+- Kotlin：`gradlew :tauri-plugin-campus-monitor-service:compileDebugKotlin` 与 `assembleDebug`（含 AIDL）均 exit 0、零警告。
+- 安卓前端 `npx tsc --noEmit --incremental` 通过。
+- 未验证：真机 root 环境的 `su -c app_process` 链路（不同 ROM 的 su 实现差异、SELinux 对 app_process 加载 app dex 的策略）。需真机确认：① root-only 环境弱信号触发后 WiFi 开关保持开、连接被断开且 SSID 标记不自动连接；② root-only 环境切换加密放行网络成功；③ Shizuku 环境行为与上一版一致。
 ### 缺陷修复：安卓弱信号规则断开连接，不再关闭 WiFi 开关（2026-11-20）
 
 **为什么**：弱信号规则（WiFi 信号低于阈值时离开该网络走流量）的实际动作是 `setWifiEnabled(false)` 关掉整个 WiFi 开关。用户实测发现后明确：本意是"断开与这个 WiFi 的连接"，而不是关闭 WiFi 硬件开关——关开关会让蓝牙共享/其它 WiFi 依赖全部中断，且恢复语义（次日定时开回）完全对不上"离开这条弱网络"。
