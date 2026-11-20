@@ -137,7 +137,7 @@ flowchart LR
 
 ## 与其他模块的关系
 
-- **被启动的应用主体**：`App` 来自 `android/frontend/src/App.tsx`，其手机/平板双外壳、面板懒加载等见 [android_frontend_hooks.md](android-frontend-hooks.md) 的启动编排与 [android_frontend_shared_components.md](android-frontend-shared-components.md)。
+- **被启动的应用主体**：`App` 来自 `android/frontend/src/App.tsx`，其手机/平板双外壳、面板懒加载等见 [android_frontend_hooks.md](android-frontend-hooks.md) 的启动编排与 [android_frontend_shared_components.md](android-frontend-shared-components.md)。手机外壳的面板渲染在本次改动后由「按页签卸载重挂」改为「访问过即常驻、只切可见性」：`visitedTabsRef`（`useRef<Set<MobileTab>>`，首帧含当前页签）累积所有访问过的页签，`mountedTabs` 由其生成且只增不减，`panelFor(tabId)` 工厂按页签返回对应面板；每个面板包在带 `hidden={tabId !== deferredTab}` 与 `contain: 'layout style'` 的 `<div>` 中，切页只剩一次可见性翻转。原先的 `framer-motion` 方向性转场（`AnimatePresence`/`m.div`、`createPanelAppleVariants` 变体工厂、`navDir`/`tabOrder`）已移除，`useAnimationProfile()` 仍保留调用但仅用于写入 GPU 档位 CSS 变量、不再参与面板转场。
 - **崩溃恢复依赖的渲染链探测**：`isRenderLoopAlive` 来自 `android/frontend/src/lib/renderLiveness.ts`，属 [android_frontend_utilities_libraries.md](android-frontend-utilities-libraries.md)。
 - **主题常量与存储**：`VALID_THEMES` / `VALID_GLASS_LEVELS` 来自 [android_frontend_settings.md](android-frontend-settings.md)；`safeStorage` / `cn` 来自 [android_frontend_utilities_libraries.md](android-frontend-utilities-libraries.md)。
 - **内存压力钩子的对端**：人脸引擎 `releaseFaceEngine` 与 `__faceEngineLoaded` / `__faceSessionActive` 标志由 [android_frontend_face_verification.md](android-frontend-face-verification.md) 的 `faceService.ts` 维护；Kotlin `MainActivity.onTrimMemory` 属 android_backend_tauri.md。

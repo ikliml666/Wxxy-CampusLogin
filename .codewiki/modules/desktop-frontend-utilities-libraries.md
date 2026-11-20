@@ -197,7 +197,7 @@ flowchart TB
 #### 1.2 动画变体工厂 `animations.ts`
 
 - `createLogEntryVariants(easing)`：日志条目进入/退出的 framer-motion Variants（进入 `x: 20→0`，退出 `x: -16`）
-- `createPanelAppleVariants(easing)`：Apple HIG 风格面板变体（spring `stiffness: 320, damping: 24, mass: 0.7`，退出仅 0.04s 降低等待税）
+- `createPanelAppleVariants(easing)`：Apple HIG 风格面板变体（spring `stiffness: 320, damping: 24, mass: 0.7`，退出仅 0.04s 降低等待税）。**转场只走 transform（仅 `y`），不做 `opacity` / `scale`**（`initial: { y: 8 }`、`animate: { y: 0 }`、`exit: { y: -4 }`）——与安卓端同步；`opacity < 1` 会把整个面板子树变成离屏合成层（每帧重新合成所有卡片的阴影/圆角/半透明底），安卓真机实测这是切页 janky 的主要来源之一，桌面端 GPU 更强但同一套代码，行为与语义保持一致。
 
 #### 1.3 弹簧物理仿真 `dock-spring.ts`
 
@@ -243,7 +243,7 @@ flowchart LR
         F["glow 光斑<br/>二次曲线衰减"]
     end
     subgraph 输出渲染
-        G["lensEl 药丸底<br/>translate3d + width/height"]
+        G["lensEl 正圆镜片<br/>直径取栏高 + translate3d + width/height"]
         H["magEl 放大层<br/>clip-path 抠形 + scale"]
         I["stripEl 项容器<br/>clip-path 挖洞 path(evenodd)"]
         J["CSS 变量<br/>--dock-stretch / --dock-glow-*"]
@@ -263,6 +263,7 @@ flowchart LR
 ```
 
 **核心机制**：
+- **镜片是正圆、不是药丸**：旧实现宽度跟着项宽（`widthAt` 按项宽插值 +4），项宽随文字长短/项数变化时会退化成被图标挤扁的胶囊；现改为直径取栏高（`size = barH + LENS_GROWTH * 2 * lf`，`w = size * (1 + jelly)`、`h = size * (1 - jelly * JELLY_ASPECT)`），边缘曲率恒定、折射/高光各方向一致，天然盖住比栏高更窄的项（手机 336px / 6 项 ≈ 56px < 64px 栏高）而不露出原图标。果冻拉伸仍让它短暂变椭圆——那是弹性语言，不是形变缺陷。
 - **DOM 副本方案**：DOM 没有 Flutter 的图层复用，等价物是「第二排副本」——调用方在 `[data-dock-magnify]` 里渲染同一批项（`aria-hidden`），被 `clip-path` 裁成药丸、绕镜头中心放大
 - **每帧只写 style，零 React re-render**：这是能在 60fps 下同时跑十余条曲线的原因
 - **节点契约**：调用方需提供 `[data-dock-item]`、`[data-dock-lens]`、`[data-dock-magnify]`、`[data-dock-magnify-inner]`、`[data-dock-strip]`

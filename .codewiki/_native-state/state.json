@@ -3,17 +3,26 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "34a22e43f6f85b921885e8cfff41c09b521e1671",
-    "headCommit": "c023dd230cf68598fbe4f9a195f85b6d9be10d16"
+    "headCommit": "9f72a8c28cb635ce61f69145ebcb502f45ba5a1b"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "34a22e43f6f85b921885e8cfff41c09b521e1671",
-    "headCommit": "c023dd230cf68598fbe4f9a195f85b6d9be10d16",
-    "committed": [],
+    "headCommit": "9f72a8c28cb635ce61f69145ebcb502f45ba5a1b",
+    "committed": [
+      "android/frontend/src/lib/glass-dock.tsx",
+      "changelogs/CHANGELOG_v2.4.4.md",
+      "tauri-app/frontend/src/lib/glass-dock.tsx"
+    ],
     "staged": [],
     "unstaged": [
-      "android/frontend/src/lib/glass-dock.tsx",
-      "tauri-app/frontend/src/lib/glass-dock.tsx"
+      "android/frontend/src/App.tsx",
+      "android/frontend/src/components/layout/BottomNav.tsx",
+      "android/frontend/src/index.css",
+      "android/frontend/src/lib/animations.ts",
+      "android/frontend/src/lib/dock-lens.ts",
+      "tauri-app/frontend/src/lib/animations.ts",
+      "tauri-app/frontend/src/lib/dock-lens.ts"
     ],
     "untracked": [],
     "deleted": [],
@@ -21,8 +30,13 @@
     "reason": ""
   },
   "unconsumed": [
-    "android/frontend/src/lib/glass-dock.tsx",
-    "tauri-app/frontend/src/lib/glass-dock.tsx"
+    "android/frontend/src/App.tsx",
+    "android/frontend/src/components/layout/BottomNav.tsx",
+    "android/frontend/src/index.css",
+    "android/frontend/src/lib/animations.ts",
+    "android/frontend/src/lib/dock-lens.ts",
+    "tauri-app/frontend/src/lib/animations.ts",
+    "tauri-app/frontend/src/lib/dock-lens.ts"
   ],
   "engineVersion": "2.0.0",
   "scope": "auto",
@@ -31,9 +45,8 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 11501ac 与本次 cw 基线 34a22e4 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "工作区未提交改动已合成临时 commit bab1663ce8d5（2 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwol7hp4-8-native（66 个文件）"
+    "工作区未提交改动已合成临时 commit b5a5b9fb5368（7 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwoma2yn-9-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-20T06:25:05.905Z"
+  "updatedAt": "2026-11-20T07:29:02.996Z"
 }

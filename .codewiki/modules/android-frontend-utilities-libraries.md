@@ -110,7 +110,7 @@ flowchart TD
 两个**工厂函数**，输入 `EasingConfig`、输出 framer-motion 的 variants，调用方放进 `<motion.div variants={...}>`：
 
 - **`createLogEntryVariants(easing)`**：日志条目进场（右滑入 + 淡入，0.3s）与退场（左滑出，0.15s），`snappy`/`exit` 两条曲线取自配置。
-- **`createPanelAppleVariants(easing)`**：页签级面板的**方向转场**——`custom` 传入 `direction = -1 | 0 | 1`（页签索引差）：前进从右滑入（+18px）、后退从左滑入，旧面板反向滑出；`direction=0` 时退化为纵向浮起。进场用弹簧参数 `stiffness: 320 / damping: 24 / mass: 0.7`（Apple HIG 的轻微弹性区间），退场仅 0.04s——「退出只是过渡提示，等待税越低切换越跟手」。逐键 resolver 函数保证 `AnimatePresence` 把 custom 转发给正在退出的旧面板。
+- **`createPanelAppleVariants(easing)`**：页签级面板的**方向转场**——`custom` 传入 `direction = -1 | 0 | 1`（页签索引差）：前进从右滑入（+18px）、后退从左滑入，旧面板反向滑出；`direction=0` 时退化为纵向浮起。进场用弹簧参数 `stiffness: 320 / damping: 24 / mass: 0.7`（Apple HIG 的轻微弹性区间），退场仅 0.04s——「退出只是过渡提示，等待税越低切换越跟手」。逐键 resolver 函数保证 `AnimatePresence` 把 custom 转发给正在退出的旧面板。**转场只走 `transform`，不做 `opacity` / `scale`**：`initial` / `animate` / `exit` 里都已去掉淡入淡出与缩放——`opacity < 1` 会让整个面板子树变成离屏合成层，卡片阴影、圆角、半透明底每帧重新渲染进离屏纹理；真机（Android 15 / RMX1500，60Hz 预算 16.67ms）实测切页 janky 15–24%（关掉玻璃层后仍 19.9–30%），慢在原生侧绘制命令录制，降回普通合成层位移后只由合成器处理、不再逐帧重绘内容，方向感已由位移本身给足。
 
 ## 4. 悬浮栏镜头系统（dock-spring.ts + dock-lens.ts）
 
@@ -180,11 +180,12 @@ sequenceDiagram
 关键实现决策（均来自源码注释中的实测经验）：
 
 1. **零 React re-render**：每帧只写 DOM 的 `style` 与 CSS 变量（`--dock-stretch`、`--dock-glow-*`），六条弹簧共享一个 rAF，同帧多次回调合并成一次 `render()`。
-2. **放大层与裁剪分离**：外层 `clip-path: inset(...) round` 把镜片形状抠出来，内层才 `scale()`；顺序不能换，否则镜片形状会跟着放大错位。
-3. **原项挖洞**：镜片盖住的那段必须在项容器上再开 `clip-path: path(evenodd, …)` 把药丸区域从原项里挖掉，否则放大副本底下压着原图标形成残影；挖的是**药丸形状而不是方框**（方框四角会露出来）。
-4. **手势边界**：只接管 `data-dock-strip` 内的按下，按钮/分隔条/菜单不被误判成「点选最右一项」；`pointerdown` 里显式 `setPointerCapture`，否则拖出栏外收不到 move（实测 bug）。
-5. **落下时序**：必须「抬起到位（lift ≥ 0.975）且镜头到达目标」才落——缺了会看到镜头还在飞、药丸先缩掉。
-6. 指针悬停**不**驱动任何位移反馈；窗口失焦（blur）时主动 `finish(false)` 收尾，避免镜头卡在抬起态。
+2. **镜片是正圆而非药丸**：不再按项宽插值算镜片宽度（旧的 `widthAt()` 已移除），直径直接取栏高 `barH + LENS_GROWTH * 2 * lf`——圆的边缘曲率恒定，折射/高光各方向一致；宽度若跟着项宽（文字长短、项数多少）走就退化成被图标挤扁的胶囊。栏高作直径天然盖住比栏高更窄的项（手机 336px / 6 项 ≈ 56px < 64px 栏高），不会露出原图标；果冻拉伸仍让它短暂变椭圆，那是弹性语言而非形变缺陷。
+3. **放大层与裁剪分离**：外层 `clip-path: inset(...) round` 把镜片形状抠出来，内层才 `scale()`；顺序不能换，否则镜片形状会跟着放大错位。
+4. **原项挖洞**：镜片盖住的那段必须在项容器上再开 `clip-path: path(evenodd, …)` 把药丸区域从原项里挖掉，否则放大副本底下压着原图标形成残影；挖的是**药丸形状而不是方框**（方框四角会露出来）。
+5. **手势边界**：只接管 `data-dock-strip` 内的按下，按钮/分隔条/菜单不被误判成「点选最右一项」；`pointerdown` 里显式 `setPointerCapture`，否则拖出栏外收不到 move（实测 bug）。
+6. **落下时序**：必须「抬起到位（lift ≥ 0.975）且镜头到达目标」才落——缺了会看到镜头还在飞、药丸先缩掉。
+7. 指针悬停**不**驱动任何位移反馈；窗口失焦（blur）时主动 `finish(false)` 收尾，避免镜头卡在抬起态。
 
 ## 5. 折射玻璃组（glass-dock.tsx + vendor/hyalite.*）
 
