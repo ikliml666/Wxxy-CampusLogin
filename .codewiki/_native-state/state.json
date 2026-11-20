@@ -2,40 +2,19 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "b897d1b2921958ce9c03ade19f1e948f96f0bdee",
-    "headCommit": "aa828e6ed924091f4c48c8e8e2fe997a1eaf4b12"
+    "baseCommit": "aa828e6ed924091f4c48c8e8e2fe997a1eaf4b12",
+    "headCommit": "4e7934a9629ec5e78099e0b2469d4ab137f9c4d5"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "b897d1b2921958ce9c03ade19f1e948f96f0bdee",
-    "headCommit": "aa828e6ed924091f4c48c8e8e2fe997a1eaf4b12",
+    "baseCommit": "aa828e6ed924091f4c48c8e8e2fe997a1eaf4b12",
+    "headCommit": "4e7934a9629ec5e78099e0b2469d4ab137f9c4d5",
     "committed": [
-      "android/frontend/src/account/SelfServicePanel.tsx",
-      "android/frontend/src/auth/AboutDialogMobile.tsx",
-      "android/frontend/src/hooks/tauriApi.ts",
+      "android/frontend/src/hooks/useEventListeners.ts",
       "android/frontend/src/i18n/locales/en.json",
       "android/frontend/src/i18n/locales/zh.json",
-      "android/frontend/src/index.css",
-      "android/frontend/src/monitor/QualityPanel.tsx",
-      "android/frontend/src/network/NetworkPanel.tsx",
-      "android/frontend/src/settings/constants.ts",
-      "android/frontend/src/settings/types.ts",
       "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/WifiCurfewRunner.kt",
-      "android/src-tauri/src/config_state.rs",
-      "android/src-tauri/src/core/monitor.rs",
-      "android/src-tauri/src/lib.rs",
-      "android/src-tauri/src/protocol_cmds.rs",
-      "android/src-tauri/src/vpn_cmds.rs",
-      "changelogs/CHANGELOG_v2.4.4.md",
-      "tauri-app/frontend/src/account/SelfServicePanel.test.tsx",
-      "tauri-app/frontend/src/account/SelfServicePanel.tsx",
-      "tauri-app/frontend/src/index.css",
-      "tauri-app/frontend/src/monitor/QualityPanel.tsx",
-      "tauri-app/frontend/src/network/NetworkPanel.tsx",
-      "tauri-app/src-tauri/src/commands/vpn.rs",
-      "tauri-app/src-tauri/src/vpn/cache.rs",
-      "tauri-app/src-tauri/src/vpn/mod.rs",
-      "tauri-app/src-tauri/src/vpn/zone_cache.rs"
+      "changelogs/CHANGELOG_v2.4.4.md"
     ],
     "staged": [],
     "unstaged": [],
@@ -52,13 +31,14 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "工作区未提交改动已合成临时 commit 25f244ab476a（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwoejob8-2-native（66 个文件）",
-    "本轮把 1 个未提交源码改动一并写进产物（快照 25f244ab476a）：changelogs/CHANGELOG_v2.4.4.md_entry"
+    "持久化基线 b897d1b 与本次 cw 基线 aa828e6 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "工作区未提交改动已合成临时 commit b3112dbc4c54（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwofhmji-3-native（66 个文件）",
+    "本轮把 1 个未提交源码改动一并写进产物（快照 b3112dbc4c54）：changelogs/CHANGELOG_v2.4.4.md_entry"
   ],
-  "updatedAt": "2026-11-20T03:11:40.844Z"
+  "updatedAt": "2026-11-20T03:45:16.745Z"
 }

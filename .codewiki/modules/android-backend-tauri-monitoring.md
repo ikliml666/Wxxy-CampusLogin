@@ -291,7 +291,7 @@ flowchart TD
 
 弱信号断连前还会先确认**流量可用**:`WifiCurfewRunner.hasCellularFallback()` 用 `ConnectivityManager` 找同时具备 `TRANSPORT_CELLULAR` 与 `NET_CAPABILITY_INTERNET` 的网络(`ACCESS_NETWORK_STATE` 普通权限,与执行通道无关)。不可用时返回 `action="weak-no-cellular"`(`trace="no_cellular_internet"`)并保持 WiFi 不动——移动数据关闭或飞行模式下断网(断开连接或回落关 WiFi)会让设备彻底断网,比待在弱 WiFi 上更糟;因此弱信号规则不再产生"越执行越糟"的降级。
 
-断连动作本身在 Kotlin 侧是 `blockWifi(netIdKey)`:先按当前 netId 调 `IWifiManager#disableNetwork` 把该配置标记为「不自动连接」,再调 `IWifiManager#disconnect` 断开当前连接(顺序不可反,否则系统按 autojoin 立刻连回同一 SSID),两步都失败才回落关 WiFi 硬件;配置本身始终保留,恢复时 `enableSavedNetwork` 直接连回,用户不必重输密码。这三个 `IWifiManager` 直调动作只经 Shizuku UserService,只有 root 时返回 `null` 并回落关 WiFi。
+断连动作本身在 Kotlin 侧是 `blockWifi(netIdKey)`:先经 `currentSsidNetIds()` 取当前 SSID 的全部 netId(当前连接的 netId 加上 `cmd wifi list-networks` 中同 SSID 的其它 netId,兼容 Android 15+ 按安全模式拆出的多条配置),逐个调 `IWifiManager#disableNetwork` 把这些配置标记为「不自动连接」(只禁当前一条会被其余配置按 autojoin 秒连回),再调 `IWifiManager#disconnect` 断开当前连接(顺序不可反,否则系统按 autojoin 立刻连回同一 SSID),`disconnect` 失败才回落关 WiFi 硬件;配置本身始终保留,恢复时 `unblockWifi` 经 `enableSavedNetwork` 逐个连回,用户不必重输密码。这三个 `IWifiManager` 直调动作只经 Shizuku UserService,只有 root 时返回 `null` 并回落关 WiFi。
 
 弱信号断开时被标记为「不自动连接」的那条网络配置,在 RSSI 直接达标的分支也会被还原:Kotlin 侧先 `unblockWifi(KEY_WEAK_NET)` 重新启用它,确有还原动作才返回 `action="weak-probe"`,否则才返回"无动作"。用户若靠手动切到别的强信号网络才恢复,不这样做那条配置就永远回不来。同一执行器读 `cmd wifi status` 的 netId 用大小写不敏感正则 `Net(?:work)? ID:`,兼容 Android 14+ 的 `Net ID` 与更早的 `Network Id` 两种字段名。
 

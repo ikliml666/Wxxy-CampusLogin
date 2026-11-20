@@ -117,7 +117,7 @@ flowchart LR
 | `BootReceiver` | 主进程 | `BOOT_COMPLETED` 拉起 `CoreService`（默认组件 `disabled`） |
 | `CurfewChannel` | 主进程 | Shizuku/root 通道判定：四态 `ready`/`missing`/`inactive`/`denied`、`rootAvailable()` |
 | `CurfewShell` | 主进程 | 守则与 SSID 读取共用的 shell 通道：优先 Shizuku `UserService`，其次 root（`su -c`），只保留一个常驻连接；并转发 `enableSavedNetwork` / `disableSavedNetwork` / `disconnectWifi` 三条 `IWifiManager` 动作（只走 Shizuku 通道，无通道返回 `null`）；另对 `network-bind` 暴露 `execWithCode(command)` 返回 `Pair<退出码, 原始输出>`（空输出同样算成功，供跨插件写 `Settings.Global`） |
-| `WifiCurfewRunner` | 主进程 | 就寝守则单拍：窗口判定、放行/断开名单、弱信号（RSSI 走 API + shell 双通道，断连前先校验蜂窝回退 `hasCellularFallback`，信号达标时还原被禁用的网络配置）、`blockWifi`/`unblockWifi`（断开连接优先、关 WiFi 兜底）与还原、`cmd wifi` 动作、shell 通道复用 |
+| `WifiCurfewRunner` | 主进程 | 就寝守则单拍：窗口判定、放行/断开名单、弱信号（RSSI 走 API + shell 双通道，断连前先校验蜂窝回退 `hasCellularFallback`，信号达标时还原被禁用的网络配置）、`blockWifi`/`unblockWifi`（断开连接优先、关 WiFi 兜底；断连经 `currentSsidNetIds()` 禁用当前 SSID 的全部 netId）与还原、`cmd wifi` 动作、shell 通道复用 |
 | `RemoteShellService` | Shizuku 特权进程 | `IRemoteShell.Stub` 实现：`exec()` 跑 shell、`enableSavedNetwork()` / `disableSavedNetwork()` / `disconnectWifi()` 直调 `IWifiManager` |
 | `StartArgs` / `CoreCommandArgs` / `TextArgs` / `RefreshRateArgs` / `BoolArgs` | 主进程 | `@InvokeArg` 参数结构（字段均可空，缺参判空后 reject，避免 `lateinit` 崩溃） |
 
@@ -318,8 +318,8 @@ flowchart TD
 
 窗口内没有可用放行目标、且当前网络命中断开名单时，`blockWifi(netIdKey)` 是唯一的断网入口，顺序固定为：
 
-1. `currentNetId()` 读当前连接的 networkId；
-2. 有 netId 则 `CurfewShell.disableSavedNetwork(context, netId)` 把该配置标记为「不自动连接」，成功时把 netId 记进 `KEY_BLOCKED_NET` / `KEY_WEAK_NET`（两条规则各记各的）；
+1. `currentSsidNetIds()` 取当前 SSID 的**全部** networkId：先用 `currentNetId()` 读当前连接的 netId 与 `currentSsid()` 读 SSID，再按 SSID 从 `cmd wifi list-networks` 的 `parseNetworks` 结果中找出同一 SSID 的所有 netId（如 Android 15+ 按安全模式拆出的 wpa2/wpa3 多条配置），并与当前 netId 合并；取不到 netId 则本步跳过；
+2. 对取到的每个 netId 逐个 `CurfewShell.disableSavedNetwork(context, id)` 把配置标记为「不自动连接」，成功的 id 一起以 `StringSet` 记进 `KEY_BLOCKED_NET` / `KEY_WEAK_NET`（两条规则各记各的，恢复时 `unblockWifi` 逐个启用）。只禁当前连接的那一条 netId 会被同一 SSID 的其余配置按 autojoin 秒连回，因此必须全禁；
 3. `CurfewShell.disconnectWifi(context)` 断开当前连接——**顺序不能反**：先断后禁的话，系统会在断开后立刻按 autojoin 连回同一 SSID，等于没断开；
 4. 只有 `disconnect` 没成功（无执行通道、接口调用失败）才回落 `setWifiEnabled(false)` 关掉 WiFi 硬件，否则规则完全失效。
 
@@ -533,6 +533,7 @@ Rust 侧 `update_cmds::install_update` 先 `canonicalize` 并校验落在 `updat
 | 到点才切放行网络，换网尚未完成就被要求断开 | WiFi 换网需发现/握手/拿地址，到点才动手会空等 | 切换时刻前 `prepareLead` 分钟内先进提前准备窗口切到放行网络，到点只差断开/补出站（见 6.2） |
 | 守则日志每拍刷一条 | 弱信号复探在等待窗口内返回结果 | 窗口内返回 `null`（无动作），仅跨档触发 |
 | 断开后几秒又自动连回同一 SSID | 只调 `disconnect` 不够，系统按 autojoin 重连 | 先 `disableSavedNetwork(netId)` 标记不自动连接、再 `disconnectWifi()`，顺序不可反（见 6.3） |
+| Android 15+ 断开后仍被秒连回同一 SSID | 同一 SSID 按安全模式拆成多条配置（wpa2/wpa3 各一行），只禁当前连接的 netId，其余配置仍会 autojoin 连回 | `currentSsidNetIds()` 从 `cmd wifi list-networks` 找出该 SSID 的全部 netId 并逐个 `disableSavedNetwork`，成功 id 全记入 `KEY_*_NET` 供 `unblockWifi` 逐个还原（见 6.3、6.8） |
 | 断连后恢复时要求用户重新输密码 | 用 `forget-network` 会删掉系统里的网络配置 | 只标记「不自动连接」，配置保留；恢复时 `enableSavedNetwork(netId)` 直接连回（见 6.7） |
 | 只有 root 没有 Shizuku 时断连退化为关 WiFi | `IWifiManager` 直调动作只经 Shizuku UserService，`su -c` 拿不到 binder 代理 | 如实回报 `disableNetwork`/`disconnect` 的 `null` 与回落原因，`trace` 里可见卡在哪一步（见 6.5、6.3） |
 | 写 `Settings.Global` 成功却被判失败 | `settings put` 成功时不打印任何输出，用"有没有输出"当成败判据会误判 | 跨插件写设置一律走 `CurfewShell.execWithCode`，按退出码判定（空输出也算成功，见 6.5） |
