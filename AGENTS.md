@@ -16,7 +16,14 @@
    - 安卓端：host `cargo check` / `cargo test` 在 `android/src-tauri` 基线即失败（mobile-only 插件门控）——Rust 改动只认 `cargo check --target aarch64-linux-android --all-targets`（需注入 NDK 工具链环境变量）或一键出包 `pwsh android/build-apk.ps1`（详见 CodeWiki 的 `decisions/verification-baseline` 与 `learnings/android-host-cargo-check-fails`）。
    - 布局 / 交互类改动需浏览器实测：向 `tauri-app/frontend/index.html` 临时注入 `__TAURI_INTERNALS__` mock + vite dev 起本地服务，**用后必须完整还原**（git diff 必须干净）。
 
-5. **文档同步**：新模块、决策变更、踩坑记录同步进 CodeWiki（仓库内 `.codewiki/`）——修了 bug 写 `learnings/<slug>.md`、做了决策写 `decisions/<slug>.md`、并更新被改动代码影响到的文章；收尾跑 `cw index` 重建索引与 `cw meta update` 记录 commit，两者对 `.codewiki/` 的改动随代码一起提交。用户可见的行为变化同步 changelog（见第 1 条）。
+5. **版本号升级按固定清单全量同步（发布前）**：版本号散落在 20 个文件里，漏一处就会在构建或发布环节炸——以 `tauri-app/src-tauri/tauri.conf.json` 的 `version` 为唯一权威源，一次性改完下列全部位置：
+   - **权威源与 Rust**：两端 `tauri.conf.json`、`tauri-app/src-tauri/Cargo.toml`、`android/src-tauri/Cargo.toml`、`android/core-logic/Cargo.toml`。
+   - **前端包与常量**：两端 `package.json`、两端 `src/shared/ui-constants.ts` 的 `APP_VERSION`。
+   - **锁文件**：三份 `package-lock.json` 各 2 处（根 `version` 与 `packages[""]`）；三份 `Cargo.lock` **只改自有包**（`campus-login`、`campus-login-android`、`campus-core-logic`），第三方包的同名版本号（如 `@bramus/specificity@2.4.3`）一律不动。
+   - **展示位**：`README.md` 徽章、`tauri-app/frontend/about-preview.html` 两处（`app-version` / `status-version`）。
+   - **`version.json`**：`version` 带 `v` 前缀；`notes` 保持精简——固定下载提醒头 + GitHub / 夸克两条渠道 + 「### 本版本最重要的变化」3~4 条要点 + 末尾指引，不贴整份 Release Notes。
+   **不动的旧版本残留**（改了就是错）：注释里的历史版本引用（如 `monitor/outbound_night.rs` 的「见 changelog v2.4.3」）、`changelogs/` 与 `release/` 下的历史存档与上一版发布资产、构建产物目录（`android/src-tauri/gen/`、`target-tmp/`）。
+   **验证**：桌面 `cargo check --lib` 输出 `Compiling campus-login v<新版本>`（证明版本号已进编译单元）；双端 `npx tsc --noEmit --incremental`；最后全仓 `grep -rIn "<旧版本>"`（排除 node_modules / target / build / gen / changelogs / release），剩余每一处都要能说清为什么保留。安装包编译与 Release 发布属另一环节，不在本清单内（见 CodeWiki 的 `decisions/release-asset-integrity`）。
 
 6. **语言**：思考、回复、commit 说明、文档一律中文；代码、命令、报错原文保持原样。
 
@@ -24,4 +31,4 @@
 
 - 技术栈：Tauri 2 + React 19 + TypeScript，Windows + 安卓双端同构的校园网（Dr.COM/Portal）自动登录助手。
 - 桌面端：前端根 `tauri-app/frontend`、后端根 `tauri-app/src-tauri`；安卓端根 `android/`（后端 path 依赖桌面协议核心 crate，前端为独立复刻树）。
-- 发布流程、版本号同步清单、Release 资产检查清单见 CodeWiki 的 `decisions/release-asset-integrity` 与 `decisions/version-single-source-build-rs`（版本号提交与 Release 发布必须同流程完成）。
+- 发布流程与 Release 资产检查清单见 CodeWiki 的 `decisions/release-asset-integrity` 与 `decisions/version-single-source-build-rs`（版本号提交与 Release 发布必须同流程完成）。

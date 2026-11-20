@@ -1,3 +1,17 @@
+### 文档：AGENTS.md 补入版本号升级清单与验证口径（2026-11-20，分支 chore/agents-version-bump-flow）
+
+**为什么**：本版做版本号升级时才发现，版本号散落在 **20 个文件**里，而 AGENTS.md 此前只有一句「见 CodeWiki 的 `decisions/version-single-source-build-rs`」——具体改哪些文件、哪些同名残留不能碰、改完怎么验证，全靠现场 grep 摸索。本次把这份清单直接写进约定，下次升级不必再重新发现一遍。
+
+**改了什么**（`AGENTS.md`）
+
+- 新增第 5 条「版本号升级按固定清单全量同步（发布前）」，按五个位置分组给出完整清单：权威源与 Rust（两端 `tauri.conf.json` + 三个 `Cargo.toml`）、前端包与常量（两端 `package.json` + 两端 `ui-constants.ts` 的 `APP_VERSION`）、锁文件（三份 `package-lock.json` 各 2 处；三份 `Cargo.lock` **只改自有包**）、展示位（`README.md` 徽章、`about-preview.html` 两处）、`version.json`（带 `v` 前缀 + `notes` 保持精简的形状）。
+- 写明**不动的旧版本残留**：注释里的历史版本引用（`monitor/outbound_night.rs` 的「见 changelog v2.4.3」）、`changelogs/` 与 `release/` 的历史存档与上一版发布资产、构建产物目录——这三类是本次实际踩到过的「看着像遗漏、改了就是错」的位置。
+- 写明**验证口径**：桌面 `cargo check --lib` 输出 `Compiling campus-login v<新版本>` 才算版本号进了编译单元；双端 `tsc`；最后全仓 grep 旧版本号且每一处剩余都要能解释。安装包编译与 Release 发布明确划到另一环节。
+- 「项目速览」末条同步收窄为「发布流程与 Release 资产检查清单」，不再重复指向版本号同步清单（材料已上提到第 5 条，两处指同一份内容是重复）。
+- 原第 5 条「语言」顺延为第 6 条（用户本次对 AGENTS.md 的删改一并保留）。
+
+**验证**：本次升级本身就是该清单的第一次执行，逐项结果见上一节「版本号全量升级 v2.4.3 → v2.4.4」——`cargo check --lib` 输出 `Compiling campus-login v2.4.4`、双端 `tsc` 均 `EXIT=0`、全仓 grep 后仅剩三类已说明的合法残留。
+
 ### 版本号全量升级 v2.4.3 → v2.4.4（2026-11-20，分支 chore/release-v2.4.4，双端）
 
 **为什么**：v2.4.4 已进入发布准备（发布说明见 `release/RELEASE_NOTES_v2.4.4.md`），需要把双端所有版本字段从 2.4.3 升到 2.4.4。权威源仍是 `tauri-app/src-tauri/tauri.conf.json` 的 `version`（见 CodeWiki 的 `decisions/version-single-source-build-rs`）。
