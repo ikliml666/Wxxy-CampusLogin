@@ -2,18 +2,21 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "aa828e6ed924091f4c48c8e8e2fe997a1eaf4b12",
-    "headCommit": "97f04a7ec0a310b1a686fef6a75699e38d1502ef"
+    "baseCommit": "97f04a7ec0a310b1a686fef6a75699e38d1502ef",
+    "headCommit": "d952453f8e6b5d7203e04b67de51c1a3d19aaf7f"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "aa828e6ed924091f4c48c8e8e2fe997a1eaf4b12",
-    "headCommit": "97f04a7ec0a310b1a686fef6a75699e38d1502ef",
+    "baseCommit": "97f04a7ec0a310b1a686fef6a75699e38d1502ef",
+    "headCommit": "d952453f8e6b5d7203e04b67de51c1a3d19aaf7f",
     "committed": [
-      "android/frontend/src/hooks/useEventListeners.ts",
       "android/frontend/src/i18n/locales/en.json",
       "android/frontend/src/i18n/locales/zh.json",
+      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CurfewShell.kt",
+      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/RemoteShellService.kt",
+      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/RootShellMain.kt",
       "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/WifiCurfewRunner.kt",
+      "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/WifiServiceOps.kt",
       "changelogs/CHANGELOG_v2.4.4.md"
     ],
     "staged": [],
@@ -35,9 +38,9 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "工作区未提交改动已合成临时 commit 72c8dc924cf6（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwofuif5-0-native（66 个文件）",
-    "本轮把 1 个未提交源码改动一并写进产物（快照 72c8dc924cf6）：changelogs/CHANGELOG_v2.4.4.md_entry"
+    "持久化基线 aa828e6 与本次 cw 基线 97f04a7 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "工作区未提交改动已合成临时 commit aaa045a22daa（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwog9gkk-1-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-20T03:48:37.962Z"
+  "updatedAt": "2026-11-20T03:59:42.172Z"
 }
