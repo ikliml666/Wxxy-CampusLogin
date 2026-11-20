@@ -130,8 +130,12 @@ export const GLASS_DOCK_OPTS: Record<'standard' | 'ultra', HyaliteOptions> = {
   },
 }
 
-/** 等不到祖先链落干净的兜底上限（毫秒） */
+/** 等不到祖先链落干净的兜底上限（毫秒）：到此先以实底可见，但不停止轮询 */
 const MAX_WAIT_MS = 2500
+/** 轮询的绝对上限（毫秒）：污染若常驻，到此彻底放弃，避免 rAF 链空转 */
+const GIVE_UP_MS = 10000
+/** 等 vendor/hyalite.js 挂上 window 的最大帧数（约 1s） */
+const WAIT_HYALITE_FRAMES = 60
 /** 滤镜挂上之后再等几帧才放开半透明（见 useGlassRefraction 里的注释） */
 const LIVE_FRAMES = 2
 
@@ -183,17 +187,18 @@ export function useGlassRefraction(
 
   useEffect(() => {
     const el = ref.current
-    const hyalite = window.Hyalite
-    if (!el || !hyalite) return
+    if (!el) return
 
-    // 两条 rAF 链的句柄都留到 effect 顶层声明：off 档与不支持的分支会提前 return，
+    // 三条 rAF 链的句柄都留到 effect 顶层声明：off 档与不支持的分支会提前 return，
     // 若在下面才声明，cleanup 里访问会落到暂时性死区。
     let liveRaf = 0
     let pollRaf = 0
+    let waitRaf = 0
+    let disposed = false
 
     const remove = () => {
       if (attached.current) {
-        hyalite.detach(el)
+        window.Hyalite.detach(el)
         attached.current = false
       }
     }
@@ -201,91 +206,116 @@ export function useGlassRefraction(
     // data-glass-live 只在卸载时拆：换档位是 remove→attach 紧挨着发生的，
     // 中途拆掉会让膜落回实底、闪两帧再淡回来。
     const cleanup = () => {
+      disposed = true
       cancelAnimationFrame(liveRaf)
       cancelAnimationFrame(pollRaf)
+      cancelAnimationFrame(waitRaf)
       remove()
       delete el.dataset.glassLive
       delete el.dataset.glassReady
     }
 
-    // standard 档不挂 Hyalite 折射滤镜：实测（1280×800 mock 截图，高对比条纹 backdrop）
-    // standard 与 ultra 像素差均值仅 4.70、>8 仅 0.2%，折射在 standard 上几乎不可见。
-    // 砍掉整条 SVG 滤镜链（21 图元 × DPR 3.25，安卓真机 6ms/帧），纯 CSS blur(8px)
-    // + saturate(2.08) + tint 54% 的观感与折射版一致，边缘光/阴影完全保留。
-    if (level === 'off' || level === 'standard' || !hyalite.supported()) {
-      remove()
-      // 没有玻璃可等，立刻可见：off 档的 CSS 本就不藏它，这条是防「引擎不支持时
-      // data-glass 仍是 standard/ultra」把悬浮栏永久藏住。
-      el.dataset.glassReady = ''
-      return cleanup
-    }
-
-    // ① 挂滤镜：立刻挂。此时整条不可见、且挂不挂画面相同，没有等待的理由。
-    remove()
-    if (!el.isConnected) return cleanup
-    hyalite.attach(el, GLASS_DOCK_OPTS[level])
-    attached.current = true
-
-    // ② 放开半透明：等祖先链落干净再补 data-glass-live。
-    // 已经放开过（换档位）就直接放，别再等一次。
-    if (pastStartup.current) {
-      el.dataset.glassLive = ''
-      return cleanup
-    }
-
-    /**
-     * 整条祖先链不透明、也不带变换时 backdrop 才采样得到页面内容。
-     *
-     * 从**父元素**起查而不是自身：元素自己的 transform 只让它内部建 root，
-     * 而 backdrop root 是祖先层。悬浮栏自身常驻 `translateX(--dock-stretch)`，
-     * 把它算进去就永远等不到就绪（`--dock-stretch` 一非零就拖到超时）。
-     */
-    const backdropReady = () => {
-      for (let node = el.parentElement; node; node = node.parentElement) {
-        const cs = getComputedStyle(node)
-        if (cs.opacity !== '1') return false
-        if (cs.transform !== 'none') return false
-        // GSAP 的 force3D 会改写这些独立变换属性，它们不进 transform 却同样建 backdrop root
-        if (cs.translate !== 'none' || cs.scale !== 'none' || cs.rotate !== 'none') return false
-        if (cs.willChange !== 'auto') return false
-      }
-      return true
-    }
-
-    const goLive = () => {
-      pastStartup.current = true
-      // 滤镜这一帧画完再放开透明：实底淡成半透明（260ms 过渡）时图已经是成品。
-      let frames = LIVE_FRAMES
-      const live = () => {
-        if (frames-- > 0) liveRaf = requestAnimationFrame(live)
-        else el.dataset.glassLive = ''
-      }
-      liveRaf = requestAnimationFrame(live)
-    }
-
-    const startedAt = performance.now()
-    const poll = () => {
-      if (!el.isConnected) return
-      if (backdropReady()) {
-        goLive()
-        return
-      }
-      // 兜底：等不到祖先链落干净就先让悬浮栏可见（加 data-glass-ready → CSS 钉回实底），
-      // 不要因为等不到就整条不给——导航栏消失比一条白膜严重得多。半透仍然只由
-      // goLive 放开，所以这条路径不会露黑膜。
-      if (performance.now() - startedAt >= MAX_WAIT_MS) {
-        pastStartup.current = true
+    const run = () => {
+      const hyalite = window.Hyalite
+      // standard 档不挂 Hyalite 折射滤镜：实测（1280×800 mock 截图，高对比条纹 backdrop）
+      // standard 与 ultra 像素差均值仅 4.70、>8 仅 0.2%，折射在 standard 上几乎不可见。
+      // 砍掉整条 SVG 滤镜链（21 图元 × DPR 3.25，安卓真机 6ms/帧），纯 CSS blur(8px)
+      // + saturate(2.08) + tint 54% 的观感与折射版一致，边缘光/阴影完全保留。
+      if (level === 'off' || level === 'standard' || !hyalite.supported()) {
+        remove()
+        // 没有玻璃可等，立刻可见：off 档的 CSS 本就不藏它，这条是防「引擎不支持时
+        // data-glass 仍是 standard/ultra」把悬浮栏永久藏住。
         el.dataset.glassReady = ''
         return
       }
+
+      // ① 挂滤镜：立刻挂。此时整条不可见、且挂不挂画面相同，没有等待的理由。
+      remove()
+      if (!el.isConnected) return
+      hyalite.attach(el, GLASS_DOCK_OPTS[level])
+      attached.current = true
+
+      // ② 放开半透明：等祖先链落干净再补 data-glass-live。
+      // 已经放开过（换档位）就直接放，别再等一次。
+      if (pastStartup.current) {
+        delete el.dataset.glassReady
+        el.dataset.glassLive = ''
+        return
+      }
+
+      /**
+       * 整条祖先链不透明、也不带变换时 backdrop 才采样得到页面内容。
+       *
+       * 从**父元素**起查而不是自身：元素自己的 transform 只让它内部建 root，
+       * 而 backdrop root 是祖先层。悬浮栏自身常驻 translateX(--dock-stretch)，
+       * 把它算进去就永远等不到就绪（--dock-stretch 一非零就拖到超时）。
+       */
+      const backdropReady = () => {
+        for (let node = el.parentElement; node; node = node.parentElement) {
+          const cs = getComputedStyle(node)
+          if (cs.opacity !== '1') return false
+          if (cs.transform !== 'none') return false
+          // GSAP 的 force3D 会改写这些独立变换属性，它们不进 transform 却同样建 backdrop root
+          if (cs.translate !== 'none' || cs.scale !== 'none' || cs.rotate !== 'none') return false
+          if (cs.willChange !== 'auto') return false
+        }
+        return true
+      }
+
+      const goLive = () => {
+        pastStartup.current = true
+        // 实底兜底标记到此失效：真玻璃已经就绪，不该再被 --glass-tint 100% 钉住。
+        delete el.dataset.glassReady
+        // 滤镜这一帧画完再放开透明：实底淡成半透明（260ms 过渡）时图已经是成品。
+        let frames = LIVE_FRAMES
+        const live = () => {
+          if (frames-- > 0) liveRaf = requestAnimationFrame(live)
+          else el.dataset.glassLive = ''
+        }
+        liveRaf = requestAnimationFrame(live)
+      }
+
+      const startedAt = performance.now()
+      const poll = () => {
+        if (!el.isConnected) return
+        if (backdropReady()) {
+          goLive()
+          return
+        }
+        const waited = performance.now() - startedAt
+        // 兜底：等不到祖先链落干净就先让悬浮栏可见（加 data-glass-ready → CSS 钉回实底），
+        // 不要因为等不到就整条不给——导航栏消失比一条白膜严重得多。
+        // 但**不停止轮询**：祖先链的污染（入场补间 / 转场 transform）是暂时的，落干净之后
+        // 必须升级成真玻璃。此前这里直接 return，真机实测启动期一旦超时（Android 15 上
+        // 稳定复现），整条永久停在实底 --glass-tint 100%，折射玻璃一次都没出现过。
+        if (waited >= MAX_WAIT_MS && !el.dataset.glassReady) el.dataset.glassReady = ''
+        // 绝对上限：污染若真的常驻，别让这条 rAF 链永远跑下去（每帧 getComputedStyle 遍历祖先）。
+        if (waited >= GIVE_UP_MS) return
+        pollRaf = requestAnimationFrame(poll)
+      }
       pollRaf = requestAnimationFrame(poll)
     }
-    pollRaf = requestAnimationFrame(poll)
 
-    return () => {
-      cancelAnimationFrame(liveRaf)
-      cancelAnimationFrame(pollRaf)
-      cleanup()
+    // 等 Hyalite 就绪再挂。vendor/hyalite.js 是 UMD 副作用导入，它把 API 挂到 window 的
+    // 时机与 React effect 之间没有顺序保证：真机实测（debug 包 + WebView DevTools，
+    // Android 15 / RMX3300 / dpr 4）effect 里 window.Hyalite 还是 undefined，原先的
+    // `if (!el || !hyalite) return` 直接退出——滤镜从未 attach、data-glass-live 从未补上，
+    // ultra 档于是永久停在 CSS 降级路径 + 实底（--glass-tint 100%），用户看到的是一条
+    // 实色栏，折射玻璃一次都没出现。按帧等它出现，最多约 1s；仍等不到才退回实底可见。
+    const waitForHyalite = (left: number) => {
+      if (disposed) return
+      if (window.Hyalite) {
+        run()
+        return
+      }
+      if (left <= 0) {
+        el.dataset.glassReady = ''
+        return
+      }
+      waitRaf = requestAnimationFrame(() => waitForHyalite(left - 1))
     }
+    waitForHyalite(WAIT_HYALITE_FRAMES)
+
+    return cleanup
   }, [ref, level])
 }

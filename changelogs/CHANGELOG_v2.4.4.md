@@ -1,3 +1,26 @@
+### 缺陷修复：悬浮栏折射玻璃在真机从未生效（Android WebView 时序，2026-11-20）
+
+**为什么**：Android 15 真机（RMX3300，dpr 4）实测发现 ultra 档的玻璃**从来没有生效过**。用 debug 包 + WebView DevTools 直接读计算样式：`--hyalite` 为空、`backdrop-filter` 是 CSS 降级值 `blur(1.2px) saturate(2.08)`、文档里 0 个 SVG filter、`--glass-tint` 被钉在 **100%（实底）**。用户看到的一直是一条实色栏，不是玻璃。两个独立成因叠加：
+
+1. **Hyalite 挂载时序**：`lib/glass-dock.tsx` 的 effect 开头是 `const hyalite = window.Hyalite; if (!el || !hyalite) return`。`vendor/hyalite.js` 是 UMD 副作用导入，它把 API 挂到 window 的时机与 React effect 之间没有顺序保证——hook 实测（拦截 window.Hyalite 赋值 + 记录调用）确认 effect 执行时 `window.Hyalite` 还是 undefined，`attach` / `supported` / `detach` **一次都没被调用**，直接 return。
+2. **轮询超时后永久停摆**：`backdropReady()` 在启动期被祖先链的入场变换挡住，等满 `MAX_WAIT_MS`(2500ms) 走兜底加 `data-glass-ready` 后**直接 return**，不再轮询。CSS 对 `[data-glass-ready]:not([data-glass-live])` 的规则是把 `--glass-tint` 钉成 100%，于是祖先链早就干净了，整条却永久停在实底。
+
+**改了什么**（双端 `lib/glass-dock.tsx` 同构改动）
+
+- effect 不再一次性取 `window.Hyalite`：新增 `waitForHyalite` 按帧等它就绪（上限 `WAIT_HYALITE_FRAMES`=60，约 1s），就绪后再执行原挂载流程；仍等不到才退回实底可见。
+- 超时兜底不再终止轮询：加完 `data-glass-ready` 后继续 poll，祖先链一旦落干净就 `goLive`（补 `data-glass-live`）升级成真玻璃。新增 `GIVE_UP_MS`=10s 绝对上限，避免污染常驻时这条 rAF 链永远空转（每帧 `getComputedStyle` 遍历祖先）。
+- `goLive` 里 `delete el.dataset.glassReady`：真玻璃就绪后实底标记必须失效，否则 CSS 的 tint 100% 规则会继续压着。
+- 挂载主体收进 `run()`，`remove()` 改读 `window.Hyalite`（原闭包捕获的 `hyalite` 已不存在）。
+
+**验证**
+
+- 真机（758933b8 / Android 15 / dpr 4）：修复后 `data-glass-live` 就位、`--hyalite: url(#hyalite-1)`、`backdrop-filter: url("#hyalite-1")`、`--glass-tint: 10%`、文档内 1 个 SVG filter——折射链首次真正跑起来。
+- 观感量化（nav 下方注入黑白条纹 backdrop，比对 nav 区域像素）：修复前列均值最低 **145.6**（实底把黑色冲淡成灰）；修复后最低 **22.3**（黑条透出来了），std 77.69 → 104.11，unique 181 → 241。
+- 性能代价可忽略：切页 janky 15.28% / 24.11%（修复前同口径 15-23%），滚动 p50 18ms、GPU p50 6ms / p90 9ms，与修复前持平。
+- 双端 `npx tsc --noEmit --incremental` 通过。
+
+**未验证**：桌面端 WebView2 上的同一路径（改动同构，但只做了类型检查，未跑桌面实测）。
+
 ### 前端性能优化：悬浮栏 standard 档砍掉 Hyalite 折射链，双端 GPU 开销归零（2026-11-20）
 
 **为什么**：悬浮栏的 Hyalite 折射滤镜是 SVG `url()` 参考滤镜——Chromium 官方文档明确其实现是「渲染到 buffer，再逐图元跑 SVG filter DAG」，比原生简写 filter（Skia 优化路径）贵得多。2026-10-24 安卓真机实测：21 图元 × DPR 3.25，GPU 每帧 6ms 超不过 120Hz 预算。但本轮 mock 截图实测发现：**standard 与 ultra 的像素差均值仅 4.70、>8 仅 0.2%**——折射在 standard 上几乎不可见，整条滤镜链是纯浪费。
