@@ -3,15 +3,17 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "b897d1b2921958ce9c03ade19f1e948f96f0bdee",
-    "headCommit": "bb3f10763f540a2c5fb74c6735888c340649809e"
+    "headCommit": "d6908c6a9a6bb8cd47a0317047a25823857a469a"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "b897d1b2921958ce9c03ade19f1e948f96f0bdee",
-    "headCommit": "bb3f10763f540a2c5fb74c6735888c340649809e",
+    "headCommit": "d6908c6a9a6bb8cd47a0317047a25823857a469a",
     "committed": [
       "android/frontend/src/i18n/locales/en.json",
       "android/frontend/src/i18n/locales/zh.json",
+      "android/frontend/src/index.css",
+      "android/frontend/src/monitor/QualityPanel.tsx",
       "android/frontend/src/network/NetworkPanel.tsx",
       "android/frontend/src/settings/constants.ts",
       "android/frontend/src/settings/types.ts",
@@ -19,16 +21,51 @@
       "android/src-tauri/src/config_state.rs",
       "android/src-tauri/src/core/monitor.rs",
       "changelogs/CHANGELOG_v2.4.4.md",
+      "tauri-app/frontend/src/index.css",
+      "tauri-app/frontend/src/monitor/QualityPanel.tsx",
       "tauri-app/frontend/src/network/NetworkPanel.tsx"
     ],
     "staged": [],
-    "unstaged": [],
-    "untracked": [],
+    "unstaged": [
+      "android/frontend/src/account/SelfServicePanel.tsx",
+      "android/frontend/src/auth/AboutDialogMobile.tsx",
+      "android/frontend/src/hooks/tauriApi.ts",
+      "android/frontend/src/i18n/locales/en.json",
+      "android/frontend/src/i18n/locales/zh.json",
+      "android/frontend/src/network/NetworkPanel.tsx",
+      "android/src-tauri/src/lib.rs",
+      "android/src-tauri/src/protocol_cmds.rs",
+      "android/src-tauri/src/vpn_cmds.rs",
+      "tauri-app/frontend/src/account/SelfServicePanel.test.tsx",
+      "tauri-app/frontend/src/account/SelfServicePanel.tsx",
+      "tauri-app/src-tauri/src/commands/vpn.rs",
+      "tauri-app/src-tauri/src/vpn/cache.rs",
+      "tauri-app/src-tauri/src/vpn/mod.rs"
+    ],
+    "untracked": [
+      "tauri-app/src-tauri/src/vpn/zone_cache.rs"
+    ],
     "deleted": [],
     "renamed": [],
     "reason": ""
   },
-  "unconsumed": [],
+  "unconsumed": [
+    "android/frontend/src/account/SelfServicePanel.tsx",
+    "android/frontend/src/auth/AboutDialogMobile.tsx",
+    "android/frontend/src/hooks/tauriApi.ts",
+    "android/frontend/src/i18n/locales/en.json",
+    "android/frontend/src/i18n/locales/zh.json",
+    "android/frontend/src/network/NetworkPanel.tsx",
+    "android/src-tauri/src/lib.rs",
+    "android/src-tauri/src/protocol_cmds.rs",
+    "android/src-tauri/src/vpn_cmds.rs",
+    "tauri-app/frontend/src/account/SelfServicePanel.test.tsx",
+    "tauri-app/frontend/src/account/SelfServicePanel.tsx",
+    "tauri-app/src-tauri/src/commands/vpn.rs",
+    "tauri-app/src-tauri/src/vpn/cache.rs",
+    "tauri-app/src-tauri/src/vpn/mod.rs",
+    "tauri-app/src-tauri/src/vpn/zone_cache.rs"
+  ],
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
@@ -36,8 +73,8 @@
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 4be056c 与本次 cw 基线 b897d1b 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwoc9sfp-0-native（66 个文件）"
+    "工作区未提交改动已合成临时 commit 86d5e39cf9f8（15 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwoei61x-1-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-20T02:53:44.271Z"
+  "updatedAt": "2026-11-20T03:10:33.172Z"
 }
