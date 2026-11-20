@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "11501ac93f5db466813a4f6773b5502be360ed3d",
-    "headCommit": "533b74727cbeb8a32543d11542bc7c0ee50a9b08"
+    "headCommit": "34a22e43f6f85b921885e8cfff41c09b521e1671"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "11501ac93f5db466813a4f6773b5502be360ed3d",
-    "headCommit": "533b74727cbeb8a32543d11542bc7c0ee50a9b08",
+    "headCommit": "34a22e43f6f85b921885e8cfff41c09b521e1671",
     "committed": [
       "android/frontend/src/lib/glass-dock.tsx",
       "changelogs/CHANGELOG_v2.4.4.md",
@@ -26,12 +26,11 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 16d0bc6 与本次 cw 基线 11501ac 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwoizfti-6-native（66 个文件）"
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwok4wlb-7-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-20T05:31:20.366Z"
+  "updatedAt": "2026-11-20T05:48:09.310Z"
 }
