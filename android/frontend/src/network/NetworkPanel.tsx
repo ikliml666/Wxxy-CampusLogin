@@ -403,6 +403,8 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
   const [dotStatus, setDotStatus] = useState<PrivateDnsStatus | null>(null)
   const [dotHost, setDotHost] = useState('')
   const [dotSaving, setDotSaving] = useState(false)
+  // 正在测 853 连通性的主机名（null = 无测试进行）；预设按钮上显示 spinner
+  const [dotTesting, setDotTesting] = useState<string | null>(null)
   const refreshDot = useCallback(async () => {
     try {
       const status = await ipc.getPrivateDnsStatus()
@@ -564,10 +566,24 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
     }
   }, [ipc, config.enableWifiCurfew, config.wifiCurfewExcluded, config.wifiCurfewAllowed, config.nightRestoreMinutes, config.wifiCurfewWeakRssi, config.wifiCurfewChannel])
 
+  // hostname 模式应用前先测 DoT 主机 853 连通性：不通的主机写进系统会让 DNS
+  // 解析整体瘫痪（比关闭还糟）；off/auto 与系统语义无关，无需预检。
   const applyDot = useCallback(
     async (mode: 'off' | 'auto' | 'hostname', host?: string) => {
       setDotSaving(true)
       try {
+        if (mode === 'hostname') {
+          const target = (host ?? '').trim()
+          if (!target) return
+          setDotTesting(target)
+          const probe = await ipc.testDotHost(target)
+          if (!mountedRef.current) return
+          setDotTesting(null)
+          if (!probe.ok) {
+            useLogToastStore.getState().addToast(t('network.privateDnsHostUnreachable', { host: target }), 'error')
+            return
+          }
+        }
         const result = await ipc.setPrivateDns({ mode, host })
         if (!mountedRef.current) return
         if (!result.ok) {
@@ -588,6 +604,7 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
         }
       } finally {
         if (mountedRef.current) {
+          setDotTesting(null)
           setDotSaving(false)
           await refreshDot()
         }
@@ -782,9 +799,11 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                 <Globe className="h-5 w-5 text-primary" />
               </div>
-              <CardTitle className="whitespace-nowrap">{t('network.privateDns')}</CardTitle>
+              <div className="min-w-0">
+                <CardTitle className="whitespace-nowrap">{t('network.privateDns')}</CardTitle>
+                <CardDescription className="mt-1 text-xs">{t('network.privateDnsDesc')}</CardDescription>
+              </div>
             </div>
-            <CardDescription className="mt-2">{t('network.privateDnsDesc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="p-3.5 rounded-xl bg-muted/30 space-y-2.5">
@@ -848,6 +867,7 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
                       }}
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12px] font-medium bg-white/60 hover:bg-white/80 text-foreground dark:bg-white/10 dark:hover:bg-white/15 transition-colors disabled:opacity-60"
                     >
+                      {dotTesting === preset.host ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                       {t(preset.labelKey)}
                       <span className="font-mono text-[11px] text-muted-foreground">{preset.host}</span>
                     </button>

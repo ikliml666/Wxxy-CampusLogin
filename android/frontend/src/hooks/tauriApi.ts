@@ -154,6 +154,8 @@ interface TauriApi {
   getPrivateDnsStatus: () => Promise<PrivateDnsStatus>
   /** 写入系统私人 DNS：mode=off|auto|hostname，hostname 时 host 为 DoT 主机名 */
   setPrivateDns: (params: { mode: 'off' | 'auto' | 'hostname'; host?: string }) => Promise<SetPrivateDnsResult>
+  /** DoT 主机 853 端口连通性测试（应用 hostname 模式前确认可用） */
+  testDotHost: (host: string) => Promise<{ ok: boolean; reason: string }>
   /** WiFi 就寝守则的执行通道就绪度（Shizuku / root） */
   getCurfewChannel: () => Promise<CurfewChannelStatus>
   /** 向 Shizuku 申请授权；会等用户在授权框上操作完才 resolve */
@@ -417,6 +419,7 @@ const tauriApi: TauriApi = {
   getPrivateDnsStatus: () => invoke<PrivateDnsStatus>('get_private_dns_status'),
   setPrivateDns: (params) =>
     invoke<SetPrivateDnsResult>('set_private_dns', { mode: params.mode, host: params.host ?? '' }),
+  testDotHost: (host) => invoke<{ ok: boolean; reason: string }>('test_dot_host', { host }),
   getCurfewChannel: () => invoke<CurfewChannelStatus>('get_curfew_channel'),
   requestCurfewPermission: () => invoke<CurfewPermissionResult>('request_curfew_permission'),
   listSavedWifiNetworks: () => invoke<SavedWifiNetworksResult>('list_saved_wifi_networks'),

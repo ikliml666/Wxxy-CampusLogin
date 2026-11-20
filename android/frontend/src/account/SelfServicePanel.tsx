@@ -77,6 +77,18 @@ export const localDateStr = (d = new Date()) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
+// 面板级 dashboard 数据缓存：切标签页会卸载本面板（AnimatePresence key=tab），
+// 状态全丢后重挂载又自动拉一遍——非校园网下等于每次切 tab 都重走探测+VPN 全链路。
+// 缓存最近一次成功结果，60s 内重挂载直接回填、跳过自动刷新（手动刷新不受限）。
+const DASHBOARD_CACHE_TTL_MS = 60_000
+let dashboardCache: { onlineList: SelfOnlineItem[]; history: SelfHistoryRow[]; at: number } | null = null
+
+function readDashboardCache() {
+  if (dashboardCache && Date.now() - dashboardCache.at < DASHBOARD_CACHE_TTL_MS) return dashboardCache
+  dashboardCache = null
+  return null
+}
+
 export function SelfServicePanel() {
   const { t } = useTranslation()
   const addToast = useLogToastStore((s) => s.addToast)
@@ -136,8 +148,11 @@ export function SelfServicePanel() {
       if (!mountedRef.current) return
       if (result.success && result.data) {
         const d = result.data as { onlineList?: unknown; loginHistory?: unknown }
-        setOnlineList(Array.isArray(d.onlineList) ? (d.onlineList as SelfOnlineItem[]) : [])
-        setHistory(Array.isArray(d.loginHistory) ? (d.loginHistory as SelfHistoryRow[]) : [])
+        const online = Array.isArray(d.onlineList) ? (d.onlineList as SelfOnlineItem[]) : []
+        const hist = Array.isArray(d.loginHistory) ? (d.loginHistory as SelfHistoryRow[]) : []
+        setOnlineList(online)
+        setHistory(hist)
+        dashboardCache = { onlineList: online, history: hist, at: Date.now() }
       } else if (!opts?.silent) {
         // 校园网外/夜间出站切换时自助服务系统不可达，自动预热失败静默降级，
         // 不弹错误通知打扰；手动刷新失败才提示
@@ -154,11 +169,18 @@ export function SelfServicePanel() {
   // 通过即自动拉取在线信息与近期上网记录；验证取消/失败则等用户手动刷新。
   // 直接调 fetchDashboard（内部自带验证门）——外层再验一次会让
   // 验证时效设为 0 的用户切入面板连弹两次验证。
+  // 60s 内有面板级缓存（切标签页往返）直接回填，不再拉网络。
   useEffect(() => {
     // 配置未加载完（启动后立刻切过来）时凭据判断不可靠，等 configLoaded 再启动。
     if (autoRefreshedRef.current || !configLoaded) return
     if (!hasCred) return
     autoRefreshedRef.current = true
+    const cached = readDashboardCache()
+    if (cached) {
+      setOnlineList(cached.onlineList)
+      setHistory(cached.history)
+      return
+    }
     void fetchDashboard({ silent: true })
   }, [configLoaded, hasCred, fetchDashboard])
 

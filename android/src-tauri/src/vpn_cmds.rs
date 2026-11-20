@@ -39,13 +39,19 @@ async fn load_vpn_password(app: &tauri::AppHandle, settings: &Settings) -> Resul
 /// 网络归属探测:安卓侧复用 campus_detect 探针(网卡枚举 + SSID 名单 + 网关/Portal
 /// TCP 探测),失败(拿不到适配器信息等)按 Unknown 处理——与桌面 detect_net_zone
 /// 及 route 决策表一致:Unknown 走直连,不做二次尝试。
+/// 结果经 zone_cache 10s 短缓存(桌面同构):一次面板刷新的多个命令与切标签页
+/// 重挂载不再各探一轮(最坏 3s ×N)。
 async fn detect_net_zone(app: &tauri::AppHandle, settings: &Settings) -> NetZone {
-    let (probe, _ssid) = crate::campus_detect::probe_campus_with_ssid(app, settings).await;
-    match probe {
-        Ok(p) if p.on_campus => NetZone::Campus,
-        Ok(_) => NetZone::OffCampus,
-        Err(_) => NetZone::Unknown,
-    }
+    let app = app.clone();
+    let settings = settings.clone();
+    campus_login_lib::vpn::zone_cache::cached_zone(|| async move {
+        let (probe, _ssid) = crate::campus_detect::probe_campus_with_ssid(&app, &settings).await;
+        match probe {
+            Ok(p) => Some(p.on_campus),
+            Err(_) => None,
+        }
+    })
+    .await
 }
 
 /// 校外直连失败的附加提示(无凭据或总开关关闭时给出配置指引;桌面同构)。

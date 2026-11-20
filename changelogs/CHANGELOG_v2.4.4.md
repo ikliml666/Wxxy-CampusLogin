@@ -2787,3 +2787,23 @@ cmd wifi status → Wifi is enabled   ← 保持连接，未制造断网
 
 - 桌面/安卓前端 `npx tsc --noEmit` 均 0 错；`cargo test` 698 通过 / 0 失败；安卓 `cargo check --target aarch64-linux-android --all-targets` 通过。
 - 未验证：浏览器实测「改等级→切标签页→切回」的显示保持（逻辑上 state 回写已闭环）。
+
+
+### 行为调整：安卓更新弹窗固定尺寸 + 私人 DNS 卡连通性预检 + 自助服务 VPN 链路收敛（双端后端/安卓前端，2026-11-20）
+
+**为什么**：三个用户可感缺陷，均从第一性原理修复。① 安卓「关于」弹窗（更新内容随 releaseNotes 增长）整个 DialogContent 可滚动，右上角关闭按钮随之滚出屏幕——更新内容长时用户被内容"淹没"无法关闭弹窗。② 私人 DNS 卡的预设/手输主机直接写入系统，DoT 主机 853 端口不可达时系统 DNS 解析会整体瘫痪（比不开还糟），用户没有任何预检。③ 自助服务链路在非校园网下每次都全量重走：校园网 TCP 探测（最坏 3s）+ WebVPN 探活（GET 网关 /），一次面板刷新 dashboard + online_log 两个命令各走一遍，切标签页（AnimatePresence key=tab 卸载重挂载）再来一遍——面板已从 60s 内成功拉过的数据也被丢弃重拉。
+
+**改了什么**
+
+- **安卓更新弹窗固定尺寸**（android/frontend/src/auth/AboutDialogMobile.tsx）：DialogContent 从「max-h-[85dvh] 整体滚动」改为「h-[85dvh] 固定高度 flex 列」：头部 shrink-0 常驻，正文区 flex-1 min-h-0 唯一滚动区，内层 releaseNotes 的 max-h-[38dvh] 双重滚动一并移除。容器不滚，Radix 的 absolute 关闭按钮永远固定可点。
+- **私人 DNS 卡**（android/frontend/src/network/NetworkPanel.tsx + protocol_cmds.rs）：新增 test_dot_host 命令（tokio TcpStream 连 host:853，4s 超时）；applyDot 在 hostname 模式写系统设置前先测——不通则 toast「{{host}} 的 853 端口不可达，已取消应用」并不落写；预设按钮在测试期间显示 spinner（dotTesting 状态）。卡片头部改为图标+标题+一行短描述的紧凑布局；privateDnsDesc 从 56 字长句精简为「系统级加密 DNS（DoT），全局生效」（zh/en 同步）。实测 853 连通性：dns.alidns.com / dot.pub 双预设在当前网络 TLS 握手均通过（证书 CN 与有效期核验）。
+- **校园网归属判定 10s 短缓存**（协议核心 tauri-app/src-tauri/src/vpn/zone_cache.rs 新模块，双端共享）：cached_zone 包裹探测闭包——命中直接返回三态结果，未命中执行真实探测并缓存（Unknown 也缓存：拿不到适配器信息在窗口内同样拿不到）。桌面 commands/vpn.rs 与安卓 vpn_cmds.rs 的 detect_net_zone 同构接入。一次面板刷新的多个命令与切标签页重挂载不再各探一轮 3s。
+- **WebVPN 会话探活正向 15s 缓存**（tauri-app/src-tauri/src/vpn/cache.rs）：SessionCache 增加 alive_since 时间戳，ensure_alive_with 在缓存命中且正向缓存未过期时跳过网关 GET / 探活；reset（凭据变更/会话重建）一并失效。会话真正失效的兜底不变：业务请求 302 回 /login 由上层整体重登。
+- **自助服务面板数据 60s 缓存**（双端 SelfServicePanel.tsx）：module 级 dashboardCache 存最近一次成功结果；重挂载时 60s 内直接回填 onlineList/loginHistory、跳过自动刷新（验证门也因此不再重弹），手动刷新不受限。导出 resetDashboardCacheForTest 供测试清缓存。
+- 深澜 VPN 机制实测（佐证既有实现稳定性）：未登录 GET 网关 / → 302 /login + Set-Cookie wengine_vpn_ticketwebvpn_cwxu_edu_cn（初始值），与 session.rs 协议注释一致；/heartbeat、/show_vpn、/show_fast 端点存在（未登录均 302 /login）——is_alive 的 GET / 判定与独立心跳端点等价且请求量更低，无需引入定时心跳。CAS wxcas.cwxu.edu.cn 公网可达。
+
+**验证**
+
+- 桌面 cargo test --lib 713 passed / 0 failed（含新增 vpn::zone_cache 1 条）；安卓 cargo check --target aarch64-linux-android --all-targets（NDK 27 环境注入）通过。
+- 双端前端 npx tsc --noEmit --incremental 0 错；桌面 vitest run 全量 135 passed（SelfServicePanel 12 条含新增缓存清退后行为回归）；安卓前端无 vitest 套件。
+- 未验证：真机 APK 上 DNS 预检 toast 与更新弹窗长内容滚动表现（需真机装包观察）；zone_cache 10s 窗口在真实 WiFi↔蜂窝切换边界的翻转及时性（逻辑上 10s 延迟可接受，切网场景用户会手动刷新）。

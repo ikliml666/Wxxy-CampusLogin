@@ -252,6 +252,27 @@ pub async fn set_private_dns(
     }
 }
 
+/// DoT 主机连通性测试：对 host:853 做 TCP 连接（DNS over TLS 的传输前提）。
+/// 卡片预设/手动主机在应用前先测——853 不可达的 DoT 主机会让系统 DNS 解析
+/// 整体瘫痪（比不开还糟）。4s 超时兼顾蜂窝弱网与体验；返回 {ok, reason}。
+#[tauri::command]
+pub async fn test_dot_host(host: String) -> Result<serde_json::Value, String> {
+    let host = host.trim().to_string();
+    if host.is_empty() {
+        return Ok(serde_json::json!({ "ok": false, "reason": "empty_host" }));
+    }
+    let addr = format!("{host}:853");
+    let ok = matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(4),
+            tokio::net::TcpStream::connect(&addr)
+        )
+        .await,
+        Ok(Ok(_))
+    );
+    Ok(serde_json::json!({ "ok": ok, "reason": if ok { "" } else { "unreachable" } }))
+}
+
 /// 全链路(启动自动登录/周期检测/断线重连/注销/手动登录/手动探测)执行前确保进程已绑 WiFi。
 ///
 /// 根因：WiFi 未认证时被安卓网络评分降权，WiFi+流量同开下默认路由可能落到蜂窝，

@@ -31,20 +31,20 @@ fn load_vpn_password(config: &Config) -> Result<String, String> {
 /// 网络归属探测：校园网判定（SSID 名单 / 网关与 Portal ICMP）为同步阻塞实现，
 /// 移入 spawn_blocking；探测失败（拿不到适配器信息等）按 Unknown 处理
 /// （与 route 决策表一致：Unknown 走直连，不做二次尝试）。
+/// 结果经 zone_cache 10s 短缓存：一次面板刷新（dashboard + online_log 两命令）
+/// 与切标签页重挂载不再各探一轮 3s TCP。
 async fn detect_net_zone(state: &AppState) -> NetZone {
     let config = state.config.load();
-    let on_campus = tauri::async_runtime::spawn_blocking(move || -> Option<bool> {
-        let adapters = crate::network::get_adapters_cached().ok()?;
-        Some(crate::monitor::campus_check::check_campus_network(&config, &adapters).on_campus)
+    crate::vpn::zone_cache::cached_zone(|| async move {
+        tauri::async_runtime::spawn_blocking(move || -> Option<bool> {
+            let adapters = crate::network::get_adapters_cached().ok()?;
+            Some(crate::monitor::campus_check::check_campus_network(&config, &adapters).on_campus)
+        })
+        .await
+        .ok()
+        .flatten()
     })
     .await
-    .ok()
-    .flatten();
-    match on_campus {
-        Some(true) => NetZone::Campus,
-        Some(false) => NetZone::OffCampus,
-        None => NetZone::Unknown,
-    }
 }
 
 /// 校外直连失败的附加提示（无凭据或总开关关闭时给出配置指引）。

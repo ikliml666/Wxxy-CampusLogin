@@ -8,13 +8,21 @@ use super::error::{map_cas_login_error, map_webvpn_error};
 use super::rsa::rsa_encrypt_hex;
 use super::session::WebVpnSession;
 use lazy_static::lazy_static;
+use parking_lot::Mutex;
 use parking_lot::RwLock;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+/// 探活正向结果缓存窗口：窗口内已确认存活的会话直接复用，省去每次命令前的
+/// 网关 GET /。会话真正失效由业务请求的 302 回 login 暴露（上层重登兜底不变）。
+const ALIVE_CACHE_TTL: Duration = Duration::from_secs(15);
 
 struct SessionCache<T> {
     session: RwLock<Option<Arc<T>>>,
     refresh: tokio::sync::Mutex<()>,
+    /// 上次探活通过的时刻（None = 无正向缓存）。reset 时一并失效。
+    alive_since: Mutex<Option<Instant>>,
 }
 
 impl<T> SessionCache<T> {
@@ -22,6 +30,7 @@ impl<T> SessionCache<T> {
         Self {
             session: RwLock::new(None),
             refresh: tokio::sync::Mutex::new(()),
+            alive_since: Mutex::new(None),
         }
     }
 
@@ -31,10 +40,22 @@ impl<T> SessionCache<T> {
 
     fn reset(&self) {
         *self.session.write() = None;
+        *self.alive_since.lock() = None;
     }
 
     fn store(&self, session: T) {
         *self.session.write() = Some(Arc::new(session));
+    }
+
+    /// 正向缓存命中：15s 内探活通过过且会话对象未变（重登后 session 换新即 miss）。
+    fn alive_cache_hit(&self) -> bool {
+        self.alive_since
+            .lock()
+            .is_some_and(|ts| ts.elapsed() < ALIVE_CACHE_TTL)
+    }
+
+    fn note_alive(&self) {
+        *self.alive_since.lock() = Some(Instant::now());
     }
 
     async fn ensure_alive_with<Probe, ProbeFuture, Login, LoginFuture>(
@@ -49,7 +70,8 @@ impl<T> SessionCache<T> {
         LoginFuture: Future<Output = Result<T, String>>,
     {
         if let Some(session) = self.cached() {
-            if probe(session.clone()).await {
+            if self.alive_cache_hit() || probe(session.clone()).await {
+                self.note_alive();
                 return Ok(session);
             }
         }
@@ -57,13 +79,15 @@ impl<T> SessionCache<T> {
         let _guard = self.refresh.lock().await;
         // 等待期间其他调用可能已重登；必须复查最新缓存，不能直接沿用此前结果。
         if let Some(session) = self.cached() {
-            if probe(session.clone()).await {
+            if self.alive_cache_hit() || probe(session.clone()).await {
+                self.note_alive();
                 return Ok(session);
             }
         }
         self.reset();
         let session = Arc::new(login().await?);
         *self.session.write() = Some(session.clone());
+        self.note_alive();
         Ok(session)
     }
 }

@@ -72,6 +72,7 @@ pub fn run() {
             protocol_cmds::test_wifi_switch,
             protocol_cmds::get_private_dns_status,
             protocol_cmds::set_private_dns,
+            protocol_cmds::test_dot_host,
             protocol_cmds::check_portal_status,
             campus_detect::check_campus_status,
             campus_detect::request_wifi_ssid_permission,

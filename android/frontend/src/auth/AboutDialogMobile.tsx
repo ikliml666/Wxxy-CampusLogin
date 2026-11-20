@@ -111,13 +111,16 @@ export function AboutDialogMobile({ open: isOpen, onClose, openExternal, onUpdat
 
   return (
     <Dialog open={isOpen} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="max-w-[400px] max-h-[85dvh] overflow-y-auto scrollbar-none">
-        <DialogHeader>
+      {/* 固定尺寸弹窗：高度恒定不随 releaseNotes 增长，更新内容多时只滚中间
+          详情区；关闭按钮锚在 Content 上，容器不滚动即永远可点（此前整弹窗
+          滚动会把右上角关闭按钮滚出屏幕，用户被内容"淹没"后无法关闭）。 */}
+      <DialogContent className="max-w-[400px] h-[85dvh] flex flex-col overflow-hidden p-4">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{t('about.aboutTitle')}</DialogTitle>
           <DialogDescription>{t('about.aboutDesc')}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none space-y-4">
           {/* 应用信息 */}
           <div className="flex items-center gap-3">
             <img
@@ -195,7 +198,7 @@ export function AboutDialogMobile({ open: isOpen, onClose, openExternal, onUpdat
               <div className="space-y-2">
                 <p className="text-xs font-medium text-primary">🎉 {t('about.newVersionFound')}: v{updateInfo.latestVersion}</p>
                 {updateInfo.releaseNotes && (
-                  <div className="max-h-[38dvh] overflow-y-auto whitespace-pre-line text-xs text-muted-foreground">{updateInfo.releaseNotes}</div>
+                  <div className="whitespace-pre-line text-xs text-muted-foreground">{updateInfo.releaseNotes}</div>
                 )}
                 {downloadError && (
                   <p className="flex items-start gap-1.5 text-xs text-destructive">

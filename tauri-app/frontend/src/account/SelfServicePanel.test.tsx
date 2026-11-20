@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import React from 'react'
 import { render, fireEvent, act, waitFor, screen, cleanup } from '@testing-library/react'
-import { SelfServicePanel } from './SelfServicePanel'
+import { SelfServicePanel, resetDashboardCacheForTest } from './SelfServicePanel'
 import { resetSelfSessionGate } from './selfServiceState'
 
 const querySelfDashboard = vi.fn()
@@ -64,6 +64,7 @@ beforeEach(() => {
   querySelfDashboard.mockReset()
   selfOfflineSession.mockReset()
   verifyWindowsIdentity.mockReset()
+  resetDashboardCacheForTest()
   vpnCredentialStatus.mockReset()
   vpnSaveCredential.mockReset()
   vpnTestConnection.mockReset()

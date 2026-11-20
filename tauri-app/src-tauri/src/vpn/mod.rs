@@ -34,6 +34,7 @@ pub mod route;
 pub mod rsa;
 pub mod session;
 pub mod wrap;
+pub mod zone_cache;
 
 pub use error::CasAuthError;
 pub use route::{route, NetZone, RouteDecision};
