@@ -1,3 +1,12 @@
+### 架构改进：清理 Rust 构建警告三项（死代码、漏挂测试、命名，2026-11-20）
+
+**为什么**：`cargo test` 输出三条警告，各自成因不同：
+
+- `config/wifi_curfew.rs:44` `in_curfew_window_now` dead_code——注释声称「双端调用方共用」，实为过时断言：桌面 tick 与安卓 Kotlin 侧都各自做时间换算，该包装全仓零调用，删除。
+- `app/lightweight.rs:401` `几何文件_固定在数据目录` dead_code——**漏挂 `#[test]` 的测试函数**（同文件其余测试均有），它从未运行过，断言形同虚设。补上属性让它真实执行——这不是删代码是修缺陷。
+- `network/subnet.rs:438` non_snake_case——活测试，触发点是函数名末尾的 ASCII 大写 `SSID`，改小写 `返回ssid`（中文标识符本身合规，仓库测试惯例保留）。
+
+**验证**：桌面 `cargo test` **714 passed / 0 failed**（补挂的 `几何文件_固定在数据目录` 真实运行并通过，713→714），构建输出零 warning。安卓经 Cargo path 依赖继承同一份代码，删除项零调用无影响。
 ### 前端性能优化：主包 vendor 分桶，双端 vite build 消除 500kB 警告（2026-11-20）
 
 **为什么**：双端 `vite build` 主 chunk 超过 500kB 警告线（桌面 `index` 577 kB / 安卓 527 kB）。用临时 `generateBundle` 分析量化主包构成（min 前）：`@tauri-apps/api` 107 kB、i18next 系 102 kB、`tailwind-merge` 70 kB、`lucide-react` 40 kB——约 330 kB 的第三方依赖因未进 `manualChunks` 而全部内联进 index；应用代码 + locale JSON 约 770 kB 才是主体。

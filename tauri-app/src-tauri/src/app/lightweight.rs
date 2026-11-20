@@ -398,6 +398,7 @@ mod tests {
         assert_eq!(super::next_geometry(None, captured), Some(captured));
     }
 
+    #[test]
     fn 几何文件_固定在数据目录() {
         let path = geometry_path(std::path::Path::new("data"));
         assert!(path.ends_with(GEOMETRY_FILE));

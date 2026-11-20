@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn 事件日志解析_最新8001返回SSID() {
+    fn 事件日志解析_最新8001返回ssid() {
         let text = "Event[0]\n  Event ID: 8001\n  SSID: kiku-5G\n  BSS 类型: Infrastructure\n\nEvent[1]\n  Event ID: 8003\n  SSID: 旧网络\n";
         assert_eq!(parse_wlan_eventlog_ssid(text), Ok(Some("kiku-5G".to_string())));
     }
