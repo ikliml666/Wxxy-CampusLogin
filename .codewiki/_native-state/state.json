@@ -3,12 +3,12 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "16d0bc676ca415cfb1b2ddc97580fe88d8f3494e",
-    "headCommit": "cae80514ed2d86bada36d7181da49d4aa2e37371"
+    "headCommit": "11501ac93f5db466813a4f6773b5502be360ed3d"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "16d0bc676ca415cfb1b2ddc97580fe88d8f3494e",
-    "headCommit": "cae80514ed2d86bada36d7181da49d4aa2e37371",
+    "headCommit": "11501ac93f5db466813a4f6773b5502be360ed3d",
     "committed": [
       "changelogs/CHANGELOG_v2.4.4.md",
       "tauri-app/src-tauri/src/app/lightweight.rs",
@@ -30,14 +30,13 @@
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "持久化基线 97f04a7 与本次 cw 基线 16d0bc6 不同（以 cw 基线为准，未消费变化仍会并入）",
-    "工作区未提交改动已合成临时 commit c81e58725403（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwohbgpa-4-native（66 个文件）",
-    "本轮把 1 个未提交源码改动一并写进产物（快照 c81e58725403）：changelogs/CHANGELOG_v2.4.4.md_entry"
+    "工作区未提交改动已合成临时 commit 370b5b492991（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwohzpml-5-native（66 个文件）",
+    "本轮把 1 个未提交源码改动一并写进产物（快照 370b5b492991）：changelogs/CHANGELOG_v2.4.4.md_entry"
   ],
-  "updatedAt": "2026-11-20T04:39:24.364Z"
+  "updatedAt": "2026-11-20T04:48:10.032Z"
 }
