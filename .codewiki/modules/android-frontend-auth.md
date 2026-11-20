@@ -261,7 +261,7 @@ export interface ExtraCardDef {
 本模块代码位于 `android/frontend/src/auth/`，属于 Android 前端 Vite + React 工程的一部分：
 
 - 构建脚本：`android/frontend/package.json` 中 `build`（`tsc --noEmit && vite build`）、`dev`（`vite --host`，端口 5174）、`typecheck`（`tsc --noEmit`）。
-- Vite 配置：`android/frontend/vite.config.ts`，别名 `@` 指向 `./src`，`manualChunks` 把 `react` / `framer-motion` / `gsap` / `@radix-ui` 拆为独立 vendor chunk，优化 WebView 加载。
+- Vite 配置：`android/frontend/vite.config.ts`，别名 `@` 指向 `./src`，`manualChunks` 按依赖分桶，把 `react` / `framer-motion` / `gsap` / `@radix-ui` / `@tauri-apps` / i18next 系（`i18next`、`react-i18next`、`i18next-browser-languagedetector`）/ `lucide-react` / `tailwind-merge` / `zustand` / `use-sync-external-store` 分别拆为 `vendor-react` / `vendor-motion` / `vendor-gsap` / `vendor-radix` / `vendor-tauri` / `vendor-i18n` / `vendor-misc` 独立 vendor chunk：应用代码独占 index，规避主包超 500kB 警告线，本地加载总量不变而缓存粒度更稳。`@vladmandic/human` 刻意不收——它是 `faceService` 动态 import 的惰性边界，纳入静态 chunk 会让首屏背上约 1.5MB 的 tfjs。
 - 依赖：`react@^19`、`zustand@^5`、`framer-motion@^12`、`gsap@^3`、`i18next` + `react-i18next`（卡片标题全部走 i18n key，如 `dashboard.quickActions`）、`lucide-react`（图标）。
 
 ## 关键设计要点

@@ -275,7 +275,7 @@ flowchart LR
 
 ### 5.2 `ThemeDialog`
 
-低频对话框，在 `App.tsx` 中以 `React.lazy` + `preloadPanels()` 组合按需分包（分包规则见 `tauri-app/frontend/vite.config.ts` 的 `manualChunks`，vendor 按 react / framer-motion / gsap / radix 拆分）。对话框内容：
+低频对话框，在 `App.tsx` 中以 `React.lazy` + `preloadPanels()` 组合按需分包（分包规则见 `tauri-app/frontend/vite.config.ts` 的 `manualChunks`，vendor 按 react / framer-motion / gsap / radix / tauri / i18n / misc 拆分）。对话框内容：
 
 1. **配色**：`THEME_OPTIONS` 两列按钮，选中态描边 + `Check`。
 2. **自定义主色**：仅当 `themeName === 'custom'` 展开；原生 `type="color"` 取色器（外观由外层 label 承载，控件透明覆盖）+ 8 个预设色块。每次改动**同时**写 `useThemeStore.setCustomThemeColor`（即时预览）与 `onSetCustomColor` → `updateConfig({ customThemeColor })`（持久化）。历史脏值（空串）用正则 `/^#[0-9a-f]{6}$/i` 兜回 `#6366f1`。

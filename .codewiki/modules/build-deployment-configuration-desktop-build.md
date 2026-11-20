@@ -142,6 +142,9 @@ flowchart LR
     CHUNKS --> C2["vendor-motion#59 framer-motion"]
     CHUNKS --> C3["vendor-gsap#59 gsap"]
     CHUNKS --> C4["vendor-radix#59 @radix-ui/*"]
+    CHUNKS --> C5["vendor-tauri#59 @tauri-apps/*"]
+    CHUNKS --> C6["vendor-i18n#59 i18next / react-i18next / languagedetector"]
+    CHUNKS --> C7["vendor-misc#59 lucide-react / tailwind-merge / zustand"]
 ```
 
 ### 开发服务器
@@ -159,6 +162,10 @@ flowchart LR
   - `vendor-motion`：`framer-motion`
   - `vendor-gsap`：`gsap`
   - `vendor-radix`：`@radix-ui/*` 全家桶
+  - `vendor-tauri`：`@tauri-apps/*`
+  - `vendor-i18n`：`i18next`、`react-i18next`、`i18next-browser-languagedetector`
+  - `vendor-misc`：`lucide-react`、`tailwind-merge`、`zustand`、`use-sync-external-store`
+  - 后三个分桶源于主包曾超过 500kB 警告线：此前这些 vendor（实测 `@tauri-apps` 约 107kB、i18next 系约 102kB、`tailwind-merge` 约 70kB、lucide 约 40kB）全部内联进 `index`。按依赖分桶让应用代码独占 `index`——Tauri 本地加载总量不变，缓存粒度更稳。
 - `modulePreload.polyfill: false`：Tauri WebView2 原生支持原生 ESM，无需额外 polyfill。
 
 ## 单元测试（vitest.config.ts）

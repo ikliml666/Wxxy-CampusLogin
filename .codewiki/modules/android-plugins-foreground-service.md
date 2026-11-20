@@ -11,6 +11,8 @@ source_files:
   - android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/RemoteShellService.kt
   - android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/WifiCurfewRunner.kt
   - android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/CurfewShell.kt
+  - android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/RootShellMain.kt
+  - android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/WifiServiceOps.kt
 tags: []
 generated_by: fsoft-native
 fsoft_page: android_plugins_foreground_service.md

@@ -101,10 +101,16 @@ flowchart LR
     G -- 是 --> CG["vendor-gsap"]
     G -- 否 --> RD{"@radix-ui/*?"}
     RD -- 是 --> CRD["vendor-radix"]
-    RD -- 否 --> DEFAULT["随默认 chunk（不手动拆）"]
+    RD -- 否 --> TA{"@tauri-apps/*?"}
+    TA -- 是 --> CTA["vendor-tauri"]
+    TA -- 否 --> I18{"i18next 系?"}
+    I18 -- 是 --> CI18["vendor-i18n"]
+    I18 -- 否 --> MISC{"lucide-react / tailwind-merge / zustand / use-sync-external-store?"}
+    MISC -- 是 --> CMISC["vendor-misc"]
+    MISC -- 否 --> DEFAULT["随默认 chunk（不手动拆）"]
 ```
 
-四个重型独立 vendor chunk 让 React 核心、动画库、UI 原语可独立缓存，与业务代码分离。注意未设置 `modulePreload.polyfill: false` 的对照说明见桌面端 [桌面端构建配置](build-deployment-configuration-desktop-build.md)——两端策略保持一致。
+七个独立 vendor chunk 让 React 核心、动画库、UI 原语、Tauri、i18n 与杂项依赖可独立缓存，与业务代码分离。其中 `@tauri-apps`（实测 107kB）、i18next 系（102kB）、`tailwind-merge`（70kB）与 lucide（40kB）此前全部内联进 `index`，使主包越过 500kB 警告线；按依赖分桶后应用代码独占 `index`——本地加载总量不变，缓存粒度更稳。刻意不收 `@vladmandic/human`：它是 `faceService` 动态 import 的惰性边界，若被 `manualChunks` 拉进静态 chunk，首屏就会背上 1.5MB 的 tfjs。注意未设置 `modulePreload.polyfill: false` 的对照说明见桌面端 [桌面端构建配置](build-deployment-configuration-desktop-build.md)——两端策略保持一致。
 
 ### 2. Rust 工程（android/src-tauri）
 

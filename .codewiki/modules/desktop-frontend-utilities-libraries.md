@@ -429,10 +429,15 @@ resolve: { alias: { '@': path.resolve(__dirname, './src') } }
 
 ### 代码分包
 
-`vite.config.ts` 的 `manualChunks` 将动画库独立分包：
+`vite.config.ts` 的 `manualChunks` 将依赖较大的库按依赖分桶，使应用代码独占 `index`：
 - `vendor-motion`：`framer-motion`
 - `vendor-gsap`：`gsap`
 - `vendor-react` / `vendor-radix`
+- `vendor-tauri`：`@tauri-apps/*`
+- `vendor-i18n`：`i18next` / `react-i18next` / `i18next-browser-languagedetector`
+- `vendor-misc`：`lucide-react` / `tailwind-merge` / `zustand` / `use-sync-external-store`
+
+后三个分桶源于主包曾超过 500kB 警告线——此前这些 vendor（实测 `@tauri-apps` 约 107kB、i18next 系约 102kB、`tailwind-merge` 约 70kB、lucide 约 40kB）全部内联进 `index`。按依赖分桶让应用代码独占 `index`——Tauri 本地加载总量不变，缓存粒度更稳。
 
 本模块的动效体系因此以独立 chunk 加载。
 
