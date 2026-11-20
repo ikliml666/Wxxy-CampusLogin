@@ -30,7 +30,7 @@ fsoft_page: android_frontend_monitoring_network.md
 本模块是 Android 前端中负责**网络状态监控**与 **DNS 优化**的部分，由监控逻辑 Hook、网络面板渲染层（`NetworkPanel` 与纯展示的 `AccessCard`）与一份后台巡检状态类型契约组成：
 
 - `useMonitor`（`android/frontend/src/monitor/useMonitor.ts`）：管理后台检查（定时校园网/在线状态巡检）与延迟测试的启停，处理配置持久化、运行时权限请求与前后台状态同步。
-- `NetworkPanel`（`android/frontend/src/network/NetworkPanel.tsx`）：网络面板渲染层，承载**执行通道权限卡**、**WiFi 就寝守则**（断开/放行名单、恢复时刻、弱信号阈值与试运行）与**私人 DNS（DoT）**一键设置，是本模块 DNS 优化的唯一入口。
+- `NetworkPanel`（`android/frontend/src/network/NetworkPanel.tsx`）：网络面板渲染层，承载**执行通道权限卡**、**WiFi 就寝守则**（断开/放行名单、准备/切换/恢复三节点时刻、弱信号阈值与试运行）与**私人 DNS（DoT）**一键设置，是本模块 DNS 优化的唯一入口。
 - `AccessCard`（`android/frontend/src/network/AccessCard.tsx`）：面板顶部的**统一权限卡**，集中展示 Shizuku / root 执行通道状态与系统设置（`WRITE_SECURE_SETTINGS`）写入能力，并提供通道模式选择、Shizuku 授权、复制 adb 授权命令与一键刷新；就寝守则与私人 DNS 两张功能卡不再各自引导授权。
 - `BackgroundStatus`（`android/frontend/src/monitor/types.ts`）：后端 `status_value` 展平后的巡检状态快照类型，含 `coreAlive` / `notificationStale` 等存活判定字段（见「核心职责」第 3 节）。
 
@@ -138,8 +138,12 @@ flowchart TB
 - **写入能力聚合**：`secureSettingsWritable` / `secureSettingsChannel` 分别由 `avoidStatus?.writable ?? dotStatus?.writable` 与 `avoidStatus?.channel ?? dotStatus?.channel` 依次回退求得——`getAvoidBadWifiStatus()` 与 `getPrivateDnsStatus()` 两条命令同源（同一条 `WRITE_SECURE_SETTINGS` 权限），任一读到即可。
 - **一次性刷新**：`refreshAccess()` 并行重取 `getPrivateDnsStatus()`、`getCurfewChannel()`、`getAvoidBadWifiStatus()`，三条状态各自失败互不影响（旧包可能缺某条命令）。
 
-**WiFi 就寝守则卡**——总开关 `enableWifiCurfew`、恢复时刻 `nightRestoreMinutes`、断开名单 `wifiCurfewExcluded`、放行名单 `wifiCurfewAllowed`、弱信号阈值 `wifiCurfewWeakRssi`（执行通道 `wifiCurfewChannel` 的选择已上移到 `AccessCard`）。
+**WiFi 就寝守则卡**——总开关 `enableWifiCurfew`、准备提前量 `nightPrepareMinutes`、恢复时刻 `nightRestoreMinutes`、断开名单 `wifiCurfewExcluded`、放行名单 `wifiCurfewAllowed`、弱信号阈值 `wifiCurfewWeakRssi`（执行通道 `wifiCurfewChannel` 的选择已上移到 `AccessCard`）。
 
+- **夜间时序条（三节点）**：就寝守则卡片顶部的时序条展示**准备 → 切换 → 恢复**三个节点（源码注释称「三件事就是这张卡片的全部行为，时间就地可改」），准备与恢复两个节点的时刻可就地编辑、切换节点静态展示：
+  - **准备节点**（`network.curfewPrepNode`，`id="wifi-curfew-prepare-time"`）：新增节点，由 `nightPrepareMinutes` 驱动。`prepareMinutes = min(180, max(0, nightPrepareMinutes ?? 0))`（0 = 关，上限 180 分钟，与后端 `prepare_lead_minutes` 同口径）；显示/编辑的都是**时刻** `prepareAt = (切换时刻 - prepareMinutes + 1440) % 1440`，可编辑范围 `[prepareMinAt, todaySwitchMinutes]`（`prepareMinAt = 切换时刻 - 180`），同样用 `InlineTimeEdit`。`commitPrepareAt(at)` 把时刻换回提前量写回 `nightPrepareMinutes`：把准备时刻拖到切换时刻本身即等于关闭准备（写 `0`），此时文本置灰（`text-muted-foreground/50`）。
+  - **切换节点**（`network.curfewSwitchNode`）：今日切换时刻静态展示、不可编辑（计算口径见下方「切换时刻展示」）。
+  - **恢复节点**（`network.curfewRestoreNode`，`id="wifi-curfew-restore-time"`）：用 `InlineTimeEdit` 编辑恢复时刻（见下方「恢复时刻」）。
 - **恢复时刻**：改用自绘的 `InlineTimeEdit`——静态时是可点的时间文本，点击展开「时 : 分」两个数字输入，焦点离开编辑区或 Enter 提交（钳到 `[minMinutes, maxMinutes]`），Escape 还原；不再用原生 `<input type="time">`（安卓 WebView 不弹时间选择器、WebView2 段编辑常只生效一半）。可编辑范围 05:00–22:59，`0` / 越界一律按默认 07:30 显示，与后端 `restore_start_minutes` 的归一化同口径（上限必须早于 23:00，否则恢复窗为空、永不还原）。
 - **切换时刻展示**：今日切换节点（周五六 23:30 / 其余 23:00，即 1410 / 1380 分钟）直接按 `HH:MM` 拼出，**不再走 `formatRestoreTime`**——恢复上限 1379 会把 1380/1410 判越界并回落成默认 07:30。
 - **弱信号阈值**：开关关闭时写 `0`，开启时默认 `-80 dBm`，可选档 `-70 / -75 / -80 / -85 dBm`。
@@ -155,7 +159,7 @@ flowchart TB
 | 组件 / 状态 | 说明 |
 | --- | --- | --- |
 | `SavedNetworkPicker` | 断开/放行名单共用的选择器（弹窗 + 已选胶囊），含系统已保存网络读取、互斥标记与兜底手输 |
-| `InlineTimeEdit` | 恢复时刻的行内时间编辑：静态为可点文本，点击展开「时 : 分」两个数字输入，Enter / 失焦提交并钳到 `[minMinutes, maxMinutes]`，Escape 还原；替代原生 `<input type="time">` |
+| `InlineTimeEdit` | 准备与恢复节点的行内时间编辑：静态为可点文本，点击展开「时 : 分」两个数字输入，Enter / 失焦提交并钳到 `[minMinutes, maxMinutes]`，Escape 还原；替代原生 `<input type="time">` |
 | `dotStatus` / `dotHost` | 私人 DNS 当前状态与主机名草稿；`refreshDot()` 在挂载与每次写入后重新拉取 |
 | `savedNetworks` / `savedNetworksError` | 系统已保存网络列表（`null` = 读取中）与读取失败标记；`refreshSavedNetworks()` 负责重试 |
 | `curfewChannel` | 执行通道就绪度（Shizuku / root / 自检串）；`refreshCurfewChannel()` 在授权后刷新 |

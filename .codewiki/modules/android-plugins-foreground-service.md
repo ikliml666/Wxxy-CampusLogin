@@ -263,7 +263,7 @@ flowchart TB
 
 ## 6. WiFi 就寝守则
 
-守则是本模块里唯一的"业务性平台动作"：Rust 侧只做时段判定与配置组装（`core::monitor::run_wifi_curfew`，窗口函数与 `config::wifi_curfew::in_curfew_window` 同口径），具体执行交给 Kotlin。
+守则是本模块里唯一的"业务性平台动作"：Rust 侧只做时段判定与配置组装（`core::monitor::run_wifi_curfew`，窗口函数与 `config::wifi_curfew::in_curfew_window` 同口径），具体执行交给 Kotlin。守则窗口的**起始切换时刻按星期几浮动**（`WifiCurfewRunner.switchTimeFor`：周日至周四 23:00 / 1380 分钟，周五、周六 23:30 / 1410 分钟），并支持在切换时刻前的一段"提前准备窗口"内先探明并切到放行网络，到点只需断开/补出站，真窗口内的动作顺序不变。
 
 ### 6.1 配置契约
 
@@ -275,6 +275,7 @@ Rust 先 `set_wifi_curfew_config(json)` 暂存，再调无参 `run_wifi_curfew()
 | `excluded` | 断开名单（`"*"` 表示全部） |
 | `allowed` | 放行名单（窗口内的目标网络，优先于断开名单） |
 | `restoreStart` | 恢复时刻（分钟数，`0`/越界回落 `450` = 07:30） |
+| `prepareLead` | 提前准备窗口的领先分钟数（切换时刻前多少分钟开始切放行网络，钳制在 `0..180`；`0` 关闭） |
 | `weakRssi` | 弱信号阈值（负值启用；`0` 关闭） |
 | `channel` | `auto` / `adb`(Shizuku) / `root` |
 | `dryRun` | 试运行：只判定会做什么，不动 WiFi |
@@ -283,7 +284,7 @@ Rust 先 `set_wifi_curfew_config(json)` 暂存，再调无参 `run_wifi_curfew()
 
 ```mermaid
 flowchart TD
-    A["run(json, force)"] --> B{"enabled 且 在窗口内?"}
+    A["run(json, force)"] --> B{"enabled 且 在窗口内<br/>或提前准备窗口?"}
     B -->|否| C["restore(channel)<br/>unblockWifi + 必要时打开本程序关过的 WiFi"]
     C --> D{"weakRssi 小于 0?"}
     D -->|是| E["checkWeakSignal"]
@@ -310,6 +311,8 @@ flowchart TD
 
 1. **放行优先**：只要连着放行网络就不动，无论是否命中断开名单。
 2. **兜底才断网**：放行目标全部连不上时，只有当前网络确实在断开名单里才断；未连接或连着名单外网络保持原样，并把失败原因（`tried`）如实带回。
+
+**窗口判定**（`inCurfewWindow` / `inPrepareWindow`）：`nowMinutes < restoreStart` 即视为窗口内（跨午夜），否则到 `switchTimeFor(weekday)` 才进入窗口——周日至周四（`weekday in 0..4`）为 23:00，周五、周六为 23:30。`inPrepareWindow` 在切换时刻前 `prepareLead`（钳制 `0..180`）分钟内、且尚未进入真窗口时返回真，让这一拍也走窗口内的放行切换流程；`force=true`（调试 `testCurfew`）同样按窗口内处理。提前准备窗口让"换网发现/握手/拿地址"在到点前完成，到点只差断开与补出站。
 
 ### 6.3 断网：断开连接优先、关 WiFi 兜底
 
@@ -526,6 +529,8 @@ Rust 侧 `update_cmds::install_update` 先 `canonicalize` 并校验落在 `updat
 | 累积大量 root 进程 | Shizuku unbind 后 UserService 不退出 | 常驻单连接复用 + `TRANSACTION_DESTROY` 时 `exitProcess(0)` |
 | 电池优化页跳不过去 | Android 11+ 包可见性使 `resolveActivity` 返回 `null` | 不预探测，直接 `startActivity` + 捕获异常，三级降级链 |
 | "下载成功但装不上" | `file://` 不可用 / 提前删除 APK | `FileProvider` `content://` + 安装后保留文件，启动期清理 24h 残留 |
+| 周五六守则切换时刻与平日不一致 | 切换时刻随星期几浮动（周五六比平日晚 30 分钟） | `switchTimeFor(weekday)` 周日至周四取 1380（23:00）、周五六取 1410（23:30），窗口判定与 Rust 侧 `config::wifi_curfew` 同口径 |
+| 到点才切放行网络，换网尚未完成就被要求断开 | WiFi 换网需发现/握手/拿地址，到点才动手会空等 | 切换时刻前 `prepareLead` 分钟内先进提前准备窗口切到放行网络，到点只差断开/补出站（见 6.2） |
 | 守则日志每拍刷一条 | 弱信号复探在等待窗口内返回结果 | 窗口内返回 `null`（无动作），仅跨档触发 |
 | 断开后几秒又自动连回同一 SSID | 只调 `disconnect` 不够，系统按 autojoin 重连 | 先 `disableSavedNetwork(netId)` 标记不自动连接、再 `disconnectWifi()`，顺序不可反（见 6.3） |
 | 断连后恢复时要求用户重新输密码 | 用 `forget-network` 会删掉系统里的网络配置 | 只标记「不自动连接」，配置保留；恢复时 `enableSavedNetwork(netId)` 直接连回（见 6.7） |

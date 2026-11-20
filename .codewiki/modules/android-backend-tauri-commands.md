@@ -338,7 +338,7 @@ sequenceDiagram
 | --- | --- |
 | 账号与凭据 | `user`、`password`、`operator`、`displayName`、`activeAccount` |
 | 生物识别验证门 | `selfHelloEnabled`、`selfReverifyEachAction`、`selfHelloTtlMinutes`、`allow2dFaceVerify` |
-| 夜间自动化 | `enableNightOperatorSwitch`、`nightOperatorRestore`、`enableNightOutboundSwitch`、`nightRestoreMinutes`、`nightOutboundRestore` |
+| 夜间自动化 | `enableNightOperatorSwitch`、`nightOperatorRestore`、`enableNightOutboundSwitch`、`nightRestoreMinutes`、`nightPrepareMinutes`、`nightOutboundRestore` |
 | WiFi 就寝守则 | `enableWifiCurfew`、`wifiCurfewExcluded`、`wifiCurfewAllowed`、`wifiCurfewWeakRssi`、`wifiCurfewChannel` |
 | 桌面镜像字段 | `outboundPriority`、`outboundMetricRestore`、`outboundDisabledAdapters`、`outboundStandbyRoute`、`outboundPortalRoute`、`dnsOptimizeAdapters`、`enableMacRenewOnAuthError` 等（安卓不消费，仅保持结构一致） |
 | 行为 | `autoLoginOnStart`、`enableBackgroundCheck`、`backgroundCheckInterval`、`backgroundCheckIdleInterval`（**已废弃**：灭屏/蜂窝降频已移除，无消费点，仅为兼容旧配置文件保留）、`autoLoginOnPreparation`、`maxDisconnectReconnect`、`autoLoginCooldownSecs` |

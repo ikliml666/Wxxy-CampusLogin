@@ -140,6 +140,7 @@ flowchart TB
 | `nightOperatorRestore` | `''` | 夜切前原运营商暂存位；`operator === '' && nightOperatorRestore !== ''` 即"正处于夜切态"（`StatusBar` 据此在 tooltip 标注恢复目标） |
 | `enableNightOutboundSwitch` | `false` | 夜间出站切换（安卓由 `monitor_loop` 消费为"到点注销 + 等系统切蜂窝"） |
 | `nightRestoreMinutes` | `0` | 恢复时刻（当日分钟数），`0` = 未自定义，回落默认 07:30 |
+| `nightPrepareMinutes` | `0` | 提前准备分钟数（上限 180）：切换时刻前这么久先探测并切到放行网络，`0` = 关（到点才开始） |
 | `nightOutboundRestore` | `''` | 安卓出站切换态标记（值恒 `logged_out`，纯标记） |
 | `campusCheckStartMinutes` | `460` | 校园网检测时段起点 = 07:40，`0` = 禁用门控 |
 | `campusCheckEndMinutes` | `1380` | 检测时段终点 = 23:00 |
@@ -353,6 +354,7 @@ DEFAULT_PANEL_OPTIONS = NAV_ITEMS.map(item => ({ value: item.id, labelKey: item.
 | `enableBootAutostart` | `false` | `false` | 一致 |
 | `themeMode` / `customThemeColor` | `'dark'` / `'#6366f1'` | `"dark"` / `"#6366f1"` | 一致 |
 | `enableNetworkQuality` | `true` | `false`（2026-09-12 起省电） | **不一致**：仅在降级路径可见 |
+| `nightPrepareMinutes` | `0` | `60`（新增字段，对齐桌面 `default_night_prepare_minutes`） | **不一致**：仅降级路径可见；正常启动被后端真值覆盖 |
 | `enableLatencyTest` | `true` | `false` | **不一致**：同上 |
 | `defaultPanel` | `''` | `"dashboard"` | **不一致**：同上 |
 | `requiredNetworkName` | `'i-wxxy'` | `'i-wxxy、iwxxy-2、iwxxy-3'` | **不一致**：后端 `load_from` 幂等扩展单值 |

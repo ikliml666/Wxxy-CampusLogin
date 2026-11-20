@@ -283,7 +283,7 @@ flowchart TD
 
 ### WiFi 就寝守则(run_wifi_curfew)
 
-判定在共享纯函数 `config::wifi_curfew::in_curfew_window_now`,真正的 `cmd wifi` 动作在 Kotlin 侧(`WifiCurfewRunner`,经 Shizuku/root)。跨进程调用阻塞,走 `spawn_blocking`;`CURFEW_ACTIVE` 静态位记录上一拍是否在窗口内,配合早退判定让**白天稳定态零 JNI 开销**(一次 Shizuku 绑定最长 8s 超时),未开启弱信号规则时只在"窗口内"或"刚出窗口"才跨进程(例外见下)。
+判定在共享纯函数 `config::wifi_curfew::in_curfew_window` 与 `config::wifi_curfew::in_prepare_window`,两者以星期几与当前分钟数为入参,与 Kotlin 侧 `WifiCurfewRunner` 的 `inCurfewWindow` / `inPrepareWindow` 同口径(起始切换时刻 `switchTimeFor` 周日至周四 23:00、周五六 23:30);`active = in_window || preparing`,**提前准备窗口内也跑**,让到点那一刻只差出站与跃点(无线换网要发现/握手/拿地址,到点才动手会空等),真窗口内动作顺序不变。真正的 `cmd wifi` 动作在 Kotlin 侧(`WifiCurfewRunner`,经 Shizuku/root)。跨进程调用阻塞,走 `spawn_blocking`;`CURFEW_ACTIVE` 静态位记录上一拍是否处于 active(窗口内或提前准备窗口内),配合早退判定让**白天稳定态零 JNI 开销**(一次 Shizuku 绑定最长 8s 超时),未开启弱信号规则时只在 active 或"刚退出 active"才跨进程(例外见下)。组装给 Kotlin 的 payload 与常驻 watcher 共用的配置 JSON(`wifi_curfew_config_json`)现在都带上 `prepareLead`(来自 `night_prepare_minutes`,Kotlin 侧钳制在 `0..180`),与 `restoreStart` 一起用于切换时刻判定。
 
 早退有一个**例外**:`wifi_curfew_weak_rssi < 0`(弱信号规则已开启)时不早退,每拍都交给 Kotlin 判一次。弱信号与就寝窗口无关,是独立的持续规则,窗口内由 Kotlin 自己跳过弱信号(不与守则抢动作),因此不能因为"白天且上一拍也不在窗口"就整拍跳过——否则弱信号检查会被这行早退吞掉,只有 WiFi 事件触发的旁路才能跑到它。未开启弱信号规则时(`wifi_curfew_weak_rssi >= 0`)白天依旧零 JNI 开销。
 
