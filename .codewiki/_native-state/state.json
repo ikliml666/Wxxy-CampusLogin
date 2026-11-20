@@ -3,13 +3,16 @@
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
     "baseCommit": "b897d1b2921958ce9c03ade19f1e948f96f0bdee",
-    "headCommit": "d6908c6a9a6bb8cd47a0317047a25823857a469a"
+    "headCommit": "aa828e6ed924091f4c48c8e8e2fe997a1eaf4b12"
   },
   "pendingChanges": {
     "state": "ok",
     "baseCommit": "b897d1b2921958ce9c03ade19f1e948f96f0bdee",
-    "headCommit": "d6908c6a9a6bb8cd47a0317047a25823857a469a",
+    "headCommit": "aa828e6ed924091f4c48c8e8e2fe997a1eaf4b12",
     "committed": [
+      "android/frontend/src/account/SelfServicePanel.tsx",
+      "android/frontend/src/auth/AboutDialogMobile.tsx",
+      "android/frontend/src/hooks/tauriApi.ts",
       "android/frontend/src/i18n/locales/en.json",
       "android/frontend/src/i18n/locales/zh.json",
       "android/frontend/src/index.css",
@@ -20,61 +23,42 @@
       "android/plugins/foreground-service/android/src/main/java/com/campuslogin/plugin/monitorservice/WifiCurfewRunner.kt",
       "android/src-tauri/src/config_state.rs",
       "android/src-tauri/src/core/monitor.rs",
-      "changelogs/CHANGELOG_v2.4.4.md",
-      "tauri-app/frontend/src/index.css",
-      "tauri-app/frontend/src/monitor/QualityPanel.tsx",
-      "tauri-app/frontend/src/network/NetworkPanel.tsx"
-    ],
-    "staged": [],
-    "unstaged": [
-      "android/frontend/src/account/SelfServicePanel.tsx",
-      "android/frontend/src/auth/AboutDialogMobile.tsx",
-      "android/frontend/src/hooks/tauriApi.ts",
-      "android/frontend/src/i18n/locales/en.json",
-      "android/frontend/src/i18n/locales/zh.json",
-      "android/frontend/src/network/NetworkPanel.tsx",
       "android/src-tauri/src/lib.rs",
       "android/src-tauri/src/protocol_cmds.rs",
       "android/src-tauri/src/vpn_cmds.rs",
+      "changelogs/CHANGELOG_v2.4.4.md",
       "tauri-app/frontend/src/account/SelfServicePanel.test.tsx",
       "tauri-app/frontend/src/account/SelfServicePanel.tsx",
+      "tauri-app/frontend/src/index.css",
+      "tauri-app/frontend/src/monitor/QualityPanel.tsx",
+      "tauri-app/frontend/src/network/NetworkPanel.tsx",
       "tauri-app/src-tauri/src/commands/vpn.rs",
       "tauri-app/src-tauri/src/vpn/cache.rs",
-      "tauri-app/src-tauri/src/vpn/mod.rs"
-    ],
-    "untracked": [
+      "tauri-app/src-tauri/src/vpn/mod.rs",
       "tauri-app/src-tauri/src/vpn/zone_cache.rs"
+    ],
+    "staged": [],
+    "unstaged": [],
+    "untracked": [
+      "changelogs/CHANGELOG_v2.4.4.md_entry"
     ],
     "deleted": [],
     "renamed": [],
     "reason": ""
   },
   "unconsumed": [
-    "android/frontend/src/account/SelfServicePanel.tsx",
-    "android/frontend/src/auth/AboutDialogMobile.tsx",
-    "android/frontend/src/hooks/tauriApi.ts",
-    "android/frontend/src/i18n/locales/en.json",
-    "android/frontend/src/i18n/locales/zh.json",
-    "android/frontend/src/network/NetworkPanel.tsx",
-    "android/src-tauri/src/lib.rs",
-    "android/src-tauri/src/protocol_cmds.rs",
-    "android/src-tauri/src/vpn_cmds.rs",
-    "tauri-app/frontend/src/account/SelfServicePanel.test.tsx",
-    "tauri-app/frontend/src/account/SelfServicePanel.tsx",
-    "tauri-app/src-tauri/src/commands/vpn.rs",
-    "tauri-app/src-tauri/src/vpn/cache.rs",
-    "tauri-app/src-tauri/src/vpn/mod.rs",
-    "tauri-app/src-tauri/src/vpn/zone_cache.rs"
+    "changelogs/CHANGELOG_v2.4.4.md_entry"
   ],
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "incremental",
+  "updateOutcome": "no_change",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "工作区未提交改动已合成临时 commit 86d5e39cf9f8（15 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwoei61x-1-native（66 个文件）"
+    "工作区未提交改动已合成临时 commit 25f244ab476a（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwoejob8-2-native（66 个文件）",
+    "本轮把 1 个未提交源码改动一并写进产物（快照 25f244ab476a）：changelogs/CHANGELOG_v2.4.4.md_entry"
   ],
-  "updatedAt": "2026-11-20T03:10:33.172Z"
+  "updatedAt": "2026-11-20T03:11:40.844Z"
 }
