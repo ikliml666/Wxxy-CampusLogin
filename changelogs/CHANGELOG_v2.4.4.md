@@ -1,3 +1,19 @@
+### 前端性能优化：悬浮栏 standard 档砍掉 Hyalite 折射链，双端 GPU 开销归零（2026-11-20）
+
+**为什么**：悬浮栏的 Hyalite 折射滤镜是 SVG `url()` 参考滤镜——Chromium 官方文档明确其实现是「渲染到 buffer，再逐图元跑 SVG filter DAG」，比原生简写 filter（Skia 优化路径）贵得多。2026-10-24 安卓真机实测：21 图元 × DPR 3.25，GPU 每帧 6ms 超不过 120Hz 预算。但本轮 mock 截图实测发现：**standard 与 ultra 的像素差均值仅 4.70、>8 仅 0.2%**——折射在 standard 上几乎不可见，整条滤镜链是纯浪费。
+
+**改了什么**（双端 `lib/glass-dock.tsx` 同构改动）
+
+- `useGlassRefraction` 的挂载条件从 `level === 'off'` 扩展到 `level === 'off' || level === 'standard'`：standard 档不再挂 Hyalite 滤镜，直接走 CSS 降级路径（`var(--hyalite, blur(8px) saturate(2.08))`）。
+- 观感验证：standard 档优化前后像素差——中心区 +4.3、边缘带 +15.5/+15.7（折射版的边缘压暗 vs 纯 CSS 的模糊），可忽略；ultra 档**像素零差异**（折射链路完全不受影响）。
+- 边缘光/阴影完全保留：CSS 的 `::before`/`::after` 内缘光、`box-shadow` 暗线与两侧微光均不受折射滤镜开关影响。
+
+**验证**
+
+- 双端 `npx tsc --noEmit --incremental` 通过。
+- 截图实测（headless Chrome CDP，1280×800，高对比条纹 backdrop）：standard 档优化后中心区差异 +4.3、边缘带差异 +15.5/+15.7（在可接受范围内）；ultra 档优化前后**逐像素零差异**。
+- 未验证：真机 GPU 帧率实测（需安卓真机或桌面性能分析器）。
+
 ### 架构改进：清理 Rust 构建警告三项（死代码、漏挂测试、命名，2026-11-20）
 
 **为什么**：`cargo test` 输出三条警告，各自成因不同：

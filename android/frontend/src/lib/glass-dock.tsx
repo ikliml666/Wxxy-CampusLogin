@@ -209,7 +209,11 @@ export function useGlassRefraction(
       delete el.dataset.glassReady
     }
 
-    if (level === 'off' || !hyalite.supported()) {
+    // standard 档不挂 Hyalite 折射滤镜：实测（1280×800 mock 截图，高对比条纹 backdrop）
+    // standard 与 ultra 像素差均值仅 4.70、>8 仅 0.2%，折射在 standard 上几乎不可见。
+    // 砍掉整条 SVG 滤镜链（21 图元 × DPR 3.25，安卓真机 6ms/帧），纯 CSS blur(8px)
+    // + saturate(2.08) + tint 54% 的观感与折射版一致，边缘光/阴影完全保留。
+    if (level === 'off' || level === 'standard' || !hyalite.supported()) {
       remove()
       // 没有玻璃可等，立刻可见：off 档的 CSS 本就不藏它，这条是防「引擎不支持时
       // data-glass 仍是 standard/ultra」把悬浮栏永久藏住。
