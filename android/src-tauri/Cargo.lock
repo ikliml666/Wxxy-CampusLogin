@@ -445,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "campus-core-logic"
-version = "2.4.3"
+version = "2.4.4"
 dependencies = [
  "libc",
  "serde",
@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "campus-login"
-version = "2.4.3"
+version = "2.4.4"
 dependencies = [
  "aes",
  "arc-swap",
@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "campus-login-android"
-version = "2.4.3"
+version = "2.4.4"
 dependencies = [
  "campus-core-logic",
  "campus-login",

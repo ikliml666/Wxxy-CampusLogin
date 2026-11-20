@@ -1,6 +1,6 @@
 [package]
 name = "campus-core-logic"
-version = "2.4.3"
+version = "2.4.4"
 edition = "2021"
 description = "安卓后台核心的纯逻辑与契约(无 tauri/无 JNI,host 可测)"
 

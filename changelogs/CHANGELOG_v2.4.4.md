@@ -1,3 +1,31 @@
+### 版本号全量升级 v2.4.3 → v2.4.4（2026-11-20，分支 chore/release-v2.4.4，双端）
+
+**为什么**：v2.4.4 已进入发布准备（发布说明见 `release/RELEASE_NOTES_v2.4.4.md`），需要把双端所有版本字段从 2.4.3 升到 2.4.4。权威源仍是 `tauri-app/src-tauri/tauri.conf.json` 的 `version`（见 CodeWiki 的 `decisions/version-single-source-build-rs`）。
+
+**改了什么**（19 个文件，双端各一份）
+
+- **权威源与 Rust 侧**：`tauri-app/src-tauri/tauri.conf.json`、`tauri-app/src-tauri/Cargo.toml`、`android/src-tauri/tauri.conf.json`、`android/src-tauri/Cargo.toml`、`android/core-logic/Cargo.toml`。
+- **前端包与常量**：`tauri-app/package.json`、`tauri-app/frontend/package.json`、`tauri-app/frontend/src/shared/ui-constants.ts`（`APP_VERSION`）、`android/frontend/package.json`、`android/frontend/src/shared/ui-constants.ts`（`APP_VERSION`）。
+- **锁文件**：三份 `package-lock.json` 各 2 处（根 `version` 与 `packages[""]`）；三份 `Cargo.lock` 只改**自有包**（`campus-login`、`campus-login-android`、`campus-core-logic`）。
+- **展示位**：`README.md` 徽章、`tauri-app/frontend/about-preview.html` 两处（`app-version` / `status-version`）。
+- **`version.json`**：`v2.4.3` → `v2.4.4`，`notes` 按用户要求**精简重写**——保留固定下载提醒头 + GitHub/夸克两条渠道 + 「### 本版本最重要的变化」四条要点（WiFi 管控与弱信号不再误伤 / 切页掉帧 30%→7.5% / 检测时段按星期 / 夜间切换更可靠）+ 末尾指引，全文 476 字符。原版 notes 有 618 字符且第四条「新手引导整套重做」在句中被截断（以「改为取模环堆叠卡，」结尾），本次一并修正。
+
+**保留不动的 2.4.3 残留**（逐一核对，均非本项目版本号）
+
+- `tauri-app/pnpm-lock.yaml`：只有第三方包 `@bramus/specificity@2.4.3`（及其在依赖树中的两处引用），与项目版本无关。
+- `tauri-app/src-tauri/src/monitor/outbound_night.rs:1`：注释「见 changelog v2.4.3」是**历史出处引用**，指向那次外移发生的版本，不该跟着升。
+- `changelogs/CHANGELOG_v2.4.2.md`、`CHANGELOG_v2.4.3.md`、`release/RELEASE_NOTES_v2.4.3.md`、`release/Wxxy-CampusLogin_2.4.3_x64-setup.exe.sha256`：历史存档与上一版发布资产，保持原样。
+- `android/src-tauri/gen/`、`target-tmp/`：构建产物，构建时重生成。
+
+**验证**（均为当轮实际输出）
+
+- 桌面 `cargo check --lib`（`tauri-app/src-tauri`）：`Compiling campus-login v2.4.4` → `Finished dev profile ... in 14.81s`，exit 0——版本号已在编译单元中生效。
+- 双端 `npx tsc --noEmit --incremental`：桌面与安卓均 `EXIT=0`。
+- `version.json` JSON 解析通过：`version=v2.4.4`、`notes` 长度 **476** 字符。
+- 全仓 `grep -rIn "2\.4\.3"`（排除 node_modules/target/build/gen/changelogs/release）后只剩上述三类合法残留，无遗漏字段。
+
+**未做**：安装包编译与 Release 发布——按流程由 `make-release.ps1` / `android/build-apk.ps1` 产出，推送与 GitHub Release 发布须等用户编译完成后再执行。
+
 ### 发布说明撰写：v2.4.4 Release Notes 由 changelog 全量融合（2026-11-20，分支 feat/release-notes-v2.4.4，发布文档）
 
 **为什么**：`changelogs/CHANGELOG_v2.4.4.md` 已累积 **140 条 `### ` 条目**（2026-10-21 ~ 11-20），粒度是「一条改动一条记录」，直接当发布说明给用户看会是一份 2900 行的工程流水账。需要按历代 `release/RELEASE_NOTES_v*.md` 的风格（标题 → 下载提醒引用块 → 主打句 → 分节 `## <emoji> <主题>` → 升级说明）把同主题条目合并成用户可读的版本说明。
