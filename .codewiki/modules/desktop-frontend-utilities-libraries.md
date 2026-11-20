@@ -279,19 +279,26 @@ sequenceDiagram
     participant Hyalite as window.Hyalite
     participant CSS as CSS 样式层
 
-    Effect->>Hyalite: attach(el, GLASS_DOCK_OPTS[level])
-    Note over Effect,CSS: ① 立即挂滤镜（此时整条 opacity:0 不可见）
-    loop rAF 轮询
-        Effect->>Effect: backdropReady()?<br/>(祖先链 opacity=1 且无 transform/will-change)
+    alt off / standard / 引擎不支持
+        Effect->>Effect: remove() 后不挂滤镜，直接置 data-glass-ready 并返回
+        Note over CSS: standard 用纯 CSS（blur(8px) + saturate(2.08) + tint 54%）呈现，观感与折射版一致
+    else ultra 档
+        Effect->>Hyalite: attach(el, GLASS_DOCK_OPTS[level])
+        Note over Effect,CSS: ① 立即挂滤镜（此时整条 opacity:0 不可见）
+        loop rAF 轮询
+            Effect->>Effect: backdropReady()?<br/>(祖先链 opacity=1 且无 transform/will-change)
+        end
+        Effect->>Effect: goLive(): 等 LIVE_FRAMES=2 帧
+        Effect->>CSS: el.classList.add('glass-live')
+        Note over CSS: ② 放开半透明：实底淡成玻璃
+        Effect->>CSS: el.classList.add('glass-ready')
+        Note over CSS: ③ 兜底：MAX_WAIT_MS=2500ms 等不到则实底出现
     end
-    Effect->>Effect: goLive(): 等 LIVE_FRAMES=2 帧
-    Effect->>CSS: el.classList.add('glass-live')
-    Note over CSS: ② 放开半透明：实底淡成玻璃
-    Effect->>CSS: el.classList.add('glass-ready')
-    Note over CSS: ③ 兜底：MAX_WAIT_MS=2500ms 等不到则实底出现
 ```
 
 **为什么用 Hyalite 而非 `backdrop-filter: blur()`**：纯模糊只能把背板糊成色块，而玻璃是**弯折**光——边缘把背后世界向内拉扯。Hyalite 按元素真实尺寸与圆角算位移图（R/G=偏移、B=带符号边缘明暗），喂给 SVG 滤镜。
+
+**只有 `ultra` 档挂折射滤镜**（源码注释中的实测结论）：`off` / `standard` 档以及引擎不支持时，`remove()` 后直接置 `data-glass-ready` 返回，不进入挂滤镜与 rAF 等待分支——此时 CSS 本就不藏悬浮栏，这条赋值是防止「引擎不支持但 `data-glass` 仍是 standard/ultra」把悬浮栏永久藏住。`standard` 档不挂 Hyalite 的理由是：1280×800 mock 截图（高对比条纹 backdrop）下 standard 与 ultra 像素差均值仅 4.70、差值 >8 仅 0.2%，折射在 standard 上几乎不可见；砍掉整条 SVG 滤镜链（21 图元 × DPR 3.25，安卓真机 6ms/帧）后，纯 CSS `blur(8px)` + `saturate(2.08)` + tint 54% 的观感与折射版一致，边缘光/阴影完全保留。
 
 **硬约束（源码注释中的实测结论）**：
 - `rim: 0`：Hyalite 自带 Fresnel 亮边会与 CSS 伪元素亮环叠加成「白色外框」

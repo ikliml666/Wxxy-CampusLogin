@@ -2,41 +2,36 @@
   "stateVersion": 1,
   "repoRoot": "E:\\ik\\Documents\\trae_projects\\1\\Wxxy-CampusLogin",
   "consumedRange": {
-    "baseCommit": "16d0bc676ca415cfb1b2ddc97580fe88d8f3494e",
-    "headCommit": "11501ac93f5db466813a4f6773b5502be360ed3d"
+    "baseCommit": "11501ac93f5db466813a4f6773b5502be360ed3d",
+    "headCommit": "533b74727cbeb8a32543d11542bc7c0ee50a9b08"
   },
   "pendingChanges": {
     "state": "ok",
-    "baseCommit": "16d0bc676ca415cfb1b2ddc97580fe88d8f3494e",
-    "headCommit": "11501ac93f5db466813a4f6773b5502be360ed3d",
+    "baseCommit": "11501ac93f5db466813a4f6773b5502be360ed3d",
+    "headCommit": "533b74727cbeb8a32543d11542bc7c0ee50a9b08",
     "committed": [
+      "android/frontend/src/lib/glass-dock.tsx",
       "changelogs/CHANGELOG_v2.4.4.md",
-      "tauri-app/src-tauri/src/app/lightweight.rs",
-      "tauri-app/src-tauri/src/config/wifi_curfew.rs",
-      "tauri-app/src-tauri/src/network/subnet.rs"
+      "changelogs/CHANGELOG_v2.4.4.md_entry",
+      "tauri-app/frontend/src/lib/glass-dock.tsx"
     ],
     "staged": [],
     "unstaged": [],
-    "untracked": [
-      "changelogs/CHANGELOG_v2.4.4.md_entry"
-    ],
+    "untracked": [],
     "deleted": [],
     "renamed": [],
     "reason": ""
   },
-  "unconsumed": [
-    "changelogs/CHANGELOG_v2.4.4.md_entry"
-  ],
+  "unconsumed": [],
   "engineVersion": "2.0.0",
   "scope": "auto",
   "effectiveScope": "stale",
-  "updateOutcome": "no_change",
+  "updateOutcome": "incremental",
   "fallbackReason": "",
   "missingRepair": null,
   "notes": [
-    "工作区未提交改动已合成临时 commit 370b5b492991（1 个文件，不挂 ref）：本轮记账指向它，下一轮增量据此对齐",
-    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwohzpml-5-native（66 个文件）",
-    "本轮把 1 个未提交源码改动一并写进产物（快照 370b5b492991）：changelogs/CHANGELOG_v2.4.4.md_entry"
+    "持久化基线 16d0bc6 与本次 cw 基线 11501ac 不同（以 cw 基线为准，未消费变化仍会并入）",
+    "引擎原始树已留档：C:/Users/ik/AppData/Local/Temp/dsh-codewiki-native-raw/job-mwoizfti-6-native（66 个文件）"
   ],
-  "updatedAt": "2026-11-20T04:48:10.032Z"
+  "updatedAt": "2026-11-20T05:31:20.366Z"
 }

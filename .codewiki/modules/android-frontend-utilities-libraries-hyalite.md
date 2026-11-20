@@ -124,9 +124,9 @@ flowchart LR
 
 ### 3. `useGlassRefraction` Hook（`glass-dock.tsx`）
 
-React 封装层，负责把 Hyalite 引擎的命令式 API 接入 React 生命周期。
+React 封装层，负责把 Hyalite 引擎的命令式 API 接入 React 生命周期。**只有 `ultra` 档会真正调用 `hyalite.attach`**：`off`、`standard` 与引擎不支持时走同一条提前返回分支——摘掉滤镜并立刻补 `.glass-ready` 让悬浮栏可见。`standard` 档不再挂 SVG 折射滤镜，玻璃观感由纯 CSS（`blur(8px)` + `saturate(2.08)` + tint 54%）提供：实测 standard 与 ultra 在高对比条纹背板上像素差均值仅 4.70、>8 的差异仅 0.2%，折射几乎不可见，而 21 图元 × DPR 3.25 的滤镜链在安卓真机约 6ms/帧，收益不抵开销。因此下面的挂载时序仅适用于 `ultra` 档。
 
-#### 挂载三阶段流程
+#### 挂载三阶段流程（仅 `ultra` 档）
 
 ```mermaid
 sequenceDiagram
@@ -136,7 +136,8 @@ sequenceDiagram
     participant DOM as DOM / CSS
 
     C->>H: useEffect(ref, level)
-    alt level === 'off' 或引擎不支持
+    alt level === 'off' / standard 或引擎不支持
+        Note over H: 不挂 Hyalite；standard 用纯 CSS<br/>blur(8px) + saturate(2.08) + tint 54%
         H->>DOM: classList.add('glass-ready')
         H-->>C: return cleanup
     end
@@ -161,13 +162,13 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> Unmounted
-    Unmounted --> Attaching: level != off & 支持
+    Unmounted --> Attaching: level = ultra & 支持
     Attaching --> WaitingBackdrop: hyalite.attach()
     WaitingBackdrop --> Live: 祖先链干净 + 2帧后
     WaitingBackdrop --> Fallback: 超时 2500ms
     Live --> Live: 换档位直接重挂
     Fallback --> Live: （半透仍由 glass-live 控制）
-    Attaching --> [*]: level = off 或不支持
+    Attaching --> [*]: level = off / standard 或不支持
     Live --> [*]: useEffect cleanup
     Fallback --> [*]: useEffect cleanup
 ```
@@ -225,7 +226,7 @@ Android 端的 `glass-dock.tsx` 与桌面端 `tauri-app/frontend/src/lib/glass-d
 
 ## 设计要点总结
 
-1. **真实折射而非模糊**：Hyalite 用 Snell 定律 + Fresnel 方程逐像素计算光线弯折，视觉效果接近苹果官方 Liquid Glass。
+1. **真实折射而非模糊**：`ultra` 档下 Hyalite 用 Snell 定律 + Fresnel 方程逐像素计算光线弯折，视觉效果接近苹果官方 Liquid Glass；`standard` 档因折射几乎不可见，已改为纯 CSS 模糊而不挂滤镜。
 2. **零侵入式集成**：不修改第三方文件本身，通过副作用 `import './vendor/hyalite.js'` 注入 `window.Hyalite`，再在 React 层管理挂载/卸载。
 3. **性能优先**：Android 真机上通过关闭色散、关闭滤镜内置光层、降低图元数量来满足 120Hz 帧率预算。
 4. **优雅降级**：不支持 SVG backdrop-filter 的引擎自动回退到 CSS `blur()`，导航栏不会消失。

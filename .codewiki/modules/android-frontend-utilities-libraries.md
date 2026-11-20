@@ -212,11 +212,15 @@ sequenceDiagram
 
 `level: 'off' | 'standard' | 'ultra'` 对应设置页的玻璃档位（由 [android_frontend_settings.md](android-frontend-settings.md) 的配置态传入）。`GLASS_DOCK_OPTS` 把两档参数固化：**档位差只做在 `blur` 上**（standard 8px、ultra 1.6px，后者更透、能读出背后内容轮廓），`thickness/slope/shade` 全部对齐；`ultra` 的 `shade` 需反向补偿膜厚差（0.2 vs 0.45），否则四角阴影过重。`rim: 0` 与 `edge: 0` 是硬约定——边缘光全部由 CSS 伪元素负责，避免两层亮光叠成「白色外框」。
 
-挂载拆成三步，每一步的时机都有实测依据：
+**只有 `ultra` 档挂 Hyalite 折射滤镜**：`off`、`standard` 与引擎不支持时走同一条提前返回分支——摘掉滤镜、立刻补 `.glass-ready` 让悬浮栏可见。`standard` 档的玻璃观感改由纯 CSS 实现（`blur(8px)` + `saturate(2.08)` + tint 54%），不再付出整条 SVG 滤镜链的开销：实测 standard 与 ultra 在高对比条纹背板上像素差均值仅 4.70、>8 的差异仅 0.2%，折射在 standard 上几乎不可见，而滤镜链（21 图元 × DPR 3.25）在安卓真机约 6ms/帧。
+
+命中 `ultra` 且引擎支持时，挂载拆成三步，每一步的时机都有实测依据：
 
 ```mermaid
 flowchart LR
-    A["① 进 effect 立刻 hyalite.attach<br/>此时整条 opacity:0 不可见"] --> B{"② 轮询祖先链<br/>opacity=1 且无 transform/<br/>translate/scale/will-change？"}
+    S{"level = off / standard<br/>或引擎不支持？"} -- 是 --> R["不挂滤镜，立刻补 .glass-ready<br/>standard 用纯 CSS blur8px + saturate2.08 + tint54%"]
+    S -- 否（ultra） --> A["① 进 effect 立刻 hyalite.attach<br/>此时整条 opacity:0 不可见"]
+    A --> B{"② 轮询祖先链<br/>opacity=1 且无 transform/<br/>translate/scale/will-change？"}
     B -- 就绪 --> C["goLive：再等 2 帧（LIVE_FRAMES）<br/>补 .glass-live 放开半透明"]
     B -- 2500ms 未就绪 --> D["兜底补 .glass-ready：<br/>以实底出现，半透仍不放开"]
     C --> E["③ CSS 淡入：<br/>玻璃就绪的同一刻才露面"]
