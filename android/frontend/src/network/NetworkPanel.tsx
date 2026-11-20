@@ -119,11 +119,7 @@ function InlineTimeEdit({
     )
   }
 
-  const inputCls = cn(
-    'h-6 text-center text-[13px] tabular-nums px-0',
-    '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
-    inputClassName,
-  )
+  const inputCls = cn('h-6 text-center text-[13px] tabular-nums px-0', inputClassName)
   return (
     <div
       ref={rootRef}

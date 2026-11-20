@@ -658,14 +658,15 @@
     );
   }
 
-  /* 质量页检测间隔输入框：隐藏 number spinner 上下按钮（浏览器原生箭头与卡面语言不符，数值靠键入） */
-  .interval-input::-webkit-inner-spin-button,
-  .interval-input::-webkit-outer-spin-button {
+  /* 所有数字输入框统一隐藏原生上下调节按钮：数值只靠键入。
+     原生箭头在窄输入框里挤占宽度、观感也与卡面语言不符；滚动滚轮误改值的坑一并躲开。 */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
     -webkit-appearance: none;
     margin: 0;
   }
 
-  .interval-input {
+  input[type="number"] {
     appearance: textfield;
     -moz-appearance: textfield;
   }

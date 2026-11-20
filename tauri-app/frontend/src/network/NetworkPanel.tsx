@@ -220,11 +220,7 @@ function InlineTimeEdit({
     )
   }
 
-  const inputCls = cn(
-    'h-6 text-center text-[13px] tabular-nums px-0',
-    '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
-    inputClassName,
-  )
+  const inputCls = cn('h-6 text-center text-[13px] tabular-nums px-0', inputClassName)
   return (
     <div
       ref={rootRef}
@@ -312,11 +308,7 @@ function MinutesInput({
         if (e.key === 'Enter') e.currentTarget.blur()
         if (e.key === 'Escape') setDraft(String(value))
       }}
-      className={cn(
-        'h-7 w-20 text-center text-sm font-mono [appearance:textfield]',
-        '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
-        className,
-      )}
+      className={cn('h-7 w-20 text-center text-sm font-mono', className)}
     />
   )
 }

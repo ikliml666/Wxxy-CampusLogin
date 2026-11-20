@@ -23,6 +23,18 @@
 - 未验证：真机 APK 与 Windows 实窗观感；跨零点/跨星期的实际巡检时序（需按周观察一次日志）。
 - 说明：桌面 `vitest run` 全量 135 条里 `DashboardPanel.selfCards` 单跑通过、全量并发跑偶发失败（与本改动无关的时序抖动，单独复跑 4 passed）。
 
+### 行为调整：数字输入框统一去掉原生上下调节按钮（双端前端，2026-11-20）
+
+**为什么**：原生 `<input type="number">` 自带的上下箭头在窄输入框里挤占宽度（「验证间隔 60 秒」「验证时效 10 分钟」都只有 60~70px 宽），观感也和卡面语言不一致；此前只有质量页的检测间隔输入框单独挂了 `.interval-input` 类隐藏箭头，其余 18 处仍带箭头。按用户要求统一为「只输入数字」。
+
+**改了什么**
+
+- 双端 `src/index.css`：把原先只作用于 `.interval-input` 的两条规则提升为全局 `input[type="number"]`（`::-webkit-inner-spin-button` / `::-webkit-outer-spin-button` 隐藏 + `appearance: textfield`）。
+- 双端 `QualityPanel.tsx`：删掉已无样式定义的 `interval-input` 类名。
+- 双端 `NetworkPanel.tsx`：删掉上一轮临时加在 `InlineTimeEdit` / `MinutesInput` 里的内联 `[&::-webkit-*-spin-button]:appearance-none` 工具类——全局规则已是唯一来源。
+
+**验证**：双端 `npx tsc --noEmit --incremental` 通过；浏览器 mock 实测桌面监测页「验证间隔」输入框无上下箭头（截图核对），`InlineTimeEdit` 的时刻编辑框同样无箭头。安卓端为同一份全局 CSS，未单独截图。
+
 ### 缺陷修复：提前准备时间双端都设不了 / 语义错位（双端，2026-11-20）
 
 **为什么**：时序条上「准备」节点显示的是**时刻**（如 22:30），点开却是一个**分钟数**输入框（60）——用户想改时刻，看到 60 无从下手；填 22 会变成「提前 22 分钟」（22:38 准备），填 2230 被钳到 180。网络适配器卡片里的「提前准备（分钟）」更是受控 `value` + onChange 立即钳位回写，清空输入的瞬间就被写回 0，配合数字框自带的上下调节按钮几乎没法改。安卓端则完全没有这一项：前端无字段、Kotlin `WifiCurfewRunner` 无准备窗口判定，时序条只有切换与恢复两个节点。
