@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG: Config = {
   nightOperatorRestore: '',
   enableNightOutboundSwitch: false,
   nightRestoreMinutes: 0,
+  nightPrepareMinutes: 60,
   enableWifiCurfew: false,
   wifiCurfewExcluded: ['i-wxxy', 'iwxxy-2', 'iwxxy-3'],
   wifiCurfewAllowed: [],

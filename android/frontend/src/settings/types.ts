@@ -38,6 +38,8 @@ export interface Config {
   enableNightOutboundSwitch: boolean
   /** 夜间切换的恢复时刻（当日分钟数，如 450=07:30）：恢复窗自此刻开启还原出站与运营商。0=未自定义，回落默认 07:30 */
   nightRestoreMinutes: number
+  /** 夜间切换的提前准备分钟数（0=关到点才开始，上限 180）：切换时刻前这么久先探测并切到放行网络 */
+  nightPrepareMinutes: number
   /** WiFi 就寝守则总开关：周日至周四 23:00、周五六 23:30 起阻断 wifiCurfewExcluded 中的 WiFi 连接，次日 nightRestoreMinutes 恢复 */
   enableWifiCurfew: boolean
   /** 就寝时段阻断的 WiFi 名称列表（默认校园网三值）；含 "*" 表示除允许列表外全部阻断 */

@@ -501,6 +501,16 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
       ? config.nightRestoreMinutes
       : RESTORE_TIME_DEFAULT_MINUTES
 
+  // 提前准备：0 = 关（准备节点与切换节点重合）；上限 180 分钟，与后端 prepare_lead_minutes 同口径
+  const prepareMinutes = Math.min(180, Math.max(0, config.nightPrepareMinutes ?? 0))
+  const prepareAt = (((todaySwitchMinutes - prepareMinutes) % 1440) + 1440) % 1440
+  const prepareMinAt = (((todaySwitchMinutes - 180) % 1440) + 1440) % 1440
+  // 把准备时刻拖到切换时刻本身 = 关闭准备（0 分钟）
+  const commitPrepareAt = (at: number) =>
+    onUpdateConfig({
+      nightPrepareMinutes: at === todaySwitchMinutes ? 0 : (todaySwitchMinutes - at + 1440) % 1440,
+    })
+
   // 申请 Shizuku 授权：调用会一直挂到用户在授权框上操作完，期间按钮转圈
   const [curfewRequesting, setCurfewRequesting] = useState(false)
   const handleRequestCurfewAccess = useCallback(async () => {
@@ -642,8 +652,24 @@ export const NetworkPanel = memo(function NetworkPanel({ onUpdateConfig }: Netwo
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* 夜间时序：两件事就是这张卡片的全部行为，时间就地可改 */}
+            {/* 夜间时序：三件事就是这张卡片的全部行为，时间就地可改 */}
             <div className="flex items-center justify-between gap-2 rounded-xl bg-muted/40 px-4 py-2.5">
+              <div className="flex flex-col items-center gap-0.5">
+                {/* 准备节点显示/编辑的都是时刻；拖到切换时刻即等于关闭准备 */}
+                <InlineTimeEdit
+                  id="wifi-curfew-prepare-time"
+                  minutes={prepareMinutes > 0 ? prepareAt : todaySwitchMinutes}
+                  minMinutes={prepareMinAt}
+                  maxMinutes={todaySwitchMinutes}
+                  onCommit={commitPrepareAt}
+                  buttonClassName={cn(
+                    'text-[13px] font-medium',
+                    prepareMinutes === 0 ? 'text-muted-foreground/50' : 'text-foreground'
+                  )}
+                />
+                <span className="text-[10px] text-muted-foreground">{t('network.curfewPrepNode')}</span>
+              </div>
+              <span className="h-px flex-1 bg-border" />
               <div className="flex flex-col items-center gap-0.5">
                 {/* 切换时刻不能用 formatRestoreTime：1380/1410 已被恢复上限 1379 判越界，会被回落成默认 07:30 */}
                 <span className="text-[13px] font-medium tabular-nums text-foreground">

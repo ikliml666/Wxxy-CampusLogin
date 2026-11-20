@@ -372,6 +372,7 @@
     "wifiCurfewExcludedTitle": "Networks to disconnect",
     "wifiCurfewExcludedDesc": "Disconnected during the window when connected. Tap to toggle, multi-select",
     "wifiCurfewAllowedTitle": "Allowed networks",
+    "curfewPrepNode": "Prepare",
     "curfewSwitchNode": "Cut & switch",
     "curfewRestoreNode": "Restore",
     "wifiCurfewCurrent": "Connected: {{name}}",

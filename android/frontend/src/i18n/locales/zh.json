@@ -372,6 +372,7 @@
     "wifiCurfewExcludedTitle": "选择断开网络",
     "wifiCurfewExcludedDesc": "就寝时段命中这些网络时断开；点选即生效，可多选",
     "wifiCurfewAllowedTitle": "选择放行网络",
+    "curfewPrepNode": "准备",
     "curfewSwitchNode": "断开并切换",
     "curfewRestoreNode": "恢复",
 

@@ -81,11 +81,14 @@ class WifiCurfewRunner(private val context: Context) {
         val restoreStart = normalizeRestoreStart(cfg.optInt("restoreStart", 0))
         val weakRssi = cfg.optInt("weakRssi", 0)
         val inWindow = force || inCurfewWindow(restoreStart)
+        // 提前准备窗口：切换时刻前 prepareLead 分钟内先探明并切到放行网络，
+        // 到点只需断开/补出站。真窗口内的动作顺序不变
+        val preparing = !inWindow && inPrepareWindow(restoreStart, cfg.optInt("prepareLead", 0))
         val channel = CurfewChannel.name(cfg.optString("channel", "auto"))
         // 试运行：只判定会做什么、为什么切换会失败，不真的动 WiFi
         val dryRun = cfg.optBoolean("dryRun", false)
 
-        if (!enabled || !inWindow) {
+        if (!enabled || !(inWindow || preparing)) {
             if (dryRun) {
                 return result("would-restore").put("channel", channel).put("currentSsid", currentSsid()).toString()
             }
@@ -473,14 +476,28 @@ class WifiCurfewRunner(private val context: Context) {
     private fun normalizeRestoreStart(configured: Int): Int =
         if (configured <= 0 || configured >= RESTORE_END) DEFAULT_RESTORE_START else configured
 
+    /** 当日切换时刻（分钟数）：周日至周四 23:00，周五六 23:30（0=周日） */
+    private fun switchTimeFor(weekday: Int): Int = if (weekday in 0..4) 1380 else 1410
+
     /** 与 `config::wifi_curfew::in_curfew_window` 同口径：当日切换时刻起至次日恢复时刻 */
     private fun inCurfewWindow(restoreStart: Int): Boolean {
         val cal = Calendar.getInstance()
         val nowMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
         if (nowMinutes < restoreStart) return true
         val weekday = cal.get(Calendar.DAY_OF_WEEK) - 1 // 0=周日
-        val switchAt = if (weekday in 0..4) 1380 else 1410
-        return nowMinutes >= switchAt
+        return nowMinutes >= switchTimeFor(weekday)
+    }
+
+    /** 与 `config::wifi_curfew::in_prepare_window` 同口径：切换时刻前 lead 分钟内
+     *  （不含切换时刻本身，那一刻起由 [inCurfewWindow] 接管）。lead 上限 180 分钟 */
+    private fun inPrepareWindow(restoreStart: Int, configuredLead: Int): Boolean {
+        val lead = configuredLead.coerceIn(0, 180)
+        if (lead == 0 || inCurfewWindow(restoreStart)) return false
+        val cal = Calendar.getInstance()
+        val nowMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        val weekday = cal.get(Calendar.DAY_OF_WEEK) - 1
+        val switchAt = switchTimeFor(weekday)
+        return nowMinutes < switchAt && nowMinutes >= switchAt - lead
     }
 
     private fun isBlocked(excluded: List<String>, allowed: List<String>, ssid: String): Boolean {

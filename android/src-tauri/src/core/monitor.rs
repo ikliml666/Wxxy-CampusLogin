@@ -268,6 +268,7 @@ fn wifi_curfew_config_json(settings: &crate::config_state::Settings) -> String {
         "excluded": settings.wifi_curfew_excluded,
         "allowed": settings.wifi_curfew_allowed,
         "restoreStart": settings.night_restore_minutes,
+        "prepareLead": settings.night_prepare_minutes,
         "weakRssi": settings.wifi_curfew_weak_rssi,
         "channel": settings.wifi_curfew_channel,
     })
@@ -570,10 +571,25 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
             return;
         }
     };
-    let active =
-        campus_login_lib::config::wifi_curfew::in_curfew_window_now(settings.night_restore_minutes);
-    let was_active = CURFEW_ACTIVE.swap(active, Ordering::Relaxed);
+    // 与桌面 monitor::wifi_curfew::tick 同口径：提前准备窗口内也要跑，
+    // 让到点那一刻只差出站与跃点（无线换网要发现/握手/拿地址，到点才动手会空等）。
+    // 只有窗口内才跑，白天靠早退省掉一次 Shizuku 跨进程调用。
     let now = chrono::Local::now();
+    let weekday = chrono::Datelike::weekday(&now).num_days_from_sunday();
+    let now_minutes = now.hour() * 60 + now.minute();
+    let in_window = campus_login_lib::config::wifi_curfew::in_curfew_window(
+        weekday,
+        now_minutes,
+        settings.night_restore_minutes,
+    );
+    let preparing = campus_login_lib::config::wifi_curfew::in_prepare_window(
+        weekday,
+        now_minutes,
+        settings.night_prepare_minutes,
+        settings.night_restore_minutes,
+    );
+    let active = in_window || preparing;
+    let was_active = CURFEW_ACTIVE.swap(active, Ordering::Relaxed);
     // INFO 级：就寝守则到点必须可追溯，debug 会被 log_module_levels 过滤掉
     campus_login_lib::log_info!(
         "monitor",
@@ -598,6 +614,7 @@ async fn run_wifi_curfew(ctx: &CoreCtx) {
         "excluded": settings.wifi_curfew_excluded,
         "allowed": settings.wifi_curfew_allowed,
         "restoreStart": settings.night_restore_minutes,
+        "prepareLead": settings.night_prepare_minutes,
         "weakRssi": settings.wifi_curfew_weak_rssi,
         "channel": settings.wifi_curfew_channel,
     })

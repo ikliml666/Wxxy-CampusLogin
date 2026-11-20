@@ -266,6 +266,61 @@ function InlineTimeEdit({
 }
 
 
+/** 分钟数输入：纯手动输入（去掉数字框自带的上下调节按钮）。
+ *  受控回写会打断输入——清空瞬间被判成 0 再写回，用户没法把 60 改成 5——
+ *  故用本地草稿，失焦/回车才提交，Esc 还原。 */
+function MinutesInput({
+  id,
+  value,
+  max,
+  disabled,
+  onCommit,
+  className,
+}: {
+  id?: string
+  value: number
+  max: number
+  disabled?: boolean
+  onCommit: (minutes: number) => void
+  className?: string
+}) {
+  const [draft, setDraft] = useState(String(value))
+  // 只在外部值真的变了才回填草稿：输入过程中的草稿不受配置刷新干扰
+  useEffect(() => {
+    setDraft(String(value))
+  }, [value])
+
+  const commit = () => {
+    const raw = Number(draft)
+    const next = Number.isFinite(raw) ? Math.min(max, Math.max(0, Math.round(raw))) : value
+    setDraft(String(next))
+    if (next !== value) onCommit(next)
+  }
+
+  return (
+    <Input
+      id={id}
+      type="number"
+      inputMode="numeric"
+      min={0}
+      max={max}
+      value={draft}
+      disabled={disabled}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+        if (e.key === 'Escape') setDraft(String(value))
+      }}
+      className={cn(
+        'h-7 w-20 text-center text-sm font-mono [appearance:textfield]',
+        '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
+        className,
+      )}
+    />
+  )
+}
+
 /** 就寝守则的一侧名单：chips 直接可增删，末尾一个加号打开系统已保存网络。
  *
  *  不再有「已选 N 个网络｜编辑名单 >」那层整行按钮——名单本身就在卡片上，
@@ -440,19 +495,32 @@ const CurfewTimeline = memo(function CurfewTimeline({
   onRestoreChange: (minutes: number) => void
 }) {
   const { t } = useTranslation()
-  const [editing, setEditing] = useState<'prepare' | 'restore' | null>(null)
   const fmt = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
   // 准备时刻 = 切换时刻往前推；跨零点按一天取模
   const prepareAt = (((switchMinutes - prepareMinutes) % 1440) + 1440) % 1440
+  // 准备窗口上限 180 分钟（与后端 prepare_lead_minutes 同口径）；下限留 10 分钟，
+  // 再短等于到点才开始，把准备时刻直接拖到切换时刻即关闭准备
+  const prepareMinAt = (((switchMinutes - 180) % 1440) + 1440) % 1440
 
   const renderNode = (key: 'prepare' | 'switch' | 'restore') => {
-    const fixed = key === 'switch'
-    const time = key === 'prepare' ? (prepareMinutes > 0 ? fmt(prepareAt) : fmt(switchMinutes)) : key === 'switch' ? fmt(switchMinutes) : fmt(restoreMinutes)
     const label = key === 'prepare' ? t('network.curfewPrepNode') : key === 'switch' ? t('network.curfewSwitchNode') : t('network.curfewRestoreNode')
     const muted = key === 'prepare' && prepareMinutes === 0
     return (
       <div className="flex min-w-0 flex-col items-center gap-0.5">
-        {key === 'restore' ? (
+        {key === 'switch' ? (
+          <span className="px-1 text-[13px] font-medium tabular-nums text-foreground">{fmt(switchMinutes)}</span>
+        ) : key === 'prepare' ? (
+          // 准备节点与恢复节点同构：显示的就是时刻，点开改的也是时刻。
+          // 原先显示时刻、点开却填分钟数，用户不知道该填什么。
+          <InlineTimeEdit
+            minutes={prepareMinutes > 0 ? prepareAt : switchMinutes}
+            minMinutes={prepareMinAt}
+            maxMinutes={switchMinutes}
+            disabled={disabled}
+            onCommit={minutes => onPrepareChange(minutes === switchMinutes ? 0 : (switchMinutes - minutes + 1440) % 1440)}
+            buttonClassName={cn('px-1 text-[13px] font-medium', muted && 'text-muted-foreground/50')}
+          />
+        ) : (
           <InlineTimeEdit
             minutes={restoreMinutes}
             minMinutes={RESTORE_TIME_MIN_MINUTES}
@@ -461,38 +529,6 @@ const CurfewTimeline = memo(function CurfewTimeline({
             onCommit={onRestoreChange}
             buttonClassName="px-1 text-[13px] font-medium"
           />
-        ) : editing === key ? (
-          <Input
-            autoFocus
-            type="number"
-            min={0}
-            max={180}
-            step={10}
-            defaultValue={prepareMinutes}
-            onBlur={e => {
-              const value = Number(e.target.value)
-              onPrepareChange(Number.isFinite(value) ? Math.min(180, Math.max(0, Math.round(value))) : 0)
-              setEditing(null)
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-              if (e.key === 'Escape') setEditing(null)
-            }}
-            className="h-6 w-16 text-center text-[13px] tabular-nums"
-          />
-        ) : (
-          <button
-            type="button"
-            disabled={disabled || fixed}
-            onClick={() => !fixed && setEditing(key as 'prepare')}
-            className={cn(
-              'rounded px-1 text-[13px] font-medium tabular-nums transition-colors',
-              muted ? 'text-muted-foreground/50' : 'text-foreground',
-              !fixed && 'hover:text-primary',
-            )}
-          >
-            {time}
-          </button>
         )}
         <span className="text-[10px] text-muted-foreground">{label}</span>
       </div>
@@ -929,22 +965,12 @@ export const NetworkPanel = memo(function NetworkPanel({ adapters, onUpdateConfi
               label={t('network.nightPrepare')}
               description={t('network.nightPrepareDesc')}
             >
-              <Input
+              <MinutesInput
                 id="night-prepare-minutes"
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={180}
-                step={10}
                 value={config.nightPrepareMinutes ?? 0}
+                max={180}
                 disabled={!config.enableNightOutboundSwitch && !config.enableWifiCurfew}
-                onChange={e => {
-                  const raw = Number(e.target.value)
-                  onUpdateConfig({
-                    nightPrepareMinutes: Number.isFinite(raw) ? Math.min(180, Math.max(0, Math.round(raw))) : 0,
-                  })
-                }}
-                className="w-20 h-7 text-center text-sm font-mono"
+                onCommit={minutes => onUpdateConfig({ nightPrepareMinutes: minutes })}
               />
             </SettingRow>
             <CardDescription className="mt-2">

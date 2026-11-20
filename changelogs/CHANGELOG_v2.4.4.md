@@ -23,6 +23,29 @@
 - 未验证：真机 APK 与 Windows 实窗观感；跨零点/跨星期的实际巡检时序（需按周观察一次日志）。
 - 说明：桌面 `vitest run` 全量 135 条里 `DashboardPanel.selfCards` 单跑通过、全量并发跑偶发失败（与本改动无关的时序抖动，单独复跑 4 passed）。
 
+### 缺陷修复：提前准备时间双端都设不了 / 语义错位（双端，2026-11-20）
+
+**为什么**：时序条上「准备」节点显示的是**时刻**（如 22:30），点开却是一个**分钟数**输入框（60）——用户想改时刻，看到 60 无从下手；填 22 会变成「提前 22 分钟」（22:38 准备），填 2230 被钳到 180。网络适配器卡片里的「提前准备（分钟）」更是受控 `value` + onChange 立即钳位回写，清空输入的瞬间就被写回 0，配合数字框自带的上下调节按钮几乎没法改。安卓端则完全没有这一项：前端无字段、Kotlin `WifiCurfewRunner` 无准备窗口判定，时序条只有切换与恢复两个节点。
+
+**改了什么**
+
+- 桌面 `tauri-app/frontend/src/network/NetworkPanel.tsx`
+  - 时序条「准备」节点改为与「恢复」同构的 `InlineTimeEdit`：**显示什么就编辑什么**（时刻），提交时换算成提前分钟数；可编辑区间为切换时刻前 10~180 分钟，把准备时刻直接拖到切换时刻即等于关闭（0 分钟）。
+  - 新增 `MinutesInput`：**去掉数字框上下调节按钮**（`[appearance:textfield]` + 隐藏 webkit 内部按钮），并按用户要求改为纯手动输入——本地草稿 + 失焦/回车才提交，Esc 还原，受控回写不再打断输入。
+  - 移除 `CurfewTimeline` 里已无用的 `editing` 状态。
+- 安卓端补齐同一能力（此前完全缺失）
+  - `android/src-tauri/src/config_state.rs`：`Settings` 加 `night_prepare_minutes`（默认 60，与桌面 `default_night_prepare_minutes` 同值），`serde(rename_all = "camelCase", default)` 保证旧配置缺字段向后兼容。
+  - `android/src-tauri/src/core/monitor.rs`：两处守则 payload 加 `prepareLead`；单拍活跃判定改为 `in_curfew_window || in_prepare_window`（复用共享 crate 纯函数，与桌面 `monitor::wifi_curfew::tick` 同口径），否则准备窗口会被「白天早退」吞掉、Kotlin 根本不执行。
+  - `WifiCurfewRunner.kt`：读 `prepareLead`，新增与 `config::wifi_curfew::in_prepare_window` 同口径的 `inPrepareWindow`（并把切换时刻抽成 `switchTimeFor` 供两处共用）；`!inWindow` 分支改为 `!(inWindow || preparing)`，准备窗口内走与窗口内相同的切换流程（到点才断开）。
+  - 安卓前端：`Config` 加 `nightPrepareMinutes`（默认 60）、i18n 加 `curfewPrepNode`，时序条补「准备」节点（同一套 `InlineTimeEdit`，显示/编辑都是时刻）。
+
+**验证**
+
+- 安卓 Rust：`cargo check --target aarch64-linux-android --all-targets`（NDK 27 注入）**通过**。
+- 双端前端 `npx tsc --noEmit --incremental` **通过**。
+- 浏览器 mock 实测（桌面 1266×806 / 安卓手机壳）：桌面准备节点 22:30→22:00 提交成功（提前 90 分钟）；「提前准备（分钟）」90→45 手动输入提交成功且无上下箭头；安卓时序条三节点渲染正常，准备节点 22:30→21:45 成功，拖到 23:30 正确置 0（关闭），窄屏下三节点不重叠。
+- 未验证：Kotlin 未能编译（本机无 JDK，`./gradlew` 报 JAVA_HOME 未设置、也无 `build-apk.ps1` 所需的 Java 环境），改动为纯 Kotlin 语法与整数运算；实测依赖出包后在真机确认。
+
 ### 缺陷修复：WiFi 管控时间设置双端不可靠 + 安卓描述截断 + 切换时刻误显 07:30（双端前端，2026-11-19）
 
 **为什么**：恢复时刻的编辑控件是原生 `<input type="time">`，在两端各有一个致命伤：安卓 WebView 压根不弹时间选择器，用户无法设置时间；Windows WebView2 里段编辑常只生效一半（能改时改不了分），且设置行受控 `value` 在 change 事件里立即钳位回写，分钟段的编辑被刷新打断——即用户报告的「只能改部分时间」。另两个问题在实测中一并确认：安卓卡片描述带 `truncate` 单行截断，窄屏显示不全；时序条「断开并切换」节点用 `formatRestoreTime` 格式化，而切换时刻 23:00/23:30 ≥ 恢复上限 1379 被判越界回落成默认 07:30，节点常年显示错误时间。
