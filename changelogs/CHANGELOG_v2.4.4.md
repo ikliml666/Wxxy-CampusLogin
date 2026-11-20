@@ -1,3 +1,15 @@
+### 前端性能优化：主包 vendor 分桶，双端 vite build 消除 500kB 警告（2026-11-20）
+
+**为什么**：双端 `vite build` 主 chunk 超过 500kB 警告线（桌面 `index` 577 kB / 安卓 527 kB）。用临时 `generateBundle` 分析量化主包构成（min 前）：`@tauri-apps/api` 107 kB、i18next 系 102 kB、`tailwind-merge` 70 kB、`lucide-react` 40 kB——约 330 kB 的第三方依赖因未进 `manualChunks` 而全部内联进 index；应用代码 + locale JSON 约 770 kB 才是主体。
+
+**改了什么**（双端 `vite.config.ts` 同构改动）
+
+- `manualChunks` 新增三个 vendor 桶：`vendor-tauri`（`@tauri-apps/*`）、`vendor-i18n`（i18next / react-i18next / languagedetector）、`vendor-misc`（lucide-react / tailwind-merge / zustand / use-sync-external-store）。
+- 安卓端注释明确**不收 `@vladmandic/human`**：它是 faceService 动态 import 的惰性 chunk（FE-A-04 边界），manualChunks 收编会把 1.5 MB tfjs 拉进静态 chunk、首屏即加载。
+
+**验证**：桌面 build 主 chunk 577→447.6 kB，**无警告**；安卓 527→405.6 kB（gzip 120 kB）；双端 `npx tsc --noEmit --incremental` 通过。
+
+- 安卓仍剩一条已知警告：`human.esm` 1,577 kB——已验收人脸库的固有体积（内联 tfjs，无官方子集入口；nobundle 变体仍需外置 1.27 MB tfjs chunk，总不变还要改初始化链路），动态 import 首屏不拉取。**不调 `chunkSizeWarningLimit` 掩盖**：该阈值同时守护其它 chunk 的未来退化，这条警告对 human.esm 无行动价值、对其它 chunk 是哨兵。
 ### 行为调整：WiFi 断开/切换能力补全到全部执行通道（root 与 Shizuku 同能力，2026-11-20）
 
 **为什么**：守则与弱信号的断开连接（`IWifiManager#disconnect` + `disableNetwork` 反射）此前只在 Shizuku UserService（shell 身份）里实现——`CurfewShell.disconnectWifi` 等三个方法无 Shizuku 时直接返回 null，纯 root 环境只能回落关 WiFi 开关；放行网络切换同理，root 下加密网络因 `cmd wifi connect-network` 强制要明文密码而完全切不动。已核对 AOSP `WifiShellCommand`（android-13/15/main）：`cmd wifi` 没有 disconnect / 网络启停子命令，root 下唯一路径是和 Shizuku 同一套服务端反射。
