@@ -1,3 +1,22 @@
+### 缺陷修复：安卓弱信号规则断开连接，不再关闭 WiFi 开关（2026-11-20）
+
+**为什么**：弱信号规则（WiFi 信号低于阈值时离开该网络走流量）的实际动作是 `setWifiEnabled(false)` 关掉整个 WiFi 开关。用户实测发现后明确：本意是"断开与这个 WiFi 的连接"，而不是关闭 WiFi 硬件开关——关开关会让蓝牙共享/其它 WiFi 依赖全部中断，且恢复语义（次日定时开回）完全对不上"离开这条弱网络"。
+
+**改了什么**（`android/plugins/foreground-service/.../WifiCurfewRunner.kt`）
+
+- `blockWifi` 新增 `fallbackOff` 参数控制"断开不可用时是否回落关 WiFi"：
+  - **弱信号传 `false`**——断不开（无 Shizuku 通道、`cmd wifi` 无 disconnect 等价子命令，AOSP `WifiShellCommand` 各版本已核实均无此命令）就保持现状，返回新动作 `weak-no-disconnect` 如实回报原因，**绝不关闭 WiFi 开关**；
+  - 就寝守则保持 `true`：窗口内目标就是断网走流量，关开关兜底语义不变。
+- `blockWifi` 从"只 disable 当前连接的 netId"改为"disable 该 SSID 的**全部** netId"（新增 `currentSsidNetIds()`，复用 `list-networks` 解析）：Android 15+ 同一 SSID 按安全模式拆多条配置（wpa2/wpa3 各一行），只禁当前行会被其余行 autojoin 秒连回——这是实测中"断开无效"的另一个成因。被禁 netId 集合记入 prefs（`putStringSet`），恢复时 `unblockWifi` 逐个解禁，并兼容旧版 `putInt` 单值残留（升级用户不被永久禁网）。
+- `checkWeakSignal` 复探分支改为"仅 WiFi 确实关着才 `setWifiEnabled(true)`"：现行断开路径不动开关，正常复探时跳过；旧版本升级残留（`weak_disabled=true` 且 WiFi 真被旧实现关掉）仍能开回。
+- 事件与文案：新增动作 `weak-no-disconnect`，安卓前端 `useEventListeners.ts` 处理并提示"信号过弱但断开连接需要 Shizuku 通道，已保持 WiFi"；`weakSignalSwitched` 文案从"已切换到移动数据"改为"已断开 WiFi 连接走移动数据"（动作语义对齐，zh/en 双语）。弱信号为安卓专属能力（桌面 `monitor/wifi_curfew.rs` 无弱信号逻辑），双端同步规则不适用。
+
+**验证**
+
+- Kotlin 编译通过：`JAVA_HOME=<Android JDK 17> ./gradlew :tauri-plugin-campus-monitor-service:compileDebugKotlin --offline` 与 `assembleDebug`（含 AIDL 生成）均 exit 0、零警告。
+- 安卓前端 `npx tsc --noEmit --incremental` 通过。
+- 未验证：真机行为（本机无 adb 设备）。需真机确认三点：① Shizuku 就绪时弱信号触发后 WiFi 开关保持开启、SSID 被标记不自动连接、系统转向流量或其它网络；② 无 Shizuku 通道时弱信号触发后 WiFi 开关与连接均不变，通知提示需要 Shizuku；③ 信号恢复或复探后原网络配置被解禁、可手动连回。
+
 ### 行为调整：校园网检测时段支持按星期分组，并可一键对齐夜间切换时刻（双端，2026-11-19）
 
 **为什么**：校园网断网时刻按星期分档——周日~周四 23:00、周五六 23:30（见 `config::night_switch::switch_time_for`）。检测时段却只有一组起止，用户只能取折中值：要么工作日深夜在断网后继续探活（每分钟一轮空转 Portal 请求，有账号锁定风险），要么周末在还能上网的半小时里提前收工。用户要求"按星期设置，并与网络适配器夜间切换的时间对齐"。

@@ -1,8 +1,9 @@
 {
   "notify": {
     "autoLoginSuccess": "Auto login succeeded",
-    "weakSignalSwitched": "Weak signal: switched to mobile data",
+    "weakSignalSwitched": "Weak signal: disconnected WiFi, using mobile data",
     "weakSignalNoCellular": "Weak signal but no usable mobile data; kept WiFi",
+    "weakSignalNoDisconnect": "Weak signal but disconnecting requires Shizuku; kept WiFi",
     "autoLoginFailed": "Auto login failed",
     "autoLoginFailedLog": "Auto login failed: {{msg}}",
     "autoExitSoon": "Auto exit imminent",

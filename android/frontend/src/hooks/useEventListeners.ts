@@ -147,6 +147,8 @@ export function useEventListeners() {
         lt.getState().addLog(i18next.t("notify.weakSignalSwitched", { rssi: data.rssi ?? "" }), "info")
       } else if (action === "weak-no-cellular") {
         lt.getState().addLog(i18next.t("notify.weakSignalNoCellular"), "warning")
+      } else if (action === "weak-no-disconnect") {
+        lt.getState().addLog(i18next.t("notify.weakSignalNoDisconnect"), "warning")
       }
     }) ?? (() => {})
     if (unsubCurfew) unlisteners.push(unsubCurfew)
