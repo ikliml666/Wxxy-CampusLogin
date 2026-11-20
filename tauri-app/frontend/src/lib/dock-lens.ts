@@ -108,7 +108,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
 
     // ---- 测量：只在布局变化时重算，滚动与拖动都不碰 ----
     let centers: number[] = []
-    let widths: number[] = []
     let barW = 0
     let barH = 0
     let stripX = 0
@@ -122,7 +121,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       // 不加回容器的位置，镜头会整体左移到容器原点去（少掉 nav 的左内边距）。
       const shift = stripEl ? stripEl.offsetLeft : 0
       centers = items.map((el) => shift + el.offsetLeft + el.offsetWidth / 2)
-      widths = items.map((el) => el.offsetWidth)
       barW = nav.clientWidth
       barH = nav.clientHeight
       // 这些几何量在 render 中绝不能回读：上一帧刚写过镜头宽高，回读会强制重排。
@@ -141,14 +139,6 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       const lo = Math.floor(c)
       const hi = Math.min(lo + 1, lastIndex())
       return centers[lo] + (centers[hi] - centers[lo]) * (c - lo)
-    }
-    const widthAt = (position: number) => {
-      if (widths.length === 0) return 52
-      const c = Math.min(Math.max(position, 0), lastIndex())
-      const lo = Math.floor(c)
-      const hi = Math.min(lo + 1, lastIndex())
-      // +4 让药丸比项宽出左右各 2px，与 FlClash 的 `_barPadding*2` 同理
-      return widths[lo] + (widths[hi] - widths[lo]) * (c - lo) + 4
     }
     /** 相邻项的平均间距，越界橡皮筋按它折算成「项」 */
     const pitch = () =>
@@ -178,9 +168,15 @@ export function useDockLens(navRef: RefObject<HTMLElement | null>, opts: DockLen
       // 目标距离决定途中倍率，而不是按经过几个项反复闪烁；慢速拖动的短距离手感不变。
       const far = travelAttenuation * saturate(Math.abs(lens.goal - l) * 1.2)
       const lf = Math.min(1, Math.max(0, lift.value)) * (1 - far * TRAVEL_LIFT_ATTENUATION)
-      const baseW = widthAt(l)
-      const w = (baseW + LENS_GROWTH * 2 * lf) * (1 + jelly.value)
-      const h = (barH + LENS_GROWTH * 2 * lf) * (1 - jelly.value * JELLY_ASPECT)
+      // 镜片是**正圆**，不是跟着项宽走的药丸。
+      // 第一性原理：镜片的职责是「一块有体积的玻璃片」，圆的边缘曲率恒定，
+      // 折射/高光在各方向上都一致；一旦宽度跟着项宽（文字长短、项数多少）变，
+      // 它就退化成一根被图标挤扁的胶囊，观感上「变形」。直径取栏高，天然盖住
+      // 比栏高更窄的项（手机 336px / 6 项 ≈ 56px < 64px 栏高），不会露出原图标。
+      // 果冻拉伸仍让它短暂变椭圆——那是弹性语言，不是形变缺陷。
+      const size = barH + LENS_GROWTH * 2 * lf
+      const w = size * (1 + jelly.value)
+      const h = size * (1 - jelly.value * JELLY_ASPECT)
       const cx = xAt(l)
       const top = (barH - h) / 2
       const left = cx - w / 2

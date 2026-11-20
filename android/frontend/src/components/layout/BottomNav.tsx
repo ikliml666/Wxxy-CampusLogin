@@ -117,11 +117,7 @@ export function BottomNav({ tab, onChange }: {
         <div
           data-dock-lens
           aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-0 rounded-full"
-          style={{
-            background: 'hsl(var(--primary) / 0.12)',
-            willChange: 'transform, width, height, opacity',
-          }}
+          className="pointer-events-none absolute left-0 top-0 rounded-full dock-lens-bead"
         />
 
         {/* 页签均匀分布占满栏宽(M3 目的地等分),gap-2 仅作窄屏最小间距保底。

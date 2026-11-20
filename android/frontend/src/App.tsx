@@ -4,7 +4,7 @@
 // 桌面件(TitleBar/StatusBar/RightPanel/DockNav/FluidBackground/Onboarding/Sponsor)在手机外壳不再渲染。
 // 动画:仅保留面板切换的 framer-motion 过渡(交互触发,天然活跃期);氛围动画见 useDeviceProfile。
 
-import { useState, useRef, useMemo, useEffect, useDeferredValue, lazy, Suspense } from 'react'
+import { useState, useRef, useEffect, useDeferredValue, lazy, Suspense } from 'react'
 import { useAppInit } from '@/hooks/useAppInit'
 import { useConfigStore } from '@/hooks/useConfigStore'
 import { useAuthStore } from '@/hooks/useAuthStore'
@@ -21,7 +21,6 @@ import { useDestructiveVerify } from '@/account/selfServiceState'
 import { useShallow } from 'zustand/react/shallow'
 import { safeStorage, cn } from '@/lib/utils'
 import { requestNotificationPermission } from '@/lib/notificationPermission'
-import { AnimatePresence, m } from 'framer-motion'
 import { Settings, Palette, Info, Heart, ArrowUpCircle } from 'lucide-react'
 import { SponsorCard } from '@/shared/SponsorCard'
 import { ErrorBoundary } from '@/shared/ErrorBoundary'
@@ -51,7 +50,6 @@ import { NetworkQualityCapsule } from '@/monitor/NetworkQualityCapsule'
 import { AnimationActiveProvider } from '@/hooks/usePageIdle'
 import { useAdaptiveFramePace, markInteraction } from '@/hooks/useAdaptiveFramePace'
 import { useAnimationProfile } from '@/hooks/useAnimationProfile'
-import { createPanelAppleVariants } from '@/lib/animations'
 
 const AboutDialog = lazy(() => import('@/auth/AboutDialogMobile').then((mod) => ({ default: mod.AboutDialogMobile })))
 const MobileQuickActions = lazy(() => import('@/components/mobile/MobileQuickActions').then((mod) => ({ default: mod.MobileQuickActions })))
@@ -74,11 +72,6 @@ function AppInner() {
   const accounts = useConfigStore((s) => s.accounts)
   const activeAccount = useConfigStore((s) => s.activeAccount)
   const configEnableNetworkQuality = useConfigStore((s) => s.config.enableNetworkQuality)
-  // 方向性转场：底栏页签顺序固定六项（网络接管原「质量」位，质量已下放到「更多」），索引差定方向
-  const tabOrder: MobileTab[] = ['dashboard', 'account', 'selfservice', 'network', 'monitor', 'more']
-  const [navDir, setNavDir] = useState<-1 | 0 | 1>(0)
-  const tabRef = useRef(tab)
-  useEffect(() => { tabRef.current = tab })
   // 质量检测默认关闭(省电):顶栏胶囊改显后台检测在线状态
   const status = useAuthStore((s) => s.status)
   // 顶栏状态点旁的在线运营商标（手机壳 StatusBar 不渲染，此处为一眼可见位；详情在总览状态卡）
@@ -116,16 +109,13 @@ function AppInner() {
   const doLogin = useAuthStore((s) => s.doLogin)
   const isLoggingIn = useAuthStore((s) => s.isLoggingIn)
 
-  const { easing } = useAnimationProfile()
-  // 方向性面板转场：custom=navDir，AnimatePresence 把它转发给退出中的旧面板
-  const panelVariants = useMemo(() => createPanelAppleVariants(easing), [easing])
+  // 动画档位仍要初始化（它负责把 GPU 档位写进 CSS 变量），但面板转场已不再用它
+  useAnimationProfile()
+  /** 已挂载过的页签：切页只切可见性，不再卸载/挂载整棵面板 */
+  const visitedTabsRef = useRef<Set<MobileTab>>(new Set([tab]))
 
   const handleTabChange = (next: MobileTab) => {
     markInteraction()
-    const prevIdx = tabOrder.indexOf(tabRef.current)
-    const nextIdx = tabOrder.indexOf(next)
-    setNavDir(prevIdx === -1 || nextIdx === -1 || prevIdx === nextIdx ? 0 : nextIdx > prevIdx ? 1 : -1)
-    tabRef.current = next
     setTab(next)
     safeStorage.set('campus-mobile-tab', next)
   }
@@ -140,52 +130,60 @@ function AppInner() {
     }
   }, [])
 
-  let panelContent: React.ReactNode = null
-  switch (deferredTab) {
-    case 'dashboard':
-      panelContent = <MobileDashboard />
-      break
-    case 'account':
-      panelContent = (
-        <AccountPanel
-          accounts={accounts}
-          activeAccount={activeAccount}
-          onUpdateConfig={updateConfig}
-          onAddAccount={handleAddAccount}
-          onDeleteAccount={(id, displayName) => setConfirmDelete({ open: true, name: id, displayName })}
-          onSwitchAccount={handleSwitchAccount}
-          onRenameAccount={handleRenameAccount}
-        />
-      )
-      break
-    case 'selfservice':
-      panelContent = <SelfServicePanel />
-      break
-    case 'network':
-      panelContent = <NetworkPanel onUpdateConfig={updateConfig} />
-      break
-    case 'monitor':
-      // 质量检测关闭(默认,省电)时,底部导航"网络质量"位置由后台检测替代补位
-      panelContent = (
-        <MonitorPanel
-          onUpdateConfig={updateConfig}
-          onToggleBackgroundCheck={handleToggleBackgroundCheck}
-          onTriggerCheck={handleTriggerCheck}
-        />
-      )
-      break
-    case 'more':
-      panelContent = (
-        <MobileMore
-          onShowOnboarding={() => setOnboardingOpen(true)}
-          onUpdateConfig={updateConfig}
-          onRefreshQuality={refreshQuality}
-          onToggleLatencyTest={handleToggleLatencyTest}
-          qualityEnabled={configEnableNetworkQuality !== false}
-        />
-      )
-      break
+  // 页面面板工厂：同一份 switch，但渲染侧改成「首次访问后常驻」（见下方 mountedTabs）。
+  //
+  // 第一性原理：切页掉帧的根因是 **DOM 重建**，不是内容复杂度，也不是玻璃层。
+  // 真机实测（Android 15 / RMX3300 / 60Hz）：把主内容整块 visibility:hidden 后切页
+  // 仍有 43% janky、去掉阴影/模糊/渐变仍有 31%、完全关掉玻璃层 20-30%，而 JS 采样
+  // 77.5% idle、GPU 仅 6-9ms。AnimatePresence + key={tab} 每次切页都卸载旧面板、
+  // 挂载新面板，整棵子树要重新样式重算、布局、生成绘制命令——这才是每帧超预算的来源。
+  // 改成「已访问过的面板常驻、只切换 hidden」后，切页只剩一次可见性翻转。
+  const panelFor = (tabId: MobileTab): React.ReactNode => {
+    switch (tabId) {
+      case 'dashboard':
+        return <MobileDashboard />
+      case 'account':
+        return (
+          <AccountPanel
+            accounts={accounts}
+            activeAccount={activeAccount}
+            onUpdateConfig={updateConfig}
+            onAddAccount={handleAddAccount}
+            onDeleteAccount={(id, displayName) => setConfirmDelete({ open: true, name: id, displayName })}
+            onSwitchAccount={handleSwitchAccount}
+            onRenameAccount={handleRenameAccount}
+          />
+        )
+      case 'selfservice':
+        return <SelfServicePanel />
+      case 'network':
+        return <NetworkPanel onUpdateConfig={updateConfig} />
+      case 'monitor':
+        // 质量检测关闭(默认,省电)时,底部导航"网络质量"位置由后台检测替代补位
+        return (
+          <MonitorPanel
+            onUpdateConfig={updateConfig}
+            onToggleBackgroundCheck={handleToggleBackgroundCheck}
+            onTriggerCheck={handleTriggerCheck}
+          />
+        )
+      case 'more':
+        return (
+          <MobileMore
+            onShowOnboarding={() => setOnboardingOpen(true)}
+            onUpdateConfig={updateConfig}
+            onRefreshQuality={refreshQuality}
+            onToggleLatencyTest={handleToggleLatencyTest}
+            qualityEnabled={configEnableNetworkQuality !== false}
+          />
+        )
+    }
   }
+
+  // 已挂载过的页签：首帧就含当前页，之后只增不减（内存换掉帧）。
+  // 用 ref 累积而不是 state，避免「先渲染空 → 再补一次」的两帧抖动。
+  visitedTabsRef.current.add(deferredTab)
+  const mountedTabs = Array.from(visitedTabsRef.current)
 
   return (
     <div
@@ -193,11 +191,18 @@ function AppInner() {
       style={{ background: 'var(--surface-main)' }}
     >
       {/* 顶部轻 header:状态色点 + 网络质量胶囊(质量开启时,关闭同步隐藏) + 主题/关于入口。
-          absolute 覆盖在 main 上方——滚动内容从 header 背后穿过，backdrop-blur 才真正雾化（MD3 top app bar 惯例）。
+          absolute 覆盖在 main 上方——滚动内容从 header 背后穿过。
           上/下各留 12px：与系统状态栏(通知栏)和正文卡片都保持呼吸间距 */}
+      {/* 顶栏不再挂 backdrop-blur-md。
+          第一性原理：底色本来就有 85% 不透明度，背后只有 15% 透出来、还要被 12px
+          模糊抹平——这个模糊几乎看不见，但它是**全宽 × 每帧**的离屏采样，滚动与切页
+          时背景一变就要重算。真机实测（Android 15 / 60Hz）在页面里注入
+          header{backdrop-filter:none}：切页 janky 7.46% → 5.04%，再把所有模糊关掉
+          降到 2.7%、GPU 50 分位 7ms → 4ms。把底色提到 92% 补偿掉失去的柔化，观感
+          差别只在「背后内容贴到顶栏下沿时少了一层雾」。 */}
       <header
-        className="absolute inset-x-0 top-0 shrink-0 flex items-center gap-3 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 backdrop-blur-md z-10"
-        style={{ background: 'color-mix(in srgb, var(--surface-main) 85%, transparent)' }}
+        className="absolute inset-x-0 top-0 shrink-0 flex items-center gap-3 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 z-10"
+        style={{ background: 'color-mix(in srgb, var(--surface-main) 92%, transparent)' }}
       >
         <span
           className={cn(
@@ -274,21 +279,15 @@ function AppInner() {
         }}
       >
         <div className="mx-auto max-w-[560px]">
-          <AnimatePresence mode="wait" initial={false} custom={navDir}>
-            <m.div
-              key={deferredTab}
-              variants={panelVariants}
-              custom={navDir}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              style={{ contain: 'layout style' }}
-            >
+          {/* 常驻面板：非当前页只 hidden，不卸载。hidden 的元素不参与布局与绘制，
+              所以「切页」退化成一次可见性翻转 + 一次样式重算，不再重建整棵子树。 */}
+          {mountedTabs.map((tabId) => (
+            <div key={tabId} hidden={tabId !== deferredTab} style={{ contain: 'layout style' }}>
               <ErrorBoundary>
-                <Suspense fallback={null}>{panelContent}</Suspense>
+                <Suspense fallback={null}>{panelFor(tabId)}</Suspense>
               </ErrorBoundary>
-            </m.div>
-          </AnimatePresence>
+            </div>
+          ))}
         </div>
       </main>
 

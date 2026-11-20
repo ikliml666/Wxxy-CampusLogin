@@ -392,15 +392,7 @@ export const DockNav = memo(function DockNav({ onPanelChange, outerRef }: DockNa
         }}
       >
         {/* 镜头底：位置/宽度/高度全由 useDockLens 每帧写 */}
-        <div
-          data-dock-lens
-          aria-hidden="true"
-          className="pointer-events-none absolute left-0 top-0 rounded-full"
-          style={{
-            background: 'hsl(var(--primary) / 0.12)',
-            willChange: 'transform, width, height, opacity',
-          }}
-        />
+        <div data-dock-lens aria-hidden="true" className="pointer-events-none absolute left-0 top-0 rounded-full dock-lens-bead" />
 
         {/* 项容器：useDockLens 在它身上挖一个药丸形的洞，把镜片盖住的那段
             从原项里挖掉——不然放大副本底下还压着原来的图标，两套叠着就是残影。 */}
